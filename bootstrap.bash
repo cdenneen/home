@@ -110,6 +110,9 @@ function setup_keychain() {
 function brew_bundle() {
 	fancy_echo "Updating Homebrew formulae ..."
 	curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/Brewfile | brew bundle --file=-
+	if [ "$(uname -s)" = "Darwin" ]; then
+		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/Brewfile-mac | brew bundle --file=-
+	fi
 }
 
 function main() {
@@ -119,6 +122,10 @@ function main() {
 	install_setup_op
 	setup_keychain
 	brew_bundle
+	if [ "$(uname -s)" = "Linux" ]; then
+		fancy_echo "Setting up linux packages ..."
+		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/linux-packages.sh | bash
+	fi
 
 	fancy_echo "All done!"
 }
