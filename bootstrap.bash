@@ -99,19 +99,34 @@ function install_setup_op() {
 function setup_keychain() {
 	fancy_echo "Setting up keychain..."
 
-	get my GH_TOKEN | gh auth login -p ssh --with-token
-	mkdir -p "$HOME/.ssh"
-	op item get id_ed25519_github --fields privateKey --format json | jq -rM '.ssh_formats.openssh.value' >"$HOME/.ssh/id_ed25519"
-	ssh-keyscan -p 22 -H github.com gist.github.com >"$HOME/.ssh/known_hosts"
-	chmod 700 "$HOME/.ssh"
-	chmod 600 "$HOME/.ssh/id_ed25519"
+	if [ ! -f "$HOME/.config/gh/config.yml" ]; then
+		get my GH_TOKEN | gh auth login -p ssh --with-token
+		mkdir -p "$HOME/.ssh"
+		op item get id_ed25519_github --fields privateKey --format json | jq -rM '.ssh_formats.openssh.value' >"$HOME/.ssh/id_ed25519"
+		ssh-keyscan -p 22 -H github.com gist.github.com >"$HOME/.ssh/known_hosts"
+		chmod 700 "$HOME/.ssh"
+		chmod 600 "$HOME/.ssh/id_ed25519"
+	fi
 }
 
 function brew_bundle() {
 	fancy_echo "Updating Homebrew formulae ..."
-	curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/Brewfile | brew bundle --file=-
-	if [ "$(uname -s)" = "Darwin" ]; then
-		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/Brewfile-mac | brew bundle --file=-
+	if [ ! -f "$HOME"/Brewfile ]; then
+		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/Brewfile -o "$HOME/Brewfile"
+		brew bundle --file="$HOME/Brewfile"
+	fi
+	if [ "$(uname -s)" = "Darwin" ] && [ ! -f "$HOME/Brewfile-mac" ]; then
+		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/Brewfile-mac -o "$HOME/Brewfile-mac"
+		brew bundle --file="$HOME/Brewfile-mac"
+	fi
+}
+
+function install_linux_packages() {
+	if [ "$(uname -s)" = "Linux" ]; then
+		fancy_echo "Setting up linux packages ..."
+		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/linux-packages.sh | bash
+	else
+		return
 	fi
 }
 
@@ -122,10 +137,7 @@ function main() {
 	install_setup_op
 	setup_keychain
 	brew_bundle
-	if [ "$(uname -s)" = "Linux" ]; then
-		fancy_echo "Setting up linux packages ..."
-		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/linux-packages.sh | bash
-	fi
+	install_linux_packages
 
 	fancy_echo "All done!"
 }
