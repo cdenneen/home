@@ -24,7 +24,7 @@ function install_xcode() {
 }
 
 function install_brew() {
-	fancy_echo "Installing Homebrew..."
+	fancy_echo "Setup Homebrew..."
 
 	if [ "$(uname -s)" = "Darwin" ]; then
 		HOME_BREW_PREFIX="/opt/homebrew"
@@ -32,9 +32,11 @@ function install_brew() {
 		HOME_BREW_PREFIX="/home/linuxbrew/.linuxbrew"
 	fi
 	if [ ! -d "$HOME_BREW_PREFIX" ]; then
+		fancy_echo "Installing Homebrew..."
 		/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
 	fi
 	if ! command -v brew >/dev/null; then
+		fancy_echo "Adding Homebrew to PATH..."
 		eval "$(${HOME_BREW_PREFIX}/bin/brew shellenv)"
 	fi
 	for f in gh jq; do
