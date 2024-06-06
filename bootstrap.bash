@@ -31,12 +31,12 @@ function install_brew() {
 	else
 		HOME_BREW_PREFIX="/home/linuxbrew/.linuxbrew"
 	fi
-	if [ -d "$HOME_BREW_PREFIX" ]; then
-		return
-	else
+	if [ ! -d "$HOME_BREW_PREFIX" ]; then
 		/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
 	fi
-	eval "$(${HOME_BREW_PREFIX}/bin/brew shellenv)"
+	if ! command -v brew >/dev/null; then
+		eval "$(${HOME_BREW_PREFIX}/bin/brew shellenv)"
+	fi
 	for f in gh jq; do
 		if ! command -v "$f" >/dev/null; then
 			fancy_echo "Installing $f..."
