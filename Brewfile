@@ -85,7 +85,7 @@ brew "stylua"
 brew "teamookla/speedtest/speedtest"
 brew "telnet"
 brew "the_silver_searcher"
-brew "tmux", args ["HEAD"]
+brew "tmux", args:["HEAD"]
 brew "tmuxinator"
 brew "tree-sitter"
 brew "unzip"

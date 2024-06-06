@@ -15,19 +15,35 @@ function pause() {
 function install_xcode() {
 	fancy_echo "Installing XCode..."
 
-	xcode-select --install
+	if [ "$(uname -s)" = "Darwin" ]; then
+		if [ -d "/Applications/Xcode.app" ]; then
+			return
+		fi
+		xcode-select --install
+	fi
 }
 
 function install_brew() {
 	fancy_echo "Installing Homebrew..."
 
-	/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
 	if [ "$(uname -s)" = "Darwin" ]; then
 		HOME_BREW_PREFIX="/opt/homebrew"
 	else
 		HOME_BREW_PREFIX="/home/linuxbrew/.linuxbrew"
 	fi
+	if [ -d "$HOME_BREW_PREFIX" ]; then
+		return
+	else
+		/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
+	fi
 	eval "$(${HOME_BREW_PREFIX}/bin/brew shellenv)"
+	for f in gh jq; do
+		if ! command -v "$f" >/dev/null; then
+			fancy_echo "Installing $f..."
+			brew install "$f"
+			pause
+		fi
+	done
 }
 
 function install_op() {
@@ -36,15 +52,18 @@ function install_op() {
 	if [ "$(uname -s)" = "Darwin" ]; then
 		brew install 1password-cli
 	else
-		if [ "$(uname -m)" = "arm64" ]; then
+		if [ ! -f /usr/share/keyrings/1password-archive-keyring.gpg ]; then
 			curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg
-			echo 'deb [arch=arm64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/arm64 stable main' | sudo tee /etc/apt/sources.list.d/1password.list >/dev/null
-		else
-			curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg
-			echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main' | sudo tee /etc/apt/sources.list.d/1password.list >/dev/null
+		fi
+		if [ ! -f /etc/apt/sources.list.d/1password.list ]; then
+			if [ "$(uname -m)" = "arm64" ]; then
+				echo 'deb [arch=arm64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/arm64 stable main' | sudo tee /etc/apt/sources.list.d/1password.list >/dev/null
+			else
+				echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main' | sudo tee /etc/apt/sources.list.d/1password.list >/dev/null
+			fi
 		fi
 		sudo apt update
-		sudo apt install 1password-cli
+		sudo apt install 1password-cli gh jq
 	fi
 }
 
@@ -67,7 +86,11 @@ function account() {
 function install_setup_op() {
 	fancy_echo "Setting up op..."
 
-	account my "chris@denneen.net"
+	if [ -f "$HOME/.config/op/config" ]; then
+		return
+	else
+		account my "chris@denneen.net"
+	fi
 	eval "$(op signin --account my)"
 }
 
