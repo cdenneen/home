@@ -124,7 +124,7 @@ function brew_bundle() {
 function install_linux_packages() {
 	if [ "$(uname -s)" = "Linux" ]; then
 		fancy_echo "Setting up linux packages ..."
-		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/linux-packages.sh | bash
+		curl -fsSL https://raw.githubusercontent.com/cdenneen/home/main/linux-packages.sh | sudo bash
 	else
 		return
 	fi
