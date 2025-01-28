@@ -22,11 +22,10 @@ in
     home = {
       stateVersion = "25.05";
       sessionPath =
-        # lib.optionals config.programs.volta.enable [
-        #   "${config.programs.volta.voltaHome}/bin"
-        # ]
-        # ++ [
-        [
+        lib.optionals config.programs.volta.enable [
+          "${config.programs.volta.voltaHome}/bin"
+        ]
+        ++ [
           "${config.home.homeDirectory}/.cargo/bin"
           "${config.home.homeDirectory}/.local/bin"
           "${config.home.homeDirectory}/.bin"
@@ -39,7 +38,7 @@ in
           "/run/current-system/sw/bin"
           "/nix/var/nix/profiles/default/bin"
         ]
-        ++ lib.optionals (system == "aarch64-darwin") [
+        ++ lib.optionals pkgs.stdenv.isDarwin [
           "/opt/homebrew/bin"
           "/opt/homebrew/sbin"
         ]
@@ -87,15 +86,17 @@ in
       };
       zoxide.enable = true;
       bat.enable = true;
+      awscli.enable = true;
       eza.enable = true;
       zsh.enable = true;
       bash.enable = true;
-      #fish.enable = true;
-      #ion.enable = true;
-      #nushell.enable = true;
-      #powershell.enable = true;
-      #nvim.enable = true;
+      fish.enable = false;
+      ion.enable = false;
+      nushell.enable = false;
+      powershell.enable = false;
+      nvim.enable = true;
       nix-index-database.comma.enable = true;
+      tmux.enable = true;
     };
     services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
       enable = true;
