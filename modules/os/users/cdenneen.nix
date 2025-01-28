@@ -35,22 +35,28 @@ in
               isNormalUser = true;
               extraGroups = [
                 "networkmanager"
+                "wheel"
+                "input"
+                "uinput"
                 cfg.cdenneen.name
-              ];
-              #initialHashedPassword = "$y$j9T$3qj7b7.lXJ2wiK29g9njQ1$Dn.dhmjQvPSkmdtHbA.2qEDl3eUnMeaawAW84X0/5i0";
+              ] ++ lib.optionals config.containerPresets.podman.enable [ "podman" ];
+              initialHashedPassword = "$y$j9T$8Gh6/.8Z.viwXCwRkvGFv.$LjcK6HYBvggZpp21Aiy0mt1UR9lRqlZ.PCVrXTpGT35";
             })
           ]
         );
       };
       groups.${cfg.cdenneen.name} = lib.mkIf pkgs.stdenv.isLinux { };
     };
+    nix.settings.trusted-users = [
+      cfg.cdenneen.name
+    ];
     home-manager.users.${cfg.cdenneen.name} = lib.mkIf cfg.cdenneen.enable {
       home.username = cfg.cdenneen.name;
       home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
       profiles = {
-        cdenneen.enable = true;
         defaults.enable = true;
-        #gui.enable = enableGui;
+        gui.enable = enableGui;
+        cdenneen.enable = true;
       };
     };
   };
