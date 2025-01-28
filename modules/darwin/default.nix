@@ -1,0 +1,76 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+{
+  imports = [
+    ../os
+  ];
+  config = lib.mkIf config.profiles.defaults.enable {
+    services.nix-daemon.enable = true;
+    security.pam.enableSudoTouchIdAuth = true;
+    system = {
+      stateVersion = 4;
+      keyboard = {
+        enableKeyMapping = true;
+        remapCapsLockToControl = true;
+      };
+    };
+    programs = {
+      bash = {
+        enable = true;
+        # enableCompletion isn't compatible with uutils-coreutils-noprefix because when both uutils-coreutils-noprefix and
+        # bash-completion are installed into systemPackages, there are bash completions that collide.
+        # I've taken the text from nixpkgs instead of nix-darwin, they are the same except for the if statement.
+        interactiveShellInit = ''
+          [ -n "$PS1" ] && source ${pkgs.blesh}/share/blesh/ble.sh
+
+          # Check whether we're running a version of Bash that has support for
+          # programmable completion. If we do, enable all modules installed in
+          # the system and user profile in obsolete /etc/bash_completion.d/
+          # directories. Bash loads completions in all
+          # $XDG_DATA_DIRS/bash-completion/completions/
+          # on demand, so they do not need to be sourced here.
+          if shopt -q progcomp &>/dev/null; then
+            . "${pkgs.bash-completion}/etc/profile.d/bash_completion.sh"
+            nullglobStatus=$(shopt -p nullglob)
+            shopt -s nullglob
+            for p in $NIX_PROFILES; do
+              for m in "$p/etc/bash_completion.d/"*; do
+                . "$m"
+              done
+            done
+            eval "$nullglobStatus"
+            unset nullglobStatus p m
+          fi
+        '';
+      };
+    };
+    homebrew = {
+      enable = true;
+      onActivation = {
+        autoUpdate = true;
+        upgrade = true;
+        cleanup = "zap";
+      };
+      casks = [
+        {
+          name = "firefox";
+          greedy = true;
+        }
+      ] ++ lib.optionals (pkgs.stdenv.system == "x86_64-darwin") [
+          {
+            name = "iterm2";
+            greedy = true;
+          }
+      ] ++ lib.optionals (pkgs.stdenv.system == "aarch64-darwin") [
+          {
+            name = "ghostty";
+            greedy = true;
+          }
+      ];
+    };
+  };
+}
