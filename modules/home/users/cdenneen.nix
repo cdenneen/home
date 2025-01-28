@@ -6,11 +6,12 @@
 }:
 let
   cfg = config.profiles;
-  gitSharedConfig = import ../programs/git.nix { inherit config pkgs lib; };
-  gitExtraConfig = gitSharedConfig.config.programs.git.extraConfig;
-  userGitExtraConfig = {
-    github.user = "cdenneen";
-  };
+  # Import the common git configuration.
+  sharedGitConfig = import ../programs/git.nix { inherit config pkgs lib; };
+
+  # Safely access extraConfig with a default empty set if any level is missing
+  gitExtraConfig = builtins.getAttr "extraConfig" (builtins.getAttr "git" (builtins.getAttr "programs" sharedGitConfig.config {})) "";
+
 in
 {
   options.profiles.cdenneen.enable = lib.mkEnableOption "Enable cdenneen profile";
@@ -62,7 +63,9 @@ in
         signing.signByDefault = true;
         signing.key = null;
         ignores = [ ".DS_Store" "Thumbs.db" ];
-        extraConfig = gitExtraConfig // userGitExtraConfig;
+        extraConfig = gitExtraConfig + ''
+          github.user = "cdenneen";
+        '';
         includes = [
           {
             condition = "gitdir:~/src/ap";
