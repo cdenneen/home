@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.programs.git;
 in
@@ -22,6 +22,7 @@ in
         signing = {
           signByDefault = true;
           key = null;
+          gpgPath = "${pkgs.gnupg}/bin/gpg";
         };
         extraConfig = {
           branch.autosetuprebase = "always";
@@ -34,7 +35,7 @@ in
           core.editor = "nvim";
           core.eol = "lf";
           core.autocrlf = "input";
-          gpg.format = "ssh";
+          # gpg.format = "ssh";
           init.defaultBranch = "main";
           url."git@github.com:".pushInsteadOf = "https://github.com/";
           url."git@gitlab.com:".pushInsteadOf = "https://gitlab.com/";
