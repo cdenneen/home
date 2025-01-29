@@ -216,10 +216,12 @@ in
       #   spotify
       ] ++ [
         kubeswitch
+        eks-node-viewer
+        fluxcd
       ];
     catppuccin = {
-      flavor = "latte";
-      accent = "pink";
+      flavor = "mocha";
+      accent = "blue";
     };
     home.file = {
       ".kube/switch-config.yaml".source = ./cdenneen/switch-config.yaml;

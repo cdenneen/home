@@ -17,5 +17,5 @@
     printing.enable = false;
   };
   userPresets.cdenneen.enable = true;
-  services.desktopManager.cosmic.enable = true;
+  services.xserver.desktopManager.xfce.enable = true;
 }

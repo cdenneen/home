@@ -114,11 +114,11 @@ let
 in
 {
   darwinConfigurations = {
-    MacBook-Pro = darwinSystem {
+    VNJTECMBCD= darwinSystem {
       system = "aarch64-darwin";
-      darwinModules = [ ./MacBook-Pro.nix ];
+      darwinModules = [ ./mac.nix ];
     };
-    MacBookAir-Intel = darwinSystem {
+    mbair = darwinSystem {
       system = "x86_64-darwin";
       darwinModules = [ ./MacBookAir-Intel.nix ];
     };
