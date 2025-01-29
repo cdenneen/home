@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  system,
   ...
 }:
 let
@@ -210,9 +211,10 @@ in
     home.packages =
       with pkgs;
       lib.optionals config.profiles.gui.enable [
-        spotify
-        discord
-      ]++ [
+      # ] ++ lib.optionals ( system != "aarch64-linux" and config.profiles.gui.enable) [
+      #   discord
+      #   spotify
+      ] ++ [
         kubeswitch
       ];
     catppuccin = {

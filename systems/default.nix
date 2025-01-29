@@ -7,6 +7,7 @@
   nh_plus,
   nix-darwin,
   nix-index-database,
+  nixos-cosmic,
   nixos-hardware,
   nixpkgs,
   nixos-wsl,
@@ -47,6 +48,7 @@ let
         disko.nixosModules.disko
         home-manager.nixosModules.default
         nix-index-database.nixosModules.nix-index
+        nixos-cosmic.nixosModules.default
         nixpkgs.nixosModules.notDetected
         nur.modules.nixos.default
         nur-packages.nixosModules.cloudflare-ddns

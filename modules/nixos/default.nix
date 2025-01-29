@@ -10,10 +10,10 @@ in
 {
   imports = [
     ../os
-    # ./services
+    ./services
     ./containers
-    # ./filesystems.nix
-    # ./gaming.nix
+    ./filesystems.nix
+    ./gaming.nix
   ];
   config = lib.mkIf cfg.defaults.enable {
     networking = {

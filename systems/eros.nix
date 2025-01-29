@@ -9,11 +9,13 @@
   # boot.kernelPackages = pkgs.linuxPackages_latest;
   boot.loader.grub.splashImage = lib.mkForce null;
 
+  # home-manager.options.programs.zsh.shellAliases.swnix = "sudo nixos-rebuild switch --flake ~/src/personal/home#eros";
+
   profiles = {
     defaults.enable = true;
     gui.enable = false;
     printing.enable = false;
   };
   userPresets.cdenneen.enable = true;
-  # services.desktopManager.gnome.enable = true;
+  services.desktopManager.cosmic.enable = true;
 }
