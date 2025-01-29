@@ -79,6 +79,10 @@ in
       home-manager.enable = true;
       starship = {
         enable = true;
+        enableBashIntegration = config.programs.bash.enable;
+        enableFishIntegration = config.programs.fish.enable;
+        enableZshIntegration = config.programs.zsh.enable;
+        enableTransience = true;
         settings = {
           right_format = "$time";
           time.disabled = false;

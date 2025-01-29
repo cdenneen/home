@@ -6,32 +6,73 @@
 }:
 let
   cfg = config.programs.gpg;
+  pinPackage = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
 in
 {
   config = lib.mkIf cfg.enable {
+    home.packages = with pkgs; [
+      pinPackage
+    ];
     programs.zsh.initExtra = ''
       ${pkgs.gnupg}/bin/gpgconf --launch gpg-agent
     '';
     services.gpg-agent = lib.mkIf pkgs.stdenv.isLinux {
       enable = true;
-      enableZshIntegration = true;
-    };
-    home.file = lib.mkIf pkgs.stdenv.isDarwin {
-      ".gnupg/gpg-agent.conf".text = ''
-        ttyname $GPG_TTY
-        default-cache-ttl 60
-        max-cache-ttl 120
-        pinentry-program ${pkgs.pinentry_mac}/Applications/pinentry-mac.app/Contents/MacOS/pinentry-mac
+      enableZshIntegration = config.programs.zsh.enable;
+      enableFishIntegration = config.programs.fish.enable;
+      enableBashIntegration = config.programs.bash.enable;
+      enableSshSupport = true;
+      defaultCacheTtl = 31536000;
+      maxCacheTtl = 31536000;
+
+      extraConfig = ''
+        pinentry-program ${pinPackage}/bin/pinentry
       '';
     };
-    home.shellAliases = {
-      gpg-scan-card = "gpg-connect-agent \"scd serialno\" \"learn --force\" /bye";
+    programs = {
+      keychain = {
+        enable = true;
+        agents = [
+          "gpg"
+        ];
+        extraFlags = [
+          "--dir $XDG_DATA_HOME/keychain"
+          "--absolute"
+          "--quiet"
+        ];
+      };
+      gpg = {
+        homedir = "${config.home.homeDirectory}/.gnupg";
+        scdaemonSettings = {
+          disable-ccid = true; # disable gnupg's built-in smartcard reader functionality
+        };
+        settings = {
+          #█▓▒░ interface
+          no-greeting = true;
+          use-agent = true;
+          list-options = "show-uid-validity";
+          verify-options = "show-uid-validity";
+          keyid-format = "0xlong";
+          keyserver = "hkp://keys.gnupg.net";
+          fixed-list-mode = true;
+          charset = "utf-8";
+          with-fingerprint = true;
+          require-cross-certification = true;
+          no-emit-version = true;
+          no-comments = true;
+
+          #█▓▒░ algos
+          personal-digest-preferences = "SHA512 SHA384 SHA224";
+          default-preference-list = "SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed";
+          personal-cipher-preferences = "AES256 AES192 AES CAST5";
+          s2k-cipher-algo = "AES256";
+          s2k-digest-algo = "SHA512";
+          cert-digest-algo = "SHA512";
+        };
+      };
     };
     home.sessionVariables = {
       GPG_TTY = "$(tty)";
     };
-    programs.nushell.extraEnv = ''
-      $env.GPG_TTY = (echo (tty))
-    '';
   };
 }

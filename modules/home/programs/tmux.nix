@@ -101,6 +101,88 @@ in
         }
         sensible
       ];
+      extraConfig = ''
+        set -g default-command /run/current-system/sw/bin/zsh
+        # set-window-option -g mode-keys vi
+
+        # renumber windows after closing
+        set -g renumber-windows on
+        # start with pane 1
+        # set -g pane-base-index 1
+
+        set -ga terminal-overrides ",*256col*:Tc"
+
+        # focusing
+        set-option -g focus-events on
+
+        # panes
+        set -g pane-border-style "fg=color0"
+        set -g pane-border-lines "heavy"
+        set -g pane-active-border-style "fg=color0"
+        set -g window-active-style 'bg=terminal'
+        set -g window-style 'bg=#1c1427'
+
+        # status line
+        set -g status-justify left
+        set -g status-style "bg=terminal,fg=color10"
+        set -g status-interval 2
+
+        # messaging
+        set -g message-style "bg=color4,fg=color10"
+        set -g message-command-style "bg=color12,fg=color2"
+
+        # window mode
+        setw -g mode-style "bg=color8,fg=color4"
+
+        # split sytle
+        set -g pane-border-style "bg=color0,fg=color5"
+        set -g pane-active-border-style "bg=color0,fg=color5"
+
+        # window status
+        set-option -g status-position top
+        setw -g window-status-format " #[bg=color4,fg=color0,noreverse]▓░ #W "
+        setw -g window-status-current-format " #[bg=color10,fg=color0,noreverse]▓░ #W "
+
+        # loud or quiet?
+        set-option -g visual-activity on
+        set-option -g visual-bell off
+        set-option -g visual-silence off
+        set-window-option -g monitor-activity off
+        set-option -g bell-action none
+
+        # tmux clock
+        set -g clock-mode-color color4
+
+        # splitting
+        unbind %
+        bind h split-window -v
+        unbind '"'
+        bind v split-window -h
+
+        # zoom split
+        unbind z
+        is_vim="ps -o state= -o comm= -t '#{pane_tty}' \
+            | grep -iqE '^[^TXZ ]+ +(\\S+\\/)?g?(view|n?vim?x?)(diff)?$'"
+        bind z if-shell "$is_vim" "send-keys ,z" "resize-pane -Z"
+        bind Z resize-pane -Z
+
+        # vim style commands
+        bind : command-prompt
+
+        # source config file
+        bind r source-file ~/.config/tmux/tmux.conf \; display-message "█▓░ reloaded"
+
+        # other random key-binding changes
+        bind x kill-pane
+        bind t set status
+        bind a set-window-option synchronize-panes \; display-message "█▓░ synchronize"
+
+        set -s set-clipboard on
+        set -g @yank_selection_mouse 'clipboard'
+        set -g @yank_action 'copy-pipe-and-cancel "xclip -in -selection clipboard"'
+
+        bind -n C-k send-keys "clear"\; send-keys "Enter"
+      '';
     };
   };
 }

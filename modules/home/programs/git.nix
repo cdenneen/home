@@ -19,6 +19,10 @@ in
       git = {
         lfs.enable = true;
         delta.enable = true;
+        signing = {
+          signByDefault = true;
+          key = null;
+        };
         extraConfig = {
           branch.autosetuprebase = "always";
           color.ui = "auto";
