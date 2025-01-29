@@ -134,11 +134,11 @@ in {
           icon-picker.enable = true;
           surround.enable = true;
           diffview-nvim.enable = true;
-          # yanky-nvim.enable = false;
+          yanky-nvim.enable = true;
           motion = {
             hop.enable = true;
             leap.enable = true;
-            precognition.enable = true;
+            precognition.enable = false;
           };
 
           images = {
