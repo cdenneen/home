@@ -14,20 +14,16 @@ in
       flavor = config.catppuccin.flavor;
     };
     programs.alacritty = {
-      settings = {
-        shell = {
-          program = "${lib.getExe pkgs.bashInteractive}";
-          args = [ "-l" ];
-        };
-        key_bindings = [
-          { key = "K"; mods = "Command"; chars = "ClearHistory"; }
-          { key = "V"; mods = "Command"; action = "Paste"; }
-          { key = "C"; mods = "Command"; action = "Copy"; }
-          { key = "Key0"; mods = "Command"; action = "ResetFontSize"; }
-          { key = "Equals"; mods = "Command"; action = "IncreaseFontSize"; }
-          { key = "Subtract"; mods = "Command"; action = "DecreaseFontSize"; }
-        ];
-      };
+      # settings = {
+      #   key_bindings = [
+      #     { key = "K"; mods = "Command"; chars = "ClearHistory"; }
+      #     { key = "V"; mods = "Command"; action = "Paste"; }
+      #     { key = "C"; mods = "Command"; action = "Copy"; }
+      #     { key = "Key0"; mods = "Command"; action = "ResetFontSize"; }
+      #     { key = "Equals"; mods = "Command"; action = "IncreaseFontSize"; }
+      #     { key = "Subtract"; mods = "Command"; action = "DecreaseFontSize"; }
+      #   ];
+      # };
     };
   };
 }
