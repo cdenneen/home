@@ -176,9 +176,13 @@
   nixConfig = {
     extra-substituters = [
       "https://cache.nixos.org"
+      "https://cosmic.cachix.org"
+      "https://cdenneen.cachix.org"
     ];
     extra-trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+      "cosmic.cachix.org-1:Dya9IyXD4xdBehWjrkPv6rtxpmMdRel02smYzA85dPE="
+      "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
     ];
   };
 }

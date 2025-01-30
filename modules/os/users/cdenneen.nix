@@ -49,6 +49,7 @@ in
     };
     nix.settings.trusted-users = [
       cfg.cdenneen.name
+      root
     ];
     home-manager.users.${cfg.cdenneen.name} = lib.mkIf cfg.cdenneen.enable {
       home.username = cfg.cdenneen.name;

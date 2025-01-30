@@ -7,6 +7,7 @@
 {
   imports = [
     ../os
+    ./podman.nix
   ];
   config = lib.mkIf config.profiles.defaults.enable {
     services.nix-daemon.enable = true;

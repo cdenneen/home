@@ -33,13 +33,13 @@ in
           # Github issue notebooks
           eamodio.gitlens
           ms-python.isort
-          firsttris.vscode-jest-runner
-          ms-toolsai.jupyter
-          ms-toolsai.vscode-jupyter-cell-tags
-          ms-toolsai.jupyter-keymap
-          ms-toolsai.jupyter-renderers
-          # Jupyter PowerToys
-          ms-toolsai.vscode-jupyter-slideshow
+          # firsttris.vscode-jest-runner
+          # ms-toolsai.jupyter
+          # ms-toolsai.vscode-jupyter-cell-tags
+          # ms-toolsai.jupyter-keymap
+          # ms-toolsai.jupyter-renderers
+          # # Jupyter PowerToys
+          # ms-toolsai.vscode-jupyter-slideshow
           ms-vscode.live-server
           ms-vscode.makefile-tools
           # Mypy Type Checker
@@ -48,10 +48,10 @@ in
           esbenp.prettier-vscode
           ms-python.vscode-pylance
           # ms-python.python
-          ms-python.debugpy
+          # ms-python.debugpy
           ms-vscode-remote.remote-ssh
           humao.rest-client
-          rust-lang.rust-analyzer
+          # rust-lang.rust-analyzer
           vscodevim.vim
         ]
         ++

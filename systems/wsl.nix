@@ -6,5 +6,5 @@
   };
   userPresets.cdenneen.enable = true;
   wsl.enable = true;
-  wsl.defaultUser = "toyvo";
+  wsl.defaultUser = "cdenneen";
 }
