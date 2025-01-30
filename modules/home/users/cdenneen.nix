@@ -261,7 +261,8 @@ in
     };
     sops.secrets = {
       "op_config" = {
-        path = "${config.home.homeDirectory}/.config/op/config";
+        # Don't symlink as causes error so copy manually from sops-nix
+        # path = "${config.home.homeDirectory}/.config/op/config";
         mode = "0400";
       };
       "cdenneen_github" = {
