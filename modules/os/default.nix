@@ -18,7 +18,6 @@ in
   options.profiles.defaults.enable = lib.mkEnableOption "Enable Defaults";
 
   config = lib.mkIf cfg.defaults.enable {
-    # security.sudo.wheelNeedsPassword = false;
     home-manager = {
       backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
       useGlobalPkgs = true;

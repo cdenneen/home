@@ -19,6 +19,7 @@ in
 
   config = lib.mkIf cfg.cdenneen.enable {
     home.sessionVariables.EDITOR = "nvim";
+    home.sessionVariables.XDG_DATA_HOME = "${config.home.homeDirectory}/.local/share";
     programs = {
       alacritty.enable = cfg.gui.enable;
       atuin.enable = true;
