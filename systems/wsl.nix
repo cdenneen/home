@@ -1,6 +1,7 @@
 { ... }:
 {
   networking.hostName = "wsl";
+  networking.firewall.enable = false;
   profiles = {
     defaults.enable = true;
   };
