@@ -124,6 +124,12 @@ in
     };
   };
   homeConfigurations = {
+    "hm@linux-x86" = homeConfiguration {
+      system = "x86_64-linux";
+      homeManagerModules = [
+        ./home.nix
+      ];
+    };
     "hm@linux" = homeConfiguration {
       system = "aarch64-linux";
       homeManagerModules = [
