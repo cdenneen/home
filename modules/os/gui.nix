@@ -35,16 +35,16 @@ in
           firefox
           ghostty
         ]
-        ++
-          lib.optionals
-            (builtins.elem system [
-              "aarch64-darwin"
-              "x86_64-darwin"
-              "x86_64-linux"
-            ])
-            [
-              logseq
-            ]
+        # ++
+        #   lib.optionals
+        #     (builtins.elem system [
+        #       "aarch64-darwin"
+        #       "x86_64-darwin"
+        #       "x86_64-linux"
+        #     ])
+        #     [
+        #       logseq
+        #     ]
         ++ lib.optionals stdenv.isDarwin [
           pinentry_mac
           rectangle
