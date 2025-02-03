@@ -152,10 +152,10 @@ in
       ];
     };
     MacBook-Pro-Nixos = nixosSystem {
-      system = "aarch64-linux";
+      system = "x86_64-linux";
       nixosModules = [
-        ./MacBook-Pro-Nixos
-        apple-silicon-support.nixosModules.apple-silicon-support
+        ./MacBook-Pro-NixOS.nix
+        "${nixpkgs}/nixos/modules/installer/scan/not-detected.nix"
       ];
     };
     oracle-cloud-nixos = nixosSystem {
