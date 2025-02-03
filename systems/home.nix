@@ -5,8 +5,8 @@
     homeDirectory = "/home/hmuser";
   };
   profiles = {
+    cdenneen.enable = true;
     defaults.enable = true;
     gui.enable = true;
   };
-  userPresets.cdenneen.enable = true;
 }
