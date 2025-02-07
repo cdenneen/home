@@ -1,4 +1,9 @@
-{config, lib, pkgs, modulesPath, ...}:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 {
   networking.hostName = "MacBook-Pro-NixOS";
   networking.networkmanager.enable = true;
@@ -18,7 +23,10 @@
       "sdhci_pci"
     ];
     initrd.kernelModules = [ ];
-    kernelModules = [ "kvm-intel" "wl" ];
+    kernelModules = [
+      "kvm-intel"
+      "wl"
+    ];
     extraModulePackages = [ config.boot.kernelPackages.broadcom_sta ];
   };
   hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
@@ -28,16 +36,19 @@
     gui.enable = true;
   };
   userPresets.cdenneen.enable = true;
-  services.desktopManager.cosmic.enable = true;
-  fileSystems."/" =
-    { device = "/dev/disk/by-partlabel/root";
-      fsType = "ext4";
-    };
+  programs.hyprland.enable = true;
+  fileSystems."/" = {
+    device = "/dev/disk/by-uuid/7a1a6b2c-519e-460e-b93f-815ef741d19a";
+    fsType = "ext4";
+  };
 
-  fileSystems."/boot" =
-    { device = "/dev/disk/by-partlabel/EFI";
-      fsType = "vfat";
-      options = [ "fmask=0077" "dmask=0077" ];
-    };
+  fileSystems."/boot" = {
+    device = "/dev/disk/by-uuid/5E2E-847A";
+    fsType = "vfat";
+    options = [
+      "fmask=0077"
+      "dmask=0077"
+    ];
+  };
   swapDevices = [ ];
 }
