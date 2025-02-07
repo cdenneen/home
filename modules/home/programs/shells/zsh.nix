@@ -19,7 +19,7 @@ in
         ignoreAllDups = true;
         ignoreDups = true;
         ignoreSpace = true;
-        path = ".local/state/zsh/history";
+        path = "${config.home.homeDirectory}/.local/state/zsh/history";
         save = 100000;
         share = true;
         size = 130000;
