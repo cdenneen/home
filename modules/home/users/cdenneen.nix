@@ -258,6 +258,7 @@ in
     xdg.configFile = {
       "direnv/lib/k8s_context.sh".text = builtins.readFile ./cdenneen/k8s_context.sh;
       "zsh".source = ./cdenneen/zsh;
+      "nvim".source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/src/personal/nvim";
     };
     sops.secrets = {
       "op_config" = {
