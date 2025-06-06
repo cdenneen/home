@@ -31,7 +31,7 @@ in
     };
     programs = {
       keychain = {
-        enable = true;
+        enable = false;
         agents = [
           "gpg"
         ];

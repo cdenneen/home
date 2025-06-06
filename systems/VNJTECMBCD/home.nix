@@ -19,6 +19,7 @@
   ];
   homebrew.taps = [
     "felixkratz/formulae"
+    "nikitabobko/tap"
   ];
   homebrew.casks = [
     "1password"
@@ -34,6 +35,7 @@
     "jumpcut"
     "megasync"
     "microsoft-edge"
+    "nikitabobko/tap/aerospace"
     "spotify"
     {
       name = "discord";

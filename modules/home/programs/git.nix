@@ -22,7 +22,7 @@ in
         signing = {
           signByDefault = true;
           key = null;
-          gpgPath = "${pkgs.gnupg}/bin/gpg";
+          signer = "${pkgs.gnupg}/bin/gpg";
         };
         extraConfig = {
           branch.autosetuprebase = "always";

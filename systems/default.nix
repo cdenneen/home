@@ -20,7 +20,7 @@
 }@inputs:
 let
   sharedHomeManagerModules = [
-    catppuccin.homeManagerModules.catppuccin
+    catppuccin.homeModules.catppuccin
     nix-index-database.hmModules.nix-index
     nur.modules.homeManager.default
     nvf.homeManagerModules.nvf
@@ -82,11 +82,12 @@ let
       modules = [
         home-manager.darwinModules.default
         mac-app-util.darwinModules.default
-        nh_plus.nixDarwinModules.prebuiltin
+        #nh_plus.nixDarwinModules.prebuiltin
         nix-index-database.darwinModules.nix-index
         self.darwinModules.default
         {
           home-manager = {
+            backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
             extraSpecialArgs = specialArgs;
             sharedModules = [
               mac-app-util.homeManagerModules.default
@@ -116,7 +117,7 @@ in
   darwinConfigurations = {
     VNJTECMBCD= darwinSystem {
       system = "aarch64-darwin";
-      darwinModules = [ ./mac.nix ];
+      darwinModules = [ ./VNJTECMBCD ];
     };
     mbair = darwinSystem {
       system = "x86_64-darwin";

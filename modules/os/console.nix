@@ -12,12 +12,12 @@ in
   config = lib.mkIf cfg.defaults.enable {
     programs = {
       zsh.enable = true;
-      nh = {
-        enable = true;
-        flake = "${config.users.users.${config.userPresets.cdenneen.name}.home}/nixcfg";
-        package = nh.packages.${pkgs.stdenv.hostPlatform.system}.default;
-        clean.enable = true;
-      };
+      # nh = {
+      #   enable = true;
+      #   flake = "${config.users.users.${config.userPresets.cdenneen.name}.home}/nixcfg";
+      #   package = nh.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      #   clean.enable = true;
+      # };
     };
     environment =
       let

@@ -37,6 +37,10 @@
     nur.url = "github:nix-community/nur";
     nvf.url = "github:NotAShelf/nvf";
     sops-nix.url = "github:Mic92/sops-nix";
+    sketchybar = {
+      url = "github:FelixKratz/dotfiles";
+      flake = false;
+    };
   };
 
   outputs =
@@ -70,7 +74,7 @@
     flake-parts.lib.mkFlake { inherit inputs; } {
       flake = {
         lib = {
-          inherit import_nixpkgs;
+          inherit import_nixpkgs inputs;
         };
         nixosModules.default = ./modules/nixos;
         darwinModules.default = ./modules/darwin;

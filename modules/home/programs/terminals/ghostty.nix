@@ -8,7 +8,7 @@ in
       enable = true;
       flavor = config.catppuccin.flavor;
     };
-    home.packages = with pkgs; lib.mkIf stdenv.isLinux [
+    home.packages = with pkgs; lib.mkIf (stdenv.isLinux && config.profiles.gui.enable) [
       ghostty
     ];
     xdg.configFile."ghostty/config".text = ''

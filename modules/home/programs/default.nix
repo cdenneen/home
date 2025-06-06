@@ -1,6 +1,7 @@
 { ... }:
 {
   imports = [
+    ./aerospace.nix
     ./atuin.nix
     ./autojump.nix
     ./awscli.nix

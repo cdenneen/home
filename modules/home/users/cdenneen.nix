@@ -54,6 +54,7 @@ in
       };
       direnv = {
         enable = true;
+	enableZshIntegration = true;
         nix-direnv.enable = true;
         config = {
           global = {
@@ -243,6 +244,7 @@ in
         #   spotify
       ]
       ++ [
+        fzf
         kubeswitch
         eks-node-viewer
         fluxcd

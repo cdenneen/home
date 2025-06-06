@@ -10,15 +10,23 @@
     ./podman.nix
   ];
   config = lib.mkIf config.profiles.defaults.enable {
-    services.nix-daemon.enable = true;
-    security.pam.enableSudoTouchIdAuth = true;
+    security.pam.services.sudo_local.touchIdAuth = true;
     system = {
-      stateVersion = 4;
+      primaryUser = "cdenneen";
+      stateVersion = 5;
       keyboard = {
         enableKeyMapping = true;
         remapCapsLockToControl = true;
       };
     };
+    environment.variables.TERMINFO_DIRS = lib.mkForce (
+      map (path: path + "/share/terminfo") config.environment.profiles
+      ++ [
+        "/usr/share/terminfo"
+        # Add ghostty terminfo from homebrew
+        "/Applications/Ghostty.app/Contents/Resources/terminfo"
+      ]
+    );
     programs = {
       bash = {
         enable = true;
@@ -59,17 +67,14 @@
       casks = [
         {
           name = "firefox";
-          greedy = true;
         }
       ] ++ lib.optionals (pkgs.stdenv.system == "x86_64-darwin") [
           {
             name = "iterm2";
-            greedy = true;
           }
       ] ++ lib.optionals (pkgs.stdenv.system == "aarch64-darwin") [
           {
             name = "ghostty";
-            greedy = true;
           }
       ];
     };

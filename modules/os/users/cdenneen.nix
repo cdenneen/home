@@ -20,10 +20,10 @@ in
     };
   };
 
-  config = {
+  config = lib.mkIf cfg.cdenneen.enable {
     users = {
       users = {
-        ${cfg.cdenneen.name} = lib.mkIf cfg.cdenneen.enable (
+        ${cfg.cdenneen.name} = (
           lib.mkMerge [
             {
               name = cfg.cdenneen.name;
@@ -51,7 +51,7 @@ in
       cfg.cdenneen.name
       "root"
     ];
-    home-manager.users.${cfg.cdenneen.name} = lib.mkIf cfg.cdenneen.enable {
+    home-manager.users.${cfg.cdenneen.name} = {
       home.username = cfg.cdenneen.name;
       home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
       profiles = {
