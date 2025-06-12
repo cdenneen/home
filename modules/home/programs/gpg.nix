@@ -13,7 +13,7 @@ in
     home.packages = with pkgs; [
       pinPackage
     ];
-    programs.zsh.initExtra = ''
+    programs.zsh.initContent = ''
       ${pkgs.gnupg}/bin/gpgconf --launch gpg-agent
     '';
     services.gpg-agent = lib.mkIf pkgs.stdenv.isLinux {
