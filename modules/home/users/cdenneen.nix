@@ -170,6 +170,9 @@ in
             vi = "nvim";
             vim = "nvim";
             sso = "aws sso login --profile sso-apss --no-browser --use-device-code";
+            ssod = "aws sso login --profile sso-capdev --no-browser --use-device-code";
+            ssoq = "aws sso login --profile sso-awsqa --no-browser --use-device-code";
+            ssop = "aws sso login --profile sso-awsprod --no-browser --use-device-code";
             swnix =
               if pkgs.stdenv.isDarwin then
                 "darwin-rebuild switch --flake github:cdenneen/nixos-config#mac"
