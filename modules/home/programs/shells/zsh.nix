@@ -33,6 +33,8 @@ in
 
       defaultKeymap = "viins";
       initContent = ''
+        # Amazon Q pre block. Keep at the top of this file.
+        [[ -f "${HOME}/Library/Application Support/amazon-q/shell/zshrc.pre.zsh" ]] && builtin source "${HOME}/Library/Application Support/amazon-q/shell/zshrc.pre.zsh"
         setopt globdots
         zstyle ':completion:*' matcher-list ''' '+m:{a-zA-Z}={A-Za-z}' '+r:|[._-]=* r:|=*' '+l:|=* r:|=*'
         if [[ -z "$SSH_AUTH_SOCK" ]]; then
@@ -59,6 +61,8 @@ in
         source <(switch completion zsh)
   
         source ~/.secrets
+	# Amazon Q post block. Keep at the bottom of this file.
+        [[ -f "${HOME}/Library/Application Support/amazon-q/shell/zshrc.post.zsh" ]] && builtin source "${HOME}/Library/Application Support/amazon-q/shell/zshrc.post.zsh"
       '';
       plugins = [
         {
