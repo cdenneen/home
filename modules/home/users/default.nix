@@ -78,7 +78,7 @@ in
     programs = {
       home-manager.enable = true;
       starship = {
-        enable = true;
+        enable = false;
         enableBashIntegration = config.programs.bash.enable;
         enableFishIntegration = config.programs.fish.enable;
         enableZshIntegration = config.programs.zsh.enable;
