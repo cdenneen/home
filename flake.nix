@@ -2,7 +2,7 @@
   description = "Chris Denneen Nix Configurations";
 
   inputs = {
-    apple-silicon-support.url = "github:tpwrules/nixos-apple-silicon";
+    apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
     catppuccin.url = "github:catppuccin/nix";
     devshell = {
       url = "github:numtide/devshell";
