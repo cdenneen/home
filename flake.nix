@@ -21,7 +21,7 @@
     nh.url = "github:viperml/nh";
     nh_plus.url = "github:toyvo/nh_plus";
     nix-darwin = {
-      url = "github:lnl7/nix-darwin";
+      url = "github:nix-darwin/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-index-database = {
