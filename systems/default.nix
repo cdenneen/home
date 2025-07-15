@@ -119,6 +119,10 @@ in
       system = "aarch64-darwin";
       darwinModules = [ ./VNJTECMBCD ];
     };
+    mac = darwinSystem {
+      system = "aarch64-darwin";
+      darwinModules = [ ./mac.nix ];
+    };
     mbair = darwinSystem {
       system = "x86_64-darwin";
       darwinModules = [ ./MacBookAir-Intel.nix ];
