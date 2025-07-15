@@ -11,13 +11,13 @@ kubeconfigStores:
     showPrefix: false
     id: prod-sso-use1
     config:
-      profile: awsprod-sso
+      profile: tf-awsprod
       region: us-east-1
   - kind: eks
     showPrefix: false
     id: qa-sso-use1
     config:
-      profile: awsqa-sso
+      profile: tf-awsqa
       region: us-east-1
   - kind: eks
     showPrefix: false
@@ -29,19 +29,19 @@ kubeconfigStores:
     showPrefix: false
     id: capdev-sso-use1
     config:
-      profile: capdev-sso
+      profile: tf-capdev
       region: us-east-1
   - kind: eks
     showPrefix: false
     id: prod-sso-usw2
     config:
-      profile: awsprod-sso
+      profile: tf-awsprod
       region: us-west-2
   - kind: eks
     showPrefix: false
     id: qa-sso-usw2
     config:
-      profile: awsqa-sso
+      profile: tf-awsqa
       region: us-west-2
   - kind: eks
     showPrefix: false
@@ -53,7 +53,7 @@ kubeconfigStores:
     showPrefix: false
     id: capdev-sso-usw2
     config:
-      profile: capdev-sso
+      profile: tf-capdev
       region: us-west-2
   - kind: eks
     showPrefix: true

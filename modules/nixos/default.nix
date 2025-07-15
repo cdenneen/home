@@ -59,7 +59,6 @@ in
           nss
           pcre
           pcre2
-          pcre16
           pcre-cpp
           libgcc
         ];

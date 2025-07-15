@@ -47,7 +47,7 @@ k8s_context() {
         ;;
     esac
     # echo $REGION
-    CLUSTER_ID="${last_three_elements[2]}"
+    CLUSTER_ID="${last_three_elements[2]:0:7}"
     # echo $CLUSTER_ID
 
     CONTEXT="eks_$ACCOUNT-$REGION-$CLUSTER_ID"

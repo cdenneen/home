@@ -24,45 +24,52 @@ in
         share = true;
         size = 130000;
       };
-      sessionVariables = {
-        # This is required for the zoxide integration
-        ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE = "fg=8";
-      } // (if pkgs.stdenv.isDarwin then {
-        XDG_RUNTIME_DIR = "$(getconf DARWIN_USER_TEMP_DIR)";
-      } else {});
+      sessionVariables =
+        {
+          # This is required for the zoxide integration
+          ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE = "fg=8";
+        }
+        // (
+          if pkgs.stdenv.isDarwin then
+            {
+              XDG_RUNTIME_DIR = "$(getconf DARWIN_USER_TEMP_DIR)";
+            }
+          else
+            { }
+        );
 
       defaultKeymap = "viins";
       initContent = ''
-        # Amazon Q pre block. Keep at the top of this file.
-        [[ -f "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.pre.zsh" ]] && builtin source "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.pre.zsh"
-        setopt globdots
-        zstyle ':completion:*' matcher-list ''' '+m:{a-zA-Z}={A-Za-z}' '+r:|[._-]=* r:|=*' '+l:|=* r:|=*'
-        if [[ -z "$SSH_AUTH_SOCK" ]]; then
-          export SSH_AUTH_SOCK="${config.programs.gpg.package}/bin/gpgconf --list-dirs agent-ssh-socket"
-        fi
-        bindkey -e
-  
-        bindkey '^[w' kill-region
-  
-        zle_highlight+=(paste:none)
-  
-        #█▓▒░ load configs
-        for config (~/.config/zsh/*.zsh) source $config
-  
-        # Determine the target file of the symlink
-        secrets_target=$(readlink ~/.secrets || echo ~/.secrets)
-  
-        # Check if the target exists and its modification time
-        if [ ! -e "$secrets_target" ] || [ -n "$(find "$secrets_target" -mtime +7 2>/dev/null)" ]; then
-          update_secrets
-        fi
-  
-        source <(switcher init zsh)
-        source <(switch completion zsh)
-  
-        source ~/.secrets
-	# Amazon Q post block. Keep at the bottom of this file.
-        [[ -f "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.post.zsh" ]] && builtin source "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.post.zsh"
+                # Amazon Q pre block. Keep at the top of this file.
+                [[ -f "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.pre.zsh" ]] && builtin source "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.pre.zsh"
+                setopt globdots
+                zstyle ':completion:*' matcher-list ''' '+m:{a-zA-Z}={A-Za-z}' '+r:|[._-]=* r:|=*' '+l:|=* r:|=*'
+                if [[ -z "$SSH_AUTH_SOCK" ]]; then
+                  export SSH_AUTH_SOCK="${config.programs.gpg.package}/bin/gpgconf --list-dirs agent-ssh-socket"
+                fi
+                bindkey -e
+
+                bindkey '^[w' kill-region
+
+                zle_highlight+=(paste:none)
+
+                #█▓▒░ load configs
+                for config (~/.config/zsh/*.zsh) source $config
+
+                # Determine the target file of the symlink
+                secrets_target=$(readlink ~/.secrets || echo ~/.secrets)
+
+                # Check if the target exists and its modification time
+                if [ ! -e "$secrets_target" ] || [ -n "$(find "$secrets_target" -mtime +7 2>/dev/null)" ]; then
+                  update_secrets
+                fi
+
+                source <(switcher init zsh)
+                source <(switch completion zsh)
+
+                source ~/.secrets
+        	# Amazon Q post block. Keep at the bottom of this file.
+                [[ -f "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.post.zsh" ]] && builtin source "$${HOME}/Library/Application Support/amazon-q/shell/zshrc.post.zsh"
       '';
       plugins = [
         {

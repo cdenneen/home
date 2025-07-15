@@ -20,11 +20,11 @@ in
   config = lib.mkIf cfg.defaults.enable {
     home-manager = {
       backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
-      # useGlobalPkgs = true;
       useUserPackages = true;
       sharedModules = [
         {
           nix.package = lib.mkForce config.nix.package;
+          home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
         }
       ];
     };

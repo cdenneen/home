@@ -51,15 +51,13 @@ let
         nixos-cosmic.nixosModules.default
         nixpkgs.nixosModules.notDetected
         nur.modules.nixos.default
-        nur-packages.nixosModules.cloudflare-ddns
+        #nur-packages.nixosModules.cloudflare-ddns
         self.nixosModules.default
         sops-nix.nixosModules.sops
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules =
-              homeManagerModules
-              ++ sharedHomeManagerModules;
+            sharedModules = homeManagerModules ++ sharedHomeManagerModules;
           };
         }
       ] ++ nixosModules;
@@ -89,9 +87,12 @@ let
           home-manager = {
             backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
             extraSpecialArgs = specialArgs;
-            sharedModules = [
-              mac-app-util.homeManagerModules.default
-            ] ++ homeManagerModules ++ sharedHomeManagerModules;
+            sharedModules =
+              [
+                mac-app-util.homeManagerModules.default
+              ]
+              ++ homeManagerModules
+              ++ sharedHomeManagerModules;
           };
         }
       ] ++ darwinModules;
@@ -115,7 +116,7 @@ let
 in
 {
   darwinConfigurations = {
-    VNJTECMBCD= darwinSystem {
+    VNJTECMBCD = darwinSystem {
       system = "aarch64-darwin";
       darwinModules = [ ./VNJTECMBCD ];
     };

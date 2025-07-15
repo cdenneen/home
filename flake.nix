@@ -181,6 +181,7 @@
     };
 
   nixConfig = {
+    download-buffer-size = "524288000";
     extra-substituters = [
       "https://cache.nixos.org"
       "https://nix-community.cachix.org"
