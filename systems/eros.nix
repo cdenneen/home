@@ -13,9 +13,43 @@
 
   profiles = {
     defaults.enable = true;
-    gui.enable = false;
+    gui.enable = true;
     printing.enable = false;
   };
   userPresets.cdenneen.enable = true;
-  services.xserver.desktopManager.xfce.enable = true;
+  services.xserver = {
+    enable = true;
+    windowManager.qtile.enable = true;
+    desktopManager.xfce.enable = true;
+    displayManager.sessionCommands = ''
+      xset r rate 200 35 &
+    '';
+  };
+  services.picom = {
+    enable = true;
+    backend = "glx";
+    fade = true;
+  };
+  services.xrdp.enable = true;
+  # services.xrdp.defaultWindowManager = "xfce4-session";
+  services.xrdp.defaultWindowManager = "${pkgs.xfce.xfce4-session}/bin/startxfce4";
+  networking.firewall.allowedTCPPorts = [ 3389 ];
+  environment.systemPackages = with pkgs; [
+    _1password-gui
+    teams-for-linux
+    vim
+    wget
+    neovim
+    alacritty
+    btop
+    gedit
+    xwallpaper
+    #pcmanfm
+    rofi
+    git
+    pfetch
+  ];
+  fonts.packages = with pkgs; [
+    jetbrains-mono
+  ];
 }
