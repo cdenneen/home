@@ -27,7 +27,7 @@ in
           lib.mkMerge [
             {
               name = cfg.cdenneen.name;
-              description = "cdenneen Diekvoss";
+              description = "Chris Denneen";
               home = "${homePath}/${cfg.cdenneen.name}";
               shell = pkgs.zsh;
             }
