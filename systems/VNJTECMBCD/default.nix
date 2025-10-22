@@ -50,9 +50,6 @@ in
       {
         name = "slack";
       }
-      {
-        name = "docker";
-      }
     ];
   };
 }

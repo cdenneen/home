@@ -9,6 +9,7 @@
   options.virtualisation.podman = {
     enable = lib.mkEnableOption "This option enables Podman, a daemonless container engine for developing, managing, and running OCI Containers on your System.";
     dockerCompat = lib.mkEnableOption "Create an alias mapping docker to podman.";
+    defaultNetwork.settings.dns_enabled = true;
   };
 
   config = lib.mkIf config.virtualisation.podman.enable {

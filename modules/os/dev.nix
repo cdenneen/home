@@ -32,6 +32,7 @@ in
 
   config = lib.mkIf cfg.dev.enable {
     virtualisation.podman.enable = true;
+    virtualisation.podman.dockerCompat = true;
     environment = {
       systemPackages =
         with pkgs;

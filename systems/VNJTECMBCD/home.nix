@@ -46,8 +46,5 @@
     {
       name = "slack";
     }
-    {
-      name = "docker";
-    }
   ];
 }
