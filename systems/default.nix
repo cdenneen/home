@@ -7,49 +7,68 @@
   nh_plus,
   nix-darwin,
   nix-index-database,
-  nixos-cosmic,
   nixos-hardware,
-  nixpkgs,
+  nixpkgs-unstable,
+  nixpkgs-stable,
+  nixpkgs-esp-dev,
   nixos-wsl,
   nur,
   nur-packages,
   nvf,
+  rust-overlay,
   self,
   sops-nix,
   ...
 }@inputs:
 let
-  sharedHomeManagerModules = [
+  sharedHomeModules = [
     catppuccin.homeModules.catppuccin
-    nix-index-database.hmModules.nix-index
+    nix-index-database.homeModules.nix-index
     nur.modules.homeManager.default
     nvf.homeManagerModules.nvf
-    self.homeManagerModules.default
+    self.homeModules.default
     sops-nix.homeManagerModules.sops
+    {
+      nixpkgs = {
+        overlays = [
+          (import rust-overlay)
+          nixpkgs-esp-dev.overlays.default
+          nur-packages.overlays.default
+        ];
+        config = {
+          allowUnfree = true;
+          allowBroken = true;
+        };
+      };
+    }
   ];
-  lib = nixpkgs.lib;
+  lib = nixpkgs-unstable.lib;
   nixosSystem =
     {
       system,
       nixosModules ? [ ],
-      homeManagerModules ? [ ],
+      homeModules ? [ ],
     }:
     let
-      pkgs = self.lib.import_nixpkgs { inherit system; };
-      specialArgs = inputs // {
-        inherit system;
-      };
+      unstablePkgs = self.lib.import_nixpkgs system nixpkgs-unstable;
+      stablePkgs = self.lib.import_nixpkgs system nixpkgs-stable;
     in
-    lib.nixosSystem {
-      inherit system pkgs;
-      specialArgs = specialArgs;
+    lib.nixosSystem rec {
+      inherit system;
+      pkgs = unstablePkgs;
+      specialArgs = inputs // {
+        inherit
+          system
+          stablePkgs
+          unstablePkgs
+          ;
+      };
       modules = [
         catppuccin.nixosModules.catppuccin
         disko.nixosModules.disko
         home-manager.nixosModules.default
         nix-index-database.nixosModules.nix-index
-        nixos-cosmic.nixosModules.default
-        nixpkgs.nixosModules.notDetected
+        nixpkgs-unstable.nixosModules.notDetected
         nur.modules.nixos.default
         #nur-packages.nixosModules.cloudflare-ddns
         self.nixosModules.default
@@ -57,64 +76,77 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = homeManagerModules ++ sharedHomeManagerModules;
+            sharedModules = homeModules ++ sharedHomeModules;
           };
         }
-      ] ++ nixosModules;
+      ]
+      ++ nixosModules;
     };
   darwinSystem =
     {
       system,
       darwinModules ? [ ],
-      homeManagerModules ? [ ],
+      homeModules ? [ ],
     }:
     let
-      pkgs = self.lib.import_nixpkgs { inherit system; };
-      specialArgs = inputs // {
-        inherit system;
-      };
+      unstablePkgs = self.lib.import_nixpkgs system nixpkgs-unstable;
+      stablePkgs = self.lib.import_nixpkgs system nixpkgs-stable;
     in
-    nix-darwin.lib.darwinSystem {
-      inherit pkgs;
-      specialArgs = specialArgs;
+    nix-darwin.lib.darwinSystem rec {
+      pkgs = unstablePkgs;
+      specialArgs = inputs // {
+        inherit
+          system
+          stablePkgs
+          unstablePkgs
+          ;
+      };
       modules = [
         home-manager.darwinModules.default
         mac-app-util.darwinModules.default
         #nh_plus.nixDarwinModules.prebuiltin
         nix-index-database.darwinModules.nix-index
         self.darwinModules.default
+        sops-nix.darwinModules.sops
         {
           home-manager = {
             backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
             extraSpecialArgs = specialArgs;
-            sharedModules =
-              [
-                mac-app-util.homeManagerModules.default
-              ]
-              ++ homeManagerModules
-              ++ sharedHomeManagerModules;
+            sharedModules = [
+              mac-app-util.homeManagerModules.default
+            ]
+            ++ homeModules
+            ++ sharedHomeModules;
           };
         }
-      ] ++ darwinModules;
+      ]
+      ++ darwinModules;
     };
   homeConfiguration =
     {
       system,
-      homeManagerModules ? [ ],
+      homeModules ? [ ],
     }:
     let
-      pkgs = self.lib.import_nixpkgs { inherit system; };
-      specialArgs = inputs // {
-        inherit system;
-      };
+      unstablePkgs = self.lib.import_nixpkgs system nixpkgs-unstable;
+      stablePkgs = self.lib.import_nixpkgs system nixpkgs-stable;
     in
     home-manager.lib.homeManagerConfiguration {
-      inherit pkgs;
-      extraSpecialArgs = specialArgs;
-      modules = homeManagerModules ++ sharedHomeManagerModules;
+      pkgs = stablePkgs;
+      extraSpecialArgs = inputs // {
+        inherit
+          system
+          stablePkgs
+          unstablePkgs
+          ;
+      };
+      modules = homeModules ++ sharedHomeModules;
     };
 in
 {
+  lib = {
+    inherit darwinSystem homeConfiguration nixosSystem;
+  };
   darwinConfigurations = {
     VNJTECMBCD = darwinSystem {
       system = "aarch64-darwin";
@@ -154,28 +186,28 @@ in
       system = "aarch64-linux";
       nixosModules = [
         ./eros.nix
-        "${nixpkgs}/nixos/modules/virtualisation/amazon-image.nix"
+        "${nixpkgs-unstable}/nixos/modules/virtualisation/amazon-image.nix"
       ];
     };
     MacBook-Pro-Nixos = nixosSystem {
       system = "x86_64-linux";
       nixosModules = [
         ./MacBook-Pro-NixOS.nix
-        "${nixpkgs}/nixos/modules/installer/scan/not-detected.nix"
+        "${nixpkgs-unstable}/nixos/modules/installer/scan/not-detected.nix"
       ];
     };
     oracle-cloud-nixos = nixosSystem {
       system = "aarch64-linux";
       nixosModules = [
         ./oracle-cloud-nixos.nix
-        "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
+        "${nixpkgs-unstable}/nixos/modules/profiles/qemu-guest.nix"
       ];
     };
     utm = nixosSystem {
       system = "aarch64-linux";
       nixosModules = [
         ./utm.nix
-        "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
+        "${nixpkgs-unstable}/nixos/modules/profiles/qemu-guest.nix"
       ];
     };
     wsl = nixosSystem {
