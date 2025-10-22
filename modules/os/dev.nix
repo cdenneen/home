@@ -37,29 +37,32 @@ in
       systemPackages =
         with pkgs;
         [
+          cmake
           config.environment.pythonPackage
           # dfu-util
-          # gnumake
+          gnumake
           # libffi
           # libiconv
           # libusb1
+          nodejs
+          nodePackages.prettier
+          rustup
           # systemfd
           # esp-idf-full
           # zed-editor
+        ]
+        ++ lib.optionals cfg.gui.enable [
+          jetbrains-toolbox
+          zed-editor
         ]
         ++ lib.optionals stdenv.isLinux [
           gcc
           clang
         ]
-        ++ lib.optionals stdenv.isDarwin [
-          darwin.apple_sdk.frameworks.SystemConfiguration
-          darwin.apple_sdk.frameworks.CoreServices
-        ]
         ++
           lib.optionals
             (builtins.elem system [
-              # TODO: undo
-              # "aarch64-darwin"
+              "aarch64-darwin"
               "aarch64-linux"
               "x86_64-linux"
             ])

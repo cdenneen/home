@@ -9,6 +9,7 @@ in
     ];
     programs = {
       ssh = {
+        enableDefaultConfig = false;
         serverAliveInterval = 60;
         extraConfig = ''
           # Use SSHFP DNS records for host key verification

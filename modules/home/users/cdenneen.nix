@@ -62,7 +62,6 @@ in
           };
         };
       };
-      vscode.enable = cfg.gui.enable;
       wezterm.enable = if system != "x86_64-darwin" then cfg.gui.enable else false;
       kitty.enable = cfg.gui.enable;
       git = {
