@@ -13,6 +13,8 @@ let
   # gitConfig = sharedGitConfig.config.content.programs.git;
   # gitExtraConfig = gitConfig.extraConfig;
   gitExtraConfig = sharedGitConfig.config.content.programs.git.extraConfig;
+  isEc2 = builtins.pathExists "/sys/hypervisor/uuid";
+  sourceProfile = if isEc2 then "ec2-local" else "ssp-apss";
 in
 {
   options.profiles.cdenneen.enable = lib.mkEnableOption "Enable cdenneen profile";
@@ -297,6 +299,9 @@ in
       "aws-config" = {
         path = "${config.home.homeDirectory}/.aws/config";
         mode = "0440";
+        onChange = ''
+          sed -i "s/source_profile=sso-apss/source_profile=${sourceProfile}/g" ${config.sops.secrets."aws-config".path}
+        '';
       };
       "gpg_gmail" = {
         path = "${config.home.homeDirectory}/.gnupg/private-keys-v1.d/personal.key";
