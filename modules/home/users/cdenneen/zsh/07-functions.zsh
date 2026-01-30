@@ -44,25 +44,72 @@ function 1pwurl() {
 	echo "$1" | sed 's/^.*i=//;s/\&.*$//'
 }
 
+# Helper: check if 1Password is available
+function has_op() {
+	command -v op >/dev/null 2>&1
+}
+
+# Helper: check if at least one account is configured
+function has_op_accounts() {
+	has_op && [ -n "$(op account list 2>/dev/null)" ]
+}
+
+# Helper: check if already unlocked
+function is_op_unlocked() {
+	has_op_accounts && op account get >/dev/null 2>&1
+}
+
 function update_secrets() {
-  local secrets_file="$HOME/.secrets"
+	local secrets_file="$HOME/.secrets"
+	local ap="N6PZN7GSBNDJVIPTSJPHHMKVZA"
+	local my="MWL6B6AUDRD77NKKKYII55VDEU"
+	local quiet=0
+	[[ "$1" == "--quiet" ]] && quiet=1
 
-  {
-    echo "export AZURE_DEFAULT_USERNAME=\"$(op read 'op://private/office 365/username')\""
-    echo "export AZURE_DEFAULT_PASSWORD=\"$(op read 'op://private/office 365/password')\""
-    echo "export GITLAB_TOKEN=\"$(op read 'op://private/gitlab personal access token/token')\""
-    echo "export TF_HTTP_PASSWORD=\"$(op read 'op://private/gitlab personal access token/token')\""
-    echo "export TF_HTTP_USERNAME=\"$(op read 'op://private/gitlab personal access token/username')\""
-    echo "export TF_VAR_gitlab_token=\"$(op read 'op://gss/GitLab_tfadmin-cdenneen/credential')\""
-    echo "export CI_REGISTRY_USER=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/username')\""
-    echo "export CI_REGISTRY_PASSWORD=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/credential')\""
-    echo "export GI_RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_gi-renovate/credential')\""
-    echo "export RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_renovate-runner-ci/credential')\""
-    echo "export DOCKER_HUB_PASSWORD=\"$(op read 'op://gss/DockerHub_token/credential')\""
-    #echo "export GITHUB_TOKEN=\"$(op read 'op://gss/GitHub_gitops-token/token')\""
-    echo "export GITHUB_TOKEN=\"$(op read 'op://private/GH_TOKEN/token' --account my)\""
-    echo "export OPENAI_API_KEY=\"$(op read 'op://private/OpenAI/credential')\""
-  } > "$secrets_file"
+	# Skip if op is locked or unavailable
+	if ! is_op_unlocked; then
+		(( quiet )) || echo "1Password locked or unavailable; skipping secrets update."
+		return
+	fi
 
-  echo "Secrets have been updated in $secrets_file"
+	{
+		echo "export AZURE_DEFAULT_USERNAME=\"$(op read 'op://private/office 365/username' --account \"$ap\" 2>/dev/null)\""
+		echo "export AZURE_DEFAULT_PASSWORD=\"$(op read 'op://private/office 365/password' --account \"$ap\" 2>/dev/null)\""
+		echo "export GITLAB_TOKEN=\"$(op read 'op://private/gitlab personal access token/token' --account \"$ap\" 2>/dev/null)\""
+		echo "export TF_HTTP_PASSWORD=\"$(op read 'op://private/gitlab personal access token/token' --account \"$ap\" 2>/dev/null)\""
+		echo "export TF_HTTP_USERNAME=\"$(op read 'op://private/gitlab personal access token/username' --account \"$ap\" 2>/dev/null)\""
+		echo "export TF_VAR_gitlab_token=\"$(op read 'op://gss/GitLab_tfadmin-cdenneen/credential' --account \"$ap\" 2>/dev/null)\""
+		echo "export CI_REGISTRY_USER=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/username' --account \"$ap\" 2>/dev/null)\""
+		echo "export CI_REGISTRY_PASSWORD=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/credential' --account \"$ap\" 2>/dev/null)\""
+		echo "export GI_RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_gi-renovate/credential' --account \"$ap\" 2>/dev/null)\""
+		echo "export RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_renovate-runner-ci/credential' --account \"$ap\" 2>/dev/null)\""
+		echo "export DOCKER_HUB_PASSWORD=\"$(op read 'op://gss/DockerHub_token/credential' --account \"$ap\" 2>/dev/null)\""
+		echo "export GITHUB_TOKEN=\"$(op read 'op://private/GH_TOKEN/token' --account \"$my\" 2>/dev/null)\""
+		echo "export OPENAI_API_KEY=\"$(op read 'op://private/OpenAI/credential' --account \"$ap\" 2>/dev/null)\""
+	} > "$secrets_file".tmp
+
+	# Only replace if something actually changed
+	if ! cmp -s "$secrets_file".tmp "$secrets_file" 2>/dev/null; then
+		mv "$secrets_file".tmp "$secrets_file"
+		(( quiet )) || echo "Secrets updated in $secrets_file"
+	else
+		rm -f "$secrets_file".tmp
+	fi
+}
+
+function maybe_refresh_secrets() {
+	local quiet=0
+	[[ "$1" == "--quiet" ]] && quiet=1
+	local secrets_target
+	secrets_target=$(readlink ~/.secrets 2>/dev/null || echo ~/.secrets)
+
+	if [ ! -e "$secrets_target" ] || find "$secrets_target" -mtime +7 >/dev/null 2>&1; then
+		if (( quiet )); then
+			update_secrets --quiet
+		else
+			update_secrets
+		fi
+	fi
+
+	[ -f ~/.secrets ] && source ~/.secrets
 }

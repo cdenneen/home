@@ -54,8 +54,8 @@ in
             humao.rest-client
             # rust-lang.rust-analyzer
             vscodevim.vim
-	    # ruby-lsp
-	    shopify.ruby-lsp
+            # ruby-lsp
+            shopify.ruby-lsp
           ]
           ++
             lib.optionals

@@ -68,14 +68,16 @@
         {
           name = "firefox";
         }
-      ] ++ lib.optionals (pkgs.stdenv.system == "x86_64-darwin") [
-          {
-            name = "iterm2";
-          }
-      ] ++ lib.optionals (pkgs.stdenv.system == "aarch64-darwin") [
-          {
-            name = "ghostty";
-          }
+      ]
+      ++ lib.optionals (pkgs.stdenv.hostPlatform.system == "x86_64-darwin") [
+        {
+          name = "iterm2";
+        }
+      ]
+      ++ lib.optionals (pkgs.stdenv.hostPlatform.system == "aarch64-darwin") [
+        {
+          name = "ghostty";
+        }
       ];
     };
   };

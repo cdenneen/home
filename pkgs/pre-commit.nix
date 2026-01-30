@@ -1,10 +1,10 @@
 { writeShellScriptBin }:
 writeShellScriptBin "pre-commit" ''
+  set -euo pipefail
+
   echo "Stashing unstaged changes..."
-  git commit --allow-empty --no-verify --message 'Save index'
-  stash_output=$(git stash push --include-untracked --message 'Unstaged changes')
-  echo $stash_output
-  git reset --soft HEAD^
+  stash_output=$(git stash push --keep-index --include-untracked --message 'Unstaged changes')
+  echo "$stash_output"
 
   echo "Formatting..."
   nix fmt
@@ -12,9 +12,9 @@ writeShellScriptBin "pre-commit" ''
   git add --all
 
   if [ -n "$stash_output" ] && [ "$stash_output" != "No local changes to save" ]; then
-      echo "Restoring unstaged changes..."
-      git stash pop
+    echo "Restoring unstaged changes..."
+    git stash pop
   else
-      echo "No unstaged changes to restore."
+    echo "No unstaged changes to restore."
   fi
 ''

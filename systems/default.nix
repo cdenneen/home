@@ -48,14 +48,16 @@ let
       system,
       nixosModules ? [ ],
       homeModules ? [ ],
+      pkgsFrom ? "stable",
     }:
     let
       unstablePkgs = self.lib.import_nixpkgs system nixpkgs-unstable;
       stablePkgs = self.lib.import_nixpkgs system nixpkgs-stable;
+      selectedPkgs = if pkgsFrom == "unstable" then unstablePkgs else stablePkgs;
     in
     lib.nixosSystem rec {
       inherit system;
-      pkgs = unstablePkgs;
+      pkgs = selectedPkgs;
       specialArgs = inputs // {
         inherit
           system
@@ -93,7 +95,7 @@ let
       stablePkgs = self.lib.import_nixpkgs system nixpkgs-stable;
     in
     nix-darwin.lib.darwinSystem rec {
-      pkgs = unstablePkgs;
+      pkgs = stablePkgs;
       specialArgs = inputs // {
         inherit
           system
@@ -164,19 +166,19 @@ in
   homeConfigurations = {
     "hm@linux-x86" = homeConfiguration {
       system = "x86_64-linux";
-      homeManagerModules = [
+      homeModules = [
         ./home.nix
       ];
     };
     "hm@linux" = homeConfiguration {
       system = "aarch64-linux";
-      homeManagerModules = [
+      homeModules = [
         ./home.nix
       ];
     };
     "hm@mac" = homeConfiguration {
       system = "aarch64-darwin";
-      homeManagerModules = [
+      homeModules = [
         ./home.nix
       ];
     };
@@ -184,6 +186,7 @@ in
   nixosConfigurations = {
     eros = nixosSystem {
       system = "aarch64-linux";
+      pkgsFrom = "unstable";
       nixosModules = [
         ./eros.nix
         "${nixpkgs-unstable}/nixos/modules/virtualisation/amazon-image.nix"

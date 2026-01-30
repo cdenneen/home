@@ -13,9 +13,6 @@ in
     home.packages = with pkgs; [
       pinPackage
     ];
-    programs.zsh.initContent = ''
-      ${pkgs.gnupg}/bin/gpgconf --launch gpg-agent
-    '';
     services.gpg-agent = lib.mkIf pkgs.stdenv.isLinux {
       enable = true;
       enableZshIntegration = config.programs.zsh.enable;
@@ -23,7 +20,9 @@ in
       enableBashIntegration = config.programs.bash.enable;
       enableSshSupport = true;
       defaultCacheTtl = 31536000;
+      defaultCacheTtlSsh = 31536000;
       maxCacheTtl = 31536000;
+      maxCacheTtlSsh = 31536000;
 
       extraConfig = ''
         pinentry-program ${pinPackage}/bin/pinentry
@@ -50,6 +49,9 @@ in
           #█▓▒░ interface
           no-greeting = true;
           use-agent = true;
+
+          # Allow caching of private-key unlock passphrases (needed for `git commit`).
+          "no-symkey-cache" = false;
           list-options = "show-uid-validity";
           verify-options = "show-uid-validity";
           keyid-format = "0xlong";
@@ -71,8 +73,12 @@ in
         };
       };
     };
-    home.sessionVariables = {
-      GPG_TTY = "$(tty)";
-    };
+    programs.zsh.initContent = lib.mkIf config.programs.zsh.enable (
+      lib.mkAfter ''
+        export GPG_TTY="$(tty)"
+        ${pkgs.gnupg}/bin/gpg-connect-agent updatestartuptty /bye >/dev/null
+      ''
+    );
+
   };
 }

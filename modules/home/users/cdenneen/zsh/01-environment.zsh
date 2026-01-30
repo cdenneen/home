@@ -42,6 +42,3 @@ export LESSCHARSET=utf-8
 #█▓▒░ no mosh titles
 export MOSH_TITLE_NOPREFIX=1
 
-#█▓▒░ gpg cli in the tty
-GPG_TTY=$(tty)
-export GPG_TTY

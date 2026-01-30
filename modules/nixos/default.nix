@@ -96,7 +96,7 @@ in
         randomizedDelaySec = "45min";
         flags = [
           "--update-input"
-          "nixpkgs"
+          "nixpkgs-stable"
         ];
       };
     };

@@ -6,6 +6,9 @@
   services.udisks2.enable = lib.mkForce false;
   services.openssh.settings.PermitRootLogin = lib.mkForce "prohibit-password";
 
+  # Prefer per-user gpg-agent (Home Manager) on eros.
+  programs.gnupg.agent.enable = lib.mkForce false;
+
   # boot.kernelPackages = pkgs.linuxPackages_latest;
   boot.loader.grub.splashImage = lib.mkForce null;
 

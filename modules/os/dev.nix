@@ -61,7 +61,7 @@ in
         ]
         ++
           lib.optionals
-            (builtins.elem system [
+            (builtins.elem pkgs.stdenv.hostPlatform.system [
               "aarch64-darwin"
               "aarch64-linux"
               "x86_64-linux"

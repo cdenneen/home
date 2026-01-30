@@ -1,16 +1,23 @@
-{ config, pkgs, lib, ...}:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 let
   cfg = config.programs.ghostty;
-in 
+in
 {
   config = lib.mkIf cfg.enable {
     catppuccin.ghostty = {
       enable = true;
       flavor = config.catppuccin.flavor;
     };
-    home.packages = with pkgs; lib.mkIf (stdenv.isLinux && config.profiles.gui.enable) [
-      ghostty
-    ];
+    home.packages =
+      with pkgs;
+      lib.mkIf (stdenv.isLinux && config.profiles.gui.enable) [
+        ghostty
+      ];
     xdg.configFile."ghostty/config".text = ''
       background-opacity = 0.8
       font-family = MonaspiceAr Nerd Font Mono
@@ -33,7 +40,7 @@ in
       macos-non-native-fullscreen = visible-menu
       macos-option-as-alt = left
       mouse-hide-while-typing = true
-      
+
       # Keybinds to match macOS since this is a VM
       keybind = super+c=copy_to_clipboard
       keybind = super+v=paste_from_clipboard

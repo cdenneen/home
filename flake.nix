@@ -28,8 +28,8 @@
     };
     flake-parts.url = "github:hercules-ci/flake-parts";
     home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      url = "github:nix-community/home-manager/release-25.11";
+      inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     mac-app-util.url = "github:hraban/mac-app-util";
     nh.url = "github:viperml/nh";
@@ -45,7 +45,8 @@
     nixos-hardware.url = "github:nixos/nixos-hardware";
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
+    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs.follows = "nixpkgs-stable";
     nixpkgs-esp-dev.url = "github:mirrexagon/nixpkgs-esp-dev";
     nur-packages.url = "github:ToyVo/nur-packages";
     nur.url = "github:nix-community/nur";
@@ -64,6 +65,7 @@
       flake-parts,
       nixpkgs-unstable,
       nixpkgs-esp-dev,
+      nur-packages,
       rust-overlay,
       self,
       ...
@@ -120,10 +122,27 @@
         }:
         {
           _module.args = {
-            pkgs = import_nixpkgs system nixpkgs-unstable;
+            pkgs = import_nixpkgs system inputs.nixpkgs-stable;
           };
 
-          formatter = pkgs.nixfmt-rfc-style;
+          # `nix fmt` runs the flake formatter; make it format the whole repo.
+          formatter = pkgs.writeShellApplication {
+            name = "fmt";
+            runtimeInputs = [
+              pkgs.git
+              pkgs.nixfmt-rfc-style
+            ];
+            text = ''
+              set -euo pipefail
+
+              mapfile -t files < <(git ls-files '*.nix')
+              if [ "''${#files[@]}" -eq 0 ]; then
+                exit 0
+              fi
+
+              exec nixfmt "''${files[@]}"
+            '';
+          };
 
           packages = {
             setup-sops = pkgs.callPackage ./pkgs/setup-sops.nix { };
@@ -148,7 +167,7 @@
             };
           };
           checks =
-            with nixpkgs-unstable.lib;
+            with pkgs.lib;
             with nur-packages.lib;
             flakeChecks system self'.packages
             // mapAttrs' (n: nameValuePair "devShells-${n}") (filterAttrs (n: v: isCacheable v) self'.devShells)
@@ -162,7 +181,7 @@
                 )
                 (
                   filterAttrs (
-                    n: v: self.homeConfigurations."${n}".pkgs.stdenv.system == system
+                    n: v: self.homeConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
                   ) self.homeConfigurations
                 )
             //
@@ -175,7 +194,7 @@
                 )
                 (
                   filterAttrs (
-                    n: v: self.nixosConfigurations."${n}".pkgs.stdenv.system == system
+                    n: v: self.nixosConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
                   ) self.nixosConfigurations
                 )
             //
@@ -188,7 +207,7 @@
                 )
                 (
                   filterAttrs (
-                    n: v: self.darwinConfigurations."${n}".pkgs.stdenv.system == system
+                    n: v: self.darwinConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
                   ) self.darwinConfigurations
                 );
         };

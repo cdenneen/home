@@ -1,12 +1,23 @@
 {
   config,
   lib,
+  osConfig ? null,
   pkgs,
   system,
   ...
 }:
 let
   cfg = config.profiles;
+  nixSubstituters = [
+    "https://cache.nixos.org"
+    "https://nix-community.cachix.org"
+    "https://cdenneen.cachix.org"
+  ];
+  nixPublicKeys = [
+    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+    "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+    "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
+  ];
 in
 {
   imports = [
@@ -62,18 +73,16 @@ in
           "/Library/Apple/usr/bin"
         ];
     };
-    xdg.configFile = {
-      "nix/nix.conf".text = ''
-        experimental-features = nix-command flakes
-        substituters = https://cache.nixos.org https://nix-community.cachix.org https://cosmic.cachix.org https://cdenneen.cachix.org
-        trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs= cosmic.cachix.org-1:Dya9IyXD4xdBehWjrkPv6rtxpmMdRel02smYzA85dPE= cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU=
-      '';
-      "nixpkgs/config.nix".text = ''
-        {
-          allowUnfree = true;
-          allowBroken = true;
-        }
-      '';
+    nix = lib.mkIf (osConfig == null) {
+      package = pkgs.nix;
+      settings = {
+        experimental-features = [
+          "nix-command"
+          "flakes"
+        ];
+        substituters = nixSubstituters;
+        trusted-public-keys = nixPublicKeys;
+      };
     };
     programs = {
       home-manager.enable = true;

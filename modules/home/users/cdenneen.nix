@@ -64,6 +64,7 @@ in
           user = {
             name = "Chris Denneen";
             email = "cdenneen@gmail.com";
+            signingkey = "0xBFEB75D960DFAA6B";
           };
           github.user = "cdenneen";
         };
@@ -96,13 +97,7 @@ in
           }
         ];
       };
-      keychain = {
-        keys = [
-          "~/.ssh/id_ed25519"
-          "0x3834814930B83A30"
-          "0xBFEB75D960DFAA6B"
-        ];
-      };
+
       gpg = {
         enable = true;
         publicKeys = [
@@ -174,17 +169,7 @@ in
               "sudo nixos-rebuild switch --flake github:cdenneen/nixos-config#vm-aarch64-utm";
 
         }
-        // (
-          if pkgs.stdenv.isLinux then
-            {
-              # Two decades of using a Mac has made this such a strong memory
-              # that I'm just going to keep it consistent.
-              pbcopy = "xsel";
-              pbpaste = "xsel -o";
-            }
-          else
-            { }
-        );
+        // (if pkgs.stdenv.isLinux then { } else { });
       };
       ssh =
         let
@@ -215,10 +200,16 @@ in
               proxyCommand = proxyCommand;
               user = "cdenneen";
               hostname = "i-0a3e1df60bde023ad";
+              extraOptions = {
+                RemoteForward = "2489 127.0.0.1:2489";
+              };
             };
             "eros" = identityConfig // {
               user = "cdenneen";
               hostname = "10.224.11.147";
+              extraOptions = {
+                RemoteForward = "2489 127.0.0.1:2489";
+              };
             };
             "git-codecommit.*.amazonaws.com" = identityConfig // {
               user = "APKA4GUE2SGMGTPZB44D";
@@ -246,11 +237,25 @@ in
         eks-node-viewer
         fluxcd
         _1password-cli
+        lemonade
+        xsel
       ];
     catppuccin = {
       flavor = "mocha";
       accent = "blue";
     };
+    launchd.agents.lemonade = lib.mkIf pkgs.stdenv.isDarwin {
+      enable = true;
+      config = {
+        ProgramArguments = [
+          "${pkgs.lemonade}/bin/lemonade"
+          "server"
+        ];
+        KeepAlive = true;
+        RunAtLoad = true;
+      };
+    };
+
     home.file = {
       ".kube/switch-config.yaml".source = ./cdenneen/switch-config.yaml;
     };

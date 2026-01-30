@@ -63,7 +63,7 @@ in
           ++ lib.optionals stdenv.isLinux [
             clinfo
             fwupd
-            glxinfo
+            mesa-demos
             pciutils
             vulkan-tools
             wayland-utils
