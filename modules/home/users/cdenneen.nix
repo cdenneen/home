@@ -7,14 +7,6 @@
 }:
 let
   cfg = config.profiles;
-  # Import the common git configuration.
-  sharedGitConfig = import ../programs/git.nix { inherit config pkgs lib; };
-  # Access the programs attribute directly, ensuring it's unwrapped properly
-  # gitConfig = sharedGitConfig.config.content.programs.git;
-  # gitExtraConfig = gitConfig.extraConfig;
-  gitExtraConfig = sharedGitConfig.config.content.programs.git.extraConfig;
-  isEc2 = builtins.pathExists "/sys/hypervisor/uuid";
-  sourceProfile = if isEc2 then "ec2-local" else "ssp-apss";
 in
 {
   options.profiles.cdenneen.enable = lib.mkEnableOption "Enable cdenneen profile";
@@ -56,7 +48,7 @@ in
       };
       direnv = {
         enable = true;
-	enableZshIntegration = true;
+        enableZshIntegration = true;
         nix-direnv.enable = true;
         config = {
           global = {
@@ -68,15 +60,17 @@ in
       kitty.enable = cfg.gui.enable;
       git = {
         enable = true;
-        userName = "Chris Denneen";
-        userEmail = "cdenneen@gmail.com";
+        settings = {
+          user = {
+            name = "Chris Denneen";
+            email = "cdenneen@gmail.com";
+          };
+          github.user = "cdenneen";
+        };
         ignores = [
           ".DS_Store"
           "Thumbs.db"
         ];
-        extraConfig = gitExtraConfig // {
-          github.user = "cdenneen";
-        };
         includes = [
           {
             condition = "gitdir:~/src/ap";
@@ -130,68 +124,67 @@ in
       zsh = {
         loginExtra = builtins.readFile ./cdenneen/zlogin;
         logoutExtra = builtins.readFile ./cdenneen/zlogout;
-        shellAliases =
-          {
-            c = "clear";
-            e = "$EDITOR";
-            se = "sudoedit";
-            ec = "nvim --cmd ':lua vim.g.noplugins=1' "; # nvim --clean
-            g = "git";
+        shellAliases = {
+          c = "clear";
+          e = "$EDITOR";
+          se = "sudoedit";
+          ec = "nvim --cmd ':lua vim.g.noplugins=1' "; # nvim --clean
+          g = "git";
 
-            ga = "git add";
-            gb = "git branch";
-            gc = "git commit";
-            gcm = "git commit -m";
-            gco = "git checkout";
-            gcob = "git checkout -b";
-            gcp = "git cherry-pick";
-            gd = "git diff";
-            gdiff = "git diff";
-            gf = "git fetch";
-            gl = "git prettylog";
-            gm = "git merge";
-            gp = "git push";
-            gpr = "git pull --rebase";
-            gr = "git rebase -i";
-            gs = "git status -sb";
-            gt = "git tag";
-            gu = "git reset @ --"; # think git unstage
-            gx = "git reset --hard @";
+          ga = "git add";
+          gb = "git branch";
+          gc = "git commit";
+          gcm = "git commit -m";
+          gco = "git checkout";
+          gcob = "git checkout -b";
+          gcp = "git cherry-pick";
+          gd = "git diff";
+          gdiff = "git diff";
+          gf = "git fetch";
+          gl = "git prettylog";
+          gm = "git merge";
+          gp = "git push";
+          gpr = "git pull --rebase";
+          gr = "git rebase -i";
+          gs = "git status -sb";
+          gt = "git tag";
+          gu = "git reset @ --"; # think git unstage
+          gx = "git reset --hard @";
 
-            jf = "jj git fetch";
-            jn = "jj new";
-            js = "jj st";
+          jf = "jj git fetch";
+          jn = "jj new";
+          js = "jj st";
 
-            k = "kubectl";
-            kprod = "switch eks_eks-prod-us-east-1-prod-2-use1/eks_prod-2-use1";
-            kshared = "switch eks_eks-apss-us-east-1-shared-1-use1/eks_shared-1-use1";
-            kinteract = "switch eks_eks-prod-us-east-1-apinteractives-datateam/eks_apinteractives-datateam";
-            kinteractdr = "switch eks_eks-prod-us-west-2-apinteractives-datateam-dr/eks_apinteractives-datateam-dr";
+          k = "kubectl";
+          kprod = "switch eks_eks-prod-us-east-1-prod-2-use1/eks_prod-2-use1";
+          kshared = "switch eks_eks-apss-us-east-1-shared-1-use1/eks_shared-1-use1";
+          kinteract = "switch eks_eks-prod-us-east-1-apinteractives-datateam/eks_apinteractives-datateam";
+          kinteractdr = "switch eks_eks-prod-us-west-2-apinteractives-datateam-dr/eks_apinteractives-datateam-dr";
 
-            vi = "nvim";
-            vim = "nvim";
-            sso = "aws sso login --profile sso-apss --no-browser --use-device-code";
-            ssod = "aws sso login --profile sso-capdev --no-browser --use-device-code";
-            ssoq = "aws sso login --profile sso-awsqa --no-browser --use-device-code";
-            ssop = "aws sso login --profile sso-awsprod --no-browser --use-device-code";
-            swnix =
-              if pkgs.stdenv.isDarwin then
-                "darwin-rebuild switch --flake github:cdenneen/nixos-config#mac"
-              else
-                "sudo nixos-rebuild switch --flake github:cdenneen/nixos-config#vm-aarch64-utm";
-
-          }
-          // (
-            if pkgs.stdenv.isLinux then
-              {
-                # Two decades of using a Mac has made this such a strong memory
-                # that I'm just going to keep it consistent.
-                pbcopy = "xsel";
-                pbpaste = "xsel -o";
-              }
+          vi = "nvim";
+          vim = "nvim";
+          sso = "aws sso login --profile sso-apss --no-browser --use-device-code";
+          ssod = "aws sso login --profile sso-capdev --no-browser --use-device-code";
+          ssoq = "aws sso login --profile sso-awsqa --no-browser --use-device-code";
+          ssop = "aws sso login --profile sso-awsprod --no-browser --use-device-code";
+          swnix =
+            if pkgs.stdenv.isDarwin then
+              "darwin-rebuild switch --flake github:cdenneen/nixos-config#mac"
             else
-              { }
-          );
+              "sudo nixos-rebuild switch --flake github:cdenneen/nixos-config#vm-aarch64-utm";
+
+        }
+        // (
+          if pkgs.stdenv.isLinux then
+            {
+              # Two decades of using a Mac has made this such a strong memory
+              # that I'm just going to keep it consistent.
+              pbcopy = "xsel";
+              pbpaste = "xsel -o";
+            }
+          else
+            { }
+        );
       };
       ssh =
         let
@@ -261,10 +254,34 @@ in
     home.file = {
       ".kube/switch-config.yaml".source = ./cdenneen/switch-config.yaml;
     };
+    home.file.".aws/config.init" = {
+      text = builtins.readFile ./cdenneen/aws_config;
+      onChange = ''
+        cat ~/.aws/config.init > ~/.aws/config
+        chmod 600 ~/.aws/config
+      '';
+      force = true;
+    };
+    home.activation.awsConfigEc2Patch = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [[ -f "$HOME/.aws/config" ]]; then
+        # EC2 detection
+        if [[ -r /sys/devices/virtual/dmi/id/sys_vendor ]] && grep -qi "amazon" /sys/devices/virtual/dmi/id/sys_vendor; then
+          echo "EC2 detected — swapping source_profile"
+
+          sed -i 's/source_profile=sso-apss/source_profile=ec2-local/g' "$HOME/.aws/config"
+
+          if ! grep -q "^\[profile ec2-local\]" "$HOME/.aws/config"; then
+            echo "[profile ec2-local]" >> "$HOME/.aws/config"
+            echo "credential_source = Ec2InstanceMetadata" >> "$HOME/.aws/config"
+          fi
+        fi
+      fi
+    '';
     xdg.configFile = {
       "direnv/lib/k8s_context.sh".text = builtins.readFile ./cdenneen/k8s_context.sh;
       "zsh".source = ./cdenneen/zsh;
-      "nvim".source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/src/personal/nvim";
+      "nvim".source =
+        config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/src/personal/nvim";
     };
     sops.secrets = {
       "op_config" = {
@@ -296,13 +313,6 @@ in
         path = "${config.home.homeDirectory}/.ssh/id_rsa_cloud9";
         mode = "0400";
       };
-      "aws-config" = {
-        path = "${config.home.homeDirectory}/.aws/config";
-        mode = "0440";
-        onChange = ''
-          sed -i "s/source_profile=sso-apss/source_profile=${sourceProfile}/g" ${config.sops.secrets."aws-config".path}
-        '';
-      };
       "gpg_gmail" = {
         path = "${config.home.homeDirectory}/.gnupg/private-keys-v1.d/personal.key";
         mode = "0400";
@@ -320,6 +330,5 @@ in
         mode = "0400";
       };
     };
-
   };
 }

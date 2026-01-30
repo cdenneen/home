@@ -7,52 +7,91 @@
 # 	--absolute -q --agents gpg \
 # 	--eval ~/.ssh/id_ed25519 0x3834814930B83A30 0xBFEB75D960DFAA6B)
 
-#█▓▒░ 1password
-if [ -n "$(op account list)" ]; then
-	echo "unlock your keychain 󱕵"
-	read -rs _pw
-	if [ -n "$_pw" ]; then
-		printf "logging in: "
-		accounts=("${(f)$(op account list | tail -n +2 | sed 's/ .*//')}")
-		for acct in "${accounts[@]}" ;do
-			printf "%s " "$acct"
-			eval $(echo "$_pw" | op signin --account "$acct")
-		done
-		echo
-	fi
-fi
+#█▓▒░ 1Password + secrets management
 
+# Helper: check if 1Password is available
+has_op() {
+  command -v op >/dev/null 2>&1
+}
+
+# Helper: check if at least one account is configured
+has_op_accounts() {
+  has_op && [ -n "$(op account list 2>/dev/null)" ]
+}
+
+# Helper: check if already unlocked
+is_op_unlocked() {
+  has_op_accounts && op account get >/dev/null 2>&1
+}
+
+# Unlock if needed
+# if [[ $- == *i* ]]; then
+#   if has_op_accounts; then
+#     if ! is_op_unlocked; then
+#       echo "🔐 Unlock your 1Password keychain:"
+#       read -rs _pw
+#       if [ -n "$_pw" ]; then
+#         printf "Logging in: "
+#         accounts=("${(f)$(op account list | tail -n +2 | sed 's/ .*//')}")
+#         for acct in "${accounts[@]}"; do
+#           printf "%s " "$acct"
+#           eval "$(echo "$_pw" | op signin --account "$acct" 2>/dev/null)"
+#         done
+#         echo
+#       fi
+#     else
+#       echo "✅ 1Password already unlocked."
+#     fi
+#   fi
+# fi
+
+# Function to update secrets from 1Password
 update_secrets() {
   local secrets_file="$HOME/.secrets"
   local ap="N6PZN7GSBNDJVIPTSJPHHMKVZA"
   local my="MWL6B6AUDRD77NKKKYII55VDEU"
 
-  {
-    echo "export AZURE_DEFAULT_USERNAME=\"$(op read 'op://private/office 365/username' --account $ap)\""
-    echo "export AZURE_DEFAULT_PASSWORD=\"$(op read 'op://private/office 365/password' --account $ap)\""
-    echo "export GITLAB_TOKEN=\"$(op read 'op://private/gitlab personal access token/token' --account $ap)\""
-    echo "export TF_HTTP_PASSWORD=\"$(op read 'op://private/gitlab personal access token/token' --account $ap)\""
-    echo "export TF_HTTP_USERNAME=\"$(op read 'op://private/gitlab personal access token/username' --account $ap)\""
-    echo "export TF_VAR_gitlab_token=\"$(op read 'op://gss/GitLab_tf-eks/credential' --account $ap)\""
-    echo "export CI_REGISTRY_USER=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/username' --account $ap)\""
-    echo "export CI_REGISTRY_PASSWORD=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/credential' --account $ap)\""
-    echo "export GI_RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_gi-renovate/credential' --account $ap)\""
-    echo "export RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_renovate-runner-ci/credential' --account $ap)\""
-    echo "export DOCKER_HUB_PASSWORD=\"$(op read 'op://gss/DockerHub_token/credential' --account $ap)\""
-    #echo "export GITHUB_TOKEN=\"$(op read 'op://gss/GitHub_gitops-token/token' --account $ap)\""
-    echo "export GITHUB_TOKEN=\"$(op read 'op://private/GH_TOKEN/token' --account my)\""
-    echo "export OPENAI_API_KEY=\"$(op read 'op://private/OpenAI/credential' --account $ap)\""
-  } > "$secrets_file"
+  # Skip if op is locked or unavailable
+  if ! is_op_unlocked; then
+    echo "⚠️  1Password locked or unavailable — skipping secrets update."
+    return
+  fi
 
-  echo "Secrets have been updated in $secrets_file"
+  echo "🔄 Updating secrets from 1Password..."
+
+  {
+    echo "export AZURE_DEFAULT_USERNAME=\"$(op read 'op://private/office 365/username' --account "$ap" 2>/dev/null)\""
+    echo "export AZURE_DEFAULT_PASSWORD=\"$(op read 'op://private/office 365/password' --account "$ap" 2>/dev/null)\""
+    echo "export GITLAB_TOKEN=\"$(op read 'op://private/gitlab personal access token/token' --account "$ap" 2>/dev/null)\""
+    echo "export TF_HTTP_PASSWORD=\"$(op read 'op://private/gitlab personal access token/token' --account "$ap" 2>/dev/null)\""
+    echo "export TF_HTTP_USERNAME=\"$(op read 'op://private/gitlab personal access token/username' --account "$ap" 2>/dev/null)\""
+    echo "export TF_VAR_gitlab_token=\"$(op read 'op://gss/GitLab_tfadmin-cdenneen/credential' --account "$ap" 2>/dev/null)\""
+    echo "export CI_REGISTRY_USER=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/username' --account "$ap" 2>/dev/null)\""
+    echo "export CI_REGISTRY_PASSWORD=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/credential' --account "$ap" 2>/dev/null)\""
+    echo "export GI_RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_gi-renovate/credential' --account "$ap" 2>/dev/null)\""
+    echo "export RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_renovate-runner-ci/credential' --account "$ap" 2>/dev/null)\""
+    echo "export DOCKER_HUB_PASSWORD=\"$(op read 'op://gss/DockerHub_token/credential' --account "$ap" 2>/dev/null)\""
+    echo "export GITHUB_TOKEN=\"$(op read 'op://private/GH_TOKEN/token' --account "$my" 2>/dev/null)\""
+    echo "export OPENAI_API_KEY=\"$(op read 'op://private/OpenAI/credential' --account "$ap" 2>/dev/null)\""
+  } > "$secrets_file".tmp
+
+  # Only replace if something actually changed
+  if ! cmp -s "$secrets_file".tmp "$secrets_file" 2>/dev/null; then
+    mv "$secrets_file".tmp "$secrets_file"
+    echo "✅ Secrets updated in $secrets_file"
+  else
+    rm -f "$secrets_file".tmp
+    echo "✅ Secrets already up to date."
+  fi
 }
 
-# Determine the target file of the symlink
-secrets_target=$(readlink ~/.secrets || echo ~/.secrets)
+# Determine the actual target of ~/.secrets
+secrets_target=$(readlink ~/.secrets 2>/dev/null || echo ~/.secrets)
 
-# Check if the target exists and its modification time
-if [ ! -e "$secrets_target" ] || [ -n "$(find "$secrets_target" -mtime +7 2>/dev/null)" ]; then
+# If file is missing or older than 7 days, update it
+if [ ! -e "$secrets_target" ] || find "$secrets_target" -mtime +7 >/dev/null 2>&1; then
   update_secrets
 fi
 
-source ~/.secrets
+# Load environment secrets
+[ -f ~/.secrets ] && source ~/.secrets

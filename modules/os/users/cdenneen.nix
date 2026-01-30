@@ -39,7 +39,8 @@ in
                 "input"
                 "uinput"
                 cfg.cdenneen.name
-              ] ++ lib.optionals config.containerPresets.podman.enable [ "podman" ];
+              ]
+              ++ lib.optionals config.containerPresets.podman.enable [ "podman" ];
               initialHashedPassword = "$y$j9T$8Gh6/.8Z.viwXCwRkvGFv.$LjcK6HYBvggZpp21Aiy0mt1UR9lRqlZ.PCVrXTpGT35";
             })
           ]
@@ -51,14 +52,16 @@ in
       cfg.cdenneen.name
       "root"
     ];
-    home-manager.users.${cfg.cdenneen.name} = {
-      home.username = cfg.cdenneen.name;
-      home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
-      profiles = {
-        defaults.enable = true;
-        gui.enable = enableGui;
-        cdenneen.enable = true;
+    home-manager.users.${cfg.cdenneen.name} =
+      { lib, ... }:
+      {
+        home.username = cfg.cdenneen.name;
+        home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
+        profiles = {
+          defaults.enable = true;
+          gui.enable = enableGui;
+          cdenneen.enable = true;
+        };
       };
-    };
   };
 }

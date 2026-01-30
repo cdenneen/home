@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.programs.ssh;
 in
@@ -10,7 +15,7 @@ in
     programs = {
       ssh = {
         enableDefaultConfig = false;
-        serverAliveInterval = 60;
+        matchBlocks."*".serverAliveInterval = 60;
         extraConfig = ''
           # Use SSHFP DNS records for host key verification
           VerifyHostKeyDNS yes

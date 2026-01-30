@@ -21,15 +21,18 @@ in
       };
     };
     programs = {
+      delta = {
+        enable = true;
+        enableGitIntegration = true;
+      };
       git = {
         lfs.enable = true;
-        delta.enable = true;
         signing = {
           signByDefault = true;
           key = null;
           signer = "${pkgs.gnupg}/bin/gpg";
         };
-        extraConfig = {
+        settings = {
           branch.autosetuprebase = "always";
           color.ui = "auto";
           pull.rebase = "true";
@@ -44,28 +47,28 @@ in
           init.defaultBranch = "main";
           url."git@github.com:".pushInsteadOf = "https://github.com/";
           url."git@gitlab.com:".pushInsteadOf = "https://gitlab.com/";
-        };
-        aliases = {
-          a = "add";
-          aa = "add -A";
-          b = "branch";
-          ba = "branch -a";
-          c = "commit -m";
-          ca = "commit -am";
-          cam = "commit --amend --date=now";
-          co = "checkout";
-          cob = "checkout -b";
-          sw = "switch";
-          swc = "switch -c";
-          s = "status -sb";
-          po = "!git push -u origin $(git branch --show-current)";
-          d = "diff";
-          dc = "diff --cached";
-          ignore = "update-index --assume-unchanged";
-          unignore = "update-index --no-assume-unchanged";
-          ignored = "!git ls-files -v | grep ^h | cut -c 3-";
-          rbm = "!git fetch && git rebase origin/main";
-          rbc = "-c core.editor=true rebase --continue";
+          alias = {
+            a = "add";
+            aa = "add -A";
+            b = "branch";
+            ba = "branch -a";
+            c = "commit -m";
+            ca = "commit -am";
+            cam = "commit --amend --date=now";
+            co = "checkout";
+            cob = "checkout -b";
+            sw = "switch";
+            swc = "switch -c";
+            s = "status -sb";
+            po = "!git push -u origin $(git branch --show-current)";
+            d = "diff";
+            dc = "diff --cached";
+            ignore = "update-index --assume-unchanged";
+            unignore = "update-index --no-assume-unchanged";
+            ignored = "!git ls-files -v | grep ^h | cut -c 3-";
+            rbm = "!git fetch && git rebase origin/main";
+            rbc = "-c core.editor=true rebase --continue";
+          };
         };
       };
       lazygit.enable = true;

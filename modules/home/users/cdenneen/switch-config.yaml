@@ -23,7 +23,7 @@ kubeconfigStores:
     showPrefix: false
     id: apss-sso-use1
     config:
-      profile: tf-sso
+      profile: tf-apss
       region: us-east-1
   - kind: eks
     showPrefix: false
@@ -47,7 +47,7 @@ kubeconfigStores:
     showPrefix: false
     id: apss-sso-usw2
     config:
-      profile: tf-sso
+      profile: tf-apss
       region: us-west-2
   - kind: eks
     showPrefix: false

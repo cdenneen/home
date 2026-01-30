@@ -53,7 +53,7 @@ function update_secrets() {
     echo "export GITLAB_TOKEN=\"$(op read 'op://private/gitlab personal access token/token')\""
     echo "export TF_HTTP_PASSWORD=\"$(op read 'op://private/gitlab personal access token/token')\""
     echo "export TF_HTTP_USERNAME=\"$(op read 'op://private/gitlab personal access token/username')\""
-    echo "export TF_VAR_gitlab_token=\"$(op read 'op://gss/GitLab_tf-eks/credential')\""
+    echo "export TF_VAR_gitlab_token=\"$(op read 'op://gss/GitLab_tfadmin-cdenneen/credential')\""
     echo "export CI_REGISTRY_USER=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/username')\""
     echo "export CI_REGISTRY_PASSWORD=\"$(op read 'op://Amazon Web Services/JFrog_gitlabci/credential')\""
     echo "export GI_RENOVATE_TOKEN=\"$(op read 'op://gss/GitLab_gi-renovate/credential')\""
