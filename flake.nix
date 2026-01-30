@@ -31,7 +31,14 @@
       url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
-    mac-app-util.url = "github:hraban/mac-app-util";
+    mac-app-util = {
+      url = "github:hraban/mac-app-util";
+
+      # mac-app-util pins its own nixpkgs; that chain can fetch Lisp deps from
+      # gitlab.common-lisp.net, which is often blocked by bot protection.
+      # Force it to use our nixpkgs instead.
+      inputs.nixpkgs.follows = "nixpkgs-stable";
+    };
     nh.url = "github:viperml/nh";
     nh_plus.url = "github:toyvo/nh_plus";
     nix-darwin = {

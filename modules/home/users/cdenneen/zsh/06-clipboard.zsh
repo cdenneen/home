@@ -55,31 +55,41 @@ function _tcp_clipboard_available() {
 
 function _pbcopy_tcp() {
   command -v nc >/dev/null 2>&1 || return 1
-  nc 127.0.0.1 2491 >/dev/null
+
+  # OpenBSD netcat: close immediately after stdin EOF.
+  nc -q 0 -w 2 127.0.0.1 2491 >/dev/null 2>&1
 }
 
 function _pbpaste_tcp() {
   command -v nc >/dev/null 2>&1 || return 1
-  nc 127.0.0.1 2492
+
+  # Avoid hanging forever if the bridge stalls.
+  nc -w 2 127.0.0.1 2492
 }
 
 function pbcopy() {
   if [[ -n "$SSH_CONNECTION" || -n "$SSH_TTY" ]]; then
     local tmp
     tmp=$(mktemp)
-    trap 'rm -f "$tmp"' RETURN
 
     cat >"$tmp"
 
     if _tcp_clipboard_available; then
-      cat "$tmp" | _pbcopy_tcp && return
+      if cat "$tmp" | _pbcopy_tcp; then
+        rm -f "$tmp"
+        return
+      fi
     fi
 
     if command -v lemonade >/dev/null 2>&1; then
-      cat "$tmp" | lemonade copy 2>/dev/null && return
+      if cat "$tmp" | lemonade copy 2>/dev/null; then
+        rm -f "$tmp"
+        return
+      fi
     fi
 
     cat "$tmp" | _pbcopy_osc52
+    rm -f "$tmp"
     return
   fi
 

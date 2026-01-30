@@ -292,7 +292,7 @@ in
             set -euo pipefail
 
             ${pkgs.socat}/bin/socat TCP-LISTEN:2491,fork,reuseaddr SYSTEM:"clip.exe" &
-            ${pkgs.socat}/bin/socat TCP-LISTEN:2492,fork,reuseaddr SYSTEM:"powershell.exe -NoProfile -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw\" | ${pkgs.coreutils}/bin/tr -d '\\r'" &
+            ${pkgs.socat}/bin/socat TCP-LISTEN:2492,fork,reuseaddr SYSTEM:"powershell.exe -NoProfile -NonInteractive -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw\" | ${pkgs.coreutils}/bin/tr -d '\\r'" &
 
             wait
           '';
