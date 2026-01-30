@@ -286,19 +286,21 @@ in
         After = [ "default.target" ];
       };
 
-      Service = {
-        Restart = "always";
-        ExecStart =
-          let
-            socat = "${pkgs.socat}/bin/socat";
-            tr = "${pkgs.coreutils}/bin/tr";
-          in
-          "${pkgs.bash}/bin/bash -lc ${lib.escapeShellArg ''
-            ${socat} TCP-LISTEN:2491,fork,reuseaddr SYSTEM:\"clip.exe\" &
-            ${socat} TCP-LISTEN:2492,fork,reuseaddr SYSTEM:\"powershell.exe -NoProfile -Command \\\"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw\\\" | ${tr} -d '\\\\r'\" &
+      Service =
+        let
+          script = pkgs.writeShellScript "wsl-clipboard-bridge" ''
+            set -euo pipefail
+
+            ${pkgs.socat}/bin/socat TCP-LISTEN:2491,fork,reuseaddr SYSTEM:"clip.exe" &
+            ${pkgs.socat}/bin/socat TCP-LISTEN:2492,fork,reuseaddr SYSTEM:"powershell.exe -NoProfile -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw\" | ${pkgs.coreutils}/bin/tr -d '\\r'" &
+
             wait
-          ''}";
-      };
+          '';
+        in
+        {
+          Restart = "always";
+          ExecStart = "${script}";
+        };
 
       Install = {
         WantedBy = [ "default.target" ];
