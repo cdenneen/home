@@ -10,9 +10,15 @@ in
 {
   options = {
     profiles.dev.enable = lib.mkEnableOption "Development Programs to be available outside of a devshell";
-    environment.pythonPackage = lib.mkOption {
-      type = lib.types.package;
-      default = pkgs.python312.withPackages (
+    environment.pythonPackages = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = [ ];
+    };
+  };
+
+  config = lib.mkIf cfg.dev.enable (
+    let
+      pythonPackage = pkgs.python312.withPackages (
         ps:
         with ps;
         [
@@ -23,22 +29,16 @@ in
         ]
         ++ config.environment.pythonPackages
       );
-    };
-    environment.pythonPackages = lib.mkOption {
-      type = lib.types.listOf lib.types.package;
-      default = [ ];
-    };
-  };
+    in
+    {
+      virtualisation.podman.enable = true;
+      virtualisation.podman.dockerCompat = true;
 
-  config = lib.mkIf cfg.dev.enable {
-    virtualisation.podman.enable = true;
-    virtualisation.podman.dockerCompat = true;
-    environment = {
-      systemPackages =
+      environment.systemPackages =
         with pkgs;
         [
           cmake
-          config.environment.pythonPackage
+          pythonPackage
           # dfu-util
           gnumake
           # libffi
@@ -70,6 +70,6 @@ in
               deno
               neovide
             ];
-    };
-  };
+    }
+  );
 }

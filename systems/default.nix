@@ -215,6 +215,7 @@ in
     };
     wsl = nixosSystem {
       system = "x86_64-linux";
+      pkgsFrom = "unstable";
       nixosModules = [
         ./wsl.nix
         nixos-wsl.nixosModules.wsl
