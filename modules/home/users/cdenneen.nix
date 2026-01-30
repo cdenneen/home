@@ -288,11 +288,27 @@ in
 
       Service =
         let
+          copyScript = pkgs.writeShellScript "wsl-clipboard-copy" ''
+            set -euo pipefail
+            cat | clip.exe
+          '';
+
+          pasteScript = pkgs.writeShellScript "wsl-clipboard-paste" ''
+            set -euo pipefail
+            powershell.exe -NoProfile -NonInteractive -Command '
+              [Console]::OutputEncoding=[System.Text.Encoding]::UTF8
+              $t = Get-Clipboard -Raw
+              if ($null -ne $t) {
+                $t -replace "`r", ""
+              }
+            '
+          '';
+
           script = pkgs.writeShellScript "wsl-clipboard-bridge" ''
             set -euo pipefail
 
-            ${pkgs.socat}/bin/socat TCP-LISTEN:2491,fork,reuseaddr SYSTEM:"clip.exe" &
-            ${pkgs.socat}/bin/socat TCP-LISTEN:2492,fork,reuseaddr SYSTEM:"powershell.exe -NoProfile -NonInteractive -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw\" | ${pkgs.coreutils}/bin/tr -d '\\r'" &
+            ${pkgs.socat}/bin/socat TCP-LISTEN:2491,fork,reuseaddr EXEC:"${copyScript}" &
+            ${pkgs.socat}/bin/socat TCP-LISTEN:2492,fork,reuseaddr EXEC:"${pasteScript}" &
 
             wait
           '';

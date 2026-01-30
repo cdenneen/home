@@ -57,14 +57,14 @@ function _pbcopy_tcp() {
   command -v nc >/dev/null 2>&1 || return 1
 
   # OpenBSD netcat: close immediately after stdin EOF.
-  nc -q 0 -w 2 127.0.0.1 2491 >/dev/null 2>&1
+  nc -q 0 -w 5 127.0.0.1 2491 >/dev/null 2>&1
 }
 
 function _pbpaste_tcp() {
   command -v nc >/dev/null 2>&1 || return 1
 
   # Avoid hanging forever if the bridge stalls.
-  nc -w 2 127.0.0.1 2492
+  nc -w 5 127.0.0.1 2492
 }
 
 function pbcopy() {
