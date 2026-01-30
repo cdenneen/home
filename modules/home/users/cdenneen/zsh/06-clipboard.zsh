@@ -1,8 +1,13 @@
 #█▓▒░ clipboard helpers
 # Goal: `pbcopy`/`pbpaste` on a remote SSH session uses your local clipboard.
 #
-# Preferred: lemonade over SSH remote port forward.
+# Preferred (WSL): TCP bridge over SSH remote port forward.
+# Preferred (macOS): lemonade over SSH remote port forward.
 # Fallback: OSC52 for remote -> local copy, and an interactive paste prompt.
+
+# Ensure we override any legacy aliases.
+unalias pbcopy 2>/dev/null || true
+unalias pbpaste 2>/dev/null || true
 
 function _pbcopy_osc52() {
   local data b64 osc
@@ -39,23 +44,23 @@ function _pbpaste_wsl() {
   powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw" | tr -d '\r'
 }
 
-function _pbcopy_tcp() {
-  if command -v nc >/dev/null 2>&1; then
-    nc 127.0.0.1 2491 >/dev/null
-    return $?
-  fi
+function _tcp_clipboard_available() {
+  command -v nc >/dev/null 2>&1 || return 1
 
-  cat >/dev/null
-  return 1
+  nc -z -w 1 127.0.0.1 2491 >/dev/null 2>&1 || return 1
+  nc -z -w 1 127.0.0.1 2492 >/dev/null 2>&1 || return 1
+
+  return 0
+}
+
+function _pbcopy_tcp() {
+  command -v nc >/dev/null 2>&1 || return 1
+  nc 127.0.0.1 2491 >/dev/null
 }
 
 function _pbpaste_tcp() {
-  if command -v nc >/dev/null 2>&1; then
-    nc 127.0.0.1 2492
-    return $?
-  fi
-
-  return 1
+  command -v nc >/dev/null 2>&1 || return 1
+  nc 127.0.0.1 2492
 }
 
 function pbcopy() {
@@ -66,11 +71,13 @@ function pbcopy() {
 
     cat >"$tmp"
 
+    if _tcp_clipboard_available; then
+      cat "$tmp" | _pbcopy_tcp && return
+    fi
+
     if command -v lemonade >/dev/null 2>&1; then
       cat "$tmp" | lemonade copy 2>/dev/null && return
     fi
-
-    cat "$tmp" | _pbcopy_tcp && return
 
     cat "$tmp" | _pbcopy_osc52
     return
@@ -92,11 +99,13 @@ function pbcopy() {
 
 function pbpaste() {
   if [[ -n "$SSH_CONNECTION" || -n "$SSH_TTY" ]]; then
+    if _tcp_clipboard_available; then
+      _pbpaste_tcp && return
+    fi
+
     if command -v lemonade >/dev/null 2>&1; then
       lemonade paste 2>/dev/null && return
     fi
-
-    _pbpaste_tcp && return
 
     # Fallback: ask user to paste (works everywhere, but manual)
     printf "Paste now, then press Ctrl-D\n" >&2
