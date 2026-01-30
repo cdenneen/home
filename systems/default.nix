@@ -111,11 +111,18 @@ let
         self.darwinModules.default
         sops-nix.darwinModules.sops
         {
+          # mac-app-util currently pulls SBCL + Lisp deps that sometimes fail to fetch.
+          # Keep it available, but make it opt-in per host.
+          services.mac-app-util.enable = lib.mkDefault false;
+
           home-manager = {
             backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
             extraSpecialArgs = specialArgs;
             sharedModules = [
               mac-app-util.homeManagerModules.default
+              {
+                targets.darwin.mac-app-util.enable = lib.mkDefault false;
+              }
             ]
             ++ homeModules
             ++ sharedHomeModules;
