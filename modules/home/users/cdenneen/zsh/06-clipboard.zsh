@@ -20,14 +20,68 @@ function _pbcopy_osc52() {
   fi
 }
 
+function _is_wsl() {
+  [[ -n "$WSL_DISTRO_NAME" || -n "$WSL_INTEROP" ]]
+}
+
+function _pbcopy_wsl() {
+  if command -v clip.exe >/dev/null 2>&1; then
+    clip.exe
+    return
+  fi
+
+  cat >/dev/null
+  return 1
+}
+
+function _pbpaste_wsl() {
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw" | tr -d '\r'
+    return
+  fi
+
+  return 1
+}
+
+function _pbcopy_tcp() {
+  if command -v nc >/dev/null 2>&1; then
+    nc 127.0.0.1 2491 >/dev/null
+    return $?
+  fi
+
+  cat >/dev/null
+  return 1
+}
+
+function _pbpaste_tcp() {
+  if command -v nc >/dev/null 2>&1; then
+    nc 127.0.0.1 2492
+    return $?
+  fi
+
+  return 1
+}
+
 function pbcopy() {
   if [[ -n "$SSH_CONNECTION" || -n "$SSH_TTY" ]]; then
+    local tmp
+    tmp=$(mktemp)
+    trap 'rm -f "$tmp"' RETURN
+
+    cat >"$tmp"
+
     if command -v lemonade >/dev/null 2>&1; then
-      lemonade copy
-      return
+      cat "$tmp" | lemonade copy 2>/dev/null && return
     fi
 
-    _pbcopy_osc52
+    cat "$tmp" | _pbcopy_tcp && return
+
+    cat "$tmp" | _pbcopy_osc52
+    return
+  fi
+
+  if _is_wsl; then
+    _pbcopy_wsl
     return
   fi
 
@@ -43,13 +97,19 @@ function pbcopy() {
 function pbpaste() {
   if [[ -n "$SSH_CONNECTION" || -n "$SSH_TTY" ]]; then
     if command -v lemonade >/dev/null 2>&1; then
-      lemonade paste
-      return
+      lemonade paste 2>/dev/null && return
     fi
+
+    _pbpaste_tcp && return
 
     # Fallback: ask user to paste (works everywhere, but manual)
     printf "Paste now, then press Ctrl-D\n" >&2
     cat
+    return
+  fi
+
+  if _is_wsl; then
+    _pbpaste_wsl
     return
   fi
 

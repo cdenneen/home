@@ -3,10 +3,37 @@
   lib,
   pkgs,
   system,
+  osConfig ? null,
   ...
 }:
 let
   cfg = config.profiles;
+  isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
+
+  erosRemoteForwards =
+    if pkgs.stdenv.isDarwin then
+      [
+        {
+          bind.port = 2489;
+          host.address = "127.0.0.1";
+          host.port = 2489;
+        }
+      ]
+    else if isWsl then
+      [
+        {
+          bind.port = 2491;
+          host.address = "127.0.0.1";
+          host.port = 2491;
+        }
+        {
+          bind.port = 2492;
+          host.address = "127.0.0.1";
+          host.port = 2492;
+        }
+      ]
+    else
+      [ ];
 in
 {
   options.profiles.cdenneen.enable = lib.mkEnableOption "Enable cdenneen profile";
@@ -200,16 +227,12 @@ in
               proxyCommand = proxyCommand;
               user = "cdenneen";
               hostname = "i-0a3e1df60bde023ad";
-              extraOptions = {
-                RemoteForward = "2489 127.0.0.1:2489";
-              };
+              remoteForwards = erosRemoteForwards;
             };
             "eros" = identityConfig // {
               user = "cdenneen";
               hostname = "10.224.11.147";
-              extraOptions = {
-                RemoteForward = "2489 127.0.0.1:2489";
-              };
+              remoteForwards = erosRemoteForwards;
             };
             "git-codecommit.*.amazonaws.com" = identityConfig // {
               user = "APKA4GUE2SGMGTPZB44D";
@@ -238,6 +261,7 @@ in
         fluxcd
         _1password-cli
         lemonade
+        netcat-openbsd
         xsel
       ];
     catppuccin = {
@@ -253,6 +277,31 @@ in
         ];
         KeepAlive = true;
         RunAtLoad = true;
+      };
+    };
+
+    systemd.user.services.wsl-clipboard-bridge = lib.mkIf isWsl {
+      Unit = {
+        Description = "WSL clipboard bridge for SSH remotes";
+        After = [ "default.target" ];
+      };
+
+      Service = {
+        Restart = "always";
+        ExecStart =
+          let
+            socat = "${pkgs.socat}/bin/socat";
+            tr = "${pkgs.coreutils}/bin/tr";
+          in
+          "${pkgs.bash}/bin/bash -lc ${lib.escapeShellArg ''
+            ${socat} TCP-LISTEN:2491,fork,reuseaddr SYSTEM:\"clip.exe\" &
+            ${socat} TCP-LISTEN:2492,fork,reuseaddr SYSTEM:\"powershell.exe -NoProfile -Command \\\"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw\\\" | ${tr} -d '\\\\r'\" &
+            wait
+          ''}";
+      };
+
+      Install = {
+        WantedBy = [ "default.target" ];
       };
     };
 
