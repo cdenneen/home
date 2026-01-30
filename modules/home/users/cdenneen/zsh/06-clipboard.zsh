@@ -21,26 +21,22 @@ function _pbcopy_osc52() {
 }
 
 function _is_wsl() {
-  [[ -n "$WSL_DISTRO_NAME" || -n "$WSL_INTEROP" ]]
+  [[ -n "$WSL_DISTRO_NAME" || -n "$WSL_INTEROP" ]] && return 0
+
+  [[ -r /proc/sys/kernel/osrelease ]] && grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease && return 0
+  [[ -r /proc/version ]] && grep -qiE '(microsoft|wsl)' /proc/version && return 0
+
+  return 1
 }
 
 function _pbcopy_wsl() {
-  if command -v clip.exe >/dev/null 2>&1; then
-    clip.exe
-    return
-  fi
-
-  cat >/dev/null
-  return 1
+  command -v clip.exe >/dev/null 2>&1 || return 1
+  clip.exe
 }
 
 function _pbpaste_wsl() {
-  if command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw" | tr -d '\r'
-    return
-  fi
-
-  return 1
+  command -v powershell.exe >/dev/null 2>&1 || return 1
+  powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw" | tr -d '\r'
 }
 
 function _pbcopy_tcp() {
@@ -80,12 +76,12 @@ function pbcopy() {
     return
   fi
 
-  if _is_wsl; then
-    _pbcopy_wsl
-    return
+  # Prefer Windows clipboard whenever available (WSL).
+  if command -v clip.exe >/dev/null 2>&1 || _is_wsl; then
+    _pbcopy_wsl && return
   fi
 
-  if command -v xsel >/dev/null 2>&1; then
+  if [[ -n "$DISPLAY" ]] && command -v xsel >/dev/null 2>&1; then
     xsel -ib
     return
   fi
@@ -108,12 +104,12 @@ function pbpaste() {
     return
   fi
 
-  if _is_wsl; then
-    _pbpaste_wsl
-    return
+  # Prefer Windows clipboard whenever available (WSL).
+  if command -v powershell.exe >/dev/null 2>&1 || _is_wsl; then
+    _pbpaste_wsl && return
   fi
 
-  if command -v xsel >/dev/null 2>&1; then
+  if [[ -n "$DISPLAY" ]] && command -v xsel >/dev/null 2>&1; then
     xsel -ob
     return
   fi
