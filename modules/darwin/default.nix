@@ -9,17 +9,21 @@
     ../os
     ./podman.nix
   ];
-  config = lib.mkIf config.profiles.defaults.enable {
-    # nix-darwin currently sets `pkgs.buildEnv.pathsToLink = "/Applications"` (a string),
-    # but recent nixpkgs expects it to be a list.
-    system.build.applications = lib.mkForce (
-      pkgs.buildEnv {
-        name = "system-applications";
-        paths = config.environment.systemPackages;
-        pathsToLink = [ "/Applications" ];
-      }
-    );
-    security.pam.services.sudo_local.touchIdAuth = true;
+  config = lib.mkMerge [
+    {
+      # nix-darwin currently sets `pkgs.buildEnv.pathsToLink = "/Applications"` (a string),
+      # but recent nixpkgs expects it to be a list.
+      system.build.applications = lib.mkForce (
+        pkgs.buildEnv {
+          name = "system-applications";
+          paths = config.environment.systemPackages;
+          pathsToLink = [ "/Applications" ];
+        }
+      );
+    }
+
+    (lib.mkIf config.profiles.defaults.enable {
+      security.pam.services.sudo_local.touchIdAuth = true;
     system = {
       primaryUser = "cdenneen";
       stateVersion = 5;
@@ -89,5 +93,6 @@
         }
       ];
     };
-  };
+  })
+  ];
 }
