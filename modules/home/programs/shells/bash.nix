@@ -15,7 +15,7 @@ in
 
         nix_paths=("${lib.concatStringsSep "\" \"" config.home.sessionPath}")
         IFS=':'
-        read -r -a pre_paths <<< "$PATH"
+        read -r -a pre_paths <<< "/run/wrappers/bin:$PATH"
         paths_to_export=()
         for path in "''${pre_paths[@]}"; do
             if [[ -d "$path" && ! " ''${nix_paths[@]} " =~ " ''${path} " ]]; then

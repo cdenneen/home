@@ -1,0 +1,39 @@
+name: flake-ci
+
+on:
+  push:
+    branches: [main, baseline/upstream-rebased]
+  pull_request:
+    branches: [main, baseline/upstream-rebased]
+
+jobs:
+  # Flake checks are intentionally omitted in CI.
+  # They are strict under flake-parts and require per-system guarantees
+  # that are better validated via system evals below.
+
+  nixos-eval:
+    # Use native ARM runner; ubuntu-latest is x86_64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Evaluate NixOS (aarch64-linux)
+        run: nix build .#nixosConfigurations.eros.config.system.build.toplevel --system aarch64-linux --accept-flake-config
+
+  darwin-eval:
+    # macos-latest is arm64 and matches aarch64-darwin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Use Determinate Nix installer on macOS runners to avoid multi-user installer failures
+      - uses: DeterminateSystems/nix-installer-action@v12
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+      - name: Evaluate Darwin (aarch64-darwin)
+        run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+
+  # Cachix publishing is handled in a separate workflow triggered only on push

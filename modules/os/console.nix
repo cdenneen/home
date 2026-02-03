@@ -14,7 +14,8 @@ in
       fish.enable = true;
       nh = {
         enable = true;
-        flake = "${config.users.users.${config.userPresets.toyvo.name}.home}/nixcfg";
+        # nh flake lives in ~/src/personal/home
+        flake = "${config.users.users.${config.userPresets.cdenneen.name}.home}/src/personal/home";
         clean.enable = true;
       };
     };

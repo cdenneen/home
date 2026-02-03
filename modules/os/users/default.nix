@@ -1,8 +1,7 @@
 { ... }:
 {
   imports = [
-    ./toyvo.nix
-    ./chloe.nix
     ./root.nix
+    ./cdenneen.nix
   ];
 }

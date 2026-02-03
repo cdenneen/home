@@ -1,20 +1,18 @@
 { writeShellScriptBin }:
 writeShellScriptBin "pre-commit" ''
-  echo "Stashing unstaged changes..."
-  git commit --allow-empty --no-verify --message 'Save index'
-  stash_output=$(git stash push --include-untracked --message 'Unstaged changes')
-  echo $stash_output
-  git reset --soft HEAD^
+  echo "Running format checks..."
 
-  echo "Formatting..."
-  nix fmt
-
-  git add --all
-
-  if [ -n "$stash_output" ] && [ "$stash_output" != "No local changes to save" ]; then
-      echo "Restoring unstaged changes..."
-      git stash pop
+  # Check-only: do not modify the working tree during commit
+  if command -v treefmt >/dev/null 2>&1; then
+    if ! treefmt --check; then
+      echo
+      echo "Formatting issues detected."
+      echo "Run 'nix fmt' (or 'treefmt') manually, then re-run git commit."
+      exit 1
+    fi
   else
-      echo "No unstaged changes to restore."
+    echo "treefmt not found; skipping format checks."
   fi
+
+  exit 0
 ''

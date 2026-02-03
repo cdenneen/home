@@ -14,49 +14,83 @@ in
     ./gui.nix
     ./dev.nix
     ./console.nix
+    ./sudo.nix
   ];
 
   options.profiles.defaults.enable = lib.mkEnableOption "Enable Defaults";
 
-  config = lib.mkIf cfg.defaults.enable {
-    home-manager = {
-      backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
-      useUserPackages = true;
-      sharedModules = [
-        {
-          nix.package = lib.mkForce config.nix.package;
-          home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
-        }
+  config = lib.mkMerge [
+    {
+      # Enable cdenneen user preset globally so Home Manager activates everywhere
+      userPresets.cdenneen.enable = true;
+
+      # Ensure new Nix CLI is enabled for this user/host
+      # Note: On macOS with Determinate Nix this is advisory and must still be
+      # present in trusted settings, but keeping it here documents intent and
+      # works on NixOS.
+      nix.settings.experimental-features = [
+        "nix-command"
+        "flakes"
       ];
-    };
-    nix = {
-      settings = {
-        experimental-features = [
-          "nix-command"
-          "flakes"
-          "pipe-operators"
-        ];
-        substituters = config.nix.settings.trusted-substituters;
-        trusted-substituters = [
-          "https://cache.nixos.org"
-          "https://nix-community.cachix.org"
-          "https://toyvo.cachix.org"
-          "https://cache.toyvo.dev"
-        ];
-        trusted-public-keys = [
-          "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-          "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-          "toyvo.cachix.org-1:s++CG1te6YaS9mjICre0Ybbya2o/S9fZIyDNGiD4UXs="
-          "cache.toyvo.dev:6bv4Qc2/SVaWnWzDOUcoB4pT3i3l4wcM+WrhRBFb7E4="
+
+      # Always enable Home Manager backups to avoid clobbering existing files
+      # on first activation when HM manages an existing home directory.
+      home-manager.backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
+
+      # Ensure security wrappers (sudo, ping, etc.) are found before system binaries
+      # This must apply to SSH, TTY, and interactive shells
+      environment.shellInit = ''
+        export PATH="/run/wrappers/bin:$PATH"
+      '';
+    }
+    # NOTE: Do NOT set security.sudo.enable here.
+    # sudo enablement is handled by NixOS defaults and by modules/os/sudo.nix,
+    # and must not be referenced at all on nix-darwin.
+
+    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
+      home-manager = {
+        backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
+        useUserPackages = true;
+        useGlobalPkgs = true;
+        sharedModules = [
+          {
+            nix.package = lib.mkForce config.nix.package;
+            home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
+          }
         ];
       };
-      nixPath = [
-        "nixpkgs=${inputs.nixpkgs-unstable}"
-      ];
-    };
-    sops = {
-      defaultSopsFile = ../../secrets.yaml;
-      age.keyFile = "/var/sops/age/keys.txt";
-    };
-  };
+      nix = {
+        settings = {
+          # Allow local user to use substituters (avoid source builds for nix shell/profile)
+          trusted-users = [
+            "root"
+            config.userPresets.cdenneen.name
+          ];
+          experimental-features = [
+            "nix-command"
+            "flakes"
+            "pipe-operators"
+          ];
+          substituters = config.nix.settings.trusted-substituters;
+          trusted-substituters = [
+            "https://cache.nixos.org"
+            "https://nix-community.cachix.org"
+            "https://cdenneen.cachix.org"
+          ];
+          trusted-public-keys = [
+            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+            "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+            "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
+          ];
+        };
+        nixPath = [
+          "nixpkgs=${inputs.nixpkgs-unstable}"
+        ];
+      };
+      sops = {
+        defaultSopsFile = ../../secrets.yaml;
+        age.keyFile = "/var/sops/age/keys.txt";
+      };
+    })
+  ];
 }

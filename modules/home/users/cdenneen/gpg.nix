@@ -1,0 +1,46 @@
+{ config, lib, ... }:
+
+let
+  # GPG secret keys stored in SOPS (armored). Add new keys here as needed.
+  gpgSecretNames = [
+    "gpg_gmail"
+    "gpg_ap"
+  ];
+in
+{
+  sops.secrets = lib.genAttrs gpgSecretNames (name: {
+    sopsFile = ../../../../secrets/secrets.yaml;
+    key = name;
+  });
+
+  programs.gpg = {
+    enable = true;
+    publicKeys = [
+      {
+        source = ../../../../secrets/personal.pub;
+        trust = 5;
+      }
+      {
+        source = ../../../../secrets/work.pub;
+        trust = 5;
+      }
+    ];
+  };
+
+  services.gpg-agent = {
+    enable = true;
+  };
+
+  # Import all decrypted GPG secret keys from SOPS exactly once.
+  home.activation.importGpgSecrets = lib.hm.dag.entryAfter [ "writeBoundary" ] (
+    lib.concatStringsSep "\n" (
+      map (name: ''
+        if [ -f "${config.sops.secrets.${name}.path}" ]; then
+          ${config.programs.gpg.package}/bin/gpg --batch --import "${
+            config.sops.secrets.${name}.path
+          }" >/dev/null 2>&1 || true
+        fi
+      '') gpgSecretNames
+    )
+  );
+}

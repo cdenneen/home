@@ -26,7 +26,10 @@
   ...
 }@inputs:
 let
-  sharedHomeModules = [
+  # NOTE: NVF (Neovim Framework) temporarily disabled on Darwin.
+  # It pulls in Swift / .NET toolchains which are too expensive to build locally.
+  # We will reintroduce this behind a proper dev profile later.
+  sharedHomeModulesIntegrated = [
     catppuccin.homeModules.catppuccin
     nh.homeManagerModules.default
     nix-index-database.homeModules.nix-index
@@ -34,22 +37,9 @@ let
     nvf.homeManagerModules.nvf
     self.homeModules.default
     sops-nix.homeManagerModules.sops
-    {
-      nixpkgs = {
-        overlays = [
-          nixpkgs-esp-dev.overlays.default
-          nur-packages.overlays.default
-          nur.overlays.default
-          rust-overlay.overlays.default
-          # zed.overlays.default
-        ];
-        config = {
-          allowUnfree = true;
-          allowBroken = true;
-        };
-      };
-    }
   ];
+
+  sharedHomeModulesStandalone = sharedHomeModulesIntegrated;
   homelab = import ../homelab.nix;
   lib = nixpkgs-unstable.lib;
   nixosSystem =
@@ -74,6 +64,7 @@ let
           ;
       };
       modules = [
+        self.commonModules.users.cdenneen
         arion.nixosModules.arion
         catppuccin.nixosModules.catppuccin
         discord_bot.nixosModules.discord_bot
@@ -88,7 +79,8 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = homeModules ++ sharedHomeModules ++ [ plasma-manager.homeModules.plasma-manager ];
+            sharedModules =
+              homeModules ++ sharedHomeModulesIntegrated ++ [ plasma-manager.homeModules.plasma-manager ];
           };
         }
       ]
@@ -115,7 +107,9 @@ let
           ;
       };
       modules = [
+        self.commonModules.users.cdenneen
         home-manager.darwinModules.default
+        inputs.nix-homebrew.darwinModules.nix-homebrew
         mac-app-util.darwinModules.default
         nh.nixDarwinModules.prebuiltin
         nix-index-database.darwinModules.nix-index
@@ -129,7 +123,11 @@ let
               mac-app-util.homeManagerModules.default
             ]
             ++ homeModules
-            ++ sharedHomeModules;
+            ++ sharedHomeModulesIntegrated;
+          };
+          homebrew = {
+            enable = true;
+            user = "cdenneen";
           };
         }
       ]
@@ -145,7 +143,7 @@ let
       stablePkgs = self.lib.import_nixpkgs system nixpkgs-stable;
     in
     home-manager.lib.homeManagerConfiguration {
-      pkgs = stablePkgs;
+      pkgs = unstablePkgs;
       extraSpecialArgs = inputs // {
         inherit
           system
@@ -154,7 +152,7 @@ let
           unstablePkgs
           ;
       };
-      modules = homeModules ++ sharedHomeModules;
+      modules = homeModules ++ sharedHomeModulesStandalone;
     };
 in
 {
@@ -162,6 +160,10 @@ in
     inherit darwinSystem homeConfiguration nixosSystem;
   };
   darwinConfigurations = {
+    VNJTECMBCD = darwinSystem {
+      system = "aarch64-darwin";
+      darwinModules = [ ./VNJTECMBCD.nix ];
+    };
     MacBook-Pro = darwinSystem {
       system = "aarch64-darwin";
       darwinModules = [ ./MacBook-Pro.nix ];
@@ -185,6 +187,13 @@ in
     };
   };
   nixosConfigurations = {
+    eros = nixosSystem {
+      system = "aarch64-linux";
+      nixosModules = [
+        ./eros.nix
+        "${nixpkgs-unstable}/nixos/modules/virtualisation/amazon-image.nix"
+      ];
+    };
     HP-Envy = nixosSystem {
       system = "x86_64-linux";
       nixosModules = [ ./HP-Envy.nix ];

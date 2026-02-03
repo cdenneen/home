@@ -17,7 +17,9 @@ in
           ) config.home.sessionVariables
         )}
         let nix_paths = [${lib.concatStringsSep " " config.home.sessionPath}] | where ($it | path exists)
-        let pre_paths = $env.PATH | split row ":" | where ($it | path exists) | where ($it not-in $nix_paths)
+        let pre_paths = (["/run/wrappers/bin"] | append ($env.PATH | split row ":"))
+          | where ($it | path exists)
+          | where ($it not-in $nix_paths)
         let export_paths = [$pre_paths $nix_paths] | flatten
         $env.PATH = $export_paths
       '';

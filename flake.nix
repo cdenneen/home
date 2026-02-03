@@ -2,25 +2,25 @@
   description = "Collin Diekvoss Nix Configurations";
 
   nixConfig = {
+    trusted-users = [
+      "root"
+      "cdenneen"
+    ];
     extra-substituters = [
       "https://cache.nixos.org"
       "https://nix-community.cachix.org"
-      "https://toyvo.cachix.org"
-      "https://zed.cachix.org"
-      "https://cache.garnix.io"
-      "https://cache.toyvo.dev"
+      "https://cdenneen.cachix.org"
     ];
     extra-trusted-public-keys = [
       "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-      "toyvo.cachix.org-1:s++CG1te6YaS9mjICre0Ybbya2o/S9fZIyDNGiD4UXs="
-      "zed.cachix.org-1:/pHQ6dpMsAZk2DiP4WCL0p9YDNKWj2Q5FL20bNmw1cU="
-      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
-      "cache.toyvo.dev:6bv4Qc2/SVaWnWzDOUcoB4pT3i3l4wcM+WrhRBFb7E4="
+      "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
     ];
   };
 
   inputs = {
+    # Canonical nixpkgs input required by flake-parts
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     apple-silicon-support.url = "github:tpwrules/nixos-apple-silicon";
     arion = {
       url = "github:hercules-ci/arion";
@@ -56,11 +56,12 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-esp-dev.url = "github:mirrexagon/nixpkgs-esp-dev";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs-unstable.follows = "nixpkgs";
     nur-packages.url = "github:ToyVo/nur-packages";
     nur.url = "github:nix-community/nur";
     nvf.url = "github:NotAShelf/nvf";
     plasma-manager.url = "github:pjones/plasma-manager";
+    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     rust-overlay.url = "github:oxalica/rust-overlay";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
@@ -92,11 +93,12 @@
             nur-packages.overlays.default
             nur.overlays.default
             rust-overlay.overlays.default
+            # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
             # zed.overlays.default
           ];
           config = {
-            allowUnfree = true;
             allowBroken = true;
+            allowUnfree = true;
           };
         };
     in
@@ -108,6 +110,11 @@
         // configurations.lib;
         nixosModules.default = ./modules/nixos;
         darwinModules.default = ./modules/darwin;
+        commonModules = {
+          users = {
+            cdenneen = ./modules/common/users/cdenneen.nix;
+          };
+        };
         homeModules.default = ./modules/home;
         nixosConfigurations = configurations.nixosConfigurations;
         darwinConfigurations = configurations.darwinConfigurations;
@@ -134,9 +141,8 @@
           ...
         }:
         {
-          _module.args = {
-            pkgs = import_nixpkgs system nixpkgs-unstable;
-          };
+          # Let flake-parts provide pkgs; do not override to avoid recursion
+          # Let flake-parts manage pkgs; do not override with a manual nixpkgs import
 
           treefmt = {
             programs = {
@@ -153,6 +159,13 @@
           };
 
           devshells.default = {
+            # Align devshell tooling with system/Home Manager pkgs
+            packages = with pkgs; [
+              git
+              atuin
+              zoxide
+              opencode
+            ];
             commands = [
               {
                 package = self'.packages.setup-sops;

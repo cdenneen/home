@@ -19,7 +19,7 @@ in
         viAlias = true;
         vimAlias = true;
         lsp = {
-          enable = true;
+          enable = false;
           lightbulb.enable = true;
           trouble.enable = true;
           lspSignature.enable = true;
@@ -55,18 +55,19 @@ in
           enableFormat = true;
           enableTreesitter = true;
           bash.enable = true;
-          clang.enable = true;
+          clang.enable = false;
           csharp.enable = system != "aarch64-darwin";
           css.enable = true;
           html.enable = true;
+          haskell.enable = false;
           lua.enable = true;
           markdown.enable = true;
           nix.enable = true;
-          nu.enable = true;
+          nu.enable = false;
           python.enable = true;
-          rust.enable = true;
-          sql.enable = true;
-          tailwind.enable = true;
+          rust.enable = false;
+          sql.enable = false;
+          tailwind.enable = false;
           terraform.enable = true;
           ts.enable = true;
           yaml.enable = true;
@@ -85,5 +86,8 @@ in
         git.enable = true;
       };
     };
+
+    home.sessionVariables.EDITOR = "nvim";
+    home.sessionVariables.VISUAL = "nvim";
   };
 }

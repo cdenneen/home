@@ -26,7 +26,7 @@ in
       # PATH
       let nix_paths = [${lib.concatStringsSep " " config.home.sessionPath}]
       let paths_to_export = []
-      for path in @split($PATH ':')
+       for path in @split("/run/wrappers/bin:" ++ $PATH ':')
         if test -d $path
           match $path
             case @nix_paths;

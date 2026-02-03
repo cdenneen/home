@@ -24,7 +24,8 @@ in
 
         set nix_paths ${lib.concatStringsSep " " config.home.sessionPath}
         set paths_to_export
-        for path in $PATH
+        set -l __hm_path "/run/wrappers/bin" $PATH
+        for path in $__hm_path
           if test -d $path && not contains $path $nix_paths
             set paths_to_export $paths_to_export $path
           end
