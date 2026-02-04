@@ -10,7 +10,6 @@ jobs:
   # that are better validated via system evals below.
 
   nixos-eval:
-    # Use ubuntu-latest; rely on Nix for correct system evaluation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,28 +19,38 @@ jobs:
             experimental-features = nix-command flakes
       - name: Evaluate NixOS (aarch64-linux)
         run: nix build .#nixosConfigurations.eros.config.system.build.toplevel --accept-flake-config
-      - name: Push NixOS artifacts to Cachix
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: cachix/cachix-action@v14
+
+  nixos-cachix:
+    needs: nixos-eval
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v14
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
   darwin-eval:
-    # macos-latest is arm64 and matches aarch64-darwin
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      # Use Determinate Nix installer on macOS runners to avoid multi-user installer failures
       - uses: DeterminateSystems/nix-installer-action@v21
         with:
           extra-conf: |
             experimental-features = nix-command flakes
       - name: Evaluate Darwin (aarch64-darwin)
         run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
-      - name: Push Darwin artifacts to Cachix
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: cachix/cachix-action@v14
+
+  darwin-cachix:
+    needs: darwin-eval
+    runs-on: macos-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@v21
+      - uses: cachix/cachix-action@v14
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
