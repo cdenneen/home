@@ -2,9 +2,7 @@ name: flake-ci
 
 on:
   push:
-    branches: [main, baseline/upstream-rebased]
   pull_request:
-    branches: [main, baseline/upstream-rebased]
 
 jobs:
   # Flake checks are intentionally omitted in CI.
@@ -12,28 +10,49 @@ jobs:
   # that are better validated via system evals below.
 
   nixos-eval:
-    # Use native ARM runner; ubuntu-latest is x86_64
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v27
+      - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
       - name: Evaluate NixOS (aarch64-linux)
-        run: nix build .#nixosConfigurations.eros.config.system.build.toplevel --system aarch64-linux --accept-flake-config
+        run: nix build .#nixosConfigurations.eros.config.system.build.toplevel --accept-flake-config
+
+  nixos-cachix:
+    needs: nixos-eval
+    runs-on: ubuntu-24.04-arm
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v14
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
   darwin-eval:
-    # macos-latest is arm64 and matches aarch64-darwin
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
-      # Use Determinate Nix installer on macOS runners to avoid multi-user installer failures
-      - uses: DeterminateSystems/nix-installer-action@v12
+      - uses: DeterminateSystems/nix-installer-action@v21
         with:
           extra-conf: |
             experimental-features = nix-command flakes
       - name: Evaluate Darwin (aarch64-darwin)
         run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+
+  darwin-cachix:
+    needs: darwin-eval
+    runs-on: macos-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@v21
+      - uses: cachix/cachix-action@v14
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
   # Cachix publishing is handled in a separate workflow triggered only on push
