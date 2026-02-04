@@ -10,7 +10,7 @@ jobs:
   # that are better validated via system evals below.
 
   nixos-eval:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
       - uses: cachix/install-nix-action@v31
@@ -22,7 +22,7 @@ jobs:
 
   nixos-cachix:
     needs: nixos-eval
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v6
