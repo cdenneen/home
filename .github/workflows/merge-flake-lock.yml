@@ -1,0 +1,37 @@
+name: Merge flake.lock PR
+
+on:
+  workflow_run:
+    workflows: ["flake-ci"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    # Only run when CI succeeded on a pull request
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Locate flake.lock PR
+        id: pr
+        run: |
+          PR=$(gh pr list \
+            --search "Update Nix flake inputs" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Merge flake.lock PR
+        if: steps.pr.outputs.pr != ''
+        run: gh pr merge --auto --squash ${{ steps.pr.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
