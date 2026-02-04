@@ -15,7 +15,7 @@ jobs:
     # Use native ARM runner; ubuntu-latest is x86_64
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cachix/install-nix-action@v27
         with:
           extra_nix_config: |
@@ -27,7 +27,7 @@ jobs:
     # macos-latest is arm64 and matches aarch64-darwin
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # Use Determinate Nix installer on macOS runners to avoid multi-user installer failures
       - uses: DeterminateSystems/nix-installer-action@v12
         with:
