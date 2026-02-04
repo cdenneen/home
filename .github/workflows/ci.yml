@@ -2,9 +2,7 @@ name: flake-ci
 
 on:
   push:
-    branches: [main, baseline/upstream-rebased]
   pull_request:
-    branches: [main, baseline/upstream-rebased]
 
 jobs:
   # Flake checks are intentionally omitted in CI.
@@ -22,6 +20,12 @@ jobs:
             experimental-features = nix-command flakes
       - name: Evaluate NixOS (aarch64-linux)
         run: nix build .#checks.aarch64-linux --accept-flake-config
+      - name: Push NixOS artifacts to Cachix
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: cachix/cachix-action@v14
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
   darwin-eval:
     # macos-latest is arm64 and matches aarch64-darwin
@@ -35,5 +39,11 @@ jobs:
             experimental-features = nix-command flakes
       - name: Evaluate Darwin (aarch64-darwin)
         run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+      - name: Push Darwin artifacts to Cachix
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: cachix/cachix-action@v14
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
   # Cachix publishing is handled in a separate workflow triggered only on push
