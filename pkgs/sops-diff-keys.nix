@@ -1,24 +1,23 @@
 { pkgs, ... }:
 pkgs.writeShellApplication {
   name = "sops-diff-keys";
-  runtimeInputs = with pkgs; [ bash sops diffutils gnugrep ];
-  bash = true;
+  runtimeInputs = with pkgs; [ sops diffutils gnugrep ];
   text = ''
     set -euo pipefail
 
-    tmp_old=$(mktemp)
-    tmp_new=$(mktemp)
+    tmp_current=$(mktemp)
+    tmp_known=$(mktemp)
+    trap 'rm -f "$tmp_current" "$tmp_known"' EXIT
 
-    sops --show-master-keys secrets/secrets.yaml | sort > "$tmp_old"
+    # Current recipients parsed directly from secrets file
+    sed -n 's/^[[:space:]]*-\s*recipient:\s*//p' secrets/secrets.yaml \
+      | sort -u > "$tmp_current"
 
-    # Trigger updatekeys calculation without modifying the file
-    # Compute prospective key set without modifying the file
-    if sops updatekeys secrets/secrets.yaml </dev/null 2>/dev/null; then true; fi
+    # Documented recipients
+    awk '{print $1}' pub/age-recipients.txt | sort -u > "$tmp_known"
 
-    sops --show-master-keys secrets/secrets.yaml | sort > "$tmp_new"
-
-    echo "Diff of AGE recipients (current -> computed):"
-    diff -u "$tmp_old" "$tmp_new" || true
+    echo "Diff of AGE recipients (secrets.yaml -> pub/age-recipients.txt):"
+    diff -u "$tmp_current" "$tmp_known" || true
 
     if [ -f pub/age-recipients.txt ]; then
       echo ""
@@ -26,6 +25,6 @@ pkgs.writeShellApplication {
       sed 's/^/  /' pub/age-recipients.txt
     fi
 
-    rm -f "$tmp_old" "$tmp_new"
+    # cleanup handled by trap
   '';
 }

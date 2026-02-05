@@ -1,8 +1,7 @@
 { pkgs, ... }:
 pkgs.writeShellApplication {
   name = "sops-verify-keys";
-  runtimeInputs = with pkgs; [ bash sops gnugrep coreutils ];
-  bash = true;
+  runtimeInputs = with pkgs; [ sops gnugrep coreutils ];
   text = ''
     set -euo pipefail
 
@@ -11,20 +10,22 @@ pkgs.writeShellApplication {
       exit 1
     fi
 
-    mapfile -t current < <(sops --show-master-keys secrets/secrets.yaml | sed 's/^age: //' | sort -u)
-    mapfile -t known < <(grep -E '^age1' pub/age-recipients.txt | awk '{print $1}' | sort -u)
+    tmp_current=$(mktemp)
+    tmp_known=$(mktemp)
+    trap 'rm -f "$tmp_current" "$tmp_known"' EXIT
 
-    missing=0
+    sed -n 's/^[[:space:]]*-\s*recipient:\s*//p' secrets/secrets.yaml \
+      | sort -u > "$tmp_current"
 
-    for k in "${current[@]}"; do
-      if ! printf '%s\n' "${known[@]}" | grep -qx "$k"; then
-        echo "Missing annotation for key: $k" >&2
-        missing=1
-      fi
-    done
+    awk '{print $1}' pub/age-recipients.txt | sort -u > "$tmp_known"
 
-    if [ "$missing" -ne 0 ]; then
+    undocumented=$(comm -23 "$tmp_current" "$tmp_known" || true)
+
+    if [ -n "$undocumented" ]; then
       echo "One or more AGE recipients are not documented in pub/age-recipients.txt" >&2
+      printf '%s\n' "$undocumented" | while read -r line; do
+        printf '  %s\n' "$line" >&2
+      done
       exit 1
     fi
 

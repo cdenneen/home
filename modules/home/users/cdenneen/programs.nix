@@ -5,6 +5,7 @@
     # Shell / UX
     atuin
     bat
+    ripgrep
     fzf
     zoxide
     eza

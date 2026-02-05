@@ -5,7 +5,7 @@ pkgs.writeShellApplication {
   text = ''
     set -euo pipefail
     echo "Current AGE recipients (from secrets file):" >&2
-    sops --show-master-keys secrets/secrets.yaml
+    sed -n 's/^[[:space:]]*-\s*recipient:\s*//p' secrets/secrets.yaml | sort -u >&2
 
     if [ -f pub/age-recipients.txt ]; then
       echo "" >&2
