@@ -15,6 +15,10 @@
     kubectl
     kubernetes-helm
     kubeswitch
+
+    # Runtimes / cloud
+    nodejs
+    awscli2
   ];
 
   programs = {
