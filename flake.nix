@@ -160,6 +160,8 @@
             sops-update-keys = pkgs.callPackage ./pkgs/sops-update-keys.nix { };
             sops-check = pkgs.callPackage ./pkgs/sops-check.nix { };
             sops-diff-keys = pkgs.callPackage ./pkgs/sops-diff-keys.nix { };
+            sops-verify-keys = pkgs.callPackage ./pkgs/sops-verify-keys.nix { };
+            sops-bootstrap-host = pkgs.callPackage ./pkgs/sops-bootstrap-host.nix { };
           };
 
           devshells.default = {
@@ -188,6 +190,12 @@
               }
               {
                 package = self'.packages.sops-diff-keys;
+              }
+              {
+                package = self'.packages.sops-verify-keys;
+              }
+              {
+                package = self'.packages.sops-bootstrap-host;
               }
             ];
             imports = [ "${devshell}/extra/git/hooks.nix" ];

@@ -240,6 +240,35 @@ Scripts should be:
 
 ---
 
+## Secrets & sops-nix Workflow
+
+This repository uses **sops-nix with AGE encryption**.
+
+### Files
+- Encrypted secrets: `secrets/secrets.yaml`
+- Human registry of AGE recipients: `pub/age-recipients.txt`
+
+Public keys are documented for humans only; sops does not consume the registry directly.
+
+### Helper commands (available in devshell)
+- `sops-edit` – edit secrets safely
+- `sops-diff-keys` – preview recipient changes with context
+- `sops-update-keys` – re-encrypt with updated recipients
+- `sops-check` – show current recipients and registry
+- `sops-verify-keys` – enforce that all recipients are documented
+- `sops-bootstrap-host` – generate host AGE key on a new machine
+
+### Safe update procedure
+1. Generate host key: `sops-bootstrap-host`
+2. Add public key to `pub/age-recipients.txt`
+3. Review changes: `sops-diff-keys`
+4. Re-encrypt: `sops-update-keys`
+5. Verify: `sops-verify-keys`
+
+Never approve recipient changes unless every key is understood and documented.
+
+---
+
 ## Naming Conventions
 
 - Files: `kebab-case.nix`
