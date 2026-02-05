@@ -1,7 +1,8 @@
 { pkgs, ... }:
 pkgs.writeShellApplication {
   name = "sops-diff-keys";
-  runtimeInputs = with pkgs; [ sops diffutils gnugrep ];
+  runtimeInputs = with pkgs; [ bash sops diffutils gnugrep ];
+  bash = true;
   text = ''
     set -euo pipefail
 
@@ -11,9 +12,8 @@ pkgs.writeShellApplication {
     sops --show-master-keys secrets/secrets.yaml | sort > "$tmp_old"
 
     # Trigger updatekeys calculation without modifying the file
-    if sops updatekeys secrets/secrets.yaml </dev/null 2>/dev/null; then
-      true
-    fi
+    # Compute prospective key set without modifying the file
+    if sops updatekeys secrets/secrets.yaml </dev/null 2>/dev/null; then true; fi
 
     sops --show-master-keys secrets/secrets.yaml | sort > "$tmp_new"
 
