@@ -66,7 +66,7 @@
   '';
 
   home.file.".config/direnv/lib/k8s_context.bash".text = ''
-    #!/bin/sh
+    #!/usr/bin/env bash
 
     k8s_context() {
       local path="$1"
