@@ -17,7 +17,8 @@
     kubeswitch
 
     # Runtimes / cloud
-    nodejs
+    nodejs_20 # LTS
+    yarn
     awscli2
   ];
 
