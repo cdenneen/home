@@ -10,7 +10,8 @@ pkgs.writeShellApplication {
     trap 'rm -f "$tmp_current" "$tmp_known"' EXIT
 
     # Current recipients parsed directly from secrets file
-    sed -n 's/^[[:space:]]*-\s*recipient:\s*//p' secrets/secrets.yaml \
+    grep -E 'recipient:[[:space:]]*age1' secrets/secrets.yaml \
+      | sed 's/.*recipient:[[:space:]]*//' \
       | sort -u > "$tmp_current"
 
     # Documented recipients

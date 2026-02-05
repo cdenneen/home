@@ -4,6 +4,6 @@ pkgs.writeShellApplication {
   runtimeInputs = with pkgs; [ sops age ];
   text = ''
     set -euo pipefail
-    exec env SOPS_NO_EDITOR=1 sops updatekeys secrets/secrets.yaml </dev/null
+    exec env SOPS_NO_EDITOR=1 sops updatekeys secrets/secrets.yaml
   '';
 }

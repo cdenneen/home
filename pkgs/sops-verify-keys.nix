@@ -14,7 +14,8 @@ pkgs.writeShellApplication {
     tmp_known=$(mktemp)
     trap 'rm -f "$tmp_current" "$tmp_known"' EXIT
 
-    sed -n 's/^[[:space:]]*-\s*recipient:\s*//p' secrets/secrets.yaml \
+    grep -E 'recipient:[[:space:]]*age1' secrets/secrets.yaml \
+      | sed 's/.*recipient:[[:space:]]*//' \
       | sort -u > "$tmp_current"
 
     awk '{print $1}' pub/age-recipients.txt | sort -u > "$tmp_known"
