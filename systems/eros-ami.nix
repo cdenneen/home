@@ -62,10 +62,12 @@ let
       mkdir -p $out/nix-support
       echo "file ${cfg.format} $diskImage" >> $out/nix-support/hydra-build-products
 
+      logical_bytes="$(${pkgs.qemu_kvm}/bin/qemu-img info --output json "$diskImage" | ${pkgs.jq}/bin/jq -r '."virtual-size"')"
+
       ${pkgs.jq}/bin/jq -n \
         --arg system_version ${lib.escapeShellArg config.system.nixos.version} \
         --arg system ${lib.escapeShellArg pkgs.stdenv.hostPlatform.system} \
-        --arg logical_bytes "$(${pkgs.qemu_kvm}/bin/qemu-img info --output json \"$diskImage\" | ${pkgs.jq}/bin/jq '."virtual-size"')" \
+        --arg logical_bytes "$logical_bytes" \
         --arg boot_mode "${amiBootMode}" \
         --arg file "$diskImage" \
         '{}
