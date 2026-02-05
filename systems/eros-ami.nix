@@ -12,14 +12,14 @@ let
     {
       description = "Proxy flake for EC2 instances";
 
-      inputs.upstream.url = "github:ToyVo/nixcfg";
+      inputs.upstream.url = "github:cdenneen/home";
 
       outputs = { upstream, ... }: upstream.outputs;
     }
   '';
 
   proxyReadme = pkgs.writeText "README.txt" ''
-    /etc/nixos/flake.nix is a proxy to github:ToyVo/nixcfg.
+    /etc/nixos/flake.nix is a proxy to github:cdenneen/home.
 
     Examples:
       sudo nixos-rebuild switch --flake /etc/nixos#eros

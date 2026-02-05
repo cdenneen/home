@@ -11,6 +11,7 @@
     eza
     direnv
     starship
+    tmux
 
     # Kubernetes / cloud CLI
     kubectl

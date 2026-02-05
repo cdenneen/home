@@ -47,7 +47,8 @@ You should see a VHD under `result/` (usually `result/amazon-ami.vhd`).
 
 Notes:
 - This image is UEFI (`arm64`) and includes an ESP sized to `750M`.
-- The image includes `/etc/nixos/flake.nix` as a proxy to `github:ToyVo/nixcfg`.
+- The image includes `/etc/nixos/flake.nix` as a proxy to `github:cdenneen/home`.
+- The image build uses `virtualisation.diskSize = 16384` (MiB). You can override it in `systems/amazon-ami.nix` if needed.
 
 ## 2) Upload VHD to S3
 
@@ -178,7 +179,7 @@ aws --region "$REGION" ec2 describe-instances --instance-ids "$NEW_INSTANCE_ID" 
 
 ## 6) First boot: rebuild from the GitHub proxy flake
 
-The image bakes a proxy flake at `/etc/nixos/flake.nix` pointing to `github:ToyVo/nixcfg`.
+The image bakes a proxy flake at `/etc/nixos/flake.nix` pointing to `github:cdenneen/home`.
 
 On the new instance:
 

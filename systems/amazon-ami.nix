@@ -12,14 +12,14 @@ let
     {
       description = "Proxy flake for EC2 instances";
 
-      inputs.upstream.url = "github:ToyVo/nixcfg";
+      inputs.upstream.url = "github:cdenneen/home";
 
       outputs = { upstream, ... }: upstream.outputs;
     }
   '';
 
   proxyReadme = pkgs.writeText "README.txt" ''
-    /etc/nixos/flake.nix is a proxy to github:ToyVo/nixcfg.
+    /etc/nixos/flake.nix is a proxy to github:cdenneen/home.
 
     Examples:
       sudo nixos-rebuild switch --flake /etc/nixos#<host>
@@ -80,6 +80,11 @@ let
   };
 in
 {
+  # The default diskSize from the upstream amazon-image tooling is too small for
+  # this repo's full system closure. The image can still be expanded at launch
+  # time via the EBS VolumeSize + growpart.
+  virtualisation.diskSize = lib.mkDefault 16384;
+
   # Prefer a stable base name for artifacts.
   image.baseName = lib.mkDefault "amazon-ami";
   amazonImage.format = lib.mkDefault "vpc";

@@ -3,6 +3,11 @@
   # Generic EC2 defaults used for image builds.
   ec2.efi = true;
 
+  # Not useful on EC2.
+  # Also avoids an option conflict where fwupd tries to enable udisks2 while
+  # the amazon-image profile disables it.
+  services.fwupd.enable = lib.mkForce false;
+
   # Avoid GRUB theme conflicts with the EC2 headless profile.
   catppuccin.grub.enable = lib.mkForce false;
 
