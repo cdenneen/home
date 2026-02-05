@@ -17,11 +17,11 @@ in
     enable = true;
     publicKeys = [
       {
-        source = ../../../../secrets/personal.pub;
+        source = ../../../../pub/personal.pub;
         trust = 5;
       }
       {
-        source = ../../../../secrets/work.pub;
+        source = ../../../../pub/work.pub;
         trust = 5;
       }
     ];
