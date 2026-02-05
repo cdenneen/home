@@ -1,12 +1,15 @@
 { pkgs, ... }:
 pkgs.writeShellApplication {
   name = "sops-bootstrap-host";
-  runtimeInputs = with pkgs; [ age coreutils ];
+  runtimeInputs = with pkgs; [
+    age
+    coreutils
+  ];
   text = ''
     set -euo pipefail
 
-    keydir="/var/lib/sops-nix"
-    keyfile="$keydir/key.txt"
+    keydir="/var/sops/age"
+    keyfile="$keydir/keys.txt"
 
     if [ -f "$keyfile" ]; then
       echo "Host AGE key already exists at $keyfile" >&2
@@ -14,10 +17,21 @@ pkgs.writeShellApplication {
     fi
 
     echo "Generating host AGE key at $keyfile" >&2
-    sudo mkdir -p "$keydir"
-    sudo age-keygen -o "$keyfile"
+    if [ "$(id -u)" -eq 0 ]; then
+      mkdir -p "$keydir"
+      age-keygen -o "$keyfile"
+      chmod 0400 "$keyfile"
+    else
+      sudo mkdir -p "$keydir"
+      sudo age-keygen -o "$keyfile"
+      sudo chmod 0400 "$keyfile"
+    fi
 
-     pubkey=$(sudo age-keygen -y "$keyfile" | sed 's/^# public key: //')
+     if [ "$(id -u)" -eq 0 ]; then
+       pubkey=$(age-keygen -y "$keyfile" | sed 's/^# public key: //')
+     else
+       pubkey=$(sudo age-keygen -y "$keyfile" | sed 's/^# public key: //')
+     fi
 
      echo "" >&2
      echo "Public AGE key:" >&2
