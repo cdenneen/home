@@ -1,0 +1,14 @@
+# AGE recipients for secrets/secrets.yaml
+#
+# Keep this file human-readable and up to date.
+# Each recipient should be annotated with the host or user it belongs to.
+# This file is NOT used by sops directly; it is used by helper scripts
+# to make sops updatekeys output intelligible.
+
+# Personal keys
+# age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # cdenneen@laptop
+
+# Hosts
+# age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # eros
+# age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # wsl
+# age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # VNJTECMBCD

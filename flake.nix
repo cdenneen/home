@@ -159,6 +159,7 @@
             sops-edit = pkgs.callPackage ./pkgs/sops-edit.nix { };
             sops-update-keys = pkgs.callPackage ./pkgs/sops-update-keys.nix { };
             sops-check = pkgs.callPackage ./pkgs/sops-check.nix { };
+            sops-diff-keys = pkgs.callPackage ./pkgs/sops-diff-keys.nix { };
           };
 
           devshells.default = {
@@ -184,6 +185,9 @@
               }
               {
                 package = self'.packages.sops-check;
+              }
+              {
+                package = self'.packages.sops-diff-keys;
               }
             ];
             imports = [ "${devshell}/extra/git/hooks.nix" ];
