@@ -17,7 +17,19 @@ pkgs.writeShellApplication {
     sudo mkdir -p "$keydir"
     sudo age-keygen -o "$keyfile"
 
-    echo "Public AGE key (add to pub/age-recipients.txt):" >&2
-    sudo age-keygen -y "$keyfile"
+     pubkey=$(sudo age-keygen -y "$keyfile" | sed 's/^# public key: //')
+
+     echo "" >&2
+     echo "Public AGE key:" >&2
+     echo "$pubkey" >&2
+
+     echo "" >&2
+     echo "Add to pub/age-recipients.txt:" >&2
+     echo "$pubkey  # $(hostname) (host)" >&2
+
+     echo "" >&2
+     echo "Add to .sops.yaml:" >&2
+     echo "  - &server_$(hostname | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_') $pubkey" >&2
+     echo "  - *server_$(hostname | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')" >&2
   '';
 }
