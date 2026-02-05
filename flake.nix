@@ -156,6 +156,9 @@
             setup-git-sops = pkgs.callPackage ./pkgs/setup-git-sops.nix { };
             git-sops = pkgs.callPackage ./pkgs/git-sops.nix { };
             pre-commit = pkgs.callPackage ./pkgs/pre-commit.nix { };
+            sops-edit = pkgs.callPackage ./pkgs/sops-edit.nix { };
+            sops-update-keys = pkgs.callPackage ./pkgs/sops-update-keys.nix { };
+            sops-check = pkgs.callPackage ./pkgs/sops-check.nix { };
           };
 
           devshells.default = {
@@ -172,6 +175,15 @@
               }
               {
                 package = self'.packages.setup-git-sops;
+              }
+              {
+                package = self'.packages.sops-edit;
+              }
+              {
+                package = self'.packages.sops-update-keys;
+              }
+              {
+                package = self'.packages.sops-check;
               }
             ];
             imports = [ "${devshell}/extra/git/hooks.nix" ];
