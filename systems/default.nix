@@ -17,7 +17,6 @@
   nixpkgs-unstable,
   nur,
   nur-packages,
-  nvf,
   plasma-manager,
   rust-overlay,
   self,
@@ -26,15 +25,11 @@
   ...
 }@inputs:
 let
-  # NOTE: NVF (Neovim Framework) temporarily disabled on Darwin.
-  # It pulls in Swift / .NET toolchains which are too expensive to build locally.
-  # We will reintroduce this behind a proper dev profile later.
   sharedHomeModulesIntegrated = [
     catppuccin.homeModules.catppuccin
     nh.homeManagerModules.default
     nix-index-database.homeModules.nix-index
     nur.modules.homeManager.default
-    nvf.homeManagerModules.nvf
     self.homeModules.default
     sops-nix.homeManagerModules.sops
   ];

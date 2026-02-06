@@ -1,91 +1,57 @@
 {
   config,
   lib,
+  nixvim,
   system,
   pkgs,
   ...
 }:
 let
   cfg = config.programs.nvim;
+
+  nixvimUpstream = nixvim.inputs.nixvim;
+  nixvimConfigModule = import "${nixvim.outPath}/config";
+
+  nvim = nixvimUpstream.legacyPackages.${system}.makeNixvimWithModule {
+    inherit pkgs;
+    extraSpecialArgs = import "${nixvim.outPath}/lib" { inherit pkgs; };
+    module =
+      {
+        lib,
+        pkgs,
+        ...
+      }:
+      {
+        imports = [ nixvimConfigModule ];
+
+        # nixpkgs currently ships nvim-treesitter-refactor with a dependency on
+        # nvim-treesitter-legacy, which conflicts with the normal nvim-treesitter.
+        plugins.treesitter-refactor = lib.mkForce { enable = false; };
+
+        # Keep nixvim buildable without unfree Copilot LSP.
+        plugins.copilot-lsp.enable = lib.mkForce false;
+        plugins.sidekick.enable = lib.mkForce false;
+
+        # Avoid Linux-only dependencies in PATH.
+        extraPackages = lib.mkForce (with pkgs; [
+          ripgrep
+          lazygit
+          fzf
+          fd
+        ]);
+      };
+  };
 in
 {
   options.programs.nvim.enable = lib.mkEnableOption "Enable neovim";
 
   config = lib.mkIf cfg.enable {
-    programs.nvf = {
-      enable = true;
-      defaultEditor = true;
-      settings.vim = {
-        viAlias = true;
-        vimAlias = true;
-        lsp = {
-          enable = false;
-          lightbulb.enable = true;
-          trouble.enable = true;
-          lspSignature.enable = true;
-          lspconfig.sources.nix-lsp = lib.mkForce ''
-            lspconfig.nil_ls.setup{
-              capabilities = capabilities,
-              on_attach = default_on_attach,
-              cmd = {"${lib.getExe pkgs.nil}"},
-              settings = {
-                ["nil"] = {
-                  formatting = {
-                    command = {"${lib.getExe pkgs.nixfmt}"},
-                  },
-                },
-                ["nix"] = {
-                  flake = {
-                    autoArchive = true,
-                  },
-                },
-              },
-            }
-          '';
-        };
-        theme = {
-          enable = true;
-          name = "catppuccin";
-          style = config.catppuccin.flavor;
-          transparent = true;
-        };
-        languages = {
-          enableDAP = true;
-          enableExtraDiagnostics = true;
-          enableFormat = true;
-          enableTreesitter = true;
-          bash.enable = true;
-          clang.enable = false;
-          csharp.enable = system != "aarch64-darwin";
-          css.enable = true;
-          html.enable = true;
-          haskell.enable = false;
-          lua.enable = true;
-          markdown.enable = true;
-          nix.enable = true;
-          nu.enable = false;
-          python.enable = true;
-          rust.enable = false;
-          sql.enable = false;
-          tailwind.enable = false;
-          terraform.enable = true;
-          ts.enable = true;
-          yaml.enable = true;
-        };
-        options = {
-          tabstop = 2;
-          softtabstop = 2;
-          shiftwidth = 2;
-          expandtab = true;
-        };
-        utility.sleuth.enable = true;
-        statusline.lualine.enable = true;
-        telescope.enable = true;
-        autocomplete.nvim-cmp.enable = true;
-        binds.whichKey.enable = true;
-        git.enable = true;
-      };
-    };
+    home.packages = [
+      nvim
+    ];
+
+    home.shellAliases.vi = "nvim";
+    home.shellAliases.vim = "nvim";
 
     home.sessionVariables.EDITOR = "nvim";
     home.sessionVariables.VISUAL = "nvim";
