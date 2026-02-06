@@ -13,3 +13,4 @@ age1wtjnrhlhdw28f88gakkewlju5edksrsl6ray4rw2z30vzunkvddqz75sck  # cdenneen@perso
 age1cc6ql5sktpfstw2f576v3wx7e2ljwjeyu5s75ezdvsql9qhm6ugqwls0a  # eros (host)
 # age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # wsl
 age1jukfrhvgtf9w07p7gyulz4tc3ypudul0llvevl6k8p88ps7fsv6qqc8v5y  # VNJTECMBCD (host)
+age1svkqsf5r7ykyw2wam85vecgkp7sy3e8ava8ajfamjnsxgcep9vgsep4292 # nyx
