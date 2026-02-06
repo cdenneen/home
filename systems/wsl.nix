@@ -15,4 +15,8 @@
 
   # WSL has no real input devices; disable kanata keyboard service
   services.kanata.enable = lib.mkForce false;
+
+  # opencode currently isn't confirmed to work on x86_64-linux WSL; disable by
+  # default to avoid host builds breaking. Re-enable once verified.
+  home-manager.users.cdenneen.programs.opencode.enable = lib.mkForce false;
 }

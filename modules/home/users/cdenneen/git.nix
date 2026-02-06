@@ -14,11 +14,6 @@
       signByDefault = true;
     };
 
-    settings.gpg = {
-      format = lib.mkForce "openpgp";
-      program = "gpg";
-    };
-
     ignores = [
       ".DS_Store"
       "Thumbs.db"

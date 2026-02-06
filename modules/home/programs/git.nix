@@ -28,7 +28,8 @@ in
           core.editor = "nvim";
           core.eol = "lf";
           core.autocrlf = "input";
-          gpg.format = "ssh";
+          # Default to OpenPGP; users/hosts can override to SSH.
+          gpg.format = lib.mkDefault "openpgp";
           init.defaultBranch = "main";
           url."git@github.com:".pushInsteadOf = "https://github.com/";
           alias = {

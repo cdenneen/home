@@ -74,7 +74,7 @@ in
     programs = {
       home-manager.enable = true;
       starship = {
-        enable = true;
+        enable = lib.mkDefault true;
         enableTransience = true;
         settings = {
           add_newline = false;
@@ -122,13 +122,25 @@ in
           # Colors are provided dynamically by catppuccin
         };
       };
-      zoxide.enable = true;
-      bat.enable = true;
-      eza.enable = true;
-      zsh.enable = true;
-      bash.enable = true;
-      nvim.enable = true;
-      nix-index-database.comma.enable = true;
+      zoxide.enable = lib.mkDefault true;
+      bat.enable = lib.mkDefault true;
+      eza.enable = lib.mkDefault true;
+      zsh.enable = lib.mkDefault true;
+      bash.enable = lib.mkDefault true;
+      nvim.enable = lib.mkDefault true;
+      nix-index-database.comma.enable = lib.mkDefault true;
+
+      atuin = {
+        enable = lib.mkDefault true;
+        settings.keymap_mode = lib.mkDefault "emacs";
+      };
+
+      fzf.enable = lib.mkDefault true;
+
+      direnv.enable = lib.mkDefault true;
+      direnv.nix-direnv.enable = lib.mkDefault true;
+
+      opencode.enable = lib.mkDefault true;
     };
     # Catppuccin program integrations (top-level module, not under programs)
     # Catppuccin program integrations (supported by the flake)
@@ -146,12 +158,9 @@ in
       fi
     '';
     # User-level tools available on all systems
-    # opencode is excluded on WSL
     home.packages = [
       pkgs.cachix
-      pkgs.atuin
       pkgs.coreutils
-      pkgs.opencode
       pkgs.nerd-fonts.jetbrains-mono
     ];
     services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
