@@ -2,8 +2,12 @@
   pkgs,
   config,
   lib,
+  osConfig ? null,
   ...
 }:
+let
+  hostKeyFile = "/var/sops/age/keys.txt";
+in
 {
   imports = [
     ./users
@@ -14,9 +18,11 @@
     sops = {
       defaultSopsFile = ../../secrets/secrets.yaml;
       age = {
-        keyFile = "${config.home.homeDirectory}/${
-          if pkgs.stdenv.isDarwin then "Library/Application Support" else ".config"
-        }/sops/age/keys.txt";
+        keyFile =
+          if pkgs.stdenv.isLinux then
+            hostKeyFile
+          else
+            "${config.home.homeDirectory}/Library/Application Support/sops/age/keys.txt";
       };
     };
     home.packages = lib.optionals (config.launchd.agents ? sops-nix) [

@@ -32,12 +32,15 @@
       keyfile=$keydir/keys.txt
 
       if [ -f "$keyfile" ]; then
+        chown root:sops "$keyfile" || true
+        chmod 0440 "$keyfile" || true
         exit 0
       fi
 
       mkdir -p "$keydir"
       ${pkgs.age}/bin/age-keygen -o "$keyfile"
-      chmod 0400 "$keyfile"
+      chown root:sops "$keyfile"
+      chmod 0440 "$keyfile"
 
       pubkey=$(${pkgs.age}/bin/age-keygen -y "$keyfile" | sed 's/^# public key: //')
       echo "sops-nix host AGE public key: $pubkey"

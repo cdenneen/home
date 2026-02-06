@@ -21,6 +21,8 @@ in
   };
 
   config = lib.mkIf cfg.cdenneen.enable {
+    users.groups.sops = lib.mkIf pkgs.stdenv.isLinux { };
+
     users.users.${cfg.cdenneen.name} = lib.mkMerge [
       {
         name = cfg.cdenneen.name;
@@ -37,6 +39,7 @@ in
         initialHashedPassword = "$6$110Kl1BJUnU6QXEO$u7Ij2S63bEmwNj/J..rhKZ1kuBWs8/mPWwOMvDjoajuQPxUDcE8ld81RsC69lZGyHlogyajFU0V.nvJAeGx16.";
         extraGroups = [
           "networkmanager"
+          "sops"
           "wheel"
           cfg.cdenneen.name
         ];

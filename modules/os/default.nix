@@ -87,9 +87,25 @@ in
           "nixpkgs=${inputs.nixpkgs-unstable}"
         ];
       };
+
+      # Periodic maintenance to keep /nix/store tidy.
+      nix.gc.automatic = true;
+      nix.gc.options = "--delete-older-than 14d";
       sops = {
         defaultSopsFile = ../../secrets.yaml;
         age.keyFile = "/var/sops/age/keys.txt";
+      };
+    })
+
+    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion && (config.nixpkgs.hostPlatform.isLinux or false)) {
+      nix.gc.dates = "weekly";
+    })
+
+    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion && (config.nixpkgs.hostPlatform.isDarwin or false)) {
+      nix.gc.interval = {
+        Weekday = 0;
+        Hour = 3;
+        Minute = 15;
       };
     })
   ];

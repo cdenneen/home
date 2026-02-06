@@ -3,6 +3,12 @@
   networking.hostName = "nyx";
   ec2.efi = true;
 
+  fileSystems."/home/cdenneen/src" = {
+    device = "UUID=48a9e4a3-252f-4676-afd9-f2ed39ac8e90";
+    fsType = "ext4";
+    options = [ "noatime" ];
+  };
+
   # Keep the system bootable on EC2 (UEFI GRUB on ESP at /boot).
   boot.loader.grub.configurationLimit = 3;
 
