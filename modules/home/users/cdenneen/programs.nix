@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 
 {
   home.packages = with pkgs; [
@@ -39,10 +39,39 @@
 
   programs.ssh = {
     enable = true;
-    matchBlocks."github.com" = {
-      user = "git";
-      identityFile = "~/.ssh/github_ed25519";
-      identitiesOnly = true;
+    matchBlocks = {
+      "github.com" = {
+        user = "git";
+        identityFile = config.sops.secrets.github_ed25519.path;
+        identitiesOnly = true;
+      };
+
+      eros = {
+        hostname = "10.224.11.147";
+        user = "cdenneen";
+      };
+
+      nyx = {
+        hostname = "10.224.11.38";
+        user = "cdenneen";
+      };
+
+      "nyx-ssm" = {
+        hostname = "i-052cb7906e89d224a";
+        user = "cdenneen";
+        extraOptions = {
+          ProxyCommand = "sh -c 'aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'";
+        };
+      };
+
+      nix = {
+        hostname = "10.224.11.140";
+        user = "root";
+        identityFile = "~/.ssh/cdenneen_winlaptop.pem";
+        extraOptions = {
+          RequestTTY = "no";
+        };
+      };
     };
   };
 
