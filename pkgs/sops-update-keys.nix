@@ -7,6 +7,6 @@ pkgs.writeShellApplication {
   ];
   text = ''
     set -euo pipefail
-    exec env SOPS_NO_EDITOR=1 sops updatekeys secrets/secrets.yaml
+    exec env SOPS_NO_EDITOR=1 sops updatekeys -y secrets/secrets.yaml
   '';
 }
