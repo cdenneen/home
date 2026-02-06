@@ -41,6 +41,7 @@
     gl = "git prettylog";
     gm = "git merge";
     gp = "git push";
+    gpl = "git pull";
     gpr = "git pull --rebase";
     gr = "git rebase -i";
     gs = "git status -sb";

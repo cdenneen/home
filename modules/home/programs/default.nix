@@ -11,9 +11,6 @@
     ./gtk.nix
     ./kde.nix
     ./shells/bash.nix
-    ./shells/ion.nix
-    ./shells/nushell.nix
-    ./shells/powershell.nix
     ./shells/zsh.nix
     ./ssh.nix
     ./terminals/alacritty.nix

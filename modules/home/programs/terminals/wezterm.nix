@@ -18,8 +18,7 @@ in
       extraConfig = ''
         local config = wezterm.config_builder();
         config.font = wezterm.font {
-          family = "MonaspiceNe Nerd Font",
-          harfbuzz_features = {'ss01', 'ss02', 'ss03', 'ss04', 'ss05', 'ss06', 'ss07', 'ss08', 'calt', 'dlig'},
+          family = "JetBrainsMono Nerd Font",
         };
         config.window_close_confirmation = 'NeverPrompt'
         config.color_scheme = "Catppuccin ${upperFlavor}";

@@ -15,15 +15,13 @@ in
     };
     programs.kitty = {
       font = {
-        name = "MonaspiceNe Nerd Font Mono Regular";
+        name = "JetBrainsMono Nerd Font Mono";
         size = 14;
       };
       settings = {
-        shell = "${lib.getExe pkgs.ion}";
+        shell = "${lib.getExe pkgs.zsh}";
       };
-      extraConfig = ''
-        font_features MonaspiceNeNFM-Regular +ss01 +ss02 +ss03 +ss04 +ss05 +ss06 +ss07 +ss08 +calt +dlig
-      '';
+      extraConfig = "";
     };
   };
 }

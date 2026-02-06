@@ -22,8 +22,6 @@ in
       let
         shells = with pkgs; [
           bashInteractive
-          nushell
-          powershell
           zsh
         ];
       in

@@ -127,9 +127,6 @@ in
       eza.enable = true;
       zsh.enable = true;
       bash.enable = true;
-      ion.enable = true;
-      nushell.enable = true;
-      powershell.enable = true;
       nvim.enable = true;
       nix-index-database.comma.enable = true;
     };
@@ -140,7 +137,8 @@ in
     catppuccin.bat.enable = true;
     catppuccin.fzf.enable = true;
     catppuccin.tmux.enable = true;
-    catppuccin.nvim.enable = true;
+    # Neovim is configured via nixvim; avoid duplicate nvim theming.
+    catppuccin.nvim.enable = false;
     # Opportunistically refresh secrets on HM switch
     home.activation.updateSecrets = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       if command -v update-secrets >/dev/null; then
@@ -154,13 +152,14 @@ in
       pkgs.atuin
       pkgs.coreutils
       pkgs.opencode
+      (pkgs.nerdfonts.override { fonts = [ "JetBrainsMono" ]; })
     ];
     services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
       enable = true;
     };
     catppuccin = {
       enable = true;
-      flavor = lib.mkDefault (if pkgs.stdenv.isDarwin then "latte" else "mocha");
+      flavor = lib.mkDefault "mocha";
       accent = lib.mkDefault "red";
     };
   };

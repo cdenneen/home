@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
 {
   networking.hostName = "VNJTECMBCD";
 
@@ -35,31 +35,16 @@
     # Override the shared Ghostty config to use Tokyo Night.
     xdg.configFile."ghostty/config".text = lib.mkForce ''
       background-opacity = 0.8
-      font-family = MonaspiceAr Nerd Font Mono
-      font-feature = calt
-      font-feature = ss01
-      font-feature = ss02
-      font-feature = ss03
-      font-feature = ss04
-      font-feature = ss05
-      font-feature = ss06
-      font-feature = ss07
-      font-feature = ss08
-      font-feature = ss09
-      font-feature = liga
+      font-family = JetBrainsMono Nerd Font Mono
       theme = tokyonight-night
+      command = ${lib.getExe pkgs.zsh}
       confirm-close-surface = false
       quit-after-last-window-closed = true
     '';
 
-    # Avoid catppuccin.nvim pulling in extra Neovim dependencies on Darwin.
-    catppuccin.nvim.enable = lib.mkForce false;
-
-    programs.nvf.settings.vim.theme = {
-      enable = true;
-      name = lib.mkForce "tokyonight";
-      style = lib.mkForce "night";
-      transparent = true;
+    programs.nvim = {
+      colorscheme = lib.mkForce "tokyonight";
+      tokyonightStyle = lib.mkForce "night";
     };
   };
 }

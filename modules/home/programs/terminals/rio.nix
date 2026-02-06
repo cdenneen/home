@@ -16,7 +16,7 @@ in
           height = 800;
         };
         shell = {
-          program = "${lib.getExe pkgs.nushell}";
+          program = "${lib.getExe pkgs.zsh}";
           args = [ ];
         };
       };

@@ -16,15 +16,6 @@ in
     programs = {
       bash.shellAliases = aliases;
       zsh.shellAliases = aliases;
-      fish.shellAliases = aliases;
-      powershell.shellAliases = aliases;
-      # eza.enableAliases adds aliases to nushell which is unwanted
-      nushell.shellAliases = aliases // {
-        ls = lib.mkForce "ls";
-        ll = lib.mkForce "ls -l";
-        la = lib.mkForce "ls -a";
-        lla = lib.mkForce "ls -la";
-      };
     };
   };
 }

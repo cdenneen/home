@@ -32,9 +32,6 @@ in
     };
     home.shellAliases = {
       zellij-bash = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.bashInteractive} --session-name bash --attach-to-session true";
-      zellij-ion = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.ion} --session-name ion --attach-to-session true";
-      zellij-nushell = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.nushell} --session-name nu --attach-to-session true";
-      zellij-powershell = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.powershell} --session-name pwsh --attach-to-session true";
       zellij-zsh = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.zsh} --session-name zsh --attach-to-session true";
     };
     programs = {
@@ -61,43 +58,6 @@ in
         }; then
           zellij-zsh
         fi
-      '';
-      nushell.configFile.text = ''
-        if "ZELLIJ" not-in $env and "SSH_CONNECTION" not-in $env and ${
-          lib.concatStringsSep " and " (
-            lib.mapAttrsToList (
-              name: values: lib.concatStringsSep " and " (map (v: "$env.${name}? != \"${v}\"") values)
-            ) cfg.restrictedVariables
-          )
-        } {
-          zellij-nushell
-        }
-      '';
-      powershell.profileExtra = ''
-        if (-not [Environment]::GetEnvironmentVariable("ZELLIJ") -and -not [Environment]::GetEnvironmentVariable("SSH_CONNECTION") -and ${
-          lib.concatStringsSep " -and " (
-            lib.mapAttrsToList (
-              name: values:
-              lib.concatStringsSep " -and " (
-                map (v: "[Environment]::GetEnvironmentVariable(\"${name}\") -ne \"${v}\"") values
-              )
-            ) cfg.restrictedVariables
-          )
-        }) {
-          zellij-powershell
-        }
-      '';
-      ion.initExtraEnd = ''
-        if not exists -s ZELLIJ && not exists -s SSH_CONNECTION && ${
-          lib.concatStringsSep " && " (
-            lib.mapAttrsToList (
-              # TODO: not checking if the variable is set to the right value because doing `test \$${name} != \"${value}\"` doesn't work because the variable might be undefined and ion doesn't seem to have order of operations with parenthese to protect it with `exists -s ${name}`
-              name: values: "not exists -S ${name}"
-            ) cfg.restrictedVariables
-          )
-        }
-          zellij-ion
-        end
       '';
     };
   };

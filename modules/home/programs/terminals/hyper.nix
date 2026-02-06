@@ -20,8 +20,8 @@ in
       default = ''
         module.exports = {
           config: {
-            shell: '${lib.getExe pkgs.powershell}',
-            shellArgs: ['-Nologo'],
+            shell: '${lib.getExe pkgs.zsh}',
+            shellArgs: [],
             bell: false,
           },
         };
