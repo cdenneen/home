@@ -59,7 +59,7 @@
     nixpkgs-unstable.follows = "nixpkgs";
     nur-packages.url = "github:ToyVo/nur-packages";
     nur.url = "github:nix-community/nur";
-    nvf.url = "github:NotAShelf/nvf";
+    nixvim.url = "github:cdenneen/nixvim";
     plasma-manager.url = "github:pjones/plasma-manager";
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     rust-overlay.url = "github:oxalica/rust-overlay";
