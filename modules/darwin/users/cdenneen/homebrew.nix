@@ -8,16 +8,16 @@ lib.mkIf config.userPresets.cdenneen.enable {
     taps = [
       "felixkratz/formulae"
       "nikitabobko/tap"
+      "1password/tap"
     ];
 
     brews = [
       # "sketchybar"
-      # 1Password CLI (op) for macOS
-      # "1password-cli"
     ];
 
     casks = [
       "1password"
+      "1password-cli"
       "amazon-chime"
       "amazon-photos"
       "betterdisplay"

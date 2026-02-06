@@ -47,14 +47,17 @@ let
     ];
   };
 
-  ssmProxyCommand = "${pkgs.dash}/bin/dash -c \"${pkgs.awscli2}/bin/aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'\"";
+  ssmProxyCommand = "${pkgs.dash}/bin/dash -c \"PATH=${pkgs.ssm-session-manager-plugin}/bin:${pkgs.awscli2}/bin:$PATH ${pkgs.awscli2}/bin/aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'\"";
 in
 
 {
-  home.packages = with pkgs; [
+  home.packages =
+    with pkgs;
+    [
     # Shell / UX
     atuin
     bat
+    jq
     ripgrep
     fzf
     zoxide
@@ -67,6 +70,7 @@ in
     kubectl
     kubernetes-helm
     kubeswitch
+    eks-node-viewer
     fluxcd
     pkgs."fluxcd-operator"
     glab
@@ -75,10 +79,12 @@ in
     nodejs_20 # LTS
     yarn
     awscli2
+    ssm-session-manager-plugin
 
     # Clipboard
     lemonade
-  ];
+  ]
+    ++ lib.optionals pkgs.stdenv.isLinux [ netcat-openbsd xsel ];
 
   home.sessionVariables = lib.mkMerge [
     (lib.mkIf (pkgs.stdenv.isLinux && !isWsl) {
