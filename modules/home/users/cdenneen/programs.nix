@@ -9,7 +9,12 @@
 let
   isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
   hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
-  enableLinuxLemonadeServer = pkgs.stdenv.isLinux && builtins.elem hostName [ "eros" "nyx" ];
+  enableLinuxLemonadeServer =
+    pkgs.stdenv.isLinux
+    && builtins.elem hostName [
+      "eros"
+      "nyx"
+    ];
 
   erosRemoteForwards =
     if pkgs.stdenv.isDarwin then
@@ -54,37 +59,40 @@ in
   home.packages =
     with pkgs;
     [
-    # Shell / UX
-    atuin
-    bat
-    jq
-    ripgrep
-    fzf
-    zoxide
-    eza
-    direnv
-    starship
-    tmux
+      # Shell / UX
+      atuin
+      bat
+      jq
+      ripgrep
+      fzf
+      zoxide
+      eza
+      direnv
+      starship
+      tmux
 
-    # Kubernetes / cloud CLI
-    kubectl
-    kubernetes-helm
-    kubeswitch
-    eks-node-viewer
-    fluxcd
-    pkgs."fluxcd-operator"
-    glab
+      # Kubernetes / cloud CLI
+      kubectl
+      kubernetes-helm
+      kubeswitch
+      eks-node-viewer
+      fluxcd
+      pkgs."fluxcd-operator"
+      glab
 
-    # Runtimes / cloud
-    nodejs_20 # LTS
-    yarn
-    awscli2
-    ssm-session-manager-plugin
+      # Runtimes / cloud
+      nodejs_20 # LTS
+      yarn
+      awscli2
+      ssm-session-manager-plugin
 
-    # Clipboard
-    lemonade
-  ]
-    ++ lib.optionals pkgs.stdenv.isLinux [ netcat-openbsd xsel ];
+      # Clipboard
+      lemonade
+    ]
+    ++ lib.optionals pkgs.stdenv.isLinux [
+      netcat-openbsd
+      xsel
+    ];
 
   home.sessionVariables = lib.mkMerge [
     (lib.mkIf (pkgs.stdenv.isLinux && !isWsl) {

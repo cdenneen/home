@@ -100,9 +100,12 @@ in
       };
     })
 
-    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux) {
-      nix.gc.dates = "weekly";
-    })
+    (lib.mkIf
+      (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)
+      {
+        nix.gc.dates = "weekly";
+      }
+    )
 
     # NOTE: nix-darwin-specific GC scheduling lives in modules/darwin/default.nix
   ];
