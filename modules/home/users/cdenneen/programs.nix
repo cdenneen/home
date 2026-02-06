@@ -295,6 +295,21 @@ in
     $DRY_RUN_CMD chmod 600 "$HOME/.config/glab-cli/config.yml"
   '';
 
+  # direnv loads this automatically (if present). Keep it tiny and just source
+  # shared helpers so individual repos can assume they exist.
+  home.file.".config/direnv/direnvrc".text = ''
+    # -*- mode: sh -*-
+    # shellcheck shell=bash
+
+    if [ -r "$HOME/.config/direnv/lib/hm-nix-direnv.sh" ]; then
+      source "$HOME/.config/direnv/lib/hm-nix-direnv.sh"
+    fi
+
+    if [ -r "$HOME/.config/direnv/lib/k8s_context.bash" ]; then
+      source "$HOME/.config/direnv/lib/k8s_context.bash"
+    fi
+  '';
+
   home.file.".config/direnv/lib/k8s_context.bash".text = ''
     #!/usr/bin/env bash
 
