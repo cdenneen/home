@@ -17,6 +17,8 @@
     kubectl
     kubernetes-helm
     kubeswitch
+    fluxcd
+    pkgs."fluxcd-operator"
     glab
 
     # Runtimes / cloud
