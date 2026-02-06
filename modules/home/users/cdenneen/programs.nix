@@ -8,6 +8,8 @@
 
 let
   isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
+  hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
+  enableLinuxLemonadeServer = pkgs.stdenv.isLinux && builtins.elem hostName [ "eros" "nyx" ];
 
   erosRemoteForwards =
     if pkgs.stdenv.isDarwin then
@@ -73,7 +75,85 @@ in
     nodejs_20 # LTS
     yarn
     awscli2
+
+    # Clipboard
+    lemonade
   ];
+
+  home.sessionVariables = lib.mkMerge [
+    (lib.mkIf (pkgs.stdenv.isLinux && !isWsl) {
+      LEMONADE_SERVER = "127.0.0.1:2489";
+    })
+  ];
+
+  launchd.agents.lemonade = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${pkgs.lemonade}/bin/lemonade"
+        "server"
+      ];
+      KeepAlive = true;
+      RunAtLoad = true;
+    };
+  };
+
+  systemd.user.services.lemonade = lib.mkIf enableLinuxLemonadeServer {
+    Unit = {
+      Description = "Lemonade clipboard server";
+      After = [ "default.target" ];
+    };
+    Service = {
+      Restart = "always";
+      ExecStart = "${pkgs.lemonade}/bin/lemonade server";
+    };
+    Install = {
+      WantedBy = [ "default.target" ];
+    };
+  };
+
+  systemd.user.services.wsl-clipboard-bridge = lib.mkIf isWsl {
+    Unit = {
+      Description = "WSL clipboard bridge for SSH remotes";
+      After = [ "default.target" ];
+    };
+
+    Service =
+      let
+        copyScript = pkgs.writeShellScript "wsl-clipboard-copy" ''
+          set -euo pipefail
+          cat | clip.exe
+        '';
+
+        pasteScript = pkgs.writeShellScript "wsl-clipboard-paste" ''
+          set -euo pipefail
+          powershell.exe -NoProfile -NonInteractive -Command '
+            [Console]::OutputEncoding=[System.Text.Encoding]::UTF8
+            $t = Get-Clipboard -Raw
+            if ($null -ne $t) {
+              $t -replace "`r", ""
+            }
+          '
+        '';
+
+        script = pkgs.writeShellScript "wsl-clipboard-bridge" ''
+          set -euo pipefail
+
+          ${pkgs.socat}/bin/socat TCP-LISTEN:2491,fork,reuseaddr EXEC:"${copyScript}" &
+          ${pkgs.socat}/bin/socat TCP-LISTEN:2492,fork,reuseaddr EXEC:"${pasteScript}" &
+
+          wait
+        '';
+      in
+      {
+        Restart = "always";
+        ExecStart = "${script}";
+      };
+
+    Install = {
+      WantedBy = [ "default.target" ];
+    };
+  };
 
   programs = {
     atuin.enable = true;
@@ -124,12 +204,14 @@ in
       nyx = identityConfig // {
         user = "cdenneen";
         hostname = "10.224.11.38";
+        remoteForwards = erosRemoteForwards;
       };
 
       "nyx-ssm" = identityConfig // {
         proxyCommand = ssmProxyCommand;
         user = "cdenneen";
         hostname = "i-052cb7906e89d224a";
+        remoteForwards = erosRemoteForwards;
       };
 
       nix = {
