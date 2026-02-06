@@ -103,12 +103,6 @@ in
       nix.gc.dates = "weekly";
     })
 
-    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion && (config.nixpkgs.hostPlatform.isDarwin or false)) {
-      nix.gc.interval = {
-        Weekday = 0;
-        Hour = 3;
-        Minute = 15;
-      };
-    })
+    # NOTE: nix-darwin-specific GC scheduling lives in modules/darwin/default.nix
   ];
 }

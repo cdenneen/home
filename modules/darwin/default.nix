@@ -21,6 +21,12 @@
       users.users.cdenneen.home = "/Users/cdenneen";
     }
     (lib.mkIf config.profiles.defaults.enable {
+      nix.gc.interval = {
+        Weekday = 0;
+        Hour = 3;
+        Minute = 15;
+      };
+
       security.pam.services.sudo_local.touchIdAuth = true;
       system = {
         # stateVersion is set globally above
