@@ -152,7 +152,7 @@ in
       pkgs.atuin
       pkgs.coreutils
       pkgs.opencode
-      (pkgs.nerdfonts.override { fonts = [ "JetBrainsMono" ]; })
+      pkgs.nerd-fonts.jetbrains-mono
     ];
     services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
       enable = true;

@@ -146,7 +146,11 @@
 
           treefmt = {
             programs = {
-              nixfmt.enable = true;
+              nixfmt = {
+                enable = true;
+                # Avoid nixpkgs warning about nixfmt-rfc-style aliasing.
+                package = pkgs.nixfmt;
+              };
               prettier.enable = true;
             };
           };

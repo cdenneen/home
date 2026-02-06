@@ -30,15 +30,21 @@ let
         colorschemes.catppuccin.enable = lib.mkForce (cfg.colorscheme == "catppuccin");
         colorschemes.tokyonight.enable = lib.mkForce (cfg.colorscheme == "tokyonight");
 
-        colorschemes.catppuccin.settings = lib.mkIf (cfg.colorscheme == "catppuccin") {
-          flavour = config.catppuccin.flavor;
-          transparent_background = cfg.transparent;
-        };
+        colorschemes.catppuccin.settings.flavour = lib.mkIf (cfg.colorscheme == "catppuccin") (
+          lib.mkForce config.catppuccin.flavor
+        );
 
-        colorschemes.tokyonight.settings = lib.mkIf (cfg.colorscheme == "tokyonight") {
-          style = cfg.tokyonightStyle;
-          transparent = cfg.transparent;
-        };
+        colorschemes.catppuccin.settings.transparent_background = lib.mkIf (
+          cfg.colorscheme == "catppuccin"
+        ) (lib.mkForce cfg.transparent);
+
+        colorschemes.tokyonight.settings.style = lib.mkIf (cfg.colorscheme == "tokyonight") (
+          lib.mkForce cfg.tokyonightStyle
+        );
+
+        colorschemes.tokyonight.settings.transparent = lib.mkIf (cfg.colorscheme == "tokyonight") (
+          lib.mkForce cfg.transparent
+        );
 
         # nixpkgs currently ships nvim-treesitter-refactor with a dependency on
         # nvim-treesitter-legacy, which conflicts with the normal nvim-treesitter.
