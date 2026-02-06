@@ -69,8 +69,7 @@
   };
 
   # Ensure gpg-agent/pinentry works across sessions/TTYs.
-  programs.zsh.initExtra = ''
-    export GPG_TTY="$(tty)"
+  programs.zsh.initContent = lib.mkAfter ''
     gpgconf --launch gpg-agent >/dev/null 2>&1 || true
   '';
 }

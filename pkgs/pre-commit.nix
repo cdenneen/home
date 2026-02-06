@@ -6,7 +6,7 @@ writeShellScriptBin "pre-commit" ''
   if command -v treefmt >/dev/null 2>&1; then
     treefmt_cmd="treefmt --fail-on-change"
   else
-    treefmt_cmd="nix fmt -- --check"
+    treefmt_cmd="nix fmt -- --fail-on-change"
   fi
 
   if ! sh -c "$treefmt_cmd"; then
