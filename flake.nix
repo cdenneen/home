@@ -159,6 +159,15 @@
               };
               prettier.enable = true;
             };
+
+            # Do not let formatters rewrite encrypted SOPS files.
+            settings.global.excludes = [
+              "secrets/secrets.yaml"
+            ];
+
+            settings.formatter.prettier.excludes = [
+              "secrets/secrets.yaml"
+            ];
           };
 
           # Make `nix fmt` work and provide a `treefmt` wrapper.
