@@ -33,14 +33,10 @@
     fi
 
     if [ -r /sys/devices/virtual/dmi/id/sys_vendor ] && ${pkgs.gnugrep}/bin/grep -qi "amazon" /sys/devices/virtual/dmi/id/sys_vendor; then
-      # On EC2, SSO profiles don't work; use instance metadata instead.
+      # On EC2/Cloud9, SSO profiles don't work; use instance metadata instead.
       $DRY_RUN_CMD ${pkgs.gnused}/bin/sed -i \
-        -e 's/source_profile[[:space:]]*=[[:space:]]*sso-apss/source_profile=ec2-local/g' \
+        -e 's/source_profile[[:space:]]*=[[:space:]]*sso-apss/credential_source = Ec2InstanceMetadata/g' \
         "$HOME/.aws/config" || true
-
-      if ! ${pkgs.gnugrep}/bin/grep -q "^\[profile ec2-local\]" "$HOME/.aws/config"; then
-        $DRY_RUN_CMD ${pkgs.coreutils}/bin/printf '\n[profile ec2-local]\ncredential_source = Ec2InstanceMetadata\n' >> "$HOME/.aws/config"
-      fi
     fi
   '';
 

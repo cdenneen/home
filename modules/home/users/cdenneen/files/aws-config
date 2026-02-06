@@ -2,9 +2,6 @@
 output=json
 region=us-east-1
 
-[profile ec2-local]
-credential_source = Ec2InstanceMetadata
-
 [profile metadata-sso-dev]
 sso_account_id=222259241209
 sso_role_name=MetadataExtractSync
