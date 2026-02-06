@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   self,
   ...
 }@inputs:
@@ -99,7 +100,7 @@ in
       };
     })
 
-    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion && (config.nixpkgs.hostPlatform.isLinux or false)) {
+    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux) {
       nix.gc.dates = "weekly";
     })
 
