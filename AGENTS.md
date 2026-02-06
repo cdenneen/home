@@ -1,333 +1,143 @@
-# Agent Guide for `home` Nix Flake Repository
+# Agent Guide (AGENTS.md)
 
-This document is intended for **agentic coding assistants** (LLMs, Cursor, Copilot, etc.) working in this repository. It summarizes how to build, test, lint, and modify the codebase safely, and documents the architectural and style conventions already in use.
+This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These notes are for agentic coding tools working autonomously here.
 
-The goal is to keep changes **boring, reproducible, and reviewable**. This file is written for
-agentic coding assistants (LLMs, Cursor, Copilot) operating autonomously in this repo.
+## Quick Facts
 
----
+- Flake outputs live under `systems/` and `modules/`.
+- Home Manager is integrated (system-managed) and generally uses `home-manager.useGlobalPkgs = true`.
+- `secrets/secrets.yaml` is encrypted with sops + age; recipients are managed via `.sops.yaml`.
+- Prefer conservative changes; keep diffs small and readable.
 
-## Repository Overview
+## Commands (Build / Lint / Test)
 
-- This is a **Nix flake–based mono‑repo** for:
-  - nix‑darwin (macOS)
-  - NixOS (Linux, incl. WSL)
-  - Home Manager (integrated via `useGlobalPkgs = true`)
-- Uses **flake‑parts** to structure outputs.
-- Targets **ARM only**:
-  - `aarch64-darwin`
-  - `aarch64-linux`
-- No x86_64 support is expected or tested.
-
-Key principles:
-
-- One nixpkgs import per system
-- No ad‑hoc `import nixpkgs` inside `perSystem`
-- Home Manager is declarative but may _invoke_ imperative scripts
-
-Non-goals:
-
-- Supporting x86_64 platforms
-- Adding imperative state ownership to Home Manager
-- Mutating files during evaluation, activation, or git hooks
-
----
-
-## Common Commands
-
-### Flake evaluation
+### Evaluate the flake
 
 ```sh
 nix flake show
-nix flake check
 ```
 
-Note:
+### Build a single thing (fast iteration)
 
-- `nix flake check` is **not filtered by system**.
-- CI explicitly builds `checks.aarch64-linux` and `checks.aarch64-darwin` instead.
-
-### Build individual checks (single check)
-
-Use this when iterating on one failing check:
+- Build one check:
 
 ```sh
-nix build .#checks.aarch64-darwin.<check-name>
-nix build .#checks.aarch64-linux.<check-name>
+nix build .#checks.aarch64-darwin.<check>
+nix build .#checks.aarch64-linux.<check>
 ```
 
-List available checks:
+- List check names:
 
 ```sh
 nix flake show | sed -n '/checks/,$p'
 ```
 
-### Build NixOS system (Linux)
+- Build one host system output:
 
 ```sh
-nix build .#nixosConfigurations.eros.config.system.build.toplevel
+nix build .#darwinConfigurations.<host>.system
+nix build .#nixosConfigurations.<host>.config.system.build.toplevel
 ```
 
-### Build nix-darwin system (macOS)
-
-```sh
-nix build .#darwinConfigurations.VNJTECMBCD.system
-```
-
-### Switch system (local machine only)
-
-- macOS:
+### Switch (only on the target machine)
 
 ```sh
 sudo darwin-rebuild switch --flake .
-```
-
-- NixOS:
-
-```sh
 sudo nixos-rebuild switch --flake .
 ```
 
-### Home Manager only (when available)
+### Formatting / lint
+
+- Repo formatter (treefmt via flake):
 
 ```sh
-home-manager switch --flake .
+nix fmt
 ```
 
-### Linting & formatting
-
-Formatting is enforced via **treefmt** and checked in CI.
-
-Run formatter locally:
+- If you need the wrapper directly:
 
 ```sh
-treefmt
+nix develop -c treefmt
+nix develop -c treefmt --check
 ```
 
-Check formatting only (used in pre-commit):
+Rule: run `nix fmt` before committing.
 
-```sh
-treefmt --check
-```
+### “Single test” equivalents
 
----
+There aren’t unit tests in the usual sense; the closest is building one derivation:
 
-## Devshell
+- One check: `nix build .#checks.<system>.<check>`
+- One host: `nix build .#(darwin|nixos)Configurations.<host>...`
 
-This repo supports a **flake devshell**.
+## Nix Style Guidelines
 
-Enter it with:
+- Formatting: 2-space indent; let `nix fmt` decide details.
+- Imports: prefer `imports = [ ./a.nix ./b.nix ];` and keep modules small.
+- One nixpkgs import per system: do not `import nixpkgs` inside random modules.
+- Home Manager with `useGlobalPkgs`: do not set `nixpkgs.config` / `nixpkgs.overlays` in HM modules.
+- `mkDefault` for defaults; `mkForce` only for invariants or upstream breakage.
+- Keep option schemas accurate (types + descriptions) when adding new options.
+
+## Naming / Structure
+
+- Nix files: `kebab-case.nix`.
+- User HM modules: `modules/home/users/<user>/...`.
+- Host configs: `systems/<host>.nix`.
+- Scripts: verb-first (e.g. `sops-bootstrap-host`, `update-secrets`).
+
+## Shell Script Expectations
+
+- Use `set -euo pipefail`.
+- Non-interactive and idempotent.
+- Never silently write empty/partial secrets.
+
+## Secrets (sops-nix + age)
+
+Files:
+
+- Encrypted: `secrets/secrets.yaml`
+- Recipients config: `.sops.yaml`
+- Human registry: `pub/age-recipients.txt`
+
+Devshell helpers (preferred):
 
 ```sh
 nix develop
+sops-edit
+sops-diff-keys
+sops-update-keys   # non-interactive
+sops-verify-keys
+sops-bootstrap-host
 ```
 
-The devshell:
+Safe recipient rotation:
 
-- Uses the same nixpkgs pin as the rest of the flake
-- Should not override or re‑import nixpkgs
-- Is intentionally minimal
+1. Bootstrap host key: `sops-bootstrap-host`
+2. Update `pub/age-recipients.txt` and `.sops.yaml`
+3. Re-encrypt: `sops-update-keys`
+4. Verify registry: `sops-verify-keys`
 
-Do **not** add heavy tooling here unless it is universally useful.
+Host key conventions (Linux):
 
----
+- System key: `/var/sops/age/keys.txt`
+- Permissions: `root:sops` + directory `0750`, file `0440` so user sops-nix can read.
 
-## CI (GitHub Actions)
+If you add a user to the `sops` group after login, the systemd user manager may not pick up the new supplementary groups. Fix by re-logging in or restarting the user manager:
 
-Workflow lives at:
-
+```sh
+sudo systemctl restart user@$(id -u <user>).service
 ```
-.github/workflows/ci.yml
-```
 
-Important constraints:
+## GC / Maintenance
 
-- Linux jobs run on `ubuntu-latest`
-- Darwin jobs run on `macos-latest`
-- No cross‑OS builds (Linux never builds Darwin)
-- Cachix publishing is **not** part of this workflow (handled separately)
+- NixOS: `nix.gc.automatic = true` with weekly schedule.
+- nix-darwin: GC interval configured in `modules/darwin/default.nix`.
+- Store optimization: `nix.settings.auto-optimise-store = true`.
 
-When editing CI:
+Note: avoid enabling both `programs.nh.clean.enable` and `nix.gc.automatic`.
 
-- Never reference `secrets.*` at job level
-- Use **step‑level guards** only
-- Avoid conditional `needs:` relationships
+## Cursor / Copilot Rules
 
-### Running CI logic locally
-
-CI logic should be reproducible via `nix build` / `nix flake check`.
-Do **not** add GitHub-only logic that cannot be exercised locally.
-
----
-
-## Code Style – Nix
-
-### Formatting
-
-- Follow standard nixpkgs style
-- 2‑space indentation
-- No trailing whitespace
-- Attribute sets sorted logically, not alphabetically
-- Prefer explicit parentheses for conditionals over clever expressions
-
-### Imports
-
-- Prefer `imports = [ ./foo.nix ./bar.nix ];`
-- Avoid deep relative paths in system modules
-- One nixpkgs import per system (enforced)
-- Never import nixpkgs inside `perSystem`
-- Home Manager user modules live under:
-  ```
-  modules/home/users/<username>/
-  ```
-
-### nixpkgs usage
-
-- `home-manager.useGlobalPkgs = true` is **required**
-- `allowUnfree`, overlays, and config belong to the **system nixpkgs import**
-- Never set `nixpkgs.*` options inside Home Manager modules
-- Prefer `lib.mkDefault` for host-specific overrides
-- Use `lib.mkForce` only when correcting an upstream or invariant violation
-
-### Assertions & guards
-
-- Prefer failing early with clear assertions
-- Avoid silent fallbacks
-- CI should fail loudly if invariants are broken
-
-### Types & option hygiene
-
-- Define options with accurate types and descriptions
-- Avoid `types.anything` unless strictly necessary
-- Prefer smaller, composable modules over large option bags
-
-### Naming conventions
-
-- Files: `kebab-case.nix`
-- Modules: descriptive and scoped (`git.nix`, `zsh.nix`)
-- Options: explicit and namespaced
-- Scripts: verb-first (`update-secrets`, `sync-keys`)
-
----
-
-## Shell Scripts & Helpers
-
-### Location
-
-- User scripts live under:
-
-  ```
-  modules/home/users/<username>/files/
-  ```
-
-- They are installed via `home.file` into `$HOME/.local/bin`
-
-### Requirements
-
-- Scripts must be **self‑contained**
-- Do not rely on interactive shell functions
-- Must work in non‑interactive contexts (HM activation, CI, cron)
-
-### Error handling
-
-- Use `set -euo pipefail` (or zsh equivalent)
-- Fail fast on missing inputs
-- Never silently emit empty secrets or config
-
-Scripts should be:
-
-- Non-interactive
-- Deterministic
-- Safe to run multiple times
-
----
-
-## Secrets & sops-nix Workflow
-
-This repository uses **sops-nix with AGE encryption**.
-
-### Files
-
-- Encrypted secrets: `secrets/secrets.yaml`
-- Human registry of AGE recipients: `pub/age-recipients.txt`
-
-Public keys are documented for humans only; sops does not consume the registry directly.
-
-### Helper commands (available in devshell)
-
-- `sops-edit` – edit secrets safely
-- `sops-diff-keys` – preview recipient changes with context
-- `sops-update-keys` – re-encrypt with updated recipients
-- `sops-check` – show current recipients and registry
-- `sops-verify-keys` – enforce that all recipients are documented
-- `sops-bootstrap-host` – generate host AGE key on a new machine
-
-### Safe update procedure
-
-1. Generate host key: `sops-bootstrap-host`
-2. Add public key to `pub/age-recipients.txt`
-3. Review changes: `sops-diff-keys`
-4. Re-encrypt: `sops-update-keys`
-5. Verify: `sops-verify-keys`
-
-Never approve recipient changes unless every key is understood and documented.
-
----
-
-## Naming Conventions
-
-- Files: `kebab-case.nix`
-- Modules: descriptive, not generic (`zsh.nix`, not `shell.nix`)
-- Options: scoped and explicit
-- Scripts: verbs preferred (`update-secrets`, `sync-keys`)
-
----
-
-## What NOT to Do
-
-- Do not add x86_64 support
-- Do not import nixpkgs manually inside `perSystem`
-- Do not add secrets to the repo (even encrypted) without review
-- Do not rely on Home Manager to _own_ imperative state
-- Do not "fix" CI by disabling jobs or checks
-- Do not introduce `xdg.configFile` duplication in Home Manager modules
-- Do not manage Starship or similar tools via ad-hoc file writes
-
----
-
-## Agent Expectations
-
-When making changes:
-
-- Keep diffs minimal
-- Preserve existing structure
-- Prefer small, composable modules
-- Explain _why_ a change is needed, not just _what_
-- Assume CI will catch regressions
-
-If unsure, choose the **most conservative** option.
-
----
-
-## Cursor / Copilot Notes
-
-No explicit `.cursor/rules` or `.cursorrules` files are present.
-No `.github/copilot-instructions.md` is present.
-
-Agents should treat **this file** as the canonical instruction source.
-
----
-
-## Quick Agent Checklist
-
-- Can this be built with `nix build`?
-- Does it respect ARM-only constraints?
-- Does it avoid imperative mutation?
-- Does Home Manager remain declarative?
-- Will CI fail loudly if broken?
-
-If any answer is "no", rethink the change.
-
----
-
-End of AGENTS.md
+- No `.cursor/rules/`, `.cursorrules`, or `.github/copilot-instructions.md` present.
+- Treat this file as the canonical agent instruction.

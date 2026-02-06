@@ -41,6 +41,12 @@ This fork intentionally keeps the surface area small. The changes below are the 
 - Reliable AGE key handling on macOS and Linux
 - Secrets decrypt correctly without activation-time hacks
 
+Note: on NixOS, if you add a user to the `sops` group after login, you may need to re-login or restart the user manager for user services (like `sops-nix.service`) to pick up the new group:
+
+```sh
+sudo systemctl restart user@$(id -u <user>).service
+```
+
 ### CI and evaluation
 
 - ARM-only evaluation (aarch64-darwin, aarch64-linux)
@@ -65,5 +71,7 @@ See `AGENTS.md` for:
 - build / lint / check commands
 - code style and naming rules
 - invariants that must not be violated
+
+This repo also includes a repo-scoped OpenCode agent at `/.opencode/agents/nixos-expert.md` for NixOS/nix-darwin/Home Manager work.
 
 If a change does not clearly fit the fork delta above, it likely does not belong here.
