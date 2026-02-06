@@ -83,6 +83,7 @@ in
       # Runtimes / cloud
       nodejs_20 # LTS
       yarn
+      _1password-cli
       awscli2
       ssm-session-manager-plugin
 
