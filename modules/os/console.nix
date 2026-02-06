@@ -15,7 +15,8 @@ in
         enable = true;
         # nh flake lives in ~/src/personal/home
         flake = "${config.users.users.${config.userPresets.cdenneen.name}.home}/src/personal/home";
-        clean.enable = true;
+        # We run nix.gc automatically; don't double-clean.
+        clean.enable = false;
       };
     };
     environment =

@@ -74,8 +74,10 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules =
-              homeModules ++ sharedHomeModulesIntegrated ++ [ plasma-manager.homeModules.plasma-manager ];
+            # Plasma Manager is intentionally NOT a global shared module.
+            # It pulls in extra nixpkgs wiring under Home Manager and triggers warnings
+            # with useGlobalPkgs on non-Plasma hosts.
+            sharedModules = homeModules ++ sharedHomeModulesIntegrated;
           };
         }
       ]

@@ -89,6 +89,12 @@
         import nixpkgs {
           inherit system;
           overlays = [
+            (final: prev: {
+              # nixpkgs kept nixfmt-rfc-style as an alias for a while and emits a warning
+              # when it is evaluated. Some tooling (eg treefmt-nix defaults) still refers
+              # to that name. Override it to the canonical package to avoid the warning.
+              "nixfmt-rfc-style" = prev.nixfmt;
+            })
             nixpkgs-esp-dev.overlays.default
             nur-packages.overlays.default
             nur.overlays.default

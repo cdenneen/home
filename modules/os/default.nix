@@ -95,7 +95,7 @@ in
       nix.gc.automatic = true;
       nix.gc.options = "--delete-older-than 14d";
       sops = {
-        defaultSopsFile = ../../secrets.yaml;
+        defaultSopsFile = ../../secrets/secrets.yaml;
         age.keyFile = "/var/sops/age/keys.txt";
       };
     })
