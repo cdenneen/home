@@ -11,7 +11,6 @@
     ./gtk.nix
     ./kde.nix
     ./shells/bash.nix
-    ./shells/fish.nix
     ./shells/ion.nix
     ./shells/nushell.nix
     ./shells/powershell.nix

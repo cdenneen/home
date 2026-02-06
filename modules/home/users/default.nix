@@ -127,7 +127,6 @@ in
       eza.enable = true;
       zsh.enable = true;
       bash.enable = true;
-      fish.enable = true;
       ion.enable = true;
       nushell.enable = true;
       powershell.enable = true;
@@ -161,11 +160,7 @@ in
     };
     catppuccin = {
       enable = true;
-      flavor = lib.mkDefault (
-        if pkgs.stdenv.isDarwin
-        then "latte"
-        else "mocha"
-      );
+      flavor = lib.mkDefault (if pkgs.stdenv.isDarwin then "latte" else "mocha");
       accent = lib.mkDefault "red";
     };
   };

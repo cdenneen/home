@@ -32,7 +32,6 @@ in
     };
     home.shellAliases = {
       zellij-bash = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.bashInteractive} --session-name bash --attach-to-session true";
-      zellij-fish = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.fish} --session-name fish --attach-to-session true";
       zellij-ion = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.ion} --session-name ion --attach-to-session true";
       zellij-nushell = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.nushell} --session-name nu --attach-to-session true";
       zellij-powershell = "${lib.getExe pkgs.zellij} options --default-shell ${lib.getExe pkgs.powershell} --session-name pwsh --attach-to-session true";
@@ -62,17 +61,6 @@ in
         }; then
           zellij-zsh
         fi
-      '';
-      fish.interactiveShellInit = ''
-        if not set -q ZELLIJ && not set -q SSH_CONNECTION && ${
-          lib.concatStringsSep " && " (
-            lib.mapAttrsToList (
-              name: values: lib.concatStringsSep " && " (map (v: "not test \"\$${name}\" = \"${v}\"") values)
-            ) cfg.restrictedVariables
-          )
-        }
-          zellij-fish
-        end
       '';
       nushell.configFile.text = ''
         if "ZELLIJ" not-in $env and "SSH_CONNECTION" not-in $env and ${

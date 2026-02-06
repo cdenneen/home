@@ -1,6 +1,65 @@
-{ ... }:
+{ lib, ... }:
 {
   networking.hostName = "VNJTECMBCD";
 
   system.stateVersion = 6;
+
+  home-manager.users.cdenneen = {
+    # Tokyo Night (TUI focus) for Ghostty + Neovim.
+    xdg.configFile."ghostty/themes/tokyonight-night".text = ''
+      background = 1a1b26
+      foreground = c0caf5
+      cursor-color = c0caf5
+      selection-background = 33467c
+      selection-foreground = c0caf5
+
+      # ANSI colors
+      palette = 0=15161e
+      palette = 1=f7768e
+      palette = 2=9ece6a
+      palette = 3=e0af68
+      palette = 4=7aa2f7
+      palette = 5=bb9af7
+      palette = 6=7dcfff
+      palette = 7=a9b1d6
+      palette = 8=414868
+      palette = 9=f7768e
+      palette = 10=9ece6a
+      palette = 11=e0af68
+      palette = 12=7aa2f7
+      palette = 13=bb9af7
+      palette = 14=7dcfff
+      palette = 15=c0caf5
+    '';
+
+    # Override the shared Ghostty config to use Tokyo Night.
+    xdg.configFile."ghostty/config".text = lib.mkForce ''
+      background-opacity = 0.8
+      font-family = MonaspiceAr Nerd Font Mono
+      font-feature = calt
+      font-feature = ss01
+      font-feature = ss02
+      font-feature = ss03
+      font-feature = ss04
+      font-feature = ss05
+      font-feature = ss06
+      font-feature = ss07
+      font-feature = ss08
+      font-feature = ss09
+      font-feature = liga
+      theme = tokyonight-night
+      confirm-close-surface = false
+      quit-after-last-window-closed = true
+    '';
+
+    # Avoid catppuccin.nvim pulling in extra Neovim dependencies on Darwin.
+    catppuccin.nvim.enable = lib.mkForce false;
+
+    programs.nvf.settings.vim.theme = {
+      enable = true;
+      name = lib.mkForce "tokyonight";
+      style = lib.mkForce "night";
+      transparent = true;
+    };
+  };
 }

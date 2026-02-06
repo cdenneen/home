@@ -194,15 +194,6 @@ in
         "${nixpkgs-unstable}/nixos/modules/virtualisation/amazon-image.nix"
       ];
     };
-    eros-ami = nixosSystem {
-      system = "aarch64-linux";
-      nixosModules = [
-        ./ec2-base.nix
-        ./eros-ec2.nix
-        ./eros-ami.nix
-        "${nixpkgs-unstable}/nixos/maintainers/scripts/ec2/amazon-image.nix"
-      ];
-    };
     eros-ec2 = nixosSystem {
       system = "aarch64-linux";
       nixosModules = [

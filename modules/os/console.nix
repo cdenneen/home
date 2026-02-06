@@ -11,7 +11,6 @@ in
   config = lib.mkIf cfg.defaults.enable {
     programs = {
       zsh.enable = true;
-      fish.enable = true;
       nh = {
         enable = true;
         # nh flake lives in ~/src/personal/home
@@ -23,7 +22,6 @@ in
       let
         shells = with pkgs; [
           bashInteractive
-          fish
           nushell
           powershell
           zsh
