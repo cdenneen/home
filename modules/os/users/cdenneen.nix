@@ -20,46 +20,48 @@ in
     };
   };
 
-  config = lib.mkIf cfg.cdenneen.enable {
-    users.groups.sops = lib.mkIf pkgs.stdenv.isLinux { };
+  config = lib.mkIf cfg.cdenneen.enable (lib.mkMerge [
+    {
+      users.users.${cfg.cdenneen.name} = lib.mkMerge [
+        {
+          name = cfg.cdenneen.name;
+          description = "Chris Denneen";
+          home = "${homePath}/${cfg.cdenneen.name}";
+          shell = pkgs.zsh;
+        }
 
-    users.users.${cfg.cdenneen.name} = lib.mkMerge [
-      {
-        name = cfg.cdenneen.name;
-        description = "Chris Denneen";
-        home = "${homePath}/${cfg.cdenneen.name}";
-        shell = pkgs.zsh;
-        packages = [
-          pkgs._1password-cli
-        ];
-      }
-      (lib.mkIf pkgs.stdenv.isLinux {
-        isNormalUser = true;
-        # Linux-only: nix-darwin does not manage user passwords
-        initialHashedPassword = "$6$110Kl1BJUnU6QXEO$u7Ij2S63bEmwNj/J..rhKZ1kuBWs8/mPWwOMvDjoajuQPxUDcE8ld81RsC69lZGyHlogyajFU0V.nvJAeGx16.";
-        extraGroups = [
-          "networkmanager"
-          "sops"
-          "wheel"
-          cfg.cdenneen.name
-        ];
-      })
-    ];
-
-    users.groups.${cfg.cdenneen.name} = lib.mkIf pkgs.stdenv.isLinux { };
-
-    nix.settings.trusted-users = [ cfg.cdenneen.name ];
-
-    home-manager.users.${cfg.cdenneen.name} = {
-      home.username = cfg.cdenneen.name;
-      home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
-      imports = [
-        ../../home/users/cdenneen/default.nix
+        (lib.mkIf pkgs.stdenv.isLinux {
+          isNormalUser = true;
+          # Linux-only: nix-darwin does not manage user passwords
+          initialHashedPassword = "$6$110Kl1BJUnU6QXEO$u7Ij2S63bEmwNj/J..rhKZ1kuBWs8/mPWwOMvDjoajuQPxUDcE8ld81RsC69lZGyHlogyajFU0V.nvJAeGx16.";
+          extraGroups = [
+            "networkmanager"
+            "sops"
+            "wheel"
+            cfg.cdenneen.name
+          ];
+        })
       ];
-      profiles = {
-        defaults.enable = true;
-        gui.enable = enableGui;
+
+      users.groups.${cfg.cdenneen.name} = lib.mkIf pkgs.stdenv.isLinux { };
+
+      nix.settings.trusted-users = [ cfg.cdenneen.name ];
+
+      home-manager.users.${cfg.cdenneen.name} = {
+        home.username = cfg.cdenneen.name;
+        home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
+        imports = [
+          ../../home/users/cdenneen/default.nix
+        ];
+        profiles = {
+          defaults.enable = true;
+          gui.enable = enableGui;
+        };
       };
-    };
-  };
+    }
+
+    (lib.mkIf pkgs.stdenv.isLinux {
+      users.groups.sops = { };
+    })
+  ]);
 }

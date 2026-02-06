@@ -82,6 +82,8 @@ in
             "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
             "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
           ];
+
+          auto-optimise-store = true;
         };
         nixPath = [
           "nixpkgs=${inputs.nixpkgs-unstable}"
