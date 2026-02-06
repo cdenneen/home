@@ -4,7 +4,7 @@ writeShellScriptBin "pre-commit" ''
 
   # Check-only: do not modify the working tree during commit
   if command -v treefmt >/dev/null 2>&1; then
-    treefmt_cmd="treefmt --check"
+    treefmt_cmd="treefmt --fail-on-change"
   else
     treefmt_cmd="nix fmt -- --check"
   fi
