@@ -1,7 +1,11 @@
 { pkgs, ... }:
 pkgs.writeShellApplication {
   name = "sops-verify-keys";
-  runtimeInputs = with pkgs; [ sops gnugrep coreutils ];
+  runtimeInputs = with pkgs; [
+    sops
+    gnugrep
+    coreutils
+  ];
   text = ''
     set -euo pipefail
 

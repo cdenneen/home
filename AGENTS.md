@@ -26,6 +26,7 @@ Key principles:
 - Home Manager is declarative but may _invoke_ imperative scripts
 
 Non-goals:
+
 - Supporting x86_64 platforms
 - Adding imperative state ownership to Home Manager
 - Mutating files during evaluation, activation, or git hooks
@@ -234,6 +235,7 @@ Do **not** add GitHub-only logic that cannot be exercised locally.
 - Never silently emit empty secrets or config
 
 Scripts should be:
+
 - Non-interactive
 - Deterministic
 - Safe to run multiple times
@@ -245,12 +247,14 @@ Scripts should be:
 This repository uses **sops-nix with AGE encryption**.
 
 ### Files
+
 - Encrypted secrets: `secrets/secrets.yaml`
 - Human registry of AGE recipients: `pub/age-recipients.txt`
 
 Public keys are documented for humans only; sops does not consume the registry directly.
 
 ### Helper commands (available in devshell)
+
 - `sops-edit` – edit secrets safely
 - `sops-diff-keys` – preview recipient changes with context
 - `sops-update-keys` – re-encrypt with updated recipients
@@ -259,6 +263,7 @@ Public keys are documented for humans only; sops does not consume the registry d
 - `sops-bootstrap-host` – generate host AGE key on a new machine
 
 ### Safe update procedure
+
 1. Generate host key: `sops-bootstrap-host`
 2. Add public key to `pub/age-recipients.txt`
 3. Review changes: `sops-diff-keys`

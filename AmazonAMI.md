@@ -3,23 +3,26 @@
 This repo contains a dedicated NixOS configuration to build an EC2-compatible AMI disk image with a larger EFI System Partition (ESP), plus a small `/etc/nixos/flake.nix` proxy that points back to GitHub.
 
 Targets:
+
 - Region: `us-east-1`
 - S3 bucket: `chris-denneen-cloud9`
 - Instance profile ARN: `arn:aws:iam::838870929816:instance-profile/ChrisDenneen-Cloud9-Instance-Profile`
 
 Source instance (`eros`) settings to match for networking (queried from IMDS + EC2 API):
+
 - Instance ID: `i-0a3e1df60bde023ad`
 - Instance type: `t4g.large`
 - Subnet: `subnet-0f00c3c339c1276d3`
 - Security group: `sg-09e1e391fa0921f10`
 - Key pair: `cdenneen_ed25519_2024`
 - Root device: `/dev/xvda` (gp3, 150G)
-Tags:
+  Tags:
 - Source instance tags (eros):
   - `Name=Chris Denneen nixos-arm64 eros`
   - `servicefamily=infrastructure`
 
 For new resources created for a host named `$HOST` (AMI, snapshot, instance, volumes):
+
 - `Name=Chris Denneen nixos-arm64 $HOST`
 - `servicefamily=infrastructure`
 
@@ -46,6 +49,7 @@ cat result/nix-support/image-info.json
 You should see a VHD under `result/` (usually `result/amazon-ami.vhd`).
 
 Notes:
+
 - This image is UEFI (`arm64`) and includes an ESP sized to `750M`.
 - The image includes `/etc/nixos/flake.nix` as a proxy to `github:cdenneen/home`.
 - The image build uses `virtualisation.diskSize = 16384` (MiB). You can override it in `systems/amazon-ami.nix` if needed.
@@ -199,28 +203,28 @@ The host configuration includes a first-boot service that generates a host AGE k
 
 After the instance is up:
 
-1) Get the public key from the new instance:
+1. Get the public key from the new instance:
 
 ```sh
 journalctl -u sops-age-keygen --no-pager
 ```
 
-2) Add it to the repo recipients:
+2. Add it to the repo recipients:
+
 - Add to `pub/age-recipients.txt`
 - Add to `.sops.yaml` (as `&server_${HOST} ...` and include it in `creation_rules`)
 
-3) Re-encrypt secrets with the new recipient:
+3. Re-encrypt secrets with the new recipient:
 
 ```sh
 sops-update-keys
 ```
 
-4) Switch again so it can decrypt immediately:
+4. Switch again so it can decrypt immediately:
 
 ```sh
 sudo nixos-rebuild switch --flake /etc/nixos#${HOST}
 ```
-
 
 ## Cleanup (optional)
 
@@ -231,24 +235,24 @@ sudo nixos-rebuild switch --flake /etc/nixos#${HOST}
 ## Onboarding a new EC2 host (example: nova)
 
 This repo separates:
+
 - `nixosConfigurations.amazon-ami` (generic AMI image builder)
 - per-host EC2 configs (e.g. `nixosConfigurations.nyx`)
 
 To create a new host named `nova`:
 
-1) Add a new system module
+1. Add a new system module
 
 - Create `systems/nova.nix` by copying `systems/nyx.nix`.
 - Change `networking.hostName` to `"nova"`.
 - Ensure the host includes the generic EC2 base module (`systems/ec2-base.nix`) so it generates `/var/sops/age/keys.txt` on first boot.
 
-2) Register the new system in the flake
+2. Register the new system in the flake
 
 - In `systems/default.nix`, add:
-
   - `nova = nixosSystem { system = "aarch64-linux"; nixosModules = [ ./ec2-base.nix ./nova.nix "${nixpkgs-unstable}/nixos/modules/virtualisation/amazon-image.nix" ]; };`
 
-3) Build + import + register the AMI
+3. Build + import + register the AMI
 
 - Use `nixosConfigurations.amazon-ami` to build the VHD and follow the same S3 upload/import/register steps in this document.
 - Use a `nova`-specific naming convention in the AWS CLI variables:
@@ -256,13 +260,13 @@ To create a new host named `nova`:
   - `--description "nixos nova ${DATE}"`
   - `AMI_NAME="nixos-nova-${DATE}"`
 
-4) Launch an instance for nova
+4. Launch an instance for nova
 
 - When running `aws ec2 run-instances`, tag the instance/volume as `nova`:
   - `Name=Chris Denneen nixos-arm64 nova`
   - `servicefamily=infrastructure`
 
-5) First boot: switch to the nova configuration
+5. First boot: switch to the nova configuration
 
 - On the new instance:
 
@@ -270,7 +274,7 @@ To create a new host named `nova`:
 sudo nixos-rebuild switch --flake /etc/nixos#nova
 ```
 
-6) Enable sops decryption for nova
+6. Enable sops decryption for nova
 
 - On nova, get the AGE public key:
 

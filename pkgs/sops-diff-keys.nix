@@ -1,7 +1,11 @@
 { pkgs, ... }:
 pkgs.writeShellApplication {
   name = "sops-diff-keys";
-  runtimeInputs = with pkgs; [ sops diffutils gnugrep ];
+  runtimeInputs = with pkgs; [
+    sops
+    diffutils
+    gnugrep
+  ];
   text = ''
     set -euo pipefail
 
