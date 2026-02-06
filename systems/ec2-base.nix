@@ -31,13 +31,17 @@
       keydir=/var/sops/age
       keyfile=$keydir/keys.txt
 
+      # Ensure directory permissions allow the sops group to traverse.
+      mkdir -p "$keydir"
+      chown root:sops "$keydir" || true
+      chmod 0750 "$keydir" || true
+
       if [ -f "$keyfile" ]; then
         chown root:sops "$keyfile" || true
         chmod 0440 "$keyfile" || true
         exit 0
       fi
 
-      mkdir -p "$keydir"
       ${pkgs.age}/bin/age-keygen -o "$keyfile"
       chown root:sops "$keyfile"
       chmod 0440 "$keyfile"
