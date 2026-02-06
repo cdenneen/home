@@ -8,6 +8,7 @@
   sops.secrets = {
     fortress_rsa.mode = "0600";
     cdenneen_ed25519_2024.mode = "0600";
+    github_ed25519.mode = "0600";
     codecommit_rsa.mode = "0600";
     id_rsa_cloud9.mode = "0600";
   };
@@ -120,13 +121,16 @@
 
     # Private keys: symlink to decrypted SOPS secret file.
     backup_if_unmanaged "$HOME/.ssh/fortress_rsa" "${config.sops.secrets.fortress_rsa.path}"
+    backup_if_unmanaged "$HOME/.ssh/github_ed25519" "${config.sops.secrets.github_ed25519.path}"
     backup_if_unmanaged "$HOME/.ssh/id_ed25519" "${config.sops.secrets.cdenneen_ed25519_2024.path}"
     backup_if_unmanaged "$HOME/.ssh/cdenneen_ed25519_2024" "${config.sops.secrets.cdenneen_ed25519_2024.path}"
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa" "${config.sops.secrets.codecommit_rsa.path}"
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9" "${config.sops.secrets.id_rsa_cloud9.path}"
 
     # Public keys: managed by Home Manager (symlink into /nix/store).
+    backup_if_unmanaged "$HOME/.ssh/config" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/fortress_rsa.pub" "" "/nix/store/"
+    backup_if_unmanaged "$HOME/.ssh/github_ed25519.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/id_ed25519.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/cdenneen_ed25519_2024.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa.pub" "" "/nix/store/"
@@ -136,12 +140,14 @@
   home.file = lib.mkMerge [
     {
       ".ssh/fortress_rsa".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.fortress_rsa.path;
+      ".ssh/github_ed25519".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.github_ed25519.path;
       ".ssh/id_ed25519".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.cdenneen_ed25519_2024.path;
       ".ssh/cdenneen_ed25519_2024".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.cdenneen_ed25519_2024.path;
       ".ssh/codecommit_rsa".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.codecommit_rsa.path;
       ".ssh/id_rsa_cloud9".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.id_rsa_cloud9.path;
 
       ".ssh/fortress_rsa.pub".source = ../../../../pub/ssh/fortress_rsa.pub;
+      ".ssh/github_ed25519.pub".source = ../../../../pub/ssh/github_ed25519.pub;
       ".ssh/id_ed25519.pub".source = ../../../../pub/ssh/id_ed25519.pub;
       ".ssh/cdenneen_ed25519_2024.pub".source = ../../../../pub/ssh/cdenneen_ed25519_2024.pub;
       ".ssh/codecommit_rsa.pub".source = ../../../../pub/ssh/codecommit_rsa.pub;
