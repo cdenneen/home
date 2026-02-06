@@ -139,12 +139,18 @@
 
   home.file = lib.mkMerge [
     {
-      ".ssh/fortress_rsa".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.fortress_rsa.path;
-      ".ssh/github_ed25519".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.github_ed25519.path;
-      ".ssh/id_ed25519".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.cdenneen_ed25519_2024.path;
-      ".ssh/cdenneen_ed25519_2024".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.cdenneen_ed25519_2024.path;
-      ".ssh/codecommit_rsa".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.codecommit_rsa.path;
-      ".ssh/id_rsa_cloud9".source = config.lib.file.mkOutOfStoreSymlink config.sops.secrets.id_rsa_cloud9.path;
+      ".ssh/fortress_rsa".source =
+        config.lib.file.mkOutOfStoreSymlink config.sops.secrets.fortress_rsa.path;
+      ".ssh/github_ed25519".source =
+        config.lib.file.mkOutOfStoreSymlink config.sops.secrets.github_ed25519.path;
+      ".ssh/id_ed25519".source =
+        config.lib.file.mkOutOfStoreSymlink config.sops.secrets.cdenneen_ed25519_2024.path;
+      ".ssh/cdenneen_ed25519_2024".source =
+        config.lib.file.mkOutOfStoreSymlink config.sops.secrets.cdenneen_ed25519_2024.path;
+      ".ssh/codecommit_rsa".source =
+        config.lib.file.mkOutOfStoreSymlink config.sops.secrets.codecommit_rsa.path;
+      ".ssh/id_rsa_cloud9".source =
+        config.lib.file.mkOutOfStoreSymlink config.sops.secrets.id_rsa_cloud9.path;
 
       ".ssh/fortress_rsa.pub".source = ../../../../pub/ssh/fortress_rsa.pub;
       ".ssh/github_ed25519.pub".source = ../../../../pub/ssh/github_ed25519.pub;
