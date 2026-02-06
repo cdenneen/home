@@ -155,7 +155,11 @@
             };
           };
 
+          # Make `nix fmt` work and provide a `treefmt` wrapper.
+          formatter = config.treefmt.build.wrapper;
+
           packages = {
+            treefmt = config.treefmt.build.wrapper;
             setup-sops = pkgs.callPackage ./pkgs/setup-sops.nix { };
             setup-git-sops = pkgs.callPackage ./pkgs/setup-git-sops.nix { };
             git-sops = pkgs.callPackage ./pkgs/git-sops.nix { };
@@ -170,12 +174,15 @@
 
           devshells.default = {
             # Align devshell tooling with system/Home Manager pkgs
-            packages = with pkgs; [
-              git
-              atuin
-              zoxide
-              opencode
-            ];
+            packages =
+              with pkgs;
+              [
+                git
+                atuin
+                zoxide
+                opencode
+              ]
+              ++ [ self'.packages.treefmt ];
             commands = [
               {
                 package = self'.packages.setup-sops;

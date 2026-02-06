@@ -4,14 +4,16 @@ writeShellScriptBin "pre-commit" ''
 
   # Check-only: do not modify the working tree during commit
   if command -v treefmt >/dev/null 2>&1; then
-    if ! treefmt --check; then
-      echo
-      echo "Formatting issues detected."
-      echo "Run 'nix fmt' (or 'treefmt') manually, then re-run git commit."
-      exit 1
-    fi
+    treefmt_cmd="treefmt --check"
   else
-    echo "treefmt not found; skipping format checks."
+    treefmt_cmd="nix fmt -- --check"
+  fi
+
+  if ! sh -c "$treefmt_cmd"; then
+    echo
+    echo "Formatting issues detected."
+    echo "Run 'nix fmt' to fix, then re-run git commit."
+    exit 1
   fi
 
   exit 0
