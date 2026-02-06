@@ -1,0 +1,78 @@
+[default]
+output=json
+region=us-east-1
+
+[profile ec2-local]
+credential_source = Ec2InstanceMetadata
+
+[profile metadata-sso-dev]
+sso_account_id=222259241209
+sso_role_name=MetadataExtractSync
+sso_session=cdenneen
+
+[profile metadata-sync-dev]
+role_arn=arn:aws:iam::222259241209:role/ap-metadata-extract-sync
+role_session_name=metadata-extract-sync
+source_profile=metadata-sso-dev
+
+[profile nextology]
+
+[profile eks-apss]
+role_arn=arn:aws:iam::838870929816:role/eksAdmin
+role_session_name=eksAdmin
+source_profile=sso-apss
+
+[profile eks-prod]
+role_arn=arn:aws:iam::198401342403:role/eksAdmin
+role_session_name=eksAdmin
+source_profile=sso-apss
+
+[profile sso-apss]
+sso_account_id=838870929816
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile sso-capdev]
+sso_account_id=222259241209
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile sso-awsqa]
+sso_account_id=720322524327
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile sso-awsprod]
+sso_account_id=198401342403
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile tf-apss]
+role_arn=arn:aws:iam::838870929816:role/gitlab-terraform-role
+role_session_name=terraform-eks
+source_profile=sso-apss
+
+[profile tf-awsprod]
+role_arn=arn:aws:iam::198401342403:role/apss-terraform-role
+role_session_name=terraform-eks
+source_profile=tf-apss
+
+[profile tf-awsqa]
+role_arn=arn:aws:iam::720322524327:role/apss-terraform-role
+role_session_name=terraform-eks
+source_profile=tf-apss
+
+[profile tf-capdev]
+role_arn=arn:aws:iam::222259241209:role/apss-terraform-role
+role_session_name=terraform-eks
+source_profile=tf-apss
+
+[profile tf-sso]
+role_arn=arn:aws:iam::838870929816:role/gitlab-terraform-role
+role_session_name=terraform-eks
+source_profile=sso-apss
+
+[sso-session cdenneen]
+sso_region=us-east-1
+sso_registration_scopes=sso:account:access
+sso_start_url=https://d-9067f453fb.awsapps.com/start#

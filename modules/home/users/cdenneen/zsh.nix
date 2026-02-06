@@ -56,8 +56,8 @@
 
     # Kubernetes
     k = "kubectl";
-    kprod = "switch eks_eks-prod-us-east-1-prod-2-use1/eks_prod-2-use1";
-    kshared = "switch eks_eks-apss-us-east-1-shared-1-use1/eks_shared-1-use1";
+    kprod = "switch eks_prod-2-use1";
+    kshared = "switch eks_shared-1-use1";
     kinteract = "switch eks_eks-prod-us-east-1-apinteractives-datateam/eks_apinteractives-datateam";
     kinteractdr = "switch eks_eks-prod-us-west-2-apinteractives-datateam-dr/eks_apinteractives-datateam-dr";
 
