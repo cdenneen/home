@@ -255,7 +255,10 @@ in
     };
   };
 
-  home.file.".config/glab-cli/config.yml".text = ''
+  # glab requires strict perms on its config file (0600). Home Manager's
+  # `home.file.<name>.text` produces a store symlink (read-only), so we write a
+  # source file and then copy+chmod it at activation time.
+  home.file.".config/glab-cli/config.yml.source".text = ''
     git_protocol: ssh
     editor:
     browser:
@@ -284,6 +287,12 @@ in
           - git.ap.org
           - git.ap.org:443
           - registry.associatedpress.com
+  '';
+
+  home.activation.glabCliConfigPerms = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    $DRY_RUN_CMD mkdir -p "$HOME/.config/glab-cli"
+    $DRY_RUN_CMD cp -f "$HOME/.config/glab-cli/config.yml.source" "$HOME/.config/glab-cli/config.yml"
+    $DRY_RUN_CMD chmod 600 "$HOME/.config/glab-cli/config.yml"
   '';
 
   home.file.".config/direnv/lib/k8s_context.bash".text = ''
