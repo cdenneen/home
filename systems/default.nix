@@ -187,6 +187,7 @@ in
     eros = nixosSystem {
       system = "aarch64-linux";
       nixosModules = [
+        ./ec2-base.nix
         ./eros.nix
         "${nixpkgs-unstable}/nixos/modules/virtualisation/amazon-image.nix"
       ];
