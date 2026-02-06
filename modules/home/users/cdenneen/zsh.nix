@@ -67,4 +67,10 @@
     ssoq = "aws sso login --profile sso-awsqa --no-browser --use-device-code";
     ssop = "aws sso login --profile sso-awsprod --no-browser --use-device-code";
   };
+
+  # Ensure gpg-agent/pinentry works across sessions/TTYs.
+  programs.zsh.initExtra = ''
+    export GPG_TTY="$(tty)"
+    gpgconf --launch gpg-agent >/dev/null 2>&1 || true
+  '';
 }

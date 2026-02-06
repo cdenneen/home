@@ -1,4 +1,9 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   # GPG secret keys stored in SOPS (armored). Add new keys here as needed.
@@ -29,6 +34,13 @@ in
 
   services.gpg-agent = {
     enable = true;
+
+    # Cache the key once per boot/login session (no repeated prompts).
+    defaultCacheTtl = 86400;
+    maxCacheTtl = 86400;
+
+    # Pick a pinentry that works in each environment.
+    pinentryPackage = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
   };
 
   # Import all decrypted GPG secret keys from SOPS exactly once.
