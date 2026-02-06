@@ -1,4 +1,52 @@
-{ config, pkgs, ... }:
+{
+  config,
+  lib,
+  osConfig ? null,
+  pkgs,
+  ...
+}:
+
+let
+  isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
+
+  erosRemoteForwards =
+    if pkgs.stdenv.isDarwin then
+      [
+        {
+          bind.port = 2489;
+          host.address = "127.0.0.1";
+          host.port = 2489;
+        }
+      ]
+    else if isWsl then
+      [
+        {
+          bind.port = 2491;
+          host.address = "127.0.0.1";
+          host.port = 2491;
+        }
+        {
+          bind.port = 2492;
+          host.address = "127.0.0.1";
+          host.port = 2492;
+        }
+      ]
+    else
+      [ ];
+
+  identityConfig = {
+    identitiesOnly = true;
+    identityFile = [
+      config.sops.secrets.fortress_rsa.path
+      config.sops.secrets.cdenneen_ed25519_2024.path
+      config.sops.secrets.codecommit_rsa.path
+      config.sops.secrets.id_rsa_cloud9.path
+      config.sops.secrets.github_ed25519.path
+    ];
+  };
+
+  ssmProxyCommand = "${pkgs.dash}/bin/dash -c \"${pkgs.awscli2}/bin/aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'\"";
+in
 
 {
   home.packages = with pkgs; [
@@ -34,44 +82,80 @@
     direnv.enable = true;
     direnv.nix-direnv.enable = true;
     starship.enable = true;
+
+    awscli = {
+      enable = true;
+      package = pkgs.awscli2;
+      credentials = {
+        nextology = {
+          credential_process = ''sh -c "op --account=ap --vault=GSS item get --format=json --fields=label=AccessKeyId,label=SecretAccessKey nextology | jq 'map({key: .label, value: .value}) | from_entries + {Version: 1}'"'';
+        };
+      };
+    };
     # glab config is managed explicitly via home.file
   };
 
   programs.ssh = {
     enable = true;
     matchBlocks = {
-      "github.com" = {
-        user = "git";
-        identityFile = config.sops.secrets.github_ed25519.path;
-        identitiesOnly = true;
+      "i-* m-*" = {
+        proxyCommand = ssmProxyCommand;
       };
 
-      eros = {
+      c9 = identityConfig // {
+        proxyCommand = ssmProxyCommand;
+        user = "ubuntu";
+        hostname = "i-085b4f08b56c8b914";
+      };
+
+      "eros-ssm" = identityConfig // {
+        proxyCommand = ssmProxyCommand;
+        user = "cdenneen";
+        hostname = "i-0a3e1df60bde023ad";
+        remoteForwards = erosRemoteForwards;
+      };
+
+      eros = identityConfig // {
+        user = "cdenneen";
         hostname = "10.224.11.147";
-        user = "cdenneen";
+        remoteForwards = erosRemoteForwards;
       };
 
-      nyx = {
+      nyx = identityConfig // {
+        user = "cdenneen";
         hostname = "10.224.11.38";
-        user = "cdenneen";
       };
 
-      "nyx-ssm" = {
-        hostname = "i-052cb7906e89d224a";
+      "nyx-ssm" = identityConfig // {
+        proxyCommand = ssmProxyCommand;
         user = "cdenneen";
-        extraOptions = {
-          ProxyCommand = "sh -c 'aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'";
-        };
+        hostname = "i-052cb7906e89d224a";
       };
 
       nix = {
-        hostname = "10.224.11.140";
         user = "root";
+        hostname = "10.224.11.140";
         identityFile = "~/.ssh/cdenneen_winlaptop.pem";
-        extraOptions = {
-          RequestTTY = "no";
-        };
+        extraOptions.RequestTTY = "no";
       };
+
+      "git-codecommit.*.amazonaws.com" = identityConfig // {
+        user = "APKA4GUE2SGMGTPZB44D";
+      };
+
+      puppet = identityConfig // {
+        user = "root";
+        hostname = "ctcpmaster01.ap.org";
+      };
+
+      "github.com" = {
+        user = "git";
+        identitiesOnly = true;
+        identityFile = [ config.sops.secrets.github_ed25519.path ];
+      };
+
+      "gitlab.com" = identityConfig;
+      "git.ap.org" = identityConfig;
     };
   };
 
