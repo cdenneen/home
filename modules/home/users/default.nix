@@ -4,6 +4,7 @@
   pkgs,
   system,
   osConfig,
+  unstablePkgs ? pkgs,
   ...
 }:
 let
@@ -21,7 +22,8 @@ in
 
   config = lib.mkIf cfg.defaults.enable {
     home = {
-      stateVersion = "26.05";
+      stateVersion = "25.11";
+      enableNixpkgsReleaseCheck = false;
       sessionPath =
         lib.optionals config.programs.volta.enable [
           "${config.programs.volta.voltaHome}/bin"
@@ -141,6 +143,7 @@ in
       direnv.nix-direnv.enable = lib.mkDefault true;
 
       opencode.enable = lib.mkDefault true;
+      opencode.package = unstablePkgs.opencode;
     };
     # Catppuccin program integrations (top-level module, not under programs)
     # Catppuccin program integrations (supported by the flake)
@@ -149,7 +152,7 @@ in
     catppuccin.bat.enable = true;
     catppuccin.fzf.enable = true;
     catppuccin.tmux.enable = true;
-    # Neovim is configured via nixvim; avoid duplicate nvim theming.
+    # Neovim is configured via vimnix; avoid duplicate nvim theming.
     catppuccin.nvim.enable = false;
     # Opportunistically refresh secrets on HM switch
     home.activation.updateSecrets = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

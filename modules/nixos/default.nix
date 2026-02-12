@@ -10,6 +10,7 @@ in
 {
   imports = [
     ../os
+    ./compat/display-manager-generic.nix
     ./services
     ./containers
     ./filesystems.nix
@@ -40,6 +41,7 @@ in
         enable = true;
         flavor = "frappe";
         accent = "red";
+        gtk.icon.enable = lib.mkDefault false;
         tty = {
           enable = true;
           flavor = flavor;
@@ -49,7 +51,8 @@ in
       console.useXkbConfig = true;
       programs = {
         ssh.startAgent = false;
-        gnupg.agent = {
+        # gpg-agent is managed via Home Manager for the primary user.
+        gnupg.agent = lib.mkIf (!((config ? home-manager) && (config.home-manager.users ? cdenneen))) {
           enable = true;
           enableSSHSupport = true;
         };

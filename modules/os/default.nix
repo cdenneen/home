@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  unstablePkgs ? pkgs,
   self,
   ...
 }@inputs:
@@ -19,11 +20,16 @@ in
   ];
 
   options.profiles.defaults.enable = lib.mkEnableOption "Enable Defaults";
+  options.profiles.hmIntegrated.enable = lib.mkEnableOption "Enable Home Manager integration";
 
   config = lib.mkMerge [
     {
       # Enable cdenneen user preset globally so Home Manager activates everywhere
       userPresets.cdenneen.enable = true;
+
+      # Home Manager integration is enabled by default, but can be disabled
+      # for hosts that prefer standalone home-manager switch.
+      profiles.hmIntegrated.enable = lib.mkDefault true;
 
       # Ensure new Nix CLI is enabled for this user/host
       # Note: On macOS with Determinate Nix this is advisory and must still be
@@ -49,10 +55,10 @@ in
     # and must not be referenced at all on nix-darwin.
 
     (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
-      home-manager = {
+      home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
         backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
         useUserPackages = true;
-        useGlobalPkgs = true;
+        useGlobalPkgs = false;
         sharedModules = [
           {
             nix.package = lib.mkForce config.nix.package;

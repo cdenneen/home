@@ -42,9 +42,5 @@
       quit-after-last-window-closed = true
     '';
 
-    programs.nvim = {
-      colorscheme = lib.mkForce "tokyonight";
-      tokyonightStyle = lib.mkForce "night";
-    };
   };
 }

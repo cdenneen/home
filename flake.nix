@@ -19,67 +19,57 @@
   };
 
   inputs = {
-    # Canonical nixpkgs input required by flake-parts
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    apple-silicon-support.url = "github:tpwrules/nixos-apple-silicon";
+    # Canonical nixpkgs input required by flake-parts (stable for system builds)
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
     arion = {
       url = "github:hercules-ci/arion";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     catppuccin.url = "github:catppuccin/nix";
     devshell = {
       url = "github:numtide/devshell";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
-    discord_bot.url = "github:toyvo/discord_bot";
     disko = {
       url = "github:nix-community/disko";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-parts.url = "github:hercules-ci/flake-parts";
     home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      url = "github:nix-community/home-manager/release-25.11";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
-    jovian.url = "github:Jovian-Experiments/Jovian-NixOS";
+    apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
+    nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
-    nh.url = "github:toyvo/nh";
     nix-darwin = {
       url = "github:nix-darwin/nix-darwin";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
-      inputs.nixpkgs.follows = "nixpkgs-unstable";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-hardware.url = "github:nixos/nixos-hardware";
     nixos-wsl.url = "github:nix-community/nixos-wsl";
-    nixpkgs-esp-dev.url = "github:mirrexagon/nixpkgs-esp-dev";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
-    nixpkgs-unstable.follows = "nixpkgs";
-    nur-packages.url = "github:ToyVo/nur-packages";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     nur.url = "github:nix-community/nur";
-    nixvim.url = "github:cdenneen/nixvim";
-    plasma-manager.url = "github:pjones/plasma-manager";
+    vimnix.url = "github:cdenneen/vimnix";
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
-    rust-overlay.url = "github:oxalica/rust-overlay";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
-    zed.url = "github:zed-industries/zed";
   };
 
   outputs =
     inputs@{
+      apple-silicon-support,
       devshell,
       flake-parts,
-      nixpkgs-esp-dev,
-      nixpkgs-unstable,
+      nixos-crostini,
       nur,
-      nur-packages,
-      rust-overlay,
       self,
       treefmt-nix,
-      zed,
       ...
     }:
     let
@@ -94,13 +84,13 @@
               # when it is evaluated. Some tooling (eg treefmt-nix defaults) still refers
               # to that name. Override it to the canonical package to avoid the warning.
               "nixfmt-rfc-style" = prev.nixfmt;
+
+              # vimnix expects rust-analyzer-nightly; fall back to rust-analyzer.
+              rust-analyzer-nightly =
+                if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;
             })
-            nixpkgs-esp-dev.overlays.default
-            nur-packages.overlays.default
             nur.overlays.default
-            rust-overlay.overlays.default
             # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
-            # zed.overlays.default
           ];
           config = {
             allowBroken = true;
@@ -196,6 +186,7 @@
                 atuin
                 zoxide
                 opencode
+                gh
               ]
               ++ [ self'.packages.treefmt ];
             commands = [
@@ -232,49 +223,53 @@
           };
 
           checks =
-            with nixpkgs-unstable.lib;
-            with nur-packages.lib;
-            flakeChecks system self'.packages
-            // mapAttrs' (n: nameValuePair "devShells-${n}") (filterAttrs (n: v: isCacheable v) self'.devShells)
-            //
-              mapAttrs'
-                (
-                  n: v:
-                  (nameValuePair "homeConfigurations-${n}") (
-                    self.homeConfigurations."${n}".config.home.activationPackage
+            with pkgs.lib;
+            let
+              fullChecks = (builtins.getEnv "FULL_CHECKS") == "1";
+              devShellChecks = mapAttrs' (n: nameValuePair "devShells-${n}") (
+                filterAttrs (n: v: isCacheable v) self'.devShells
+              );
+              homeChecks =
+                mapAttrs'
+                  (
+                    n: v:
+                    (nameValuePair "homeConfigurations-${n}") (
+                      self.homeConfigurations."${n}".config.home.activationPackage
+                    )
                   )
-                )
-                (
-                  filterAttrs (
-                    n: v: self.homeConfigurations."${n}".pkgs.stdenv.system == system
-                  ) self.homeConfigurations
-                )
-            //
-              mapAttrs'
-                (
-                  n: v:
-                  (nameValuePair "nixosConfigurations-${n}") (
-                    self.nixosConfigurations."${n}".config.system.build.toplevel
+                  (
+                    filterAttrs (
+                      n: v: self.homeConfigurations."${n}".pkgs.stdenv.system == system
+                    ) self.homeConfigurations
+                  );
+              nixosChecks =
+                mapAttrs'
+                  (
+                    n: v:
+                    (nameValuePair "nixosConfigurations-${n}") (
+                      self.nixosConfigurations."${n}".config.system.build.toplevel
+                    )
                   )
-                )
-                (
-                  filterAttrs (
-                    n: v: self.nixosConfigurations."${n}".pkgs.stdenv.system == system
-                  ) self.nixosConfigurations
-                )
-            //
-              mapAttrs'
-                (
-                  n: v:
-                  (nameValuePair "darwinConfigurations-${n}") (
-                    self.darwinConfigurations."${n}".config.system.build.toplevel
+                  (
+                    filterAttrs (
+                      n: v: self.nixosConfigurations."${n}".pkgs.stdenv.system == system
+                    ) self.nixosConfigurations
+                  );
+              darwinChecks =
+                mapAttrs'
+                  (
+                    n: v:
+                    (nameValuePair "darwinConfigurations-${n}") (
+                      self.darwinConfigurations."${n}".config.system.build.toplevel
+                    )
                   )
-                )
-                (
-                  filterAttrs (
-                    n: v: self.darwinConfigurations."${n}".pkgs.stdenv.system == system
-                  ) self.darwinConfigurations
-                );
+                  (
+                    filterAttrs (
+                      n: v: self.darwinConfigurations."${n}".pkgs.stdenv.system == system
+                    ) self.darwinConfigurations
+                  );
+            in
+            devShellChecks // (if fullChecks then homeChecks // nixosChecks // darwinChecks else { });
         };
     };
 }

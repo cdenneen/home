@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  unstablePkgs ? pkgs,
   ...
 }:
 let
@@ -48,9 +49,10 @@ in
 
         nix.settings.trusted-users = [ cfg.cdenneen.name ];
 
-        home-manager.users.${cfg.cdenneen.name} = {
+        home-manager.users.${cfg.cdenneen.name} = lib.mkIf config.profiles.hmIntegrated.enable {
           home.username = cfg.cdenneen.name;
           home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
+          _module.args.pkgs = lib.mkForce unstablePkgs;
           imports = [
             ../../home/users/cdenneen/default.nix
           ];
@@ -59,6 +61,7 @@ in
             gui.enable = enableGui;
           };
         };
+
       }
 
       (lib.mkIf pkgs.stdenv.isLinux {

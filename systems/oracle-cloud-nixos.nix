@@ -57,14 +57,6 @@
       enable = true;
       settings.PasswordAuthentication = false;
     };
-    caddy = {
-      enable = true;
-      email = "collin@diekvoss.com";
-      virtualHosts."mc.toyvo.dev" = {
-        useACMEHost = "mc.toyvo.dev";
-        extraConfig = "reverse_proxy http://0.0.0.0:7878";
-      };
-    };
     minecraft-server = {
       declarative = true;
       enable = true;
@@ -92,33 +84,12 @@
       };
     };
   };
-  security = {
-    acme = {
-      acceptTerms = true;
-      certs."mc.toyvo.dev" = {
-        email = "collin@diekvoss.com";
-        dnsProvider = "cloudflare";
-        credentialFiles = {
-          "CF_API_EMAIL_FILE" = "${pkgs.writeText "cfemail" ''
-            collin@diekvoss.com
-          ''}";
-          "CF_API_KEY_FILE" = config.sops.secrets.cloudflare_global_api_key.path;
-          "CF_DNS_API_TOKEN_FILE" = config.sops.secrets.cloudflare_w_dns_r_zone_token.path;
-        };
-      };
-    };
-  };
   containerPresets.portainer = {
     enable = true;
   };
   sops.secrets = {
-    cloudflare_global_api_key = { };
-    cloudflare_w_dns_r_zone_token = { };
-    "discord_bot.env" = { };
     "rclone.conf" = { };
   };
-  users.users.caddy.extraGroups = [ "acme" ];
-  userPresets.toyvo.enable = true;
   disko.devices.disk.sda = {
     type = "disk";
     device = "/dev/sda";

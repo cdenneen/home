@@ -22,11 +22,5 @@ in
       })
     ];
     nix.settings.trusted-users = [ "root" ];
-    home-manager.users.root = {
-      home.username = "root";
-      home.homeDirectory = rootHomeDirectory;
-      profiles.defaults.enable = true;
-      programs.zsh.enableCompletion = false;
-    };
   };
 }

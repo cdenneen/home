@@ -25,6 +25,7 @@
     se = "sudoedit";
     vi = "nvim";
     vim = "nvim";
+    python = "python3";
 
     # Git
     g = "git";

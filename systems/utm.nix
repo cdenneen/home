@@ -17,7 +17,6 @@
     defaults.enable = true;
     gui.enable = true;
   };
-  userPresets.toyvo.enable = true;
   fileSystemPresets.boot.enable = true;
   fileSystemPresets.btrfs.enable = true;
   services.desktopManager.cosmic.enable = true;

@@ -79,9 +79,10 @@ in
       fluxcd
       pkgs."fluxcd-operator"
       glab
+      gh
 
       # Runtimes / cloud
-      nodejs_20 # LTS
+      nodejs_24 # LTS
       yarn
       _1password-cli
       awscli2
@@ -94,6 +95,12 @@ in
       netcat-openbsd
       xsel
     ];
+
+  programs.nh = {
+    enable = true;
+    flake = "${config.home.homeDirectory}/src/workspace/nix/home";
+    clean.enable = false;
+  };
 
   home.sessionVariables = lib.mkMerge [
     (lib.mkIf (pkgs.stdenv.isLinux && !isWsl) {

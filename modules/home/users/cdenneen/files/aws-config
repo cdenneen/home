@@ -69,7 +69,19 @@ role_arn=arn:aws:iam::838870929816:role/gitlab-terraform-role
 role_session_name=terraform-eks
 source_profile=sso-apss
 
+[profile gitlabadmin]
+sso_session = GitlabAdmin
+sso_account_id = 198401342403
+sso_role_name = GitlabAdmin
+region = us-east-1
+output = json
+
 [sso-session cdenneen]
 sso_region=us-east-1
 sso_registration_scopes=sso:account:access
 sso_start_url=https://d-9067f453fb.awsapps.com/start#
+
+[sso-session GitlabAdmin]
+sso_start_url = https://d-9067f453fb.awsapps.com/start/#
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access

@@ -11,13 +11,6 @@ in
   config = lib.mkIf cfg.defaults.enable {
     programs = {
       zsh.enable = true;
-      nh = {
-        enable = true;
-        # nh flake lives in ~/src/workspace/nix/home
-        flake = "${config.users.users.${config.userPresets.cdenneen.name}.home}/src/workspace/nix/home";
-        # We run nix.gc automatically; don't double-clean.
-        clean.enable = false;
-      };
     };
     environment =
       let
