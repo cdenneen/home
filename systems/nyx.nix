@@ -3,6 +3,25 @@
   networking.hostName = "nyx";
   ec2.efi = true;
 
+  services.tailscale = {
+    enable = true;
+    openFirewall = true;
+  };
+
+  # Allow inbound services over the private tailnet without opening ports to the public internet.
+  networking.firewall.trustedInterfaces = lib.mkAfter [ "tailscale0" ];
+
+  # Convenience for ad-hoc HTTP services during debugging.
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 8080 ];
+
+  programs.mosh.enable = true;
+  networking.firewall.allowedUDPPortRanges = lib.mkAfter [
+    {
+      from = 60000;
+      to = 61000;
+    }
+  ];
+
   fileSystems."/home/cdenneen/src" = {
     device = "UUID=48a9e4a3-252f-4676-afd9-f2ed39ac8e90";
     fsType = "ext4";

@@ -2,8 +2,18 @@
   config,
   lib,
   pkgs,
+  osConfig ? null,
   ...
 }:
+let
+  hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
+  isNyx = hostName == "nyx";
+
+  opencodeConfigJson = builtins.toJSON {
+    "$schema" = "https://opencode.ai/config.json";
+    plugin = [ "telegram-notify" ];
+  };
+in
 {
   sops.secrets = {
     fortress_rsa.mode = "0600";
@@ -11,6 +21,9 @@
     github_ed25519.mode = "0600";
     codecommit_rsa.mode = "0600";
     id_rsa_cloud9.mode = "0600";
+  }
+  // lib.optionalAttrs isNyx {
+    opencode_telegram_notify_ts.mode = "0600";
   };
 
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
@@ -160,9 +173,18 @@
       ".ssh/id_rsa_cloud9.pub".source = ../../../../pub/ssh/id_rsa_cloud9.pub;
     }
 
+    (lib.mkIf isNyx {
+      ".opencode/opencode.json".text = opencodeConfigJson;
+    })
+
     {
       ".local/bin/update-secrets" = {
         source = ./files/update-secrets;
+        executable = true;
+      };
+
+      ".local/bin/ssh-add-keys" = {
+        source = ./files/ssh-add-keys;
         executable = true;
       };
 
@@ -184,4 +206,35 @@
       };
     })
   ];
+
+  home.activation.opencodeTelegramNotifyBuild = lib.mkIf isNyx (
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      set -euo pipefail
+
+      src="${config.sops.secrets.opencode_telegram_notify_ts.path}"
+      ts_dst="$HOME/.opencode/plugins/telegram-notify.ts"
+      js_dst="$HOME/.opencode/plugins/telegram-notify.js"
+
+      $DRY_RUN_CMD mkdir -p "$HOME/.opencode/plugins"
+
+      # opencode/esbuild should read a real .ts file (not a symlink) so the
+      # TypeScript loader is used reliably.
+      if [ -L "$ts_dst" ]; then
+        $DRY_RUN_CMD rm -f "$ts_dst"
+      fi
+
+      if [ -r "$src" ]; then
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src" "$ts_dst"
+      fi
+
+      if [ -r "$ts_dst" ]; then
+        $DRY_RUN_CMD ${pkgs.esbuild}/bin/esbuild \
+          "$ts_dst" \
+          --platform=node \
+          --format=esm \
+          --outfile="$js_dst"
+        $DRY_RUN_CMD chmod 600 "$js_dst"
+      fi
+    ''
+  );
 }

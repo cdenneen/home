@@ -35,6 +35,9 @@ in
   services.gpg-agent = {
     enable = true;
 
+    # Use gpg-agent as an ssh-agent replacement.
+    enableSshSupport = true;
+
     # Cache the key once per boot/login session (no repeated prompts).
     defaultCacheTtl = 86400;
     maxCacheTtl = 86400;
