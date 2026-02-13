@@ -1,6 +1,8 @@
 { ... }:
 
 {
+  # Consolidated Home Manager configuration for user cdenneen.
+  # This file serves as the single import point for all user-scoped modules.
   imports = [
     ./programs.nix
     ./files.nix
