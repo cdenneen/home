@@ -84,9 +84,14 @@ function maybe_refresh_secrets() {
 # Defaults branch to 'main' if not provided.
 
 _setup_repo_workspace_name() {
+	setopt localoptions extendedglob
 	local ws
-	ws="${WORKSPACE_NAME:-$(basename "$PWD")}" || true
-	ws=$(printf "%s" "$ws" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//; s/-$//')
+	ws="${WORKSPACE_NAME:-${PWD:t}}"
+	# Replace non-allowed chars with '-'
+	ws="${ws//[^A-Za-z0-9._-]/-}"
+	# Trim leading/trailing '-'
+	ws="${ws##[-]#}"
+	ws="${ws%%[-]#}"
 	printf "%s" "$ws"
 }
 
@@ -124,13 +129,17 @@ _setup_repo_expected_bare_dir() {
 	# Returns the expected bare cache dir for a remote.
 	# Layout: flat key under CACHE_ROOT.
 	# Example: /home/user/src/cache/github.com_org_repo.git
+	setopt localoptions extendedglob
 	local cache_root="$1"
 	local host="$2"
 	local path="$3"
 
 	local base key
 	base="$host/${path%.git}"
-	key=$(printf "%s" "$base" | tr '/:@' '_')
+	key="$base"
+	key="${key//\//_}"
+	key="${key//:/_}"
+	key="${key//@/_}"
 	printf "%s/%s.git" "$cache_root" "$key"
 }
 
