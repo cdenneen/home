@@ -70,6 +70,7 @@ in
           env_file="$cfg_dir/env"
           bot_token_file="${config.sops.secrets.telegram_bot_token.path}"
           chat_id_file="${config.sops.secrets.telegram_chat_id.path}"
+          allowed_ids_file=""
           webhook_public_url='${if cfg.webhookPublicUrl == null then "" else cfg.webhookPublicUrl}'
 
           $DRY_RUN_CMD mkdir -p "$cfg_dir"
@@ -87,7 +88,22 @@ in
             exit 1
           fi
 
-          allowed_chat_ids="$owner_chat_id"
+          allowed_chat_ids=""
+
+          if [ -n "$allowed_ids_file" ] && [ -r "$allowed_ids_file" ]; then
+            allowed_chat_ids="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$allowed_ids_file")"
+          fi
+
+          if [ -z "$allowed_chat_ids" ]; then
+            db_file="$HOME/.local/share/opencode-telegram-bridge/state.sqlite"
+            if [ -r "$db_file" ]; then
+              allowed_chat_ids="$(${pkgs.sqlite}/bin/sqlite3 "$db_file" "select value from kv where key='telegram.allowed_chat_ids' limit 1;")"
+            fi
+          fi
+
+          if [ -z "$allowed_chat_ids" ]; then
+            allowed_chat_ids="$owner_chat_id"
+          fi
           case "$owner_chat_id" in
             -*) owner_chat_id="" ;;
           esac
@@ -110,6 +126,7 @@ in
                   "TELEGRAM_WEBHOOK_PATH=/telegram" \
                   "TELEGRAM_WEBHOOK_SECRET=$webhook_secret" \
                   "TELEGRAM_WEBHOOK_PUBLIC_URL=$webhook_public_url" \
+                  "TELEGRAM_WEBHOOK_FALLBACK_SEC=300" \
                   >"$env_file"
         '';
 

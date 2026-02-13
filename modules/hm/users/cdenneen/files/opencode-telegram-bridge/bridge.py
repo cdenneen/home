@@ -437,6 +437,8 @@ class Bridge:
         self._webhook_path = _env_str("TELEGRAM_WEBHOOK_PATH", "/telegram")
         self._webhook_public_url = os.getenv("TELEGRAM_WEBHOOK_PUBLIC_URL")
         self._webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+        self._webhook_fallback_sec = _env_int("TELEGRAM_WEBHOOK_FALLBACK_SEC", 300)
+        self._last_webhook_update_ts = _now()
 
         self._instances: dict[str, OpenCodeInstance] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -500,6 +502,7 @@ class Bridge:
 
             async def runner() -> None:
                 try:
+                    self._last_webhook_update_ts = _now()
                     await self._handle_update(update)
                 except Exception as e:
                     print(f"webhook update handling failed: {e}")
@@ -518,6 +521,12 @@ class Bridge:
         # Keep running.
         while True:
             await self._cleanup_idle()
+            if self._webhook_fallback_sec > 0:
+                idle = _now() - self._last_webhook_update_ts
+                if idle > self._webhook_fallback_sec:
+                    print("webhook idle too long; falling back to polling")
+                    await self.run_polling()
+                    return
             await asyncio.sleep(10)
 
     async def _handle_update(self, update: dict[str, Any]) -> None:
