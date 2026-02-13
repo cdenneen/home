@@ -116,10 +116,6 @@ in
       (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)
       {
         nix.gc.dates = "weekly";
-
-        # Docker socket compatibility on Linux.
-        virtualisation.podman.dockerSocket.enable = lib.mkDefault true;
-        virtualisation.podman.defaultNetwork.settings.dns_enabled = lib.mkDefault true;
       }
     )
 

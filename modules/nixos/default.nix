@@ -176,6 +176,10 @@ in
         # Increase download buffering for large artifacts
         download-buffer-size = lib.mkDefault 524288000; # 500MB
       };
+
+      # Podman Linux-specific defaults (not available on nix-darwin).
+      virtualisation.podman.dockerSocket.enable = lib.mkDefault true;
+      virtualisation.podman.defaultNetwork.settings.dns_enabled = lib.mkDefault true;
     }
   ];
 }
