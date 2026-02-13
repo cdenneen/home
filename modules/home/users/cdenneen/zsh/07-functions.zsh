@@ -344,8 +344,18 @@ update_workspace() {
 	for wt in *(/N); do
 		[[ -f "$wt/.git" ]] || continue
 
-		# Skip if git can't treat it as a work tree.
-		git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
+		local current_common
+		current_common=$(_worktree_common_dir_from_gitfile "$wt" 2>/dev/null || true)
+		[[ -z "$current_common" ]] && current_common=$(_git_common_dir_abs "$wt" 2>/dev/null || true)
+		if [[ -z "$current_common" ]]; then
+			continue
+		fi
+
+		# Only proceed for linked worktrees.
+		case "$current_common" in
+			"$cache_root"/*) ;;
+			*) continue ;;
+		esac
 
 		local upstream base_branch
 		upstream=$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
@@ -357,13 +367,6 @@ update_workspace() {
 
 		local syn_branch
 		syn_branch="$base_branch@$ws"
-
-		local current_common
-		current_common=$(_worktree_common_dir_from_gitfile "$wt" 2>/dev/null || true)
-		[[ -z "$current_common" ]] && current_common=$(_git_common_dir_abs "$wt" 2>/dev/null || true)
-		if [[ -z "$current_common" ]]; then
-			continue
-		fi
 
 		local remote_url
 		remote_url=$(git -C "$wt" config --get remote.origin.url 2>/dev/null || true)
