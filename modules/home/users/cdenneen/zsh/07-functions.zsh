@@ -196,17 +196,21 @@ _worktree_common_dir_from_gitfile() {
 
 _setup_repo_migrate_worktree_cache() {
 	# Migrates an existing worktree to a new bare cache path.
-	# Args: expected_bare wt_dir syn_branch base_branch remote_url
+	# Args: expected_bare wt_dir syn_branch base_branch remote_url [current_common_override]
 	local expected_bare="$1"
 	local wt_dir="$2"
 	local syn_branch="$3"
 	local base_branch="$4"
 	local remote_url="$5"
+	local current_common_override="${6:-}"
 
 	local current_common
-	current_common=$(_git_common_dir_abs "$wt_dir" 2>/dev/null || true)
+	current_common="$current_common_override"
 	if [[ -z "$current_common" ]]; then
 		current_common=$(_worktree_common_dir_from_gitfile "$wt_dir" 2>/dev/null || true)
+	fi
+	if [[ -z "$current_common" ]]; then
+		current_common=$(_git_common_dir_abs "$wt_dir" 2>/dev/null || true)
 	fi
 	if [[ -z "$current_common" ]]; then
 		echo "setup_repo: existing directory is not a git worktree: $wt_dir" >&2
@@ -253,11 +257,25 @@ _setup_repo_migrate_worktree_cache() {
 	mkdir -p "$(dirname "$expected_bare")"
 	if [[ ! -d "$expected_bare" ]]; then
 		echo "Creating bare cache: $expected_bare"
-		git clone --bare "$remote_url" "$expected_bare" || return 1
+		if [[ -n "$remote_url" ]]; then
+			git clone --bare "$remote_url" "$expected_bare" || return 1
+		else
+			# If the worktree doesn't have an origin URL, clone from the existing bare.
+			git clone --bare "$current_common" "$expected_bare" || return 1
+			# Best-effort: keep origin pointing at the original remote.
+			local old_origin
+			old_origin=$(git --git-dir="$current_common" remote get-url origin 2>/dev/null || true)
+			if [[ -n "$old_origin" ]]; then
+				git --git-dir="$expected_bare" remote set-url origin "$old_origin" >/dev/null 2>&1 || true
+			fi
+		fi
 		git --git-dir="$expected_bare" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
 		git --git-dir="$expected_bare" config --unset-all remote.origin.mirror 2>/dev/null || true
 	fi
-	git --git-dir="$expected_bare" fetch origin --prune >/dev/null 2>&1 || true
+	# Fetch only if origin exists.
+	if git --git-dir="$expected_bare" remote get-url origin >/dev/null 2>&1; then
+		git --git-dir="$expected_bare" fetch origin --prune >/dev/null 2>&1 || true
+	fi
 
 	if ! git --git-dir="$expected_bare" cat-file -e "$head_sha^{commit}" 2>/dev/null; then
 		echo "Fetching local commits from old cache..."
@@ -300,7 +318,7 @@ _setup_repo_migrate_worktree_cache() {
 }
 
 update_workspace() {
-	emulate -L zsh -o no_xtrace -o nullglob -o globstarshort -o extendedglob
+	emulate -L zsh -o no_xtrace -o nullglob -o extendedglob
 
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
@@ -321,20 +339,10 @@ update_workspace() {
 		return 2
 	fi
 
-	local -a gitfiles
-	# Only worktrees have a .git *file*; normal clones have a .git directory.
-	gitfiles=(**/.git(.N))
-	if (( ${#gitfiles[@]} == 0 )); then
-		echo "update_workspace: no git worktrees found" >&2
-		return 0
-	fi
-
-	local gf wt
+	local wt
 	local found=0
-	for gf in "${gitfiles[@]}"; do
-		# Worktrees have a .git *file*; normal clones have a .git directory.
-		[[ -f "$gf" ]] || continue
-		wt="${gf%/.git}"
+	for wt in *(/N); do
+		[[ -f "$wt/.git" ]] || continue
 
 		# Skip if git can't treat it as a work tree.
 		git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
@@ -351,11 +359,8 @@ update_workspace() {
 		syn_branch="$base_branch@$ws"
 
 		local current_common
-		# Prefer reading .git file (cheap; works even if git rev-parse fails).
 		current_common=$(_worktree_common_dir_from_gitfile "$wt" 2>/dev/null || true)
-		if [[ -z "$current_common" ]]; then
-			current_common=$(_git_common_dir_abs "$wt" 2>/dev/null || true)
-		fi
+		[[ -z "$current_common" ]] && current_common=$(_git_common_dir_abs "$wt" 2>/dev/null || true)
 		if [[ -z "$current_common" ]]; then
 			continue
 		fi
@@ -411,9 +416,10 @@ update_workspace() {
 				"$wt" \
 				"$syn_branch" \
 				"$base_branch" \
-				"$remote_url" || return $?
+				"$remote_url" \
+				"$current_common" || return $?
 		fi
-		done
+	done
 
 	if (( ! do_migrate )); then
 		if (( found > 0 )); then
