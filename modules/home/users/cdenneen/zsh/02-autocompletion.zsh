@@ -6,6 +6,10 @@ autoload -Uz compinit && compinit -d "$XDG_CACHE_HOME"/zsh/zcompdump-"$ZSH_VERSI
 [[ $commands[gh] ]] && source <(gh completion -s zsh)
 [[ $commands[kubectl] ]] && source <(kubectl completion zsh)
 
+# kubeswitch / switcher integration (requires compinit)
+command -v switcher >/dev/null 2>&1 && source <(switcher init zsh)
+command -v switch >/dev/null 2>&1 && source <(switch completion zsh)
+
 #█▓▒░ style
 zstyle ':completion:*' auto-description 'specify: %d'
 zstyle ':completion:*' completer _expand _complete _correct _approximate

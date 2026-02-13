@@ -98,31 +98,31 @@ _setup_repo_workspace_name() {
 _setup_repo_parse_remote() {
 	# prints: <host>\n<path>\n ; returns non-zero on failure
 	local remote_url="$1"
-	local host path
+	local host remote_path
 	host=""
-	path=""
+	remote_path=""
 	if [[ "$remote_url" =~ ^git@([^:]+):(.+)$ ]]; then
 		host="${match[1]}"
-		path="${match[2]}"
+		remote_path="${match[2]}"
 	elif [[ "$remote_url" =~ ^ssh://([^/]+)/(.+)$ ]]; then
 		host="${match[1]}"
-		path="${match[2]}"
+		remote_path="${match[2]}"
 	elif [[ "$remote_url" =~ ^https?://([^/]+)/(.+)$ ]]; then
 		host="${match[1]}"
-		path="${match[2]}"
+		remote_path="${match[2]}"
 	else
 		return 1
 	fi
 
-	path="${path%/}"
-	path="${path#./}"
-	path="${path#/}"
-	if [[ "$path" == *".."* ]]; then
+	remote_path="${remote_path%/}"
+	remote_path="${remote_path#./}"
+	remote_path="${remote_path#/}"
+	if [[ "$remote_path" == *".."* ]]; then
 		return 1
 	fi
 
 	print -r -- "$host"
-	print -r -- "$path"
+	print -r -- "$remote_path"
 }
 
 _setup_repo_expected_bare_dir() {
@@ -132,10 +132,10 @@ _setup_repo_expected_bare_dir() {
 	setopt localoptions extendedglob
 	local cache_root="$1"
 	local host="$2"
-	local path="$3"
+	local remote_path="$3"
 
 	local base key
-	base="$host/${path%.git}"
+	base="$host/${remote_path%.git}"
 	key="$base"
 	key="${key//\//_}"
 	key="${key//:/_}"
@@ -166,11 +166,19 @@ _git_common_dir_abs() {
 _worktree_common_dir_from_gitfile() {
 	# Best-effort common dir derivation from worktree .git file.
 	# Prints the bare repo dir (common dir) if it looks like a linked worktree.
+	setopt localoptions extendedglob
 	local wt_dir="$1"
-	local line gitdir
-	line="$(<"$wt_dir/.git" 2>/dev/null)"
-	gitdir="${line#gitdir: }"
-	gitdir="${gitdir%%$'\n'*}"
+	local raw first gitdir
+	raw="$(<"$wt_dir/.git" 2>/dev/null)"
+	[[ -n "$raw" ]] || return 1
+	# First line only.
+	first="${${(f)raw}[1]}"
+	# Trim leading whitespace.
+	first="${first##[[:space:]]#}"
+	[[ "$first" == gitdir:* ]] || return 1
+	gitdir="${first#gitdir:}"
+	gitdir="${gitdir##[[:space:]]#}"
+	gitdir="${gitdir%$'\r'}"
 	[[ -n "$gitdir" ]] || return 1
 
 	# Resolve relative gitdir if needed.
@@ -254,7 +262,7 @@ _setup_repo_migrate_worktree_cache() {
 		fi
 	)
 
-	mkdir -p "$(dirname "$expected_bare")"
+	mkdir -p "${expected_bare:h}"
 	if [[ ! -d "$expected_bare" ]]; then
 		echo "Creating bare cache: $expected_bare"
 		if [[ -n "$remote_url" ]]; then
@@ -318,7 +326,16 @@ _setup_repo_migrate_worktree_cache() {
 }
 
 update_workspace() {
-	emulate -L zsh -o no_xtrace -o nullglob -o extendedglob
+	emulate -L zsh
+	setopt nullglob extendedglob
+
+	# Some environments end up emitting variable-assignment trace lines to stdout.
+	# Capture stdout, filter those lines, then print clean output.
+	local _uw_tmp
+	_uw_tmp="/tmp/update_workspace.$$.${RANDOM}.out"
+	: >"$_uw_tmp" || return 1
+
+	{
 
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
@@ -371,7 +388,7 @@ update_workspace() {
 		local remote_url
 		remote_url=$(git -C "$wt" config --get remote.origin.url 2>/dev/null || true)
 
-		local host path
+		local host remote_path
 		if [[ -n "$remote_url" ]]; then
 			local parsed
 			parsed="$(_setup_repo_parse_remote "$remote_url" 2>/dev/null)" || {
@@ -379,7 +396,7 @@ update_workspace() {
 				continue
 			}
 			host="${${(f)parsed}[1]}"
-			path="${${(f)parsed}[2]}"
+			remote_path="${${(f)parsed}[2]}"
 		else
 			# Fallback: derive host/path from the current bare cache directory.
 			# Expected old layouts:
@@ -391,13 +408,13 @@ update_workspace() {
 				continue
 			fi
 			host="${rel%%/*}"
-			path="${rel#*/}"
+			remote_path="${rel#*/}"
 			# Strip user@ if present
 			host="${host#*@}"
 		fi
 
 		local expected_bare
-		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
+		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$remote_path")"
 
 		if [[ "$current_common" == "$expected_bare" ]]; then
 			continue
@@ -424,15 +441,26 @@ update_workspace() {
 		fi
 	done
 
-	if (( ! do_migrate )); then
-		if (( found > 0 )); then
-			echo "" >&2
-			echo "Dry-run only. To migrate all listed worktrees:" >&2
-			echo "  update_workspace --migrate" >&2
-		else
-			echo "update_workspace: nothing to migrate" >&2
+		if (( ! do_migrate )); then
+			if (( found > 0 )); then
+				echo "" >&2
+				echo "Dry-run only. To migrate all listed worktrees:" >&2
+				echo "  update_workspace --migrate" >&2
+			else
+				echo "update_workspace: nothing to migrate" >&2
+			fi
 		fi
-	fi
+	} >"$_uw_tmp"
+
+	local _uw_line
+	while IFS= read -r _uw_line; do
+		case "$_uw_line" in
+			[A-Za-z_]*=*) continue ;;
+		esac
+		print -r -- "$_uw_line"
+	done <"$_uw_tmp"
+
+	rm -f "$_uw_tmp" >/dev/null 2>&1 || true
 }
 
 setup_repo() {
@@ -453,23 +481,24 @@ setup_repo() {
 	fi
 
 	# Parse git remote into host + path (supports scp-style SSH, ssh://, https://)
-	local host path
+	local host remote_path
 	local parsed
 	parsed="$(_setup_repo_parse_remote "$remote_url")" || {
 		echo "setup_repo: unsupported git URL: $remote_url" >&2
 		return 2
 	}
 	host="${${(f)parsed}[1]}"
-	path="${${(f)parsed}[2]}"
+	remote_path="${${(f)parsed}[2]}"
 
 	local repo_name
-	repo_name=$(basename "$path" .git)
+	repo_name="${remote_path:t}"
+	repo_name="${repo_name%.git}"
 	local bare_dir
-	bare_dir="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
+	bare_dir="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$remote_path")"
 	local worktree_dir="./$repo_name"
 	local synthetic_branch="${branch}@${workspace_name}"
 
-	mkdir -p "$(dirname "$bare_dir")"
+	mkdir -p "${bare_dir:h}"
 
 	if [[ ! -d "$bare_dir" ]]; then
 		echo "Creating bare cache: $bare_dir"
@@ -490,6 +519,7 @@ setup_repo() {
 	fi
 
 	git --git-dir="$bare_dir" fetch origin --prune || return 1
+	git --git-dir="$bare_dir" worktree prune >/dev/null 2>&1 || true
 
 	local start_ref="origin/$branch"
 	if ! git --git-dir="$bare_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
@@ -498,7 +528,9 @@ setup_repo() {
 	fi
 
 	# Make/update the synthetic branch and set it to track origin/<branch>
-	git --git-dir="$bare_dir" branch -f "$synthetic_branch" "$start_ref" || return 1
+	if ! git --git-dir="$bare_dir" show-ref --verify --quiet "refs/heads/$synthetic_branch"; then
+		git --git-dir="$bare_dir" branch "$synthetic_branch" "$start_ref" || return 1
+	fi
 	git --git-dir="$bare_dir" branch --set-upstream-to "$start_ref" "$synthetic_branch" >/dev/null 2>&1 || true
 
 	if [[ -d "$worktree_dir/.git" || -f "$worktree_dir/.git" ]]; then
