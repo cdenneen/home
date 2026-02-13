@@ -650,7 +650,10 @@ setup_repo() {
 }
 
 update_workspace() {
-	setopt localoptions nullglob globstarshort extendedglob no_xtrace
+	setopt localoptions nullglob globstarshort extendedglob
+	# Force-disable tracing for this function (some shells have PS4 empty).
+	set +x 2>/dev/null || true
+	unsetopt xtrace 2>/dev/null || true
 
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
@@ -680,25 +683,11 @@ update_workspace() {
 	fi
 
 	local gf wt
+	local found=0
 	for gf in "${gitfiles[@]}"; do
 		# Worktrees have a .git *file*; normal clones have a .git directory.
 		[[ -f "$gf" ]] || continue
 		wt="${gf%/.git}"
-
-		local remote_url
-		remote_url=$(git -C "$wt" remote get-url origin 2>/dev/null || true)
-		[[ -n "$remote_url" ]] || continue
-
-		local parsed host path
-		parsed="$(_setup_repo_parse_remote "$remote_url" 2>/dev/null)" || {
-			echo "update_workspace: unsupported remote for $wt: $remote_url" >&2
-			continue
-		}
-		host="${${(f)parsed}[1]}"
-		path="${${(f)parsed}[2]}"
-
-		local expected_bare
-		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
 
 		local upstream base_branch
 		upstream=$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
@@ -717,12 +706,48 @@ update_workspace() {
 			continue
 		fi
 
+		local remote_url
+		remote_url=$(git -C "$wt" config --get remote.origin.url 2>/dev/null || true)
+
+		local host path
+		if [[ -n "$remote_url" ]]; then
+			local parsed
+			parsed="$(_setup_repo_parse_remote "$remote_url" 2>/dev/null)" || {
+				echo "update_workspace: unsupported remote for $wt: $remote_url" >&2
+				continue
+			}
+			host="${${(f)parsed}[1]}"
+			path="${${(f)parsed}[2]}"
+		else
+			# Fallback: derive host/path from the current bare cache directory.
+			# Expected old layouts:
+			# - $CACHE_ROOT/<host>/<path>.git
+			# - $CACHE_ROOT/git@<host>/<path>.git
+			local rel
+			rel="${current_common#$cache_root/}"
+			if [[ "$rel" == "$current_common" ]]; then
+				continue
+			fi
+			host="${rel%%/*}"
+			path="${rel#*/}"
+			# Strip user@ if present
+			host="${host#*@}"
+		fi
+
+		local expected_bare
+		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
+
 		if [[ "$current_common" == "$expected_bare" ]]; then
 			continue
 		fi
+		found=$((found + 1))
 
 		echo "- $wt"
-		echo "  remote:   $remote_url"
+		if [[ -n "$remote_url" ]]; then
+			echo "  remote:   $remote_url"
+		else
+			echo "  remote:   (none)"
+		fi
 		echo "  current:  $current_common"
 		echo "  expected: $expected_bare"
 
@@ -737,9 +762,13 @@ update_workspace() {
 		done
 
 	if (( ! do_migrate )); then
-		echo "" >&2
-		echo "Dry-run only. To migrate all listed worktrees:" >&2
-		echo "  update_workspace --migrate" >&2
+		if (( found > 0 )); then
+			echo "" >&2
+			echo "Dry-run only. To migrate all listed worktrees:" >&2
+			echo "  update_workspace --migrate" >&2
+		else
+			echo "update_workspace: nothing to migrate" >&2
+		fi
 	fi
 }
 
