@@ -6,7 +6,7 @@
   # Ensure correct PATH setup for zsh across platforms.
   programs.zsh.envExtra = lib.concatStringsSep "\n" [
     (lib.optionalString pkgs.stdenv.isDarwin ''
-      export PATH="/run/current-system/sw/bin:$HOME/.nix-profile/bin:$PATH"
+      export PATH="/run/wrappers/bin:/run/current-system/sw/bin:$HOME/.nix-profile/bin:$PATH"
       if [ -r /etc/zprofile ]; then
         source /etc/zprofile
       fi
@@ -15,6 +15,7 @@
       if [ -r /etc/profile ]; then
         source /etc/profile
       fi
+      export PATH="/run/wrappers/bin:$PATH"
     '')
   ];
 

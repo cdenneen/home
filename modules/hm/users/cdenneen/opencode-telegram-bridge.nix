@@ -74,6 +74,11 @@ in
 
           $DRY_RUN_CMD mkdir -p "$cfg_dir"
 
+          if [ ! -r "$bot_token_file" ]; then
+            echo "opencode-telegram-bridge: missing telegram_bot_token secret; skipping env setup" >&2
+            exit 0
+          fi
+
           bot_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$bot_token_file")"
           owner_chat_id="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$chat_id_file" || true)"
 
@@ -112,6 +117,7 @@ in
       Unit = {
         Description = "OpenCode <-> Telegram bridge";
         After = [ "network-online.target" ];
+        ConditionPathExists = "%h/.config/opencode-telegram-bridge/env";
       };
 
       Service = {
