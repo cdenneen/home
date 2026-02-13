@@ -300,10 +300,7 @@ _setup_repo_migrate_worktree_cache() {
 }
 
 update_workspace() {
-	emulate -L zsh
-	setopt nullglob globstarshort extendedglob
-	# Force-disable tracing even if the parent shell enabled it.
-	set +x 2>/dev/null || true
+	emulate -L zsh -o no_xtrace -o nullglob -o globstarshort -o extendedglob
 
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
@@ -338,6 +335,9 @@ update_workspace() {
 		# Worktrees have a .git *file*; normal clones have a .git directory.
 		[[ -f "$gf" ]] || continue
 		wt="${gf%/.git}"
+
+		# Skip if git can't treat it as a work tree.
+		git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
 
 		local upstream base_branch
 		upstream=$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
