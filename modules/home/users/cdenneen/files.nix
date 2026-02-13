@@ -12,6 +12,8 @@
   # so it can be patched on EC2 (store paths are read-only).
   home.file.".aws/config.source".source = ./files/aws-config;
 
+  home.file.".config/opencode/AGENTS.md".source = ./opencode/AGENTS.md;
+
   home.activation.awsConfigWrite = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     set -euo pipefail
 
