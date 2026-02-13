@@ -54,6 +54,22 @@
   # User definition is shared via commonModules.users.cdenneen
   profiles.defaults.enable = true;
 
+  # Keep rebuilds from saturating this host.
+  # A too-parallel build can cause memory pressure and make the box unresponsive.
+  nix.settings = {
+    max-jobs = 1;
+    cores = 1;
+
+    # Keep memory usage predictable during large downloads/unpacks.
+    download-buffer-size = 104857600; # 100MB
+  };
+
+  # Safety net for low-memory builds.
+  zramSwap = {
+    enable = true;
+    memoryPercent = 50;
+  };
+
   # Let user systemd services start at boot (no login needed).
   users.users.cdenneen.linger = true;
 
