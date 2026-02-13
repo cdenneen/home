@@ -57,51 +57,28 @@ in
     ];
 
     home.activation.opencodeTelegramBridgeEnvFile = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-            set -euo pipefail
+      set -euo pipefail
 
-            cfg_dir="$HOME/.config/opencode-telegram-bridge"
-            env_file="$cfg_dir/env"
-            notify_src="${config.sops.secrets.opencode_telegram_notify_ts.path}"
-            webhook_public_url='${if cfg.webhookPublicUrl == null then "" else cfg.webhookPublicUrl}'
+      cfg_dir="$HOME/.config/opencode-telegram-bridge"
+      env_file="$cfg_dir/env"
+      bot_token_file="${config.sops.secrets.telegram_bot_token.path}"
+      chat_id_file="${config.sops.secrets.telegram_chat_id.path}"
+      webhook_public_url='${if cfg.webhookPublicUrl == null then "" else cfg.webhookPublicUrl}'
 
-            $DRY_RUN_CMD mkdir -p "$cfg_dir"
+      $DRY_RUN_CMD mkdir -p "$cfg_dir"
 
-            extracted="$(${python}/bin/python - "$notify_src" <<'PY'
-      import re
-      import sys
+      bot_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$bot_token_file")"
+      owner_chat_id="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$chat_id_file" || true)"
 
-      src = sys.argv[1]
-      txt = open(src, 'r', encoding='utf-8', errors='ignore').read()
+      if [ -z "$bot_token" ]; then
+        echo "opencode-telegram-bridge: telegram_bot_token is empty" >&2
+        exit 1
+      fi
 
-      def grab(name: str) -> str | None:
-          m = re.search(rf"\\b{name}\\b\\s*=\\s*(['\"])([^'\"]+)\\1", txt)
-          if m:
-              return m.group(2).strip()
-          m = re.search(rf"\\b{name}\\b\\s*:\\s*(['\"])([^'\"]+)\\1", txt)
-          if m:
-              return m.group(2).strip()
-          return None
-
-      token = grab('BOT_TOKEN') or grab('TELEGRAM_BOT_TOKEN')
-      chat_id = grab('CHAT_ID') or grab('TELEGRAM_CHAT_ID')
-
-      if not token:
-          sys.stderr.write('Failed to extract BOT_TOKEN from opencode_telegram_notify_ts\n')
-          sys.exit(2)
-
-      print('TOKEN=' + token)
-      if chat_id:
-          print('CHAT_ID=' + chat_id)
-      PY
-            )"
-
-            bot_token="$(printf '%s\n' "$extracted" | ${pkgs.gnugrep}/bin/grep '^TOKEN=' | ${pkgs.coreutils}/bin/cut -d= -f2-)"
-            owner_chat_id="$(printf '%s\n' "$extracted" | ${pkgs.gnugrep}/bin/grep '^CHAT_ID=' | ${pkgs.coreutils}/bin/cut -d= -f2- || true)"
-
-            allowed_chat_ids="$owner_chat_id"
-            case "$owner_chat_id" in
-              -*) owner_chat_id="" ;;
-            esac
+      allowed_chat_ids="$owner_chat_id"
+      case "$owner_chat_id" in
+        -*) owner_chat_id="" ;;
+      esac
 
             webhook_secret="$(${pkgs.coreutils}/bin/printf '%s' "$bot_token" | ${pkgs.openssl}/bin/openssl dgst -sha256 | ${pkgs.gnused}/bin/sed 's/^.*= //')"
 

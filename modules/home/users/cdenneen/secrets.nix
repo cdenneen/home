@@ -24,6 +24,9 @@ in
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
+
+    telegram_bot_token.mode = "0600";
+    telegram_chat_id.mode = "0600";
   };
 
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
