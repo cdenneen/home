@@ -168,13 +168,13 @@ in
       # Nix performance tuning
       nix.settings = {
         # Use all available CPU cores
-        cores = 0;
+        cores = lib.mkDefault 0;
         # Let Nix decide optimal parallelism
-        max-jobs = "auto";
+        max-jobs = lib.mkDefault "auto";
         # Prefer binary caches when available
         builders-use-substitutes = true;
         # Increase download buffering for large artifacts
-        download-buffer-size = 524288000; # 500MB
+        download-buffer-size = lib.mkDefault 524288000; # 500MB
       };
     }
   ];
