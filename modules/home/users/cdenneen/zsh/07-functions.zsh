@@ -143,6 +143,57 @@ _setup_repo_expected_bare_dir() {
 	printf "%s/%s.git" "$cache_root" "$key"
 }
 
+_git_common_dir_abs() {
+	# Prints absolute git common dir for a worktree.
+	# Avoids newer git-only flags like --path-format.
+	local wt_dir="$1"
+	local common
+	common=$(git -C "$wt_dir" rev-parse --git-common-dir 2>/dev/null || true)
+	if [[ -z "$common" ]]; then
+		return 1
+	fi
+	if [[ "$common" == /* ]]; then
+		print -r -- "$common"
+		return 0
+	fi
+	(
+		cd "$wt_dir" 2>/dev/null || exit 1
+		cd "$common" 2>/dev/null || exit 1
+		pwd -P
+	)
+}
+
+_worktree_common_dir_from_gitfile() {
+	# Best-effort common dir derivation from worktree .git file.
+	# Prints the bare repo dir (common dir) if it looks like a linked worktree.
+	local wt_dir="$1"
+	local line gitdir
+	line="$(<"$wt_dir/.git" 2>/dev/null)"
+	gitdir="${line#gitdir: }"
+	gitdir="${gitdir%%$'\n'*}"
+	[[ -n "$gitdir" ]] || return 1
+
+	# Resolve relative gitdir if needed.
+	if [[ "$gitdir" != /* ]]; then
+		(
+			cd "$wt_dir" 2>/dev/null || exit 1
+			cd "$gitdir" 2>/dev/null || exit 1
+			gitdir="$(pwd -P)" || exit 1
+			print -r -- "$gitdir"
+		) | {
+			read -r gitdir
+			:
+		}
+	fi
+
+	if [[ "$gitdir" == */worktrees/* ]]; then
+		print -r -- "${gitdir%/worktrees/*}"
+		return 0
+	fi
+
+	return 1
+}
+
 _setup_repo_migrate_worktree_cache() {
 	# Migrates an existing worktree to a new bare cache path.
 	# Args: expected_bare wt_dir syn_branch base_branch remote_url
@@ -153,7 +204,10 @@ _setup_repo_migrate_worktree_cache() {
 	local remote_url="$5"
 
 	local current_common
-	current_common=$(git -C "$wt_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+	current_common=$(_git_common_dir_abs "$wt_dir" 2>/dev/null || true)
+	if [[ -z "$current_common" ]]; then
+		current_common=$(_worktree_common_dir_from_gitfile "$wt_dir" 2>/dev/null || true)
+	fi
 	if [[ -z "$current_common" ]]; then
 		echo "setup_repo: existing directory is not a git worktree: $wt_dir" >&2
 		return 2
@@ -246,10 +300,10 @@ _setup_repo_migrate_worktree_cache() {
 }
 
 update_workspace() {
-	setopt localoptions nullglob globstarshort extendedglob
-	# Force-disable tracing for this function (some shells have PS4 empty).
+	emulate -L zsh
+	setopt nullglob globstarshort extendedglob
+	# Force-disable tracing even if the parent shell enabled it.
 	set +x 2>/dev/null || true
-	unsetopt xtrace 2>/dev/null || true
 
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
@@ -297,7 +351,11 @@ update_workspace() {
 		syn_branch="$base_branch@$ws"
 
 		local current_common
-		current_common=$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+		# Prefer reading .git file (cheap; works even if git rev-parse fails).
+		current_common=$(_worktree_common_dir_from_gitfile "$wt" 2>/dev/null || true)
+		if [[ -z "$current_common" ]]; then
+			current_common=$(_git_common_dir_abs "$wt" 2>/dev/null || true)
+		fi
 		if [[ -z "$current_common" ]]; then
 			continue
 		fi
