@@ -545,6 +545,209 @@ setup_repo() {
 	host="${${(f)parsed}[1]}"
 	remote_path="${${(f)parsed}[2]}"
 
+	if [[ "$current_common" == "$expected_bare" ]]; then
+		return 0
+	fi
+
+	if [[ "${SETUP_REPO_MIGRATE:-}" != "1" ]]; then
+		echo "setup_repo: worktree exists but uses a different cache:" >&2
+		echo "  worktree:  $wt_dir" >&2
+		echo "  current:   $current_common" >&2
+		echo "  expected:  $expected_bare" >&2
+		echo "" >&2
+		echo "To migrate in-place (keeps local commits and local changes), rerun:" >&2
+		echo "  SETUP_REPO_MIGRATE=1 setup_repo $remote_url $base_branch" >&2
+		return 2
+	fi
+
+	echo "Migrating worktree to new cache layout: $wt_dir"
+
+	local tmp
+	tmp=$(mktemp -d 2>/dev/null || mktemp -d -t setup_repo)
+	local staged_patch="$tmp/staged.patch"
+	local unstaged_patch="$tmp/unstaged.patch"
+	local untracked_tar="$tmp/untracked.tar"
+
+	local head_sha
+	head_sha=$(git -C "$wt_dir" rev-parse HEAD)
+
+	git -C "$wt_dir" diff --cached >"$staged_patch"
+	git -C "$wt_dir" diff >"$unstaged_patch"
+	(
+		cd "$wt_dir" || exit 1
+		local -a untracked
+		untracked=(${(0)$(git ls-files --others --exclude-standard -z 2>/dev/null || true)})
+		if (( ${#untracked[@]} > 0 )); then
+			tar -cf "$untracked_tar" -- "${untracked[@]}" 2>/dev/null || true
+		fi
+	)
+
+	mkdir -p "$(dirname "$expected_bare")"
+	if [[ ! -d "$expected_bare" ]]; then
+		echo "Creating bare cache: $expected_bare"
+		git clone --bare "$remote_url" "$expected_bare" || return 1
+		git --git-dir="$expected_bare" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+		git --git-dir="$expected_bare" config --unset-all remote.origin.mirror 2>/dev/null || true
+	fi
+	git --git-dir="$expected_bare" fetch origin --prune >/dev/null 2>&1 || true
+
+	if ! git --git-dir="$expected_bare" cat-file -e "$head_sha^{commit}" 2>/dev/null; then
+		echo "Fetching local commits from old cache..."
+		git --git-dir="$expected_bare" fetch "$current_common" "$head_sha" >/dev/null 2>&1 || true
+	fi
+	if ! git --git-dir="$expected_bare" cat-file -e "$head_sha^{commit}" 2>/dev/null; then
+		echo "setup_repo: failed to import commit $head_sha from $current_common" >&2
+		return 1
+	fi
+
+	git --git-dir="$expected_bare" branch -f "$syn_branch" "$head_sha" >/dev/null
+	if git --git-dir="$expected_bare" show-ref --verify --quiet "refs/remotes/origin/$base_branch"; then
+		git --git-dir="$expected_bare" branch --set-upstream-to "origin/$base_branch" "$syn_branch" >/dev/null 2>&1 || true
+	fi
+
+	local new_wt="$tmp/new-worktree"
+	git --git-dir="$expected_bare" worktree add "$new_wt" "$syn_branch" >/dev/null
+	git -C "$new_wt" config push.default upstream >/dev/null 2>&1 || true
+	git -C "$new_wt" config opencode.syntheticWorktrees true >/dev/null 2>&1 || true
+
+	local backup_dir
+	backup_dir="${wt_dir}.bak.$(date +%Y%m%d%H%M%S)"
+	echo "Moving old worktree to: $backup_dir"
+	mv "$wt_dir" "$backup_dir"
+	echo "Installing migrated worktree at: $wt_dir"
+	mv "$new_wt" "$wt_dir"
+
+	if [[ -s "$staged_patch" ]]; then
+		git -C "$wt_dir" apply --index "$staged_patch" || true
+	fi
+	if [[ -s "$unstaged_patch" ]]; then
+		git -C "$wt_dir" apply "$unstaged_patch" || true
+	fi
+	if [[ -f "$untracked_tar" ]]; then
+		( cd "$wt_dir" && tar -xf "$untracked_tar" 2>/dev/null || true )
+	fi
+
+	echo "Migration complete. Backup kept at: $backup_dir"
+	return 0
+}
+
+update_workspace() {
+	# Scans the current directory for git worktrees (".git" files) and migrates
+	# them to the current cache layout.
+	#
+	# Dry-run by default.
+	# Run with: update_workspace --migrate
+	local do_migrate=0
+	if [[ "${1:-}" == "--migrate" ]]; then
+		do_migrate=1
+		shift
+	fi
+
+	local cache_root="${CACHE_ROOT:-$HOME/src/cache}"
+	local ws
+	ws="$(_setup_repo_workspace_name)"
+	if [[ -z "$ws" ]]; then
+		echo "update_workspace: could not determine workspace name (set WORKSPACE_NAME)" >&2
+		return 2
+	fi
+
+	local -a gitfiles
+	gitfiles=(**/.git(N))
+	if (( ${#gitfiles[@]} == 0 )); then
+		echo "update_workspace: no git worktrees found" >&2
+		return 0
+	fi
+
+	local gf wt
+	for gf in "${gitfiles[@]}"; do
+		# Worktrees have a .git *file*; normal clones have a .git directory.
+		[[ -f "$gf" ]] || continue
+		wt="${gf%/.git}"
+
+		local remote_url
+		remote_url=$(git -C "$wt" remote get-url origin 2>/dev/null || true)
+		[[ -n "$remote_url" ]] || continue
+
+		local parsed host path
+		parsed="$(_setup_repo_parse_remote "$remote_url" 2>/dev/null)" || {
+			echo "update_workspace: unsupported remote for $wt: $remote_url" >&2
+			continue
+		}
+		host="${${(f)parsed}[1]}"
+		path="${${(f)parsed}[2]}"
+
+		local expected_bare="$cache_root/$host/${path%.git}.git"
+
+		local upstream base_branch
+		upstream=$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
+		base_branch=""
+		if [[ "$upstream" == */* ]]; then
+			base_branch="${upstream#*/}"
+		fi
+		[[ -n "$base_branch" ]] || base_branch="main"
+
+		local syn_branch
+		syn_branch="$base_branch@$ws"
+
+		local current_common
+		current_common=$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+		if [[ -z "$current_common" ]]; then
+			continue
+		fi
+
+		if [[ "$current_common" == "$expected_bare" ]]; then
+			continue
+		fi
+
+		echo "- $wt"
+		echo "  remote:   $remote_url"
+		echo "  current:  $current_common"
+		echo "  expected: $expected_bare"
+
+		if (( do_migrate )); then
+			SETUP_REPO_MIGRATE=1 _setup_repo_migrate_worktree_cache \
+				"$expected_bare" \
+				"$wt" \
+				"$syn_branch" \
+				"$base_branch" \
+				"$remote_url" || return $?
+		fi
+		done
+
+	if (( ! do_migrate )); then
+		echo "" >&2
+		echo "Dry-run only. To migrate all listed worktrees:" >&2
+		echo "  update_workspace --migrate" >&2
+	fi
+}
+
+setup_repo() {
+	local remote_url="$1"
+	local branch="${2:-main}"
+	local cache_root="${CACHE_ROOT:-$HOME/src/cache}"
+
+	if [[ -z "$remote_url" ]]; then
+		echo "usage: setup_repo <git-url> [branch]" >&2
+		return 2
+	fi
+
+	local workspace_name
+	workspace_name="$(_setup_repo_workspace_name)"
+	if [[ -z "$workspace_name" ]]; then
+		echo "setup_repo: could not determine workspace name (set WORKSPACE_NAME)" >&2
+		return 2
+	fi
+
+	# Parse git remote into host + path (supports scp-style SSH, ssh://, https://)
+	local host path
+	local parsed
+	parsed="$(_setup_repo_parse_remote "$remote_url")" || {
+		echo "setup_repo: unsupported git URL: $remote_url" >&2
+		return 2
+	}
+	host="${${(f)parsed}[1]}"
+	path="${${(f)parsed}[2]}"
+
 	local repo_name
 	repo_name="${remote_path:t}"
 	repo_name="${repo_name%.git}"
