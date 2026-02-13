@@ -13,6 +13,7 @@
     ./gpg.nix
     ./zsh.nix
     ./secrets.nix
+    ./opencode-telegram-bridge.nix
   ];
 
   # User-level sops-nix is enabled by declaring sops.secrets

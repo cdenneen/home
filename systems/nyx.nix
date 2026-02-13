@@ -1,4 +1,9 @@
-{ lib, pkgs, ... }:
+{
+  lib,
+  pkgs,
+  config,
+  ...
+}:
 {
   networking.hostName = "nyx";
   ec2.efi = true;
@@ -48,4 +53,39 @@
 
   # User definition is shared via commonModules.users.cdenneen
   profiles.defaults.enable = true;
+
+  # Let user systemd services start at boot (no login needed).
+  users.users.cdenneen.linger = true;
+
+  # Cloudflare Tunnel for Telegram webhook.
+  environment.systemPackages = lib.mkAfter [ pkgs.cloudflared ];
+  sops.secrets.cloudflare_tunnel_token = {
+    mode = "0400";
+    restartUnits = [ "cloudflared-telegram-bridge.service" ];
+  };
+  systemd.services.cloudflared-telegram-bridge =
+    let
+      run = pkgs.writeShellScript "cloudflared-telegram-bridge" ''
+        set -euo pipefail
+        token_file="${config.sops.secrets.cloudflare_tunnel_token.path}"
+        exec ${pkgs.cloudflared}/bin/cloudflared tunnel run --token "$(cat "$token_file")"
+      '';
+    in
+    {
+      description = "Cloudflare Tunnel (Telegram bridge)";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+
+      serviceConfig = {
+        ExecStart = run;
+        Restart = "always";
+        RestartSec = 2;
+      };
+    };
+
+  home-manager.users.cdenneen.opencodeTelegramBridge = {
+    updatesMode = "webhook";
+    webhookPublicUrl = "https://nyx.denneen.net";
+  };
 }

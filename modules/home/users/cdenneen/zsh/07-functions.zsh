@@ -92,50 +92,93 @@ setup_repo() {
 		return 2
 	fi
 
-	# Extract repo name from URL (last path component without .git)
-	local repo_name
-	repo_name=$(basename "$remote_url" .git)
+	local workspace_name
+	workspace_name="${WORKSPACE_NAME:-$(basename "$PWD")}" || true
+	workspace_name=$(printf "%s" "$workspace_name" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//; s/-$//')
+	if [[ -z "$workspace_name" ]]; then
+		echo "setup_repo: could not determine workspace name (set WORKSPACE_NAME)" >&2
+		return 2
+	fi
 
-	# Determine bare repo path in cache
-	local repo_path
-	repo_path="$cache_root/$(echo "$remote_url" | sed -E 's#[:/]#/#g; s#\.git$##').git"
-
-	# Create cache clone if it doesn't exist
-	if [[ -d "$repo_path" ]]; then
-		echo "Cache already exists: $repo_path"
+	# Parse git remote into host + path (supports scp-style SSH, ssh://, https://)
+	local host path
+	host=""
+	path=""
+	if [[ "$remote_url" =~ ^git@([^:]+):(.+)$ ]]; then
+		host="${match[1]}"
+		path="${match[2]}"
+	elif [[ "$remote_url" =~ ^ssh://([^/]+)/(.+)$ ]]; then
+		host="${match[1]}"
+		path="${match[2]}"
+	elif [[ "$remote_url" =~ ^https?://([^/]+)/(.+)$ ]]; then
+		host="${match[1]}"
+		path="${match[2]}"
 	else
-		mkdir -p "$(dirname "$repo_path")"
-		echo "Creating bare clone in cache: $repo_path"
-		if ! git clone --bare "$remote_url" "$repo_path"; then
-			echo "Failed to clone $remote_url" >&2
+		echo "setup_repo: unsupported git URL: $remote_url" >&2
+		return 2
+	fi
+
+	path="${path%/}"
+	path="${path#./}"
+	path="${path#/}"
+	if [[ "$path" == *".."* ]]; then
+		echo "setup_repo: refusing suspicious repo path: $path" >&2
+		return 2
+	fi
+
+	local repo_name
+	repo_name=$(basename "$path" .git)
+	local bare_dir="$cache_root/$host/${path%.git}.git"
+	local worktree_dir="./$repo_name"
+	local synthetic_branch="${branch}@${workspace_name}"
+
+	mkdir -p "$(dirname "$bare_dir")"
+
+	if [[ ! -d "$bare_dir" ]]; then
+		echo "Creating bare cache: $bare_dir"
+		if ! git clone --bare "$remote_url" "$bare_dir"; then
+			echo "setup_repo: clone failed" >&2
 			return 1
 		fi
-		# Set proper fetch refspec and remove mirror flag if any
-		git --git-dir="$repo_path" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-		git --git-dir="$repo_path" config --unset-all remote.origin.mirror 2>/dev/null || true
-		echo "Bare clone ready: $repo_path"
+		git --git-dir="$bare_dir" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+		git --git-dir="$bare_dir" config --unset-all remote.origin.mirror 2>/dev/null || true
+	else
+		local current_origin
+		current_origin=$(git --git-dir="$bare_dir" remote get-url origin 2>/dev/null || true)
+		if [[ -z "$current_origin" ]]; then
+			git --git-dir="$bare_dir" remote add origin "$remote_url"
+		elif [[ "$current_origin" != "$remote_url" ]]; then
+			git --git-dir="$bare_dir" remote set-url origin "$remote_url"
+		fi
 	fi
 
-	# Ensure the target branch ref exists locally
-	if ! git --git-dir="$repo_path" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-		git --git-dir="$repo_path" fetch --prune origin "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1 || true
+	git --git-dir="$bare_dir" fetch origin --prune || return 1
+
+	local start_ref="origin/$branch"
+	if ! git --git-dir="$bare_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+		echo "setup_repo: branch '$branch' not found on origin" >&2
+		return 1
 	fi
 
-	# Add worktree in current directory
-	local worktree_dir="./$repo_name"
-	if [[ -d "$worktree_dir/.git" ]]; then
+	# Make/update the synthetic branch and set it to track origin/<branch>
+	git --git-dir="$bare_dir" branch -f "$synthetic_branch" "$start_ref" || return 1
+	git --git-dir="$bare_dir" branch --set-upstream-to "$start_ref" "$synthetic_branch" >/dev/null 2>&1 || true
+
+	if [[ -d "$worktree_dir/.git" || -f "$worktree_dir/.git" ]]; then
 		echo "Worktree already exists: $worktree_dir"
+		git -C "$worktree_dir" config push.default upstream >/dev/null 2>&1 || true
+		git -C "$worktree_dir" config opencode.syntheticWorktrees true >/dev/null 2>&1 || true
 		return 0
 	fi
 
-	echo "Adding worktree for branch '$branch' in $worktree_dir"
-	if git --git-dir="$repo_path" worktree add "$worktree_dir" "$branch" 2>/dev/null; then
-		echo "Worktree ready: $worktree_dir"
-		return 0
-	fi
+	echo "Adding worktree '$worktree_dir' on '$synthetic_branch'"
+	git --git-dir="$bare_dir" worktree add "$worktree_dir" "$synthetic_branch" || return 1
+	git -C "$worktree_dir" config push.default upstream >/dev/null 2>&1 || true
+	git -C "$worktree_dir" config opencode.syntheticWorktrees true >/dev/null 2>&1 || true
+	git -C "$worktree_dir" config branch."$synthetic_branch".pushRemote origin >/dev/null 2>&1 || true
+	git -C "$worktree_dir" config branch."$synthetic_branch".merge "refs/heads/$branch" >/dev/null 2>&1 || true
+	git -C "$worktree_dir" config branch."$synthetic_branch".remote origin >/dev/null 2>&1 || true
 
-	# If the branch doesn't exist locally yet, create it from origin.
-	git --git-dir="$repo_path" worktree add -b "$branch" "$worktree_dir" "origin/$branch"
 	echo "Worktree ready: $worktree_dir"
 }
 
