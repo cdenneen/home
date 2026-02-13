@@ -10,5 +10,6 @@
     ./gpg.nix
     ./zsh.nix
     ./secrets.nix
+    ./opencode-telegram-bridge.nix
   ];
 }
