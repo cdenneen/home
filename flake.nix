@@ -226,6 +226,7 @@
             with pkgs.lib;
             let
               fullChecks = (builtins.getEnv "FULL_CHECKS") == "1";
+              isCacheable = v: isDerivation v;
               devShellChecks = mapAttrs' (n: nameValuePair "devShells-${n}") (
                 filterAttrs (n: v: isCacheable v) self'.devShells
               );

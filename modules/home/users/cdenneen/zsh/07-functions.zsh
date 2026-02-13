@@ -143,6 +143,56 @@ _setup_repo_expected_bare_dir() {
 	printf "%s/%s.git" "$cache_root" "$key"
 }
 
+_setup_repo_origin_default_branch() {
+	# Determine origin's default branch from refs/remotes/origin/HEAD.
+	# Prints branch name, defaults to "main" if unknown.
+	local bare_dir="$1"
+	local ref branch
+	# Prefer remote HEAD if present.
+	ref=$(git --git-dir="$bare_dir" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)
+	branch="${ref##*/}"
+	if [[ -n "$branch" ]]; then
+		print -r -- "$branch"
+		return 0
+	fi
+	# Fall back to bare HEAD (common for freshly cloned bare repos).
+	ref=$(git --git-dir="$bare_dir" symbolic-ref -q HEAD 2>/dev/null || true)
+	branch="${ref##*/}"
+	if [[ -n "$branch" ]]; then
+		print -r -- "$branch"
+		return 0
+	fi
+	if git --git-dir="$bare_dir" show-ref --verify --quiet refs/remotes/origin/main; then
+		print -r -- main
+		return 0
+	fi
+	if git --git-dir="$bare_dir" show-ref --verify --quiet refs/remotes/origin/master; then
+		print -r -- master
+		return 0
+	fi
+	print -r -- main
+}
+
+_setup_repo_worktree_default_branch() {
+	# Determine default branch for an existing worktree.
+	# Prefer origin/HEAD if present, fall back to local HEAD branch.
+	local wt_dir="$1"
+	local ref branch
+	ref=$(git -C "$wt_dir" symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)
+	branch="${ref##*/}"
+	if [[ -n "$branch" ]]; then
+		print -r -- "$branch"
+		return 0
+	fi
+	ref=$(git -C "$wt_dir" symbolic-ref -q HEAD 2>/dev/null || true)
+	branch="${ref##*/}"
+	if [[ -n "$branch" ]]; then
+		print -r -- "$branch"
+		return 0
+	fi
+	print -r -- main
+}
+
 _git_common_dir_abs() {
 	# Prints absolute git common dir for a worktree.
 	# Avoids newer git-only flags like --path-format.
@@ -299,7 +349,9 @@ _setup_repo_migrate_worktree_cache() {
 		git --git-dir="$expected_bare" branch --set-upstream-to "origin/$base_branch" "$syn_branch" >/dev/null 2>&1 || true
 	fi
 
-	local new_wt="$tmp/new-worktree"
+	local wt_name
+	wt_name="${wt_dir:t}"
+	local new_wt="$tmp/$wt_name"
 	git --git-dir="$expected_bare" worktree add "$new_wt" "$syn_branch" >/dev/null
 	git -C "$new_wt" config push.default upstream >/dev/null 2>&1 || true
 	git -C "$new_wt" config opencode.syntheticWorktrees true >/dev/null 2>&1 || true
@@ -379,6 +431,9 @@ update_workspace() {
 		base_branch=""
 		if [[ "$upstream" == */* ]]; then
 			base_branch="${upstream#*/}"
+		else
+			# Prefer origin/HEAD from the worktree when upstream isn't set.
+			base_branch="$(_setup_repo_worktree_default_branch "$wt" 2>/dev/null || true)"
 		fi
 		[[ -n "$base_branch" ]] || base_branch="main"
 
@@ -465,7 +520,7 @@ update_workspace() {
 
 setup_repo() {
 	local remote_url="$1"
-	local branch="${2:-main}"
+	local branch="${2:-}"
 	local cache_root="${CACHE_ROOT:-$HOME/src/cache}"
 
 	if [[ -z "$remote_url" ]]; then
@@ -496,7 +551,6 @@ setup_repo() {
 	local bare_dir
 	bare_dir="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$remote_path")"
 	local worktree_dir="./$repo_name"
-	local synthetic_branch="${branch}@${workspace_name}"
 
 	mkdir -p "${bare_dir:h}"
 
@@ -520,6 +574,13 @@ setup_repo() {
 
 	git --git-dir="$bare_dir" fetch origin --prune || return 1
 	git --git-dir="$bare_dir" worktree prune >/dev/null 2>&1 || true
+
+	# If no branch was requested, use origin's default branch.
+	if [[ -z "$branch" ]]; then
+		branch="$(_setup_repo_origin_default_branch "$bare_dir")"
+	fi
+
+	local synthetic_branch="${branch}@${workspace_name}"
 
 	local start_ref="origin/$branch"
 	if ! git --git-dir="$bare_dir" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
@@ -551,6 +612,11 @@ setup_repo() {
 
 	echo "Worktree ready: $worktree_dir"
 }
+
+# Ensure these helpers are not function-traced (some shells enable that).
+functions +t update_workspace setup_repo _setup_repo_parse_remote _setup_repo_expected_bare_dir \
+  _setup_repo_origin_default_branch _setup_repo_worktree_default_branch _setup_repo_migrate_worktree_cache \
+  _git_common_dir_abs _worktree_common_dir_from_gitfile >/dev/null 2>&1 || true
 
 # Warm gpg-agent cache for signing keys.
 #
