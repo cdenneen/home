@@ -252,75 +252,6 @@ _worktree_common_dir_from_gitfile() {
 	return 1
 }
 
-_setup_repo_expected_bare_dir() {
-	# Returns the expected bare cache dir for a remote.
-	# Layout: flat key under CACHE_ROOT.
-	# Example: /home/user/src/cache/github.com_org_repo.git
-	setopt localoptions extendedglob
-	local cache_root="$1"
-	local host="$2"
-	local path="$3"
-
-	local base key
-	base="$host/${path%.git}"
-	key="$base"
-	key="${key//\//_}"
-	key="${key//:/_}"
-	key="${key//@/_}"
-	printf "%s/%s.git" "$cache_root" "$key"
-}
-
-_git_common_dir_abs() {
-	# Prints absolute git common dir for a worktree.
-	# Avoids newer git-only flags like --path-format.
-	local wt_dir="$1"
-	local common
-	common=$(git -C "$wt_dir" rev-parse --git-common-dir 2>/dev/null || true)
-	if [[ -z "$common" ]]; then
-		return 1
-	fi
-	if [[ "$common" == /* ]]; then
-		print -r -- "$common"
-		return 0
-	fi
-	(
-		cd "$wt_dir" 2>/dev/null || exit 1
-		cd "$common" 2>/dev/null || exit 1
-		pwd -P
-	)
-}
-
-_worktree_common_dir_from_gitfile() {
-	# Best-effort common dir derivation from worktree .git file.
-	# Prints the bare repo dir (common dir) if it looks like a linked worktree.
-	local wt_dir="$1"
-	local line gitdir
-	line="$(<"$wt_dir/.git" 2>/dev/null)"
-	gitdir="${line#gitdir: }"
-	gitdir="${gitdir%%$'\n'*}"
-	[[ -n "$gitdir" ]] || return 1
-
-	# Resolve relative gitdir if needed.
-	if [[ "$gitdir" != /* ]]; then
-		(
-			cd "$wt_dir" 2>/dev/null || exit 1
-			cd "$gitdir" 2>/dev/null || exit 1
-			gitdir="$(pwd -P)" || exit 1
-			print -r -- "$gitdir"
-		) | {
-			read -r gitdir
-			:
-		}
-	fi
-
-	if [[ "$gitdir" == */worktrees/* ]]; then
-		print -r -- "${gitdir%/worktrees/*}"
-		return 0
-	fi
-
-	return 1
-}
-
 _setup_repo_migrate_worktree_cache() {
 	# Migrates an existing worktree to a new bare cache path.
 	# Args: expected_bare wt_dir syn_branch base_branch remote_url [current_common_override]
@@ -715,7 +646,16 @@ setup_repo() {
 }
 
 update_workspace() {
-	emulate -L zsh -o no_xtrace -o nullglob -o extendedglob
+	emulate -L zsh
+	setopt nullglob extendedglob
+
+	# Some environments end up emitting variable-assignment trace lines to stdout.
+	# Capture stdout, filter those lines, then print clean output.
+	local _uw_tmp
+	_uw_tmp="/tmp/update_workspace.$$.${RANDOM}.out"
+	: >"$_uw_tmp" || return 1
+
+	{
 
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
@@ -768,7 +708,7 @@ update_workspace() {
 		local remote_url
 		remote_url=$(git -C "$wt" config --get remote.origin.url 2>/dev/null || true)
 
-		local host path
+		local host remote_path
 		if [[ -n "$remote_url" ]]; then
 			local parsed
 			parsed="$(_setup_repo_parse_remote "$remote_url" 2>/dev/null)" || {
@@ -776,7 +716,7 @@ update_workspace() {
 				continue
 			}
 			host="${${(f)parsed}[1]}"
-			path="${${(f)parsed}[2]}"
+			remote_path="${${(f)parsed}[2]}"
 		else
 			# Fallback: derive host/path from the current bare cache directory.
 			# Expected old layouts:
@@ -788,13 +728,13 @@ update_workspace() {
 				continue
 			fi
 			host="${rel%%/*}"
-			path="${rel#*/}"
+			remote_path="${rel#*/}"
 			# Strip user@ if present
 			host="${host#*@}"
 		fi
 
 		local expected_bare
-		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
+		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$remote_path")"
 
 		if [[ "$current_common" == "$expected_bare" ]]; then
 			continue
@@ -821,15 +761,26 @@ update_workspace() {
 		fi
 	done
 
-	if (( ! do_migrate )); then
-		if (( found > 0 )); then
-			echo "" >&2
-			echo "Dry-run only. To migrate all listed worktrees:" >&2
-			echo "  update_workspace --migrate" >&2
-		else
-			echo "update_workspace: nothing to migrate" >&2
+		if (( ! do_migrate )); then
+			if (( found > 0 )); then
+				echo "" >&2
+				echo "Dry-run only. To migrate all listed worktrees:" >&2
+				echo "  update_workspace --migrate" >&2
+			else
+				echo "update_workspace: nothing to migrate" >&2
+			fi
 		fi
-	fi
+	} >"$_uw_tmp"
+
+	local _uw_line
+	while IFS= read -r _uw_line; do
+		case "$_uw_line" in
+			[A-Za-z_]*=*) continue ;;
+		esac
+		print -r -- "$_uw_line"
+	done <"$_uw_tmp"
+
+	rm -f "$_uw_tmp" >/dev/null 2>&1 || true
 }
 
 setup_repo() {
@@ -850,19 +801,20 @@ setup_repo() {
 	fi
 
 	# Parse git remote into host + path (supports scp-style SSH, ssh://, https://)
-	local host path
+	local host remote_path
 	local parsed
 	parsed="$(_setup_repo_parse_remote "$remote_url")" || {
 		echo "setup_repo: unsupported git URL: $remote_url" >&2
 		return 2
 	}
 	host="${${(f)parsed}[1]}"
-	path="${${(f)parsed}[2]}"
+	remote_path="${${(f)parsed}[2]}"
 
 	local repo_name
-	repo_name=$(basename "$path" .git)
+	repo_name="${remote_path:t}"
+	repo_name="${repo_name%.git}"
 	local bare_dir
-	bare_dir="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
+	bare_dir="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$remote_path")"
 	local worktree_dir="./$repo_name"
 
 	mkdir -p "${bare_dir:h}"
