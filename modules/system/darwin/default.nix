@@ -6,7 +6,7 @@
 }:
 {
   imports = [
-    ../os
+    ../default.nix
     ./podman.nix
     ./ollama.nix
     # User-scoped Homebrew additions (conditionally enabled internally)

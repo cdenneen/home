@@ -41,4 +41,3 @@ export LESSCHARSET=utf-8
 
 #█▓▒░ no mosh titles
 export MOSH_TITLE_NOPREFIX=1
-

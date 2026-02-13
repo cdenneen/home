@@ -4,8 +4,8 @@ This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These
 
 ## Quick Facts
 
-- Flake outputs live under `systems/` and `modules/`.
-- Home Manager is integrated (system-managed) and generally uses `home-manager.useGlobalPkgs = true`.
+- Flake wiring lives under `systems/`, hosts under `hosts/`, modules under `modules/`.
+- Home Manager is integrated by default and uses its own nixpkgs (unstable) via per-user HM config.
 - `secrets/secrets.yaml` is encrypted with sops + age; recipients are managed via `.sops.yaml`.
 - Prefer conservative changes; keep diffs small and readable.
 
@@ -46,6 +46,33 @@ sudo darwin-rebuild switch --flake .
 sudo nixos-rebuild switch --flake .
 ```
 
+### Home Manager
+
+```sh
+home-manager switch --flake .#cdenneen
+```
+
+### Bootstrap with a minimal flake
+
+```nix
+{
+  inputs.home.url = "github:cdenneen/home";
+
+  outputs = { home, ... }:
+    let
+      host = "foobar";
+    in
+    home.lib.bootstrap {
+      hostName = host;
+      kind = "nixos"; # nixos or darwin
+      system = "x86_64-linux";
+      tags = [ "crostini" ];
+      users = [ "cdenneen" ];
+      nixosModules = [ ./configuration.nix ];
+    };
+}
+```
+
 ### Formatting / lint
 
 - Repo formatter (treefmt via flake):
@@ -81,9 +108,9 @@ There aren’t unit tests in the usual sense; the closest is building one deriva
 
 ## Naming / Structure
 
-- Nix files: `kebab-case.nix`.
-- User HM modules: `modules/home/users/<user>/...`.
-- Host configs: `systems/<host>.nix`.
+- Nix files: prefer `kebab-case.nix` for new files.
+- User HM modules: `modules/hm/users/<user>/...`.
+- Host configs: `hosts/nixos/<host>.nix` and `hosts/darwin/<host>.nix`.
 - Scripts: verb-first (e.g. `sops-bootstrap-host`, `update-secrets`).
 
 ## Shell Script Expectations

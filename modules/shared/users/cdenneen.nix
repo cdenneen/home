@@ -6,5 +6,5 @@ in
 {
   programs.zsh.enable = true;
 
-  # User creation is handled centrally in modules/os/users/cdenneen.nix
+  # User creation is handled centrally in modules/system/users/cdenneen.nix
 }

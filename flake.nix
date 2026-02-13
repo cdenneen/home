@@ -73,7 +73,7 @@
       ...
     }:
     let
-      configurations = import ./systems inputs;
+      configurations = import ./systems (inputs // { inherit self; });
       import_nixpkgs =
         system: nixpkgs:
         import nixpkgs {
@@ -104,14 +104,9 @@
           inherit import_nixpkgs;
         }
         // configurations.lib;
-        nixosModules.default = ./modules/nixos;
-        darwinModules.default = ./modules/darwin;
-        commonModules = {
-          users = {
-            cdenneen = ./modules/common/users/cdenneen.nix;
-          };
-        };
-        homeModules.default = ./modules/home;
+        nixosModules.default = ./modules/system/nixos;
+        darwinModules.default = ./modules/system/darwin;
+        homeModules.default = ./modules/hm;
         nixosConfigurations = configurations.nixosConfigurations;
         darwinConfigurations = configurations.darwinConfigurations;
         homeConfigurations = configurations.homeConfigurations;
@@ -183,10 +178,10 @@
               with pkgs;
               [
                 git
-                atuin
-                zoxide
-                opencode
-                gh
+                ripgrep
+                direnv
+                fzf
+                eza
               ]
               ++ [ self'.packages.treefmt ];
             commands = [

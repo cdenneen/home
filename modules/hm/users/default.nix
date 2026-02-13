@@ -13,6 +13,7 @@ in
 {
   imports = [
     ./chloe.nix
+    ./cdenneen/default.nix
   ];
 
   options.profiles = {

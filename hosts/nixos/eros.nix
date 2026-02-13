@@ -116,6 +116,5 @@
   networking.useDHCP = false;
   networking.interfaces.ens5.useDHCP = true;
 
-  # User definition is shared via commonModules.users.cdenneen
   profiles.defaults.enable = true;
 }
