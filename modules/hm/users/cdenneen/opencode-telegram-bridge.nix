@@ -56,6 +56,10 @@ in
       pkgs.sqlite
     ];
 
+    home.sessionPath = [
+      "${pkgs.opencode}/bin"
+    ];
+
     # Needs decrypted sops-nix secrets to exist.
     home.activation.opencodeTelegramBridgeEnvFile =
       lib.hm.dag.entryAfter
@@ -117,6 +121,7 @@ in
                   "TELEGRAM_ALLOWED_CHAT_IDS=$allowed_chat_ids" \
                   "TELEGRAM_OWNER_CHAT_ID=$owner_chat_id" \
                   "OPENCODE_WORKSPACE_ROOT=${cfg.workspaceRoot}" \
+                  "OPENCODE_BIN=${pkgs.opencode}/bin/opencode" \
                   "OPENCODE_MAX_SESSIONS=5" \
                   "OPENCODE_IDLE_TIMEOUT_SEC=3600" \
                   "TELEGRAM_POLL_TIMEOUT_SEC=30" \
