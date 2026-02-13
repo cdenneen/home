@@ -67,6 +67,10 @@
     ssod = "aws sso login --profile sso-capdev --no-browser --use-device-code";
     ssoq = "aws sso login --profile sso-awsqa --no-browser --use-device-code";
     ssop = "aws sso login --profile sso-awsprod --no-browser --use-device-code";
+
+    # Tailscale
+    tsup = "tailscale up --accept-dns=false";
+    tsdown = "tailscale down";
   };
 
   # Ensure gpg-agent/pinentry works across sessions/TTYs.

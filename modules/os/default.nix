@@ -97,6 +97,12 @@ in
         ];
       };
 
+      # Containers: make Podman available everywhere by default.
+      virtualisation.podman = {
+        enable = lib.mkDefault true;
+        dockerCompat = lib.mkDefault true;
+      };
+
       # Periodic maintenance to keep /nix/store tidy.
       nix.gc.automatic = true;
       nix.gc.options = "--delete-older-than 14d";
@@ -110,6 +116,10 @@ in
       (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)
       {
         nix.gc.dates = "weekly";
+
+        # Docker socket compatibility on Linux.
+        virtualisation.podman.dockerSocket.enable = lib.mkDefault true;
+        virtualisation.podman.defaultNetwork.settings.dns_enabled = lib.mkDefault true;
       }
     )
 
