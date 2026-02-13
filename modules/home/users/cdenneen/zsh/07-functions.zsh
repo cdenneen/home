@@ -120,6 +120,20 @@ _setup_repo_parse_remote() {
 	print -r -- "$path"
 }
 
+_setup_repo_expected_bare_dir() {
+	# Returns the expected bare cache dir for a remote.
+	# Layout: flat key under CACHE_ROOT.
+	# Example: /home/user/src/cache/github.com_org_repo.git
+	local cache_root="$1"
+	local host="$2"
+	local path="$3"
+
+	local base key
+	base="$host/${path%.git}"
+	key=$(printf "%s" "$base" | tr '/:@' '_')
+	printf "%s/%s.git" "$cache_root" "$key"
+}
+
 _setup_repo_migrate_worktree_cache() {
 	# Migrates an existing worktree to a new bare cache path.
 	# Args: expected_bare wt_dir syn_branch base_branch remote_url
@@ -223,6 +237,8 @@ _setup_repo_migrate_worktree_cache() {
 }
 
 update_workspace() {
+	setopt localoptions nullglob globstarshort extendedglob no_xtrace
+
 	# Scans the current directory for git worktrees (".git" files) and migrates
 	# them to the current cache layout.
 	#
@@ -243,7 +259,8 @@ update_workspace() {
 	fi
 
 	local -a gitfiles
-	gitfiles=(**/.git(N))
+	# Only worktrees have a .git *file*; normal clones have a .git directory.
+	gitfiles=(**/.git(.N))
 	if (( ${#gitfiles[@]} == 0 )); then
 		echo "update_workspace: no git worktrees found" >&2
 		return 0
@@ -267,7 +284,8 @@ update_workspace() {
 		host="${${(f)parsed}[1]}"
 		path="${${(f)parsed}[2]}"
 
-		local expected_bare="$cache_root/$host/${path%.git}.git"
+		local expected_bare
+		expected_bare="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
 
 		local upstream base_branch
 		upstream=$(git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)
@@ -341,7 +359,8 @@ setup_repo() {
 
 	local repo_name
 	repo_name=$(basename "$path" .git)
-	local bare_dir="$cache_root/$host/${path%.git}.git"
+	local bare_dir
+	bare_dir="$(_setup_repo_expected_bare_dir "$cache_root" "$host" "$path")"
 	local worktree_dir="./$repo_name"
 	local synthetic_branch="${branch}@${workspace_name}"
 
