@@ -619,31 +619,6 @@ setup_repo() {
 		git --git-dir="$expected_bare" branch --set-upstream-to "origin/$base_branch" "$syn_branch" >/dev/null 2>&1 || true
 	fi
 
-	local new_wt="$tmp/new-worktree"
-	git --git-dir="$expected_bare" worktree add "$new_wt" "$syn_branch" >/dev/null
-	git -C "$new_wt" config push.default upstream >/dev/null 2>&1 || true
-	git -C "$new_wt" config opencode.syntheticWorktrees true >/dev/null 2>&1 || true
-
-	local backup_dir
-	backup_dir="${wt_dir}.bak.$(date +%Y%m%d%H%M%S)"
-	echo "Moving old worktree to: $backup_dir"
-	mv "$wt_dir" "$backup_dir"
-	echo "Installing migrated worktree at: $wt_dir"
-	mv "$new_wt" "$wt_dir"
-
-	if [[ -s "$staged_patch" ]]; then
-		git -C "$wt_dir" apply --index "$staged_patch" || true
-	fi
-	if [[ -s "$unstaged_patch" ]]; then
-		git -C "$wt_dir" apply "$unstaged_patch" || true
-	fi
-	if [[ -f "$untracked_tar" ]]; then
-		( cd "$wt_dir" && tar -xf "$untracked_tar" 2>/dev/null || true )
-	fi
-
-	echo "Migration complete. Backup kept at: $backup_dir"
-	return 0
-}
 
 update_workspace() {
 	emulate -L zsh
@@ -699,6 +674,9 @@ update_workspace() {
 		base_branch=""
 		if [[ "$upstream" == */* ]]; then
 			base_branch="${upstream#*/}"
+		else
+			# Prefer origin/HEAD from the worktree when upstream isn't set.
+			base_branch="$(_setup_repo_worktree_default_branch "$wt" 2>/dev/null || true)"
 		fi
 		[[ -n "$base_branch" ]] || base_branch="main"
 
@@ -785,7 +763,7 @@ update_workspace() {
 
 setup_repo() {
 	local remote_url="$1"
-	local branch="${2:-main}"
+	local branch="${2:-}"
 	local cache_root="${CACHE_ROOT:-$HOME/src/cache}"
 
 	if [[ -z "$remote_url" ]]; then
