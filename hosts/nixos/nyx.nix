@@ -78,16 +78,33 @@
     mode = "0400";
     restartUnits = [ "cloudflared-telegram-bridge.service" ];
   };
+  sops.secrets.opencode_server_password = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
   systemd.services.cloudflared-telegram-bridge =
     let
+      configFile = pkgs.writeText "cloudflared-telegram-bridge.yml" ''
+        ingress:
+          - hostname: nyx.denneen.net
+            path: /telegram
+            service: http://127.0.0.1:18080
+          - hostname: chat.denneen.net
+            service: http://127.0.0.1:4096
+          - service: http_status:404
+      '';
       run = pkgs.writeShellScript "cloudflared-telegram-bridge" ''
         set -euo pipefail
         token_file="${config.sops.secrets.cloudflare_tunnel_token.path}"
-        exec ${pkgs.cloudflared}/bin/cloudflared tunnel run --token "$(cat "$token_file")"
+        exec ${pkgs.cloudflared}/bin/cloudflared \
+          --config "${configFile}" \
+          tunnel run \
+          --token "$(cat "$token_file")"
       '';
     in
     {
-      description = "Cloudflare Tunnel (Telegram bridge)";
+      description = "Cloudflare Tunnel (Telegram bridge + chat)";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
@@ -99,8 +116,189 @@
       };
     };
 
-  home-manager.users.cdenneen.opencodeTelegramBridge = {
-    updatesMode = "webhook";
-    webhookPublicUrl = "https://nyx.denneen.net";
+  systemd.user.services.opencode-serve =
+    let
+      run = pkgs.writeShellScript "opencode-web" ''
+        set -euo pipefail
+        pw_file="${config.sops.secrets.opencode_server_password.path}"
+        if [ ! -r "$pw_file" ]; then
+          echo "opencode-web: password file not readable" >&2
+          exit 1
+        fi
+        pw="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$pw_file")"
+        if [ -z "$pw" ]; then
+          echo "opencode-web: password file empty" >&2
+          exit 1
+        fi
+        echo "opencode-web: loaded password length ''${#pw}" >&2
+        export OPENCODE_SERVER_USERNAME="opencode"
+        export OPENCODE_SERVER_PASSWORD="$pw"
+        exec /etc/profiles/per-user/cdenneen/bin/opencode web --hostname 127.0.0.1 --port 4096
+      '';
+    in
+    {
+      description = "OpenCode web (chat)";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "default.target" ];
+
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = run;
+        Restart = "always";
+        RestartSec = 2;
+      };
+    };
+
+  systemd.user.services.opencode-web-warm =
+    let
+      warm = pkgs.writeShellScript "opencode-web-warm" ''
+        set -euo pipefail
+        export HOME="/home/cdenneen"
+
+        ${pkgs.python3}/bin/python - <<'PY'
+        import json
+        import os
+        import sqlite3
+        import time
+        import urllib.error
+        import urllib.request
+
+        db_path = os.path.expanduser("~/.local/share/opencode-telegram-bridge/state.sqlite")
+        base_url = "http://127.0.0.1:4096"
+
+        if not os.path.exists(db_path):
+            print("opencode-web-warm: bridge DB missing, skipping", flush=True)
+            raise SystemExit(0)
+
+        def http(method, path, body=None, timeout=2):
+            url = f"{base_url}{path}"
+            data = None
+            headers = {}
+            if body is not None:
+                data = json.dumps(body).encode("utf-8")
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(url, data=data, method=method, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, resp.read()
+
+        healthy = False
+        for _ in range(30):
+            try:
+                status, _ = http("GET", "/global/health")
+                if status == 200:
+                    healthy = True
+                    break
+            except Exception:
+                time.sleep(1)
+
+        if not healthy:
+            print("opencode-web-warm: server not healthy, skipping", flush=True)
+            raise SystemExit(0)
+
+        try:
+            status, body = http("GET", "/session")
+            if status == 200:
+                data = json.loads(body.decode("utf-8"))
+                if isinstance(data, list) and data:
+                    print("opencode-web-warm: sessions already present, skipping", flush=True)
+                    raise SystemExit(0)
+                if isinstance(data, dict):
+                    items = data.get("items") or data.get("data") or []
+                    if items:
+                        print("opencode-web-warm: sessions already present, skipping", flush=True)
+                        raise SystemExit(0)
+        except Exception:
+            pass
+
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = list(
+                conn.execute(
+                    "SELECT chat_id, thread_id, workspace, topic_title FROM topics ORDER BY updated_at DESC"
+                )
+            )
+        finally:
+            conn.close()
+
+        warmed = 0
+        for chat_id, thread_id, workspace, topic_title in rows:
+            title = ""
+            if workspace:
+                title = os.path.basename(str(workspace))
+            if not title:
+                title = f"tg:{chat_id}/{thread_id}"
+            if topic_title:
+                title = f"{title} {topic_title}"
+            title = title.strip()
+            if not title:
+                continue
+            try:
+                http("POST", "/session", {"title": title}, timeout=10)
+                warmed += 1
+            except urllib.error.HTTPError as exc:
+                print(f"opencode-web-warm: create failed {exc}", flush=True)
+            except Exception as exc:
+                print(f"opencode-web-warm: create failed {exc}", flush=True)
+
+        print(f"opencode-web-warm: warmed {warmed} sessions", flush=True)
+        PY
+      '';
+    in
+    {
+      description = "OpenCode web warm from Telegram bridge DB";
+      after = [ "opencode-serve.service" ];
+      requires = [ "opencode-serve.service" ];
+      wantedBy = [ "default.target" ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = warm;
+      };
+    };
+
+  systemd.services.opencode-user-restart =
+    let
+      run = pkgs.writeShellScript "opencode-user-restart" ''
+        set -euo pipefail
+        exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service opencode-web-warm.service
+      '';
+    in
+    {
+      description = "Restart OpenCode user services after secret update";
+      serviceConfig = {
+        Type = "oneshot";
+        User = "cdenneen";
+        Environment = [
+          "XDG_RUNTIME_DIR=/run/user/%U"
+          "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus"
+        ];
+        ExecStart = run;
+      };
+    };
+
+  systemd.paths.opencode-user-restart = {
+    description = "Watch OpenCode server password secret";
+    wantedBy = [ "multi-user.target" ];
+    pathConfig = {
+      PathChanged = config.sops.secrets.opencode_server_password.path;
+      PathModified = config.sops.secrets.opencode_server_password.path;
+    };
+    unitConfig = {
+      Unit = "opencode-user-restart.service";
+    };
+  };
+
+  home-manager.users.cdenneen.programs.telegram-bridge = {
+    enable = true;
+
+    telegram.botTokenFile = config.home-manager.users.cdenneen.sops.secrets.telegram_bot_token.path;
+    telegram.ownerChatIdFile = config.home-manager.users.cdenneen.sops.secrets.telegram_chat_id.path;
+    telegram.updatesMode = "webhook";
+    telegram.webhook.publicUrl = "https://nyx.denneen.net";
+
+    opencode.workspaceRoot = "/home/cdenneen/src/workspace";
+
+    chat.allowedGithubUsers = [ "cdenneen" ];
   };
 }

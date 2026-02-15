@@ -49,6 +49,9 @@ in
       environment.shellInit = ''
         export PATH="/run/wrappers/bin:$PATH"
       '';
+
+      # Ensure home-manager CLI is available even before HM activation.
+      environment.systemPackages = [ pkgs.home-manager ];
     }
     # NOTE: Do NOT set security.sudo.enable here.
     # sudo enablement is handled by NixOS defaults and by modules/system/sudo.nix,

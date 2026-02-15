@@ -6,6 +6,7 @@
 }:
 lib.mkIf (config ? system && config.system ? stateVersion) {
   security.sudo.extraConfig = ''
+    Defaults secure_path="/run/wrappers/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     cdenneen ALL=(root) NOPASSWD: ${pkgs.nix}/bin/nix
     cdenneen ALL=(root) NOPASSWD: ${pkgs.git}/bin/git
   ''

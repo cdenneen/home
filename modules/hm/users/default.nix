@@ -166,6 +166,8 @@ in
       pkgs.cachix
       pkgs.coreutils
       pkgs.nerd-fonts.jetbrains-mono
+    ] ++ lib.optionals pkgs.stdenv.isLinux [
+      pkgs.pinentry-curses
     ];
     services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
       enable = true;

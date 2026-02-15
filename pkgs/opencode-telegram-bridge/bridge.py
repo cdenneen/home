@@ -17,18 +17,57 @@ def _now() -> int:
     return int(time.time())
 
 
-def _env_int(name: str, default: int) -> int:
-    v = os.getenv(name)
-    if v is None or v.strip() == "":
-        return default
-    return int(v)
+def _read_json(path: str) -> dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
 
 
-def _env_str(name: str, default: str) -> str:
-    v = os.getenv(name)
-    if v is None:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _load_config() -> dict[str, Any]:
+    default_path = os.path.expanduser("~/.config/opencode-telegram-bridge/config.json")
+    config_path = os.getenv("OPENCODE_TELEGRAM_CONFIG", default_path)
+    base = _read_json(config_path)
+
+    user_default = os.path.expanduser("~/.config/telegram_bridge/config.user.json")
+    user_path = os.getenv("OPENCODE_TELEGRAM_CONFIG_USER", user_default)
+    override = _read_json(user_path)
+    if override:
+        base = _deep_merge(base, override)
+    return base
+
+
+def _cfg(cfg: dict[str, Any], path: tuple[str, ...], default: Any) -> Any:
+    cur: Any = cfg
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    return cur
+
+
+def _cfg_int(cfg: dict[str, Any], path: tuple[str, ...], default: int) -> int:
+    value = _cfg(cfg, path, None)
+    if value is None:
         return default
-    return v
+    try:
+        return int(value)
+    except Exception:
+        return default
 
 
 def _csv_ints(value: str) -> set[int]:
@@ -195,6 +234,19 @@ class DB:
             )
         return out
 
+    def prune_topics(self, *, retention_days: int, max_topics: int) -> None:
+        if retention_days > 0:
+            cutoff = _now() - (retention_days * 86400)
+            self._conn.execute("DELETE FROM topics WHERE updated_at < ?", (cutoff,))
+
+        if max_topics > 0:
+            self._conn.execute(
+                "DELETE FROM topics WHERE rowid IN (SELECT rowid FROM topics ORDER BY updated_at DESC LIMIT -1 OFFSET ?)",
+                (max_topics,),
+            )
+
+        self._conn.commit()
+
 
 class Telegram:
     def __init__(self, token: str, client: httpx.AsyncClient):
@@ -357,7 +409,6 @@ class OpenCodeInstance:
     async def _run_sse(self) -> None:
         url = f"http://127.0.0.1:{self.port}/event"
         headers = {"Accept": "text/event-stream"}
-
         async with httpx.AsyncClient(timeout=None) as c:
             async with c.stream("GET", url, headers=headers) as r:
                 r.raise_for_status()
@@ -400,20 +451,24 @@ class TopicContext:
 
 
 class Bridge:
-    def __init__(self, db: DB, tg: Telegram):
+    def __init__(self, db: DB, tg: Telegram, cfg: dict[str, Any]):
         self._db = db
         self._tg = tg
+        self._cfg = cfg
 
         self._owner_chat_id: Optional[int] = None
-        owner = os.getenv("TELEGRAM_OWNER_CHAT_ID")
-        if owner and owner.strip():
-            with contextlib.suppress(Exception):
-                self._owner_chat_id = int(owner)
+        owner = _cfg_int(cfg, ("telegram", "owner_chat_id"), 0)
+        if owner:
+            self._owner_chat_id = owner
 
         self._allowed_chats: Optional[set[int]] = None
-        allow = os.getenv("TELEGRAM_ALLOWED_CHAT_IDS")
-        if allow and allow.strip():
+        allow = _cfg(cfg, ("telegram", "allowed_chat_ids"), None)
+        if isinstance(allow, list):
+            self._allowed_chats = {int(x) for x in allow}
+        elif isinstance(allow, str) and allow.strip():
             self._allowed_chats = _csv_ints(allow)
+        elif allow is not None:
+            self._allowed_chats = set()
         else:
             stored = self._db.get_kv("telegram.allowed_chat_ids")
             if stored and stored.strip():
@@ -423,21 +478,29 @@ class Bridge:
                 self._allowed_chats = {self._owner_chat_id}
                 self._db.set_kv("telegram.allowed_chat_ids", str(self._owner_chat_id))
 
-        self._workspace_root = _env_str("OPENCODE_WORKSPACE_ROOT", os.path.expanduser("~/src"))
-        self._opencode_bin = _env_str("OPENCODE_BIN", "opencode")
-        self._max_sessions = _env_int("OPENCODE_MAX_SESSIONS", 5)
-        self._idle_timeout = _env_int("OPENCODE_IDLE_TIMEOUT_SEC", 3600)
-        self._poll_timeout = _env_int("TELEGRAM_POLL_TIMEOUT_SEC", 30)
-        self._default_agent = os.getenv("OPENCODE_DEFAULT_AGENT")
-        self._default_model = os.getenv("OPENCODE_DEFAULT_MODEL")
+        self._workspace_root = _cfg(cfg, ("opencode", "workspace_root"), os.path.expanduser("~/src"))
+        self._opencode_bin = _cfg(cfg, ("opencode", "bin"), "opencode")
+        self._max_sessions = _cfg_int(cfg, ("opencode", "max_sessions"), 5)
+        self._idle_timeout = _cfg_int(cfg, ("opencode", "idle_timeout_sec"), 3600)
+        self._poll_timeout = _cfg_int(cfg, ("telegram", "poll_timeout_sec"), 30)
+        self._default_agent = _cfg(cfg, ("opencode", "default_agent"), None)
+        self._default_model = _cfg(cfg, ("opencode", "default_model"), None)
+        self._default_provider = _cfg(cfg, ("opencode", "default_provider"), "openai")
+        saved_model = self._db.get_kv("telegram.default_model")
+        if saved_model:
+            self._default_model = saved_model
 
-        self._updates_mode = _env_str("TELEGRAM_UPDATES_MODE", "polling")
-        self._webhook_listen_host = _env_str("TELEGRAM_WEBHOOK_LISTEN_HOST", "127.0.0.1")
-        self._webhook_listen_port = _env_int("TELEGRAM_WEBHOOK_LISTEN_PORT", 18080)
-        self._webhook_path = _env_str("TELEGRAM_WEBHOOK_PATH", "/telegram")
-        self._webhook_public_url = os.getenv("TELEGRAM_WEBHOOK_PUBLIC_URL")
-        self._webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET")
-        self._webhook_fallback_sec = _env_int("TELEGRAM_WEBHOOK_FALLBACK_SEC", 300)
+        self._db_retention_days = _cfg_int(cfg, ("telegram", "db_retention_days"), 30)
+        self._db_max_topics = _cfg_int(cfg, ("telegram", "db_max_topics"), 500)
+
+        webhook = _cfg(cfg, ("telegram", "webhook"), {})
+        self._updates_mode = _cfg(cfg, ("telegram", "updates_mode"), "polling")
+        self._webhook_listen_host = webhook.get("listen_host", "127.0.0.1")
+        self._webhook_listen_port = int(webhook.get("listen_port", 18080))
+        self._webhook_path = webhook.get("path", "/telegram")
+        self._webhook_public_url = webhook.get("public_url")
+        self._webhook_secret = webhook.get("secret")
+        self._webhook_fallback_sec = int(webhook.get("fallback_sec", 0))
         self._last_webhook_update_ts = _now()
 
         self._instances: dict[str, OpenCodeInstance] = {}
@@ -454,6 +517,9 @@ class Bridge:
         self._allowed_chats.add(chat_id)
         self._db.set_kv("telegram.allowed_chat_ids", ",".join(str(x) for x in sorted(self._allowed_chats)))
 
+    def _prune_db(self) -> None:
+        self._db.prune_topics(retention_days=self._db_retention_days, max_topics=self._db_max_topics)
+
     async def run_polling(self) -> None:
         # Ensure webhook is disabled to avoid missing updates.
         with contextlib.suppress(Exception):
@@ -465,6 +531,7 @@ class Bridge:
             offset = int(last) + 1
 
         while True:
+            self._prune_db()
             await self._cleanup_idle()
 
             updates = await self._tg.get_updates(offset=offset, timeout_sec=self._poll_timeout)
@@ -520,6 +587,7 @@ class Bridge:
 
         # Keep running.
         while True:
+            self._prune_db()
             await self._cleanup_idle()
             if self._webhook_fallback_sec > 0:
                 idle = _now() - self._last_webhook_update_ts
@@ -547,10 +615,13 @@ class Bridge:
         if text is None:
             return
 
+        print(f"update: chat_id={chat_id} thread_id={thread_id} text={text[:60]}")
+
         from_user = msg.get("from") or {}
         from_id = from_user.get("id")
 
         if not self._check_allowed(chat_id):
+            print(f"update: chat not allowed {chat_id}")
             # Allow pairing a new chat even if it's not allowed yet.
             if text.strip() in ("/allowhere", "/pair") and self._owner_chat_id is not None and from_id is not None:
                 with contextlib.suppress(Exception):
@@ -576,6 +647,18 @@ class Bridge:
         if text.strip() == "/where":
             await self._cmd_where(chat_id, thread_id)
             return
+        if text.strip() == "/info":
+            await self._cmd_info(chat_id, thread_id)
+            return
+        if text.strip() == "/models":
+            await self._cmd_forward(chat_id, thread_id, "/models")
+            return
+        if text.strip() == "/model":
+            await self._cmd_model(chat_id, thread_id, None)
+            return
+        if text.startswith("/model "):
+            await self._cmd_model(chat_id, thread_id, text[len("/model ") :].strip())
+            return
         if text.strip() == "/reset":
             await self._cmd_reset(chat_id, thread_id)
             return
@@ -590,7 +673,6 @@ class Bridge:
                 thread_id=thread_id,
             )
             return
-
         await self._run_prompt(ctx, text)
 
     async def _handle_callback(self, cq: dict[str, Any]) -> None:
@@ -679,6 +761,102 @@ class Bridge:
             thread_id=thread_id,
         )
 
+    async def _cmd_info(self, chat_id: int, thread_id: int) -> None:
+        t = self._db.get_topic(chat_id, thread_id)
+        ws = t.get("workspace")
+        sid = t.get("opencode_session_id")
+        port = t.get("opencode_port")
+
+        provider = "(unknown)"
+        last_model = "(unknown)"
+        default_model = self._default_model or "(unset)"
+        if ws and sid:
+            inst = await self._ensure_instance(ws, chat_id, thread_id)
+            port = await inst.ensure_running()
+            info = await self._fetch_last_assistant_info(port, sid)
+            provider = info.get("providerID") or provider
+            last_model = info.get("modelID") or last_model
+
+        await self._tg.send_message(
+            chat_id,
+            "\n".join(
+                [
+                    f"workspace: {ws or '(unmapped)'}",
+                    f"session_id: {sid or '(none)'}",
+                    f"opencode_port: {port or '(none)'}",
+                    f"provider: {provider}",
+                    f"default_model: {default_model}",
+                    f"last_model: {last_model}",
+                    f"updates_mode: {self._updates_mode}",
+                    f"webhook_url: {self._webhook_public_url or '(none)'}",
+                ]
+            ),
+            thread_id=thread_id,
+        )
+
+    async def _cmd_forward(self, chat_id: int, thread_id: int, prompt: str) -> None:
+        ctx = await self._resolve_topic(chat_id, thread_id)
+        if ctx is None:
+            await self._tg.send_message(
+                chat_id,
+                "This topic is not mapped yet. Use /map first.",
+                thread_id=thread_id,
+            )
+            return
+        await self._run_prompt(ctx, prompt)
+
+    async def _cmd_model(self, chat_id: int, thread_id: int, model: Optional[str]) -> None:
+        ctx = await self._resolve_topic(chat_id, thread_id)
+        if ctx is None:
+            await self._tg.send_message(
+                chat_id,
+                "This topic is not mapped yet. Use /map first.",
+                thread_id=thread_id,
+            )
+            return
+
+        if model:
+            model = model.strip()
+            if model:
+                if "/" not in model:
+                    provider = self._default_provider
+                    with contextlib.suppress(Exception):
+                        inst = self._instances.get(ctx.workspace)
+                        if inst is not None:
+                            port = await inst.ensure_running()
+                            info = await self._fetch_last_assistant_info(port, ctx.session_id)
+                            provider = info.get("providerID") or provider
+                    model = f"{provider}/{model}"
+                self._default_model = model
+                self._db.set_kv("telegram.default_model", model)
+                await self._tg.send_message(
+                    chat_id,
+                    f"Default model set to: {model}",
+                    thread_id=thread_id,
+                )
+                return
+            return
+
+        inst = self._instances[ctx.workspace]
+        port = await inst.ensure_running()
+        info = await self._fetch_last_assistant_info(port, ctx.session_id)
+        provider = info.get("providerID") or "(unknown)"
+        last_model = info.get("modelID") or "(unknown)"
+        default_model = self._default_model or "(unset)"
+
+        await self._tg.send_message(
+            chat_id,
+            "\n".join(
+                [
+                    f"provider: {provider}",
+                    f"default_model: {default_model}",
+                    f"last_model: {last_model}",
+                    "auth: not exposed by opencode API",
+                ]
+            ),
+            thread_id=thread_id,
+        )
+
     async def _cmd_reset(self, chat_id: int, thread_id: int) -> None:
         self._db.upsert_topic(chat_id, thread_id, workspace=None, opencode_port=None, opencode_session_id=None)
         await self._tg.send_message(chat_id, "Reset mapping and session for this topic.", thread_id=thread_id)
@@ -761,6 +939,52 @@ class Bridge:
             data = r.json()
             return str(data["id"])
 
+    async def _update_session_title(self, port: int, session_id: str, title: str) -> None:
+        async with httpx.AsyncClient() as c:
+            url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}"
+            r = await c.patch(url, json={"title": title}, timeout=30)
+            r.raise_for_status()
+
+    def _session_title(self, workspace: str, thread_id: int, topic_title: Optional[str]) -> str:
+        label = topic_title or os.path.basename(workspace) or "workspace"
+        return f"tg:{thread_id} {label}"
+
+    async def warm_sessions(self) -> None:
+        topics = self._db.list_topics()
+        warmed = 0
+        for t in topics:
+            if warmed >= self._max_sessions:
+                break
+            workspace = t.get("workspace")
+            if not workspace or not os.path.isdir(workspace):
+                continue
+
+            chat_val = t.get("chat_id")
+            thread_val = t.get("thread_id")
+            if chat_val is None or thread_val is None:
+                continue
+            chat_id = int(chat_val)
+            thread_id = int(thread_val)
+            topic_title = t.get("topic_title")
+
+            inst = await self._ensure_instance(workspace, chat_id, thread_id)
+            port = await inst.ensure_running()
+            self._db.upsert_topic(chat_id, thread_id, opencode_port=port)
+
+            session_id = t.get("opencode_session_id")
+            if not session_id:
+                session_id = await self._create_session(port, title=self._session_title(workspace, thread_id, topic_title))
+                self._db.upsert_topic(chat_id, thread_id, opencode_session_id=session_id)
+
+            with contextlib.suppress(Exception):
+                await self._update_session_title(
+                    port,
+                    str(session_id),
+                    self._session_title(workspace, thread_id, topic_title),
+                )
+
+            warmed += 1
+
     async def _run_prompt(self, ctx: TopicContext, prompt: str) -> None:
         lock = self._session_locks.setdefault(_topic_key(ctx.chat_id, ctx.thread_id), asyncio.Lock())
         async with lock:
@@ -769,12 +993,23 @@ class Bridge:
             inst = self._instances[ctx.workspace]
             port = await inst.ensure_running()
 
+            print(
+                "thinking: chat_id={} thread_id={} workspace={}".format(
+                    ctx.chat_id,
+                    ctx.thread_id,
+                    ctx.workspace,
+                )
+            )
             msg = await self._tg.send_message(ctx.chat_id, "Thinking...", thread_id=ctx.thread_id)
             tg_msg_id = int(msg["message_id"])
 
             q = inst.subscribe()
             try:
-                await self._prompt_async(port, ctx.session_id, prompt)
+                try:
+                    await self._prompt_async(port, ctx.session_id, prompt)
+                except Exception as e:
+                    print(f"prompt_async failed: {e}")
+                    raise
                 await self._stream_response(ctx, port, q, tg_msg_id)
             finally:
                 inst.unsubscribe(q)
@@ -786,11 +1021,21 @@ class Bridge:
         if self._default_agent:
             body["agent"] = self._default_agent
         if self._default_model:
-            body["model"] = self._default_model
+            model = self._default_model
+            provider = self._default_provider
+            if "/" in model:
+                provider, model = model.split("/", 1)
+            body["model"] = {
+                "providerID": provider,
+                "modelID": model,
+            }
 
         async with httpx.AsyncClient() as c:
             url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}/prompt_async"
             r = await c.post(url, json=body, timeout=30)
+            if r.status_code >= 400:
+                print(f"prompt_async failed: status={r.status_code} body={r.text}")
+                print(f"prompt_async payload: {body}")
             r.raise_for_status()
 
     async def _reply_permission(self, ctx: TopicContext, permission_id: str, response: str) -> None:
@@ -813,13 +1058,24 @@ class Bridge:
         last_edit = 0.0
         completed = False
         error_text: Optional[str] = None
+        start_time = time.time()
 
         while True:
             try:
-                ev = await asyncio.wait_for(q.get(), timeout=1800)
+                ev = await asyncio.wait_for(q.get(), timeout=10)
             except asyncio.TimeoutError:
-                error_text = "Timed out waiting for response"
-                break
+                final = await self._poll_for_response(port, ctx.session_id, attempts=8, delay_sec=1)
+                if final.strip():
+                    try:
+                        await self._tg.edit_message(ctx.chat_id, tg_message_id, final)
+                    except Exception as e:
+                        print(f"edit timeout fallback failed: {e}")
+                    return
+
+                if time.time() - start_time >= 1800:
+                    error_text = "Timed out waiting for response"
+                    break
+                continue
 
             payload = ev.get("payload") or {}
             typ = payload.get("type")
@@ -889,30 +1145,80 @@ class Bridge:
 
                 now = time.time()
                 if now - last_edit >= 1.2 and text.strip():
-                    await self._tg.edit_message(ctx.chat_id, tg_message_id, text)
+                    try:
+                        await self._tg.edit_message(ctx.chat_id, tg_message_id, text)
+                    except Exception as e:
+                        print(f"edit message failed: {e}")
+                        break
                     last_edit = now
 
             if completed:
                 break
 
+            if time.time() - start_time >= 15 and not text.strip():
+                final = await self._poll_for_response(port, ctx.session_id, attempts=5, delay_sec=1)
+                if final.strip():
+                    try:
+                        await self._tg.edit_message(ctx.chat_id, tg_message_id, final)
+                    except Exception as e:
+                        print(f"stream watchdog edit failed: {e}")
+                    return
+
         if error_text is not None:
-            await self._tg.edit_message(ctx.chat_id, tg_message_id, f"Error: {error_text}")
+            try:
+                await self._tg.edit_message(ctx.chat_id, tg_message_id, f"Error: {error_text}")
+            except Exception as e:
+                print(f"edit error message failed: {e}")
             return
 
         if text.strip():
-            await self._tg.edit_message(ctx.chat_id, tg_message_id, text)
+            try:
+                await self._tg.edit_message(ctx.chat_id, tg_message_id, text)
+            except Exception as e:
+                print(f"edit final message failed: {e}")
         else:
             # Fallback: fetch last message.
             try:
                 final = await self._fetch_last_assistant_text(port, ctx.session_id)
-                await self._tg.edit_message(ctx.chat_id, tg_message_id, final or "(no output)")
+                try:
+                    await self._tg.edit_message(ctx.chat_id, tg_message_id, final or "(no output)")
+                except Exception as e:
+                    print(f"edit fallback message failed: {e}")
             except Exception:
-                await self._tg.edit_message(ctx.chat_id, tg_message_id, "(no output)")
+                try:
+                    await self._tg.edit_message(ctx.chat_id, tg_message_id, "(no output)")
+                except Exception as e:
+                    print(f"edit empty message failed: {e}")
+
+    async def _fetch_last_assistant_info(self, port: int, session_id: str) -> dict[str, Any]:
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}/message"
+            try:
+                r = await c.get(url, params={"limit": 50})
+            except Exception as e:
+                print(f"fetch last assistant failed: {e}")
+                return {}
+            r.raise_for_status()
+            msgs = r.json()
+
+        # msgs is list of {info, parts}
+        for item in reversed(msgs):
+            info = item.get("info") or {}
+            if info.get("role") != "assistant":
+                continue
+            return info
+        return {}
 
     async def _fetch_last_assistant_text(self, port: int, session_id: str) -> str:
-        async with httpx.AsyncClient() as c:
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
             url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}/message"
-            r = await c.get(url, params={"limit": 50}, timeout=30)
+            try:
+                r = await c.get(url, params={"limit": 50})
+            except Exception as e:
+                print(f"fetch last assistant failed: {e}")
+                return ""
             r.raise_for_status()
             msgs = r.json()
 
@@ -930,19 +1236,33 @@ class Bridge:
                 return out
         return ""
 
+    async def _poll_for_response(self, port: int, session_id: str, attempts: int, delay_sec: int) -> str:
+        for _ in range(attempts):
+            final = await self._fetch_last_assistant_text(port, session_id)
+            if final.strip():
+                return final
+            await asyncio.sleep(delay_sec)
+        return ""
+
 
 async def amain() -> None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    cfg = _load_config()
+    token = _cfg(cfg, ("telegram", "bot_token"), "")
     if not token:
-        raise SystemExit("TELEGRAM_BOT_TOKEN is required")
+        raise SystemExit("telegram.bot_token is required")
 
     data_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "opencode-telegram-bridge")
     db_path = os.path.join(data_dir, "state.sqlite")
     db = DB(db_path)
+    db.prune_topics(
+        retention_days=_cfg_int(cfg, ("telegram", "db_retention_days"), 30),
+        max_topics=_cfg_int(cfg, ("telegram", "db_max_topics"), 500),
+    )
 
     async with httpx.AsyncClient() as client:
         tg = Telegram(token=token, client=client)
-        bridge = Bridge(db=db, tg=tg)
+        bridge = Bridge(db=db, tg=tg, cfg=cfg)
+        await bridge.warm_sessions()
 
         stop = asyncio.Event()
 

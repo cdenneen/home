@@ -11,6 +11,7 @@
     ./shells/zsh.nix
     ./ssh.nix
     ./terminals
+    ./telegram-bridge.nix
     ./volta.nix
     ./zellij.nix
   ];

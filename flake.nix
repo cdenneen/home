@@ -170,6 +170,7 @@
             sops-diff-keys = pkgs.callPackage ./pkgs/sops-diff-keys.nix { };
             sops-verify-keys = pkgs.callPackage ./pkgs/sops-verify-keys.nix { };
             sops-bootstrap-host = pkgs.callPackage ./pkgs/sops-bootstrap-host.nix { };
+            opencode-telegram-bridge = pkgs.callPackage ./pkgs/opencode-telegram-bridge.nix { };
           };
 
           devshells.default = {
