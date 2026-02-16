@@ -51,7 +51,7 @@ in
       '';
     }
     # NOTE: Do NOT set security.sudo.enable here.
-    # sudo enablement is handled by NixOS defaults and by modules/os/sudo.nix,
+    # sudo enablement is handled by NixOS defaults and by modules/system/sudo.nix,
     # and must not be referenced at all on nix-darwin.
 
     (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
@@ -119,6 +119,6 @@ in
       }
     )
 
-    # NOTE: nix-darwin-specific GC scheduling lives in modules/darwin/default.nix
+    # NOTE: nix-darwin-specific GC scheduling lives in modules/system/darwin/default.nix
   ];
 }

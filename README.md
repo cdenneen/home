@@ -1,6 +1,6 @@
 # home — upstream-based Nix flake fork
 
-This repository is a **conservative fork** of an upstream Nix flake, rebased and maintained to support a clean, ARM-first developer workflow across **nix-darwin**, **NixOS**, and **Home Manager**.
+This repository is a **conservative fork** of an upstream Nix flake, rebased and maintained to support a clean developer workflow across **nix-darwin**, **NixOS**, and **Home Manager**.
 
 The guiding principle is boring correctness: reproducible builds, declarative state, and loud failures when invariants are broken.
 
@@ -49,7 +49,7 @@ sudo systemctl restart user@$(id -u <user>).service
 
 ### CI and evaluation
 
-- ARM-only evaluation (aarch64-darwin, aarch64-linux)
+- Fast checks by default; full checks are opt-in in CI
 - Simplified GitHub Actions matrix
 - CI behavior reproducible locally via `nix build` / `nix flake check`
 
@@ -57,7 +57,7 @@ sudo systemctl restart user@$(id -u <user>).service
 
 ## What this fork does _not_ do
 
-- Support x86_64 systems
+- Hide or mutate state during activation
 - Own imperative state in Home Manager
 - Mutate files during evaluation, activation, or git hooks
 - Diverge stylistically from nixpkgs conventions
@@ -68,10 +68,85 @@ sudo systemctl restart user@$(id -u <user>).service
 
 See `AGENTS.md` for:
 
-- build / lint / check commands
+- build / lint / check commands (system + Home Manager)
 - code style and naming rules
 - invariants that must not be violated
 
 This repo also includes a repo-scoped OpenCode agent at `/.opencode/agents/nixos-expert.md` for NixOS/nix-darwin/Home Manager work.
 
 If a change does not clearly fit the fork delta above, it likely does not belong here.
+
+---
+
+## Usage
+
+### System builds
+
+```sh
+# NixOS
+nix build .#nixosConfigurations.<host>.config.system.build.toplevel
+sudo nixos-rebuild switch --flake .#<host>
+
+# nix-darwin
+nix build .#darwinConfigurations.<host>.system
+sudo darwin-rebuild switch --flake .#<host>
+```
+
+### Home Manager
+
+Home Manager configs are keyed by username (e.g. `cdenneen`) and target the current system.
+
+```sh
+home-manager switch --flake .#cdenneen
+```
+
+### HM integration in system builds
+
+Home Manager is integrated into system builds by default. Disable per-host if you want
+standalone HM only:
+
+```nix
+profiles.hmIntegrated.enable = false;
+```
+
+### Bootstrap with a minimal flake
+
+Example `/etc/nixos/flake.nix` that delegates to this repo and sets host params:
+
+```nix
+{
+  description = "System bootstrap";
+
+  inputs.home.url = "github:cdenneen/home";
+
+  outputs = { home, ... }:
+    let
+      host = "foobar";
+    in
+    home.lib.bootstrap {
+      hostName = host;
+      kind = "nixos"; # nixos or darwin
+      system = "x86_64-linux";
+      tags = [ "crostini" ];
+      users = [ "cdenneen" ];
+      nixosModules = [ ./configuration.nix ];
+    };
+}
+```
+
+Then:
+
+```sh
+sudo nixos-rebuild switch --flake /etc/nixos#foobar
+home-manager switch --flake /etc/nixos#cdenneen
+```
+
+Tags can include `ec2`, `amazon-ami`, `qemu-guest`, `wsl`, and `crostini`.
+
+### Structure
+
+- `hosts/` host definitions
+- `systems/` flake wiring
+- `modules/system/` OS modules (shared + platform)
+- `modules/hm/` Home Manager modules
+- `modules/shared/` shared helpers

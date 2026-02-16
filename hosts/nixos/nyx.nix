@@ -51,7 +51,6 @@
   # Matches running system (do not change after initial install)
   system.stateVersion = lib.mkForce "26.05";
 
-  # User definition is shared via commonModules.users.cdenneen
   profiles.defaults.enable = true;
 
   # Keep rebuilds from saturating this host.

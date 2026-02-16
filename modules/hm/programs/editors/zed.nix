@@ -15,7 +15,7 @@
 
   config = lib.mkIf config.programs.zed.enable {
     xdg.configFile."zed/settings.json".source =
-      config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/nixcfg/modules/home/programs/editors/zed-settings.json";
+      config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/nixcfg/modules/hm/programs/editors/zed-settings.json";
     home.packages = [ config.programs.zed.package ];
   };
 }

@@ -54,7 +54,7 @@ in
           home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
           _module.args.pkgs = lib.mkForce unstablePkgs;
           imports = [
-            ../../home/users/cdenneen/default.nix
+            ../../hm/users/cdenneen/default.nix
           ];
           profiles = {
             defaults.enable = true;

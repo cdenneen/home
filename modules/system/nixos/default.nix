@@ -9,7 +9,7 @@ let
 in
 {
   imports = [
-    ../os
+    ../default.nix
     ./compat/display-manager-generic.nix
     ./services
     ./containers
