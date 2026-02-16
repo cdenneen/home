@@ -85,6 +85,11 @@
               # to that name. Override it to the canonical package to avoid the warning.
               "nixfmt-rfc-style" = prev.nixfmt;
 
+              # Avoid deprecation warning from xorg.lndir alias.
+              xorg = prev.xorg // {
+                lndir = prev.lndir;
+              };
+
               # vimnix expects rust-analyzer-nightly; fall back to rust-analyzer.
               rust-analyzer-nightly =
                 if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;

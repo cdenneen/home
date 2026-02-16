@@ -74,10 +74,8 @@
     tsdown = "tailscale down";
   };
 
-  # Ensure gpg-agent/pinentry works across sessions/TTYs.
+  # Ensure git aliases and helper functions are available.
   programs.zsh.initContent = lib.mkAfter ''
-    gpgconf --launch gpg-agent >/dev/null 2>&1 || true
-
     # Synthetic worktree branch safety: prefer <branch>@<workspace>.
     # These override the shell aliases of the same name.
     unalias gco gcob >/dev/null 2>&1 || true

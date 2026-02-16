@@ -1,4 +1,8 @@
-{ lib, ... }:
+{
+  config,
+  lib,
+  ...
+}:
 
 {
   # Git identity and conditional configuration for cdenneen
@@ -10,7 +14,7 @@
       email = "cdenneen@gmail.com";
     };
     signing = {
-      key = "0xBFEB75D960DFAA6B";
+      key = config.sops.secrets.github_ed25519.path;
       signByDefault = true;
     };
 
@@ -26,8 +30,21 @@
           user = {
             name = "Christopher Denneen";
             email = "CDenneen@ap.org";
-            signingkey = "0x3834814930B83A30";
+            signingkey = "~/.ssh/id_ed25519";
           };
+          gpg.format = "ssh";
+          commit.gpgsign = true;
+        };
+      }
+      {
+        condition = "hasconfig:remote.*.url:git.ap.org";
+        contents = {
+          user = {
+            name = "Christopher Denneen";
+            email = "CDenneen@ap.org";
+            signingkey = "~/.ssh/id_ed25519";
+          };
+          gpg.format = "ssh";
           commit.gpgsign = true;
         };
       }
@@ -37,8 +54,9 @@
           user = {
             name = "Chris Denneen";
             email = "cdenneen@gmail.com";
-            signingkey = "0xBFEB75D960DFAA6B";
+            signingkey = config.sops.secrets.github_ed25519.path;
           };
+          gpg.format = "ssh";
           commit.gpgsign = true;
         };
       }

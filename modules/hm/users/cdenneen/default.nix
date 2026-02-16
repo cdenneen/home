@@ -10,6 +10,7 @@
     ./direnv.nix
     ./git.nix
     ./gpg.nix
+    ./opencode-telegram-bridge.nix
     ./zsh.nix
     ./secrets.nix
   ];

@@ -13,6 +13,43 @@
     openFirewall = true;
   };
 
+  services.amazon-cloudwatch-agent = {
+    enable = true;
+    mode = "ec2";
+    configuration = {
+      agent = {
+        metrics_collection_interval = 60;
+        logfile = "/var/log/amazon-cloudwatch-agent/amazon-cloudwatch-agent.log";
+      };
+      metrics = {
+        namespace = "CWAgent";
+        metrics_collected = {
+          cpu = {
+            measurement = [
+              "cpu_usage_idle"
+              "cpu_usage_iowait"
+              "cpu_usage_user"
+              "cpu_usage_system"
+            ];
+            totalcpu = true;
+            metrics_collection_interval = 60;
+          };
+          mem = {
+            measurement = [ "mem_used_percent" ];
+            metrics_collection_interval = 60;
+          };
+          disk = {
+            measurement = [ "used_percent" ];
+            resources = [ "/" ];
+            metrics_collection_interval = 60;
+          };
+        };
+      };
+    };
+  };
+
+  services.amazon-ssm-agent.enable = true;
+
   # Allow inbound services over the private tailnet without opening ports to the public internet.
   networking.firewall.trustedInterfaces = lib.mkAfter [ "tailscale0" ];
 

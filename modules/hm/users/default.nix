@@ -30,11 +30,11 @@ in
           "${config.programs.volta.voltaHome}/bin"
         ]
         ++ [
+          "/run/wrappers/bin"
           "${config.home.homeDirectory}/.cargo/bin"
           "${config.home.homeDirectory}/.local/bin"
           "${config.home.homeDirectory}/.bin"
           "${config.home.homeDirectory}/bin"
-          "/run/wrappers/bin"
           "${config.home.homeDirectory}/.nix-profile/bin"
           "/nix/profile/bin"
           "${config.home.homeDirectory}/.local/state/nix/profile/bin"
@@ -166,8 +166,10 @@ in
       pkgs.cachix
       pkgs.coreutils
       pkgs.nerd-fonts.jetbrains-mono
-    ] ++ lib.optionals pkgs.stdenv.isLinux [
+    ]
+    ++ lib.optionals pkgs.stdenv.isLinux [
       pkgs.pinentry-curses
+      pkgs.clang
     ];
     services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
       enable = true;

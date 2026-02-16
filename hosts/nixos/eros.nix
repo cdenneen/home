@@ -17,6 +17,43 @@
   services.udisks2.enable = lib.mkForce false;
   services.openssh.settings.PermitRootLogin = lib.mkForce "prohibit-password";
 
+  services.amazon-cloudwatch-agent = {
+    enable = true;
+    mode = "ec2";
+    configuration = {
+      agent = {
+        metrics_collection_interval = 60;
+        logfile = "/var/log/amazon-cloudwatch-agent/amazon-cloudwatch-agent.log";
+      };
+      metrics = {
+        namespace = "CWAgent";
+        metrics_collected = {
+          cpu = {
+            measurement = [
+              "cpu_usage_idle"
+              "cpu_usage_iowait"
+              "cpu_usage_user"
+              "cpu_usage_system"
+            ];
+            totalcpu = true;
+            metrics_collection_interval = 60;
+          };
+          mem = {
+            measurement = [ "mem_used_percent" ];
+            metrics_collection_interval = 60;
+          };
+          disk = {
+            measurement = [ "used_percent" ];
+            resources = [ "/" ];
+            metrics_collection_interval = 60;
+          };
+        };
+      };
+    };
+  };
+
+  services.amazon-ssm-agent.enable = true;
+
   # Matches running system (do not change after initial install)
   # Match global default; do not downgrade
   system.stateVersion = lib.mkForce "26.05";

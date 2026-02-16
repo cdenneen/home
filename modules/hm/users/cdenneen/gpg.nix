@@ -33,16 +33,7 @@ in
   };
 
   services.gpg-agent = {
-    enable = true;
-
-    # Use gpg-agent as an ssh-agent replacement.
-    enableSshSupport = true;
-
-    # Cache the key once per boot/login session (no repeated prompts).
-    defaultCacheTtl = 86400;
-    maxCacheTtl = 86400;
-
-    pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
+    enable = false;
   };
 
   # Import all decrypted GPG secret keys from SOPS exactly once.

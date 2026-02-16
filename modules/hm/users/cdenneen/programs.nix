@@ -9,12 +9,9 @@
 let
   isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
   hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
-  enableLinuxLemonadeServer =
-    pkgs.stdenv.isLinux
-    && builtins.elem hostName [
-      "eros"
-      "nyx"
-    ];
+  # Prefer the macOS lemonade server over a local Linux server so SSH
+  # remote forwarding to 127.0.0.1:2489 works without port conflicts.
+  enableLinuxLemonadeServer = false;
 
   erosRemoteForwards =
     if pkgs.stdenv.isDarwin then
@@ -115,6 +112,9 @@ in
         "${pkgs.lemonade}/bin/lemonade"
         "server"
       ];
+      EnvironmentVariables = {
+        PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin";
+      };
       KeepAlive = true;
       RunAtLoad = true;
     };
@@ -259,7 +259,10 @@ in
       };
 
       "gitlab.com" = identityConfig;
-      "git.ap.org" = identityConfig;
+      "git.ap.org" = identityConfig // {
+        identitiesOnly = true;
+        identityFile = [ "~/.ssh/id_ed25519" ];
+      };
     };
   };
 

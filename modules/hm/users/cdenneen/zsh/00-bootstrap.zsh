@@ -6,6 +6,7 @@ setopt globdots
 # In devshell/direnv contexts PATH can lose /usr/bin which breaks git and scripts.
 typeset -U path PATH
 path=(
+  /run/wrappers/bin
   /run/current-system/sw/bin
   "$HOME/.nix-profile/bin"
   /usr/local/bin
@@ -25,10 +26,5 @@ export PATH
 set +x +v 2>/dev/null || true
 unsetopt xtrace verbose 2>/dev/null || true
 unset XTRACEFD 2>/dev/null || true
-
-# Prefer gpg-agent as ssh-agent if available.
-if [[ -z "$SSH_AUTH_SOCK" ]] && command -v gpgconf >/dev/null 2>&1; then
-  export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)"
-fi
 
 # Completion-heavy init lives in 02-autocompletion.zsh (after compinit).

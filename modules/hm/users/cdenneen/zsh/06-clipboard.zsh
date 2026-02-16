@@ -93,6 +93,11 @@ function pbcopy() {
     return
   fi
 
+  if [[ "$OSTYPE" == darwin* ]] && command -v /usr/bin/pbcopy >/dev/null 2>&1; then
+    /usr/bin/pbcopy
+    return
+  fi
+
   # Prefer Windows clipboard whenever available (WSL).
   if command -v clip.exe >/dev/null 2>&1 || _is_wsl; then
     _pbcopy_wsl && return
@@ -120,6 +125,11 @@ function pbpaste() {
     # Fallback: ask user to paste (works everywhere, but manual)
     printf "Paste now, then press Ctrl-D\n" >&2
     cat
+    return
+  fi
+
+  if [[ "$OSTYPE" == darwin* ]] && command -v /usr/bin/pbpaste >/dev/null 2>&1; then
+    /usr/bin/pbpaste
     return
   fi
 
