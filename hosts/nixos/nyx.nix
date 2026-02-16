@@ -108,6 +108,27 @@
 
   # Let user systemd services start at boot (no login needed).
   users.users.cdenneen.linger = true;
+  users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
+
+  systemd.user.services.tailscale-up =
+    let
+      run = pkgs.writeShellScript "tailscale-up" ''
+        set -euo pipefail
+        exec ${pkgs.tailscale}/bin/tailscale up --accept-dns=false
+      '';
+    in
+    {
+      description = "Tailscale up";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "default.target" ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = run;
+        RemainAfterExit = true;
+      };
+    };
 
   # Cloudflare Tunnel for Telegram webhook.
   environment.systemPackages = lib.mkAfter [ pkgs.cloudflared ];
@@ -170,7 +191,7 @@
         echo "opencode-web: loaded password length ''${#pw}" >&2
         export OPENCODE_SERVER_USERNAME="opencode"
         export OPENCODE_SERVER_PASSWORD="$pw"
-        exec /etc/profiles/per-user/cdenneen/bin/opencode web --hostname 127.0.0.1 --port 4096
+        exec /etc/profiles/per-user/cdenneen/bin/opencode serve --hostname 127.0.0.1 --port 4096
       '';
     in
     {
