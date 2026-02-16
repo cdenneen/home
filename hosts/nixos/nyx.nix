@@ -254,20 +254,25 @@
             print("opencode-web-warm: server not healthy, skipping", flush=True)
             raise SystemExit(0)
 
+        existing_titles = set()
         try:
             status, body = http("GET", "/session")
             if status == 200:
                 data = json.loads(body.decode("utf-8"))
-                if isinstance(data, list) and data:
-                    print("opencode-web-warm: sessions already present, skipping", flush=True)
-                    raise SystemExit(0)
-                if isinstance(data, dict):
+                if isinstance(data, list):
+                    items = data
+                elif isinstance(data, dict):
                     items = data.get("items") or data.get("data") or []
-                    if items:
-                        print("opencode-web-warm: sessions already present, skipping", flush=True)
-                        raise SystemExit(0)
+                else:
+                    items = []
+
+                for item in items:
+                    if isinstance(item, dict):
+                        title = item.get("title")
+                        if title:
+                            existing_titles.add(str(title))
         except Exception:
-            pass
+            existing_titles = set()
 
         conn = sqlite3.connect(db_path)
         try:
@@ -290,6 +295,8 @@
                 title = f"{title} {topic_title}"
             title = title.strip()
             if not title:
+                continue
+            if title in existing_titles:
                 continue
             try:
                 http("POST", "/session", {"title": title}, timeout=10)
