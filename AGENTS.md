@@ -112,6 +112,10 @@ There aren’t unit tests in the usual sense; the closest is building one deriva
 - User HM modules: `modules/hm/users/<user>/...`.
 - Host configs: `hosts/nixos/<host>.nix` and `hosts/darwin/<host>.nix`.
 - Scripts: verb-first (e.g. `sops-bootstrap-host`, `update-secrets`).
+- Telegram bridge is managed via `programs.telegram-bridge` (HM module). The legacy
+  per-user `opencode-telegram-bridge.nix` module is removed. Use the packaged bridge
+  at `pkgs/opencode-telegram-bridge.nix` and configure through
+  `modules/hm/programs/telegram-bridge.nix`.
 
 ## Shell Script Expectations
 
