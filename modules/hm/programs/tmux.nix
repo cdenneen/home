@@ -26,6 +26,20 @@
       set -g window-status-format "#[fg=white] #I:#W "
       set -g window-status-current-format "#[fg=green,bold] #I:#W "
       set -g window-status-separator ""
+
+      bind r source-file ~/.config/tmux/tmux.conf \; display-message "tmux reloaded"
+
+      setw -g mode-keys vi
+      bind -T copy-mode-vi v send -X begin-selection
+      bind -T copy-mode-vi y send -X copy-selection
+
+      bind -r H resize-pane -L 5
+      bind -r J resize-pane -D 5
+      bind -r K resize-pane -U 5
+      bind -r L resize-pane -R 5
+
+      bind b set-option -g status
+      bind s set-window-option synchronize-panes
     '';
 
     plugins = with pkgs.tmuxPlugins; [
