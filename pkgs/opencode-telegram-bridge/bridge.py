@@ -766,6 +766,9 @@ class Bridge:
     def _web_last_assistant_hash_key(self, session_id: str) -> str:
         return f"web.last_assistant_hash.{session_id}"
 
+    def _web_skip_until_key(self, session_id: str) -> str:
+        return f"web.skip_until.{session_id}"
+
     def _web_last_user_key(self, session_id: str) -> str:
         return f"web.last_user_forwarded.{session_id}"
 
@@ -911,6 +914,15 @@ class Bridge:
                 if not self._check_allowed(chat_id):
                     await asyncio.sleep(self._web_sync_interval)
                     continue
+
+                skip_until = self._db.get_kv(self._web_skip_until_key(session_id))
+                if skip_until:
+                    try:
+                        if _now() < float(skip_until):
+                            await asyncio.sleep(self._web_sync_interval)
+                            continue
+                    except Exception:
+                        pass
 
                 info = await self._web_fetch_last_assistant_info(session_id)
                 msg_id = info.get("id")
@@ -1523,6 +1535,9 @@ class Bridge:
             msg = await self._tg.send_message(ctx.chat_id, "Thinking...", thread_id=ctx.thread_id)
             tg_msg_id = int(msg["message_id"])
 
+            # Avoid web sync echoing this prompt's response back to Telegram.
+            self._db.set_kv(self._web_skip_until_key(ctx.session_id), str(_now() + 120))
+
             q = inst.subscribe()
             try:
                 try:
@@ -1702,6 +1717,7 @@ class Bridge:
             self._db.set_kv(self._web_last_assistant_hash_key(ctx.session_id), digest)
             if assistant_message_id:
                 self._db.set_kv(self._web_last_forwarded_key(ctx.session_id), str(assistant_message_id))
+            self._db.set_kv(self._web_skip_until_key(ctx.session_id), str(_now() + 30))
         else:
             # Fallback: fetch last message.
             try:
