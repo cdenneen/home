@@ -632,7 +632,7 @@ class Bridge:
     def _web_last_forwarded_key(self, session_id: str) -> str:
         return f"web.last_forwarded.{session_id}"
 
-    def _web_mapped_topics(self) -> dict[str, tuple[int, int]]:
+    async def _web_session_mappings(self) -> dict[str, tuple[int, int]]:
         mapping: dict[str, tuple[int, int]] = {}
         for t in self._db.list_topics():
             chat_id = t.get("chat_id")
@@ -644,6 +644,23 @@ class Bridge:
             if not workspace:
                 continue
             mapping[str(sess)] = (int(chat_id), int(thread_id))
+        sessions = await self._web_list_sessions()
+        for s in sessions:
+            if not isinstance(s, dict):
+                continue
+            session_id = s.get("id") or s.get("sessionID")
+            title = s.get("title") or ""
+            if not session_id or not title:
+                continue
+            parsed = self._parse_web_title(str(title))
+            if not parsed:
+                continue
+            chat_id, thread_id = parsed
+            if not self._check_allowed(chat_id):
+                continue
+            mapping[str(session_id)] = (chat_id, thread_id)
+            self._db.upsert_topic(chat_id, thread_id, opencode_session_id=str(session_id))
+
         return mapping
 
     async def _web_monitor_session(self, session_id: str, chat_id: int, thread_id: int) -> None:
@@ -676,6 +693,8 @@ class Bridge:
 
                 await self._tg.send_message(chat_id, _truncate_telegram(text), thread_id=thread_id)
                 self._db.set_kv(key, str(msg_id))
+                print(
+                    f"web sync forwarded session={session_id} chat_id={chat_id} thread_id={thread_id}")
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -688,7 +707,7 @@ class Bridge:
             return
         while True:
             try:
-                desired = self._web_mapped_topics()
+                desired = await self._web_session_mappings()
                 desired_ids = set(desired.keys())
                 existing_ids = set(self._web_monitors.keys())
 
@@ -699,6 +718,8 @@ class Bridge:
 
                 for sess in desired_ids - existing_ids:
                     chat_id, thread_id = desired[sess]
+                    print(
+                        f"web sync monitor start session={sess} chat_id={chat_id} thread_id={thread_id}")
                     self._web_monitors[sess] = asyncio.create_task(
                         self._web_monitor_session(sess, chat_id, thread_id)
                     )
