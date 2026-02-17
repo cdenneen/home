@@ -516,6 +516,10 @@ class Bridge:
         if saved_model:
             self._default_model = saved_model
 
+        chat_cfg = _cfg(cfg, ("chat",), {}) or {}
+        self._announce_startup = bool(chat_cfg.get("announce_startup", False))
+        self._announce_message = str(chat_cfg.get("announce_message", "Bridge connected.")).strip() or "Bridge connected."
+
         op_cfg = _cfg(cfg, ("opencode",), {}) or {}
         self._op_use_shared = bool(op_cfg.get("use_shared_server", False))
         self._op_base_url = str(op_cfg.get("server_url", "http://127.0.0.1:4096")).rstrip("/")
@@ -1065,6 +1069,24 @@ class Bridge:
             except Exception as e:
                 print(f"web ensure: create session failed: {e}")
 
+    async def _announce_startup_topics(self) -> None:
+        if not self._announce_startup:
+            return
+        topics = self._db.list_topics()
+        if not topics:
+            return
+        for t in topics:
+            chat_id = t.get("chat_id")
+            thread_id = t.get("thread_id")
+            if chat_id is None or thread_id is None:
+                continue
+            if not self._check_allowed(int(chat_id)):
+                continue
+            try:
+                await self._tg.send_message(int(chat_id), self._announce_message, thread_id=int(thread_id))
+            except Exception as e:
+                print(f"startup announce failed: {e}")
+
     async def _web_sync_loop(self) -> None:
         if not self._web_enabled or not self._web_auth_header:
             return
@@ -1097,6 +1119,7 @@ class Bridge:
             await self._tg.delete_webhook(drop_pending_updates=False)
 
         await self._ensure_web_sessions()
+        await self._announce_startup_topics()
         if self._web_enabled and self._web_task is None:
             self._web_task = asyncio.create_task(self._web_sync_loop())
 
@@ -1122,6 +1145,7 @@ class Bridge:
 
     async def run_webhook(self) -> None:
         await self._ensure_web_sessions()
+        await self._announce_startup_topics()
         if self._web_enabled and self._web_task is None:
             self._web_task = asyncio.create_task(self._web_sync_loop())
         if self._webhook_public_url:

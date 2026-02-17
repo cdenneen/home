@@ -272,6 +272,8 @@
     };
 
     chat.allowedGithubUsers = [ "cdenneen" ];
+    chat.announceStartup = true;
+    chat.announceMessage = "Bridge connected.";
   };
 
   home-manager.users.cdenneen.programs.starship.settings.palette = lib.mkForce "nyx";

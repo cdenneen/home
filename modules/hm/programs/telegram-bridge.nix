@@ -182,6 +182,18 @@ in
         default = [ ];
         description = "GitHub users allowed via Cloudflare Access (documented for policy).";
       };
+
+      announceStartup = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Send a startup notice to all mapped topics on bridge boot.";
+      };
+
+      announceMessage = lib.mkOption {
+        type = lib.types.str;
+        default = "Bridge connected.";
+        description = "Message sent when announceStartup is enabled.";
+      };
     };
 
     web = {
@@ -325,6 +337,8 @@ in
             lib.optionalString (cfg.opencode.serverPasswordFile != null) cfg.opencode.serverPasswordFile
           }"
           export CHAT_ALLOWED_GITHUB_USERS="${lib.concatStringsSep "," cfg.chat.allowedGithubUsers}"
+          export CHAT_ANNOUNCE_STARTUP="${if cfg.chat.announceStartup then "1" else "0"}"
+          export CHAT_ANNOUNCE_MESSAGE="${cfg.chat.announceMessage}"
           export OPENCODE_WEB_ENABLE="${if cfg.web.enable then "1" else "0"}"
           export OPENCODE_WEB_BASE_URL="${cfg.web.baseUrl}"
           export OPENCODE_WEB_USERNAME="${cfg.web.username}"
