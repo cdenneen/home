@@ -19,5 +19,5 @@ pkgs.writeShellScriptBin "hm-switch" ''
   esac
 
   export NIX_SYSTEM="$system"
-  exec home-manager switch --flake .#cdenneen
+  exec home-manager switch --impure --flake .#cdenneen
 ''
