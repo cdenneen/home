@@ -134,6 +134,13 @@ in
             style = "bold cyan";
           };
 
+          env_var = {
+            TMUX = {
+              format = "[tmux]($style) ";
+              style = "bold purple";
+            };
+          };
+
           directory.substitutions = {
             "~/tests/starship-custom" = "work-project";
           };
