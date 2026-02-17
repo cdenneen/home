@@ -81,13 +81,57 @@ in
         enableTransience = true;
         settings = {
           add_newline = false;
-          format = "$directory$character";
-          right_format = "$all";
+          format = "$hostname$directory$character";
+          right_format = "$aws$kubernetes$nix_shell$git_branch$git_status";
           command_timeout = 1000;
+
+          palette = "default";
+          palettes = {
+            default = {
+              host = "cyan";
+              dir = "blue";
+            };
+            nyx = {
+              host = "red";
+              dir = "red";
+            };
+            eros = {
+              host = "yellow";
+              dir = "yellow";
+            };
+            VNJTECMBCD = {
+              host = "blue";
+              dir = "blue";
+            };
+          };
+
+          hostname = {
+            ssh_only = true;
+            ssh_symbol = "↯ ";
+            format = "[$ssh_symbol$hostname]($style) ";
+            style = "bold fg:host";
+          };
+
+          username = {
+            show_always = false;
+            style_user = "fg:host";
+            style_root = "fg:host";
+            format = "[$user]($style) ";
+          };
 
           character = {
             vicmd_symbol = "[N] >>>";
             success_symbol = "[➜](bold green)";
+          };
+
+          directory.style = "bold fg:dir";
+
+          nix_shell = {
+            format = "[$symbol$state]($style) ";
+            symbol = " ";
+            impure_msg = "dev";
+            pure_msg = "pure";
+            style = "bold cyan";
           };
 
           directory.substitutions = {
@@ -98,16 +142,16 @@ in
 
           aws = {
             disabled = false;
-            format = "[$symbol(profile: \"$profile\" )(\\(region: $region\\) )]($style)";
+            format = "[$symbol$profile(\\($region\\))]($style) ";
             style = "bold blue";
-            symbol = " ";
+            symbol = "aws:";
           };
 
           golang.format = "[ ](bold cyan)";
 
           kubernetes = {
-            disabled = true;
-            symbol = "☸ ";
+            disabled = false;
+            symbol = "⎈ ";
             detect_files = [ "Dockerfile" ];
             format = "[$symbol$context( \\($namespace\\))]($style) ";
             contexts = [
@@ -116,6 +160,11 @@ in
                 context_alias = "omerxx";
                 style = "green";
                 symbol = " ";
+              }
+              {
+                context_pattern = "arn:aws:eks:[^:]+:[0-9]+:cluster/(.*)";
+                context_alias = "$1";
+                style = "green";
               }
             ];
           };
