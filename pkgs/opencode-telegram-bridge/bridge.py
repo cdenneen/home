@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import contextlib
+import gc
 import hashlib
 import json
 import os
@@ -336,13 +337,23 @@ class Telegram:
 
 
 class OpenCodeInstance:
-    def __init__(self, workspace: str, opencode_path: str):
+    def __init__(
+        self,
+        workspace: str,
+        opencode_path: str,
+        shared_port: Optional[int] = None,
+        base_url: Optional[str] = None,
+        auth_header: Optional[str] = None,
+    ):
         self.workspace = workspace
         self.opencode_path = opencode_path
         self.port: Optional[int] = None
         self.proc: Optional[asyncio.subprocess.Process] = None
         self._sse_task: Optional[asyncio.Task[None]] = None
         self._subscribers: list[asyncio.Queue[dict[str, Any]]] = []
+        self._shared_port = shared_port
+        self._base_url = base_url
+        self._auth_header = auth_header
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=2048)
@@ -353,6 +364,11 @@ class OpenCodeInstance:
         self._subscribers = [x for x in self._subscribers if x is not q]
 
     async def ensure_running(self) -> int:
+        if self._shared_port is not None:
+            self.port = self._shared_port
+            if self._sse_task is None:
+                self._sse_task = asyncio.create_task(self._run_sse())
+            return self.port
         if self.port is not None:
             if await self._healthy(self.port):
                 return self.port
@@ -403,15 +419,22 @@ class OpenCodeInstance:
 
     async def _healthy(self, port: int) -> bool:
         try:
+            headers = {}
+            if self._auth_header:
+                headers["Authorization"] = self._auth_header
+            base = self._base_url or f"http://127.0.0.1:{port}"
             async with httpx.AsyncClient() as c:
-                r = await c.get(f"http://127.0.0.1:{port}/global/health", timeout=2)
+                r = await c.get(f"{base}/global/health", headers=headers, timeout=2)
                 return r.status_code == 200
         except Exception:
             return False
 
     async def _run_sse(self) -> None:
-        url = f"http://127.0.0.1:{self.port}/event"
+        base = self._base_url or f"http://127.0.0.1:{self.port}"
+        url = f"{base}/event"
         headers = {"Accept": "text/event-stream"}
+        if self._auth_header:
+            headers["Authorization"] = self._auth_header
         async with httpx.AsyncClient(timeout=None) as c:
             async with c.stream("GET", url, headers=headers) as r:
                 r.raise_for_status()
@@ -493,6 +516,17 @@ class Bridge:
         if saved_model:
             self._default_model = saved_model
 
+        op_cfg = _cfg(cfg, ("opencode",), {}) or {}
+        self._op_use_shared = bool(op_cfg.get("use_shared_server", False))
+        self._op_base_url = str(op_cfg.get("server_url", "http://127.0.0.1:4096")).rstrip("/")
+        self._op_username = str(op_cfg.get("server_username") or "opencode")
+        self._op_password_file = str(op_cfg.get("server_password_file") or "")
+        self._op_auth_header = self._load_opencode_auth_header()
+        self._op_shared_port: Optional[int] = None
+        if self._op_use_shared:
+            parsed = urllib.parse.urlparse(self._op_base_url)
+            self._op_shared_port = parsed.port or 4096
+
         web_cfg = _cfg(cfg, ("web",), {}) or {}
         self._web_enabled = bool(web_cfg.get("enable", False))
         self._web_base_url = str(web_cfg.get("base_url", "http://127.0.0.1:4096")).rstrip("/")
@@ -520,6 +554,8 @@ class Bridge:
 
         self._instances: dict[str, OpenCodeInstance] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._shared_instance: Optional[OpenCodeInstance] = None
+        self._last_gc_ts = 0.0
 
     def _load_web_auth_header(self) -> Optional[str]:
         if not self._web_enabled:
@@ -538,6 +574,41 @@ class Bridge:
             return None
         token = base64.b64encode(f"{self._web_username}:{password}".encode("utf-8")).decode("ascii")
         return f"Basic {token}"
+
+    def _load_opencode_auth_header(self) -> Optional[str]:
+        if not self._op_use_shared:
+            return None
+        if not self._op_password_file:
+            print("shared opencode disabled: missing server password file")
+            return None
+        try:
+            with open(self._op_password_file, "r", encoding="utf-8") as fh:
+                password = fh.read().strip()
+        except OSError:
+            print("shared opencode disabled: cannot read server password file")
+            return None
+        if not password:
+            print("shared opencode disabled: server password empty")
+            return None
+        token = base64.b64encode(f"{self._op_username}:{password}".encode("utf-8")).decode("ascii")
+        return f"Basic {token}"
+
+    def _opencode_base_url(self, port: int) -> str:
+        if self._op_use_shared:
+            return self._op_base_url
+        return f"http://127.0.0.1:{port}"
+
+    def _opencode_headers(self) -> dict[str, str]:
+        if self._op_auth_header:
+            return {"Authorization": self._op_auth_header}
+        return {}
+
+    def _maybe_gc(self) -> None:
+        now = _now()
+        if now - self._last_gc_ts < 60:
+            return
+        self._last_gc_ts = now
+        gc.collect()
 
     def _check_allowed(self, chat_id: int) -> bool:
         if self._allowed_chats is None:
@@ -911,6 +982,7 @@ class Bridge:
             except Exception as e:
                 print(f"web sync monitor failed: {e}")
 
+            self._maybe_gc()
             await asyncio.sleep(self._web_sync_interval)
 
     async def _web_sync_loop(self) -> None:
@@ -1313,6 +1385,18 @@ class Bridge:
         return TopicContext(chat_id=chat_id, thread_id=thread_id, workspace=workspace, session_id=session_id)
 
     async def _ensure_instance(self, workspace: str, chat_id: int, thread_id: int) -> OpenCodeInstance:
+        if self._op_use_shared:
+            if self._shared_instance is None:
+                self._shared_instance = OpenCodeInstance(
+                    workspace=workspace,
+                    opencode_path=self._opencode_bin,
+                    shared_port=self._op_shared_port,
+                    base_url=self._op_base_url,
+                    auth_header=self._op_auth_header,
+                )
+            self._instances[workspace] = self._shared_instance
+            return self._shared_instance
+
         inst = self._instances.get(workspace)
         if inst is not None:
             return inst
@@ -1326,6 +1410,8 @@ class Bridge:
         return inst
 
     async def _evict_one(self) -> None:
+        if self._op_use_shared:
+            return
         topics = self._db.list_topics()
         # Oldest by updated_at.
         topics = list(reversed(topics))
@@ -1341,6 +1427,8 @@ class Bridge:
             return
 
     async def _cleanup_idle(self) -> None:
+        if self._op_use_shared:
+            return
         cutoff = _now() - self._idle_timeout
         if cutoff <= 0:
             return
@@ -1358,16 +1446,23 @@ class Bridge:
             self._instances.pop(ws, None)
 
     async def _create_session(self, port: int, title: str) -> str:
+        headers = self._opencode_headers()
         async with httpx.AsyncClient() as c:
-            r = await c.post(f"http://127.0.0.1:{port}/session", json={"title": title}, timeout=30)
+            r = await c.post(
+                f"{self._opencode_base_url(port)}/session",
+                json={"title": title},
+                headers=headers,
+                timeout=30,
+            )
             r.raise_for_status()
             data = r.json()
             return str(data["id"])
 
     async def _update_session_title(self, port: int, session_id: str, title: str) -> None:
+        headers = self._opencode_headers()
         async with httpx.AsyncClient() as c:
-            url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}"
-            r = await c.patch(url, json={"title": title}, timeout=30)
+            url = f"{self._opencode_base_url(port)}/session/{urllib.parse.quote(session_id)}"
+            r = await c.patch(url, json={"title": title}, headers=headers, timeout=30)
             r.raise_for_status()
 
     def _session_title(self, workspace: str, thread_id: int, topic_title: Optional[str]) -> str:
@@ -1455,9 +1550,10 @@ class Bridge:
                 "modelID": model,
             }
 
+        headers = self._opencode_headers()
         async with httpx.AsyncClient() as c:
-            url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}/prompt_async"
-            r = await c.post(url, json=body, timeout=30)
+            url = f"{self._opencode_base_url(port)}/session/{urllib.parse.quote(session_id)}/prompt_async"
+            r = await c.post(url, json=body, headers=headers, timeout=30)
             if r.status_code >= 400:
                 print(f"prompt_async failed: status={r.status_code} body={r.text}")
                 print(f"prompt_async payload: {body}")
@@ -1466,9 +1562,10 @@ class Bridge:
     async def _reply_permission(self, ctx: TopicContext, permission_id: str, response: str) -> None:
         inst = self._instances[ctx.workspace]
         port = await inst.ensure_running()
-        url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(ctx.session_id)}/permissions/{urllib.parse.quote(permission_id)}"
+        url = f"{self._opencode_base_url(port)}/session/{urllib.parse.quote(ctx.session_id)}/permissions/{urllib.parse.quote(permission_id)}"
+        headers = self._opencode_headers()
         async with httpx.AsyncClient() as c:
-            r = await c.post(url, json={"response": response}, timeout=30)
+            r = await c.post(url, json={"response": response}, headers=headers, timeout=30)
             r.raise_for_status()
 
     async def _stream_response(
@@ -1617,10 +1714,11 @@ class Bridge:
 
     async def _fetch_last_assistant_info(self, port: int, session_id: str) -> dict[str, Any]:
         timeout = httpx.Timeout(5.0, connect=2.0)
+        headers = self._opencode_headers()
         async with httpx.AsyncClient(timeout=timeout) as c:
-            url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}/message"
+            url = f"{self._opencode_base_url(port)}/session/{urllib.parse.quote(session_id)}/message"
             try:
-                r = await c.get(url, params={"limit": 50})
+                r = await c.get(url, params={"limit": 50}, headers=headers)
             except Exception as e:
                 print(f"fetch last assistant failed: {e}")
                 return {}
@@ -1637,10 +1735,11 @@ class Bridge:
 
     async def _fetch_last_assistant_text(self, port: int, session_id: str) -> str:
         timeout = httpx.Timeout(5.0, connect=2.0)
+        headers = self._opencode_headers()
         async with httpx.AsyncClient(timeout=timeout) as c:
-            url = f"http://127.0.0.1:{port}/session/{urllib.parse.quote(session_id)}/message"
+            url = f"{self._opencode_base_url(port)}/session/{urllib.parse.quote(session_id)}/message"
             try:
-                r = await c.get(url, params={"limit": 50})
+                r = await c.get(url, params={"limit": 50}, headers=headers)
             except Exception as e:
                 print(f"fetch last assistant failed: {e}")
                 return ""

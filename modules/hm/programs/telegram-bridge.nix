@@ -150,6 +150,30 @@ in
         default = "openai";
         description = "Provider prefix used when a model lacks provider (e.g. openai).";
       };
+
+      useSharedServer = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Use a single shared opencode server instead of per-workspace servers.";
+      };
+
+      serverUrl = lib.mkOption {
+        type = lib.types.str;
+        default = "http://127.0.0.1:4096";
+        description = "Base URL for the shared opencode server.";
+      };
+
+      serverUsername = lib.mkOption {
+        type = lib.types.str;
+        default = "opencode";
+        description = "Username for opencode server basic auth.";
+      };
+
+      serverPasswordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Path to opencode server password file (sops secret).";
+      };
     };
 
     chat = {
@@ -294,6 +318,12 @@ in
             lib.optionalString (cfg.opencode.defaultAgent != null) cfg.opencode.defaultAgent
           }"
           export OPENCODE_DEFAULT_PROVIDER="${cfg.opencode.defaultProvider}"
+          export OPENCODE_USE_SHARED_SERVER="${if cfg.opencode.useSharedServer then "1" else "0"}"
+          export OPENCODE_SERVER_URL="${cfg.opencode.serverUrl}"
+          export OPENCODE_SERVER_USERNAME="${cfg.opencode.serverUsername}"
+          export OPENCODE_SERVER_PASSWORD_FILE="${
+            lib.optionalString (cfg.opencode.serverPasswordFile != null) cfg.opencode.serverPasswordFile
+          }"
           export CHAT_ALLOWED_GITHUB_USERS="${lib.concatStringsSep "," cfg.chat.allowedGithubUsers}"
           export OPENCODE_WEB_ENABLE="${if cfg.web.enable then "1" else "0"}"
           export OPENCODE_WEB_BASE_URL="${cfg.web.baseUrl}"
@@ -364,6 +394,13 @@ in
           default_provider = os.environ.get("OPENCODE_DEFAULT_PROVIDER")
           if default_provider:
               cfg["opencode"]["default_provider"] = default_provider
+
+          use_shared = os.environ.get("OPENCODE_USE_SHARED_SERVER", "")
+          if use_shared and use_shared.lower() not in ("0", "false", "no", "off"):
+              cfg["opencode"]["use_shared_server"] = True
+              cfg["opencode"]["server_url"] = os.environ.get("OPENCODE_SERVER_URL", "")
+              cfg["opencode"]["server_username"] = os.environ.get("OPENCODE_SERVER_USERNAME", "")
+              cfg["opencode"]["server_password_file"] = os.environ.get("OPENCODE_SERVER_PASSWORD_FILE", "")
 
           web_enable = os.environ.get("OPENCODE_WEB_ENABLE", "")
           if web_enable and web_enable.lower() not in ("0", "false", "no", "off"):

@@ -380,6 +380,10 @@
     telegram.webhook.publicUrl = "https://nyx.denneen.net";
 
     opencode.workspaceRoot = "/home/cdenneen/src/workspace";
+    opencode.useSharedServer = true;
+    opencode.serverUrl = "http://127.0.0.1:4096";
+    opencode.serverUsername = "opencode";
+    opencode.serverPasswordFile = config.sops.secrets.opencode_server_password.path;
 
     web = {
       enable = true;
