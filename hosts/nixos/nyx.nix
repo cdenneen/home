@@ -398,5 +398,5 @@
     chat.allowedGithubUsers = [ "cdenneen" ];
   };
 
-  home-manager.users.cdenneen.programs.starship.settings.palette = "nyx";
+  home-manager.users.cdenneen.programs.starship.settings.palette = lib.mkForce "nyx";
 }
