@@ -159,6 +159,9 @@ in
         with pkgs;
         [
           cifs-utils
+          kitty
+          alacritty
+          ghostty
         ]
         ++ lib.optionals (config.system.activationScripts ? setupSecrets) [
           (writeShellScriptBin "sops-nix-system" "${config.system.activationScripts.setupSecrets.text}")
