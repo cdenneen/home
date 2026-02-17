@@ -698,8 +698,8 @@ class Bridge:
     def _web_last_user_key(self, session_id: str) -> str:
         return f"web.last_user_forwarded.{session_id}"
 
-    def _web_last_user_from_tg_key(self, session_id: str) -> str:
-        return f"web.last_user_from_tg.{session_id}"
+    def _web_last_user_from_tg_key(self, chat_id: int, thread_id: int) -> str:
+        return f"web.last_user_from_tg.{chat_id}.{thread_id}"
 
     def _web_last_steps_key(self, session_id: str) -> str:
         return f"web.last_steps_forwarded.{session_id}"
@@ -877,7 +877,7 @@ class Bridge:
                     user_text = await self._web_fetch_last_user_text(session_id)
                     if user_text.strip():
                         ukey = self._web_last_user_key(session_id)
-                        tkey = self._web_last_user_from_tg_key(session_id)
+                        tkey = self._web_last_user_from_tg_key(chat_id, thread_id)
                         digest = hashlib.sha256(user_text.encode("utf-8")).hexdigest()
                         if self._db.get_kv(tkey) == digest:
                             await asyncio.sleep(self._web_sync_interval)
@@ -1097,7 +1097,7 @@ class Bridge:
             )
             return
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        self._db.set_kv(self._web_last_user_from_tg_key(ctx.session_id), digest)
+        self._db.set_kv(self._web_last_user_from_tg_key(chat_id, thread_id), digest)
         await self._run_prompt(ctx, text)
 
     async def _handle_callback(self, cq: dict[str, Any]) -> None:
