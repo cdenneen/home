@@ -1698,6 +1698,10 @@ class Bridge:
                 await self._tg.edit_message(ctx.chat_id, tg_message_id, text)
             except Exception as e:
                 print(f"edit final message failed: {e}")
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            self._db.set_kv(self._web_last_assistant_hash_key(ctx.session_id), digest)
+            if assistant_message_id:
+                self._db.set_kv(self._web_last_forwarded_key(ctx.session_id), str(assistant_message_id))
         else:
             # Fallback: fetch last message.
             try:
@@ -1706,11 +1710,17 @@ class Bridge:
                     await self._tg.edit_message(ctx.chat_id, tg_message_id, final or "(no output)")
                 except Exception as e:
                     print(f"edit fallback message failed: {e}")
+                if final.strip():
+                    digest = hashlib.sha256(final.encode("utf-8")).hexdigest()
+                    self._db.set_kv(self._web_last_assistant_hash_key(ctx.session_id), digest)
+                    if assistant_message_id:
+                        self._db.set_kv(self._web_last_forwarded_key(ctx.session_id), str(assistant_message_id))
             except Exception:
                 try:
                     await self._tg.edit_message(ctx.chat_id, tg_message_id, "(no output)")
                 except Exception as e:
                     print(f"edit empty message failed: {e}")
+        self._maybe_gc()
 
     async def _fetch_last_assistant_info(self, port: int, session_id: str) -> dict[str, Any]:
         timeout = httpx.Timeout(5.0, connect=2.0)
