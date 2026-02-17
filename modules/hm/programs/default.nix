@@ -2,6 +2,7 @@
 {
   imports = [
     ./bat.nix
+    ./tmux.nix
     ./editors
     ./eza.nix
     ./git.nix

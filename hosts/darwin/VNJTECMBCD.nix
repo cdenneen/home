@@ -5,6 +5,7 @@
   system.stateVersion = 6;
 
   home-manager.users.cdenneen = {
+    programs.starship.settings.palette = "VNJTECMBCD";
     home.sessionVariables = {
       # This host uses ~/code/* instead of ~/src/*
       CACHE_ROOT = "$HOME/code/cache";
