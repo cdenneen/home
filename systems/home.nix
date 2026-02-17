@@ -24,7 +24,14 @@ let
     map (username: {
       name = username;
       value = homeConfiguration {
-        system = builtins.currentSystem;
+        system =
+          if builtins ? currentSystem then
+            builtins.currentSystem
+          else
+            let
+              s = builtins.getEnv "NIX_SYSTEM";
+            in
+            if s != "" then s else throw "homeConfigurations: set NIX_SYSTEM or use --impure";
         homeModules = [ (defaultHomeModule username) ];
       };
     }) users
