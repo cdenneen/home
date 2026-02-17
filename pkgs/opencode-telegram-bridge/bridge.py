@@ -682,18 +682,18 @@ class Bridge:
             parts = item.get("parts") or []
             steps: list[str] = []
             for p in parts:
-                ptype = str(p.get("type") or "")
-                if not ptype or ptype == "text":
-                    continue
-                payload = dict(p)
-                payload.pop("text", None)
-                steps.append(f"{ptype}: {json.dumps(payload, ensure_ascii=True)}")
+                line = self._format_step_part(p)
+                if line:
+                    steps.append(line)
             if steps:
-                return "\n".join(steps)
+                return "\n".join(f"- {s}" for s in steps)
         return ""
 
     def _web_last_forwarded_key(self, session_id: str) -> str:
         return f"web.last_forwarded.{session_id}"
+
+    def _web_last_assistant_hash_key(self, session_id: str) -> str:
+        return f"web.last_assistant_hash.{session_id}"
 
     def _web_last_user_key(self, session_id: str) -> str:
         return f"web.last_user_forwarded.{session_id}"
@@ -701,54 +701,133 @@ class Bridge:
     def _web_last_steps_key(self, session_id: str) -> str:
         return f"web.last_steps_forwarded.{session_id}"
 
+    def _format_step_part(self, part: dict[str, Any]) -> Optional[str]:
+        ptype = str(part.get("type") or "")
+        if not ptype or ptype == "text":
+            return None
+
+        text = part.get("text") or part.get("message") or part.get("summary") or part.get("title")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
+        if ptype == "step-start":
+            title = part.get("title") or part.get("name")
+            return f"Step: {title}" if title else "Step started"
+
+        if ptype == "step-finish":
+            return "Step finished"
+
+        if ptype in {"tool-start", "tool-finish", "tool-call", "tool-result"}:
+            name = part.get("tool") or part.get("name") or part.get("command")
+            label = "Tool"
+            if ptype == "tool-result":
+                label = "Tool result"
+            if ptype == "tool-finish":
+                label = "Tool finished"
+            if ptype == "tool-start":
+                label = "Tool start"
+            return f"{label}: {name}" if name else label
+
+        if ptype in {"message.start", "message.finish"}:
+            return ptype.replace(".", " ")
+
+        return ptype
+
+    def _format_tokens(self, tokens: dict[str, Any]) -> str:
+        total = tokens.get("total")
+        inp = tokens.get("input")
+        out = tokens.get("output")
+        reasoning = tokens.get("reasoning")
+        cache = tokens.get("cache") or {}
+        cache_read = cache.get("read")
+        cache_write = cache.get("write")
+
+        bits: list[str] = []
+        if total is not None:
+            bits.append(f"total={total}")
+        if inp is not None:
+            bits.append(f"in={inp}")
+        if out is not None:
+            bits.append(f"out={out}")
+        if reasoning:
+            bits.append(f"reason={reasoning}")
+        if cache_read is not None or cache_write is not None:
+            bits.append(f"cache={cache_read or 0}/{cache_write or 0}")
+        return "tokens(" + ", ".join(bits) + ")" if bits else ""
+
     async def _web_session_mappings(self) -> dict[str, tuple[int, int]]:
         mapping: dict[str, tuple[int, int]] = {}
         topics = self._db.list_topics()
+        topic_used: set[tuple[int, int]] = set()
+        topics_by_workspace: dict[str, tuple[int, int]] = {}
+
         for t in topics:
             chat_id = t.get("chat_id")
             thread_id = t.get("thread_id")
-            sess = t.get("opencode_session_id")
             workspace = t.get("workspace")
-            if chat_id is None or thread_id is None or not sess:
+            if chat_id is None or thread_id is None or not workspace:
                 continue
-            if not workspace:
-                continue
-            mapping[str(sess)] = (int(chat_id), int(thread_id))
+            topics_by_workspace[str(workspace)] = (int(chat_id), int(thread_id))
+
         sessions = await self._web_list_sessions()
+        session_rows: list[dict[str, Any]] = []
         for s in sessions:
             if not isinstance(s, dict):
                 continue
             session_id = s.get("id") or s.get("sessionID")
-            title = s.get("title") or ""
-            if not session_id or not title:
+            if not session_id:
                 continue
-            parsed = self._parse_web_title(str(title))
-            if not parsed:
-                parsed = None
-            if parsed:
-                chat_id, thread_id = parsed
-                if not self._check_allowed(chat_id):
-                    continue
-                mapping[str(session_id)] = (chat_id, thread_id)
-                self._db.upsert_topic(chat_id, thread_id, opencode_session_id=str(session_id))
-                continue
+            updated = (s.get("time") or {}).get("updated") or 0
+            session_rows.append({
+                "id": str(session_id),
+                "title": str(s.get("title") or ""),
+                "directory": str(s.get("directory") or ""),
+                "updated": int(updated) if isinstance(updated, (int, float)) else 0,
+            })
 
-            title_str = str(title)
-            for t in topics:
-                chat_id = t.get("chat_id")
-                thread_id = t.get("thread_id")
-                workspace = t.get("workspace")
-                if chat_id is None or thread_id is None or not workspace:
-                    continue
-                if not self._check_allowed(int(chat_id)):
-                    continue
-                base = os.path.basename(str(workspace))
-                if not base:
-                    continue
-                if re.search(rf"\b{re.escape(base)}\b", title_str):
-                    mapping[str(session_id)] = (int(chat_id), int(thread_id))
-                    self._db.upsert_topic(int(chat_id), int(thread_id), opencode_session_id=str(session_id))
-                    break
+        # 1) Explicit tg:<chat>/<thread> titles win.
+        for s in session_rows:
+            parsed = self._parse_web_title(s["title"])
+            if not parsed:
+                continue
+            chat_id, thread_id = parsed
+            key = (int(chat_id), int(thread_id))
+            if not self._check_allowed(chat_id):
+                continue
+            if key in topic_used:
+                continue
+            mapping[s["id"]] = key
+            topic_used.add(key)
+            self._db.upsert_topic(int(chat_id), int(thread_id), opencode_session_id=s["id"])
+
+        # 2) Exact workspace directory match, prefer most recent updated session.
+        for workspace, key in topics_by_workspace.items():
+            if key in topic_used:
+                continue
+            matches = [s for s in session_rows if s["directory"] == workspace]
+            if not matches:
+                continue
+            matches.sort(key=lambda x: x["updated"], reverse=True)
+            chosen = matches[0]
+            mapping[chosen["id"]] = key
+            topic_used.add(key)
+            self._db.upsert_topic(key[0], key[1], opencode_session_id=chosen["id"])
+
+        # 3) Fallback: match workspace basename in title, prefer latest updated.
+        for workspace, key in topics_by_workspace.items():
+            if key in topic_used:
+                continue
+            base = os.path.basename(workspace)
+            if not base:
+                continue
+            matches = [s for s in session_rows if re.search(rf"\b{re.escape(base)}\b", s["title"])]
+            if not matches:
+                continue
+            matches.sort(key=lambda x: x["updated"], reverse=True)
+            chosen = matches[0]
+            mapping[chosen["id"]] = key
+            topic_used.add(key)
+            self._db.upsert_topic(key[0], key[1], opencode_session_id=chosen["id"])
 
         return mapping
 
@@ -761,17 +840,11 @@ class Bridge:
 
                 info = await self._web_fetch_last_assistant_info(session_id)
                 msg_id = info.get("id")
-                if msg_id is None:
-                    await asyncio.sleep(self._web_sync_interval)
-                    continue
                 completed = (info.get("time") or {}).get("completed")
-                if completed is None:
-                    await asyncio.sleep(self._web_sync_interval)
-                    continue
 
                 key = self._web_last_forwarded_key(session_id)
                 last = self._db.get_kv(key)
-                if last is not None and last == str(msg_id):
+                if msg_id is not None and last is not None and last == str(msg_id):
                     await asyncio.sleep(self._web_sync_interval)
                     continue
 
@@ -780,8 +853,20 @@ class Bridge:
                     await asyncio.sleep(self._web_sync_interval)
                     continue
 
+                if completed is None:
+                    completed = True
+
+                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                hkey = self._web_last_assistant_hash_key(session_id)
+                if self._db.get_kv(hkey) == digest:
+                    await asyncio.sleep(self._web_sync_interval)
+                    continue
+
                 await self._tg.send_message(chat_id, _truncate_telegram(text), thread_id=thread_id)
+                print(
+                    f"web sync sent session={session_id} chat_id={chat_id} thread_id={thread_id}")
                 self._db.set_kv(key, str(msg_id))
+                self._db.set_kv(hkey, digest)
                 print(
                     f"web sync forwarded session={session_id} chat_id={chat_id} thread_id={thread_id}")
 
@@ -796,6 +881,8 @@ class Bridge:
                                 _truncate_telegram(f"User: {user_text}"),
                                 thread_id=thread_id,
                             )
+                            print(
+                                f"web sync sent user session={session_id} chat_id={chat_id} thread_id={thread_id}")
                             self._db.set_kv(ukey, digest)
 
                 if self._web_forward_steps:
@@ -809,6 +896,8 @@ class Bridge:
                                 _truncate_telegram(f"Steps:\n{steps_text}"),
                                 thread_id=thread_id,
                             )
+                            print(
+                                f"web sync sent steps session={session_id} chat_id={chat_id} thread_id={thread_id}")
                             self._db.set_kv(skey, digest)
             except asyncio.CancelledError:
                 raise
