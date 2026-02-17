@@ -85,7 +85,7 @@ in
           right_format = "$aws$kubernetes$nix_shell$git_branch$git_status";
           command_timeout = 1000;
 
-          palette = lib.mkForce "default";
+          palette = lib.mkDefault "default";
           palettes = {
             default = {
               host = "cyan";
