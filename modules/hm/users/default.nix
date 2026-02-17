@@ -221,6 +221,7 @@ in
     home.packages = [
       pkgs.cachix
       pkgs.coreutils
+      (pkgs.callPackage ../../pkgs/hm-switch.nix { })
       pkgs.nerd-fonts.jetbrains-mono
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
