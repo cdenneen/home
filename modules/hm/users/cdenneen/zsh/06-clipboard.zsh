@@ -44,12 +44,22 @@ function _pbpaste_wsl() {
   powershell.exe -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-Clipboard -Raw" | tr -d '\r'
 }
 
+_TCP_CLIPBOARD_OK=0
+_TCP_CLIPBOARD_TS=0
+
 function _tcp_clipboard_available() {
-  command -v nc >/dev/null 2>&1 || return 1
+  local now=${EPOCHSECONDS:-0}
+  if (( now - _TCP_CLIPBOARD_TS < 2 )); then
+    return $_TCP_CLIPBOARD_OK
+  fi
 
-  nc -z -w 1 127.0.0.1 2491 >/dev/null 2>&1 || return 1
-  nc -z -w 1 127.0.0.1 2492 >/dev/null 2>&1 || return 1
+  _TCP_CLIPBOARD_TS=$now
+  command -v nc >/dev/null 2>&1 || { _TCP_CLIPBOARD_OK=1; return 1; }
 
+  nc -z -w 1 127.0.0.1 2491 >/dev/null 2>&1 || { _TCP_CLIPBOARD_OK=1; return 1; }
+  nc -z -w 1 127.0.0.1 2492 >/dev/null 2>&1 || { _TCP_CLIPBOARD_OK=1; return 1; }
+
+  _TCP_CLIPBOARD_OK=0
   return 0
 }
 

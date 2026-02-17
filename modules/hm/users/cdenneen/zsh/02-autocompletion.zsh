@@ -1,5 +1,8 @@
 #█▓▒░ autocompletion systems
-autoload bashcompinit && bashcompinit
+# Only enable bashcompinit when explicitly requested.
+if [[ -n "${BASHCOMPINIT:-}" ]]; then
+  autoload bashcompinit && bashcompinit
+fi
 autoload -Uz compinit && compinit -d "$XDG_CACHE_HOME"/zsh/zcompdump-"$ZSH_VERSION"
 
 #█▓▒░ sources
