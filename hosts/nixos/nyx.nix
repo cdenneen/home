@@ -211,130 +211,6 @@
       };
     };
 
-  systemd.user.services.opencode-web-warm =
-    let
-      warm = pkgs.writeShellScript "opencode-web-warm" ''
-        set -euo pipefail
-        export HOME="/home/cdenneen"
-
-        ${pkgs.python3}/bin/python - <<'PY'
-        import json
-        import base64
-        import os
-        import sqlite3
-        import time
-        import urllib.error
-        import urllib.request
-
-        db_path = os.path.expanduser("~/.local/share/opencode-telegram-bridge/state.sqlite")
-        base_url = "http://127.0.0.1:4096"
-        user = "opencode"
-        pw_file = "${config.sops.secrets.opencode_server_password.path}"
-
-        try:
-            with open(pw_file, "r", encoding="utf-8") as fh:
-                password = fh.read().strip()
-        except OSError:
-            print("opencode-web-warm: password file not readable, skipping", flush=True)
-            raise SystemExit(0)
-
-        token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
-
-        if not os.path.exists(db_path):
-            print("opencode-web-warm: bridge DB missing, skipping", flush=True)
-            raise SystemExit(0)
-
-        def http(method, path, body=None, timeout=2):
-            url = f"{base_url}{path}"
-            data = None
-            headers = {"Authorization": f"Basic {token}"}
-            if body is not None:
-                data = json.dumps(body).encode("utf-8")
-                headers["Content-Type"] = "application/json"
-            req = urllib.request.Request(url, data=data, method=method, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.status, resp.read()
-
-        healthy = False
-        for _ in range(30):
-            try:
-                status, _ = http("GET", "/global/health")
-                if status == 200:
-                    healthy = True
-                    break
-            except Exception:
-                time.sleep(1)
-
-        if not healthy:
-            print("opencode-web-warm: server not healthy, skipping", flush=True)
-            raise SystemExit(0)
-
-        existing_titles = set()
-        try:
-            status, body = http("GET", "/session")
-            if status == 200:
-                data = json.loads(body.decode("utf-8"))
-                if isinstance(data, list):
-                    items = data
-                elif isinstance(data, dict):
-                    items = data.get("items") or data.get("data") or []
-                else:
-                    items = []
-
-                for item in items:
-                    if isinstance(item, dict):
-                        title = item.get("title")
-                        if title:
-                            existing_titles.add(str(title))
-        except Exception:
-            existing_titles = set()
-
-        conn = sqlite3.connect(db_path)
-        try:
-            rows = list(
-                conn.execute(
-                    "SELECT chat_id, thread_id, workspace, topic_title FROM topics ORDER BY updated_at DESC"
-                )
-            )
-        finally:
-            conn.close()
-
-        warmed = 0
-        for chat_id, thread_id, workspace, topic_title in rows:
-            title = f"tg:{chat_id}/{thread_id}"
-            if workspace:
-                title = f"{title} {os.path.basename(str(workspace))}"
-            if topic_title:
-                title = f"{title} {topic_title}"
-            title = title.strip()
-            if not title:
-                continue
-            if title in existing_titles:
-                continue
-            try:
-                http("POST", "/session", {"title": title}, timeout=10)
-                warmed += 1
-            except urllib.error.HTTPError as exc:
-                print(f"opencode-web-warm: create failed {exc}", flush=True)
-            except Exception as exc:
-                print(f"opencode-web-warm: create failed {exc}", flush=True)
-
-        print(f"opencode-web-warm: warmed {warmed} sessions", flush=True)
-        PY
-      '';
-    in
-    {
-      description = "OpenCode web warm from Telegram bridge DB";
-      after = [ "opencode-serve.service" ];
-      requires = [ "opencode-serve.service" ];
-      wantedBy = [ "default.target" ];
-
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = warm;
-      };
-    };
-
   systemd.services.opencode-user-restart =
     let
       run = pkgs.writeShellScript "opencode-user-restart" ''
@@ -343,7 +219,7 @@
           echo "opencode-user-restart: user bus not available, skipping" >&2
           exit 0
         fi
-        exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service opencode-web-warm.service
+        exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service
       '';
     in
     {

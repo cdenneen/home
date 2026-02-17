@@ -1017,6 +1017,54 @@ class Bridge:
             self._maybe_gc()
             await asyncio.sleep(self._web_sync_interval)
 
+    async def _ensure_web_sessions(self) -> None:
+        if not self._op_use_shared:
+            return
+        topics = self._db.list_topics()
+        if not topics:
+            return
+
+        existing = await self._web_list_sessions()
+        by_id = {}
+        for s in existing:
+            if not isinstance(s, dict):
+                continue
+            sid = s.get("id") or s.get("sessionID")
+            if sid:
+                by_id[str(sid)] = s
+
+        for t in topics:
+            chat_id = t.get("chat_id")
+            thread_id = t.get("thread_id")
+            workspace = t.get("workspace")
+            title_extra = t.get("topic_title") or ""
+            if chat_id is None or thread_id is None:
+                continue
+
+            name = ""
+            if workspace:
+                name = os.path.basename(str(workspace))
+            if title_extra:
+                name = f"{name} {title_extra}".strip() if name else str(title_extra).strip()
+            if not name:
+                name = "topic"
+
+            title = f"tg:{thread_id} {name}".strip()
+
+            session_id = t.get("opencode_session_id")
+            if session_id and str(session_id) in by_id:
+                try:
+                    await self._update_session_title(self._op_shared_port or 4096, str(session_id), title)
+                except Exception as e:
+                    print(f"web ensure: update title failed: {e}")
+                continue
+
+            try:
+                sid = await self._create_session(self._op_shared_port or 4096, title)
+                self._db.upsert_topic(int(chat_id), int(thread_id), opencode_session_id=str(sid))
+            except Exception as e:
+                print(f"web ensure: create session failed: {e}")
+
     async def _web_sync_loop(self) -> None:
         if not self._web_enabled or not self._web_auth_header:
             return
@@ -1047,6 +1095,7 @@ class Bridge:
         with contextlib.suppress(Exception):
             await self._tg.delete_webhook(drop_pending_updates=False)
 
+        await self._ensure_web_sessions()
         if self._web_enabled and self._web_task is None:
             self._web_task = asyncio.create_task(self._web_sync_loop())
 
@@ -1071,6 +1120,7 @@ class Bridge:
                     print(f"update handling failed: {e}")
 
     async def run_webhook(self) -> None:
+        await self._ensure_web_sessions()
         if self._web_enabled and self._web_task is None:
             self._web_task = asyncio.create_task(self._web_sync_loop())
         if self._webhook_public_url:
