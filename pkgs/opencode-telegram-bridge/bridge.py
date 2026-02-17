@@ -775,6 +775,15 @@ class Bridge:
     def _web_last_user_from_tg_key(self, chat_id: int, thread_id: int) -> str:
         return f"web.last_user_from_tg.{chat_id}.{thread_id}"
 
+    def _web_last_tg_ts_key(self, session_id: str) -> str:
+        return f"web.last_tg_ts.{session_id}"
+
+    def _web_last_web_user_key(self, session_id: str) -> str:
+        return f"web.last_web_user.{session_id}"
+
+    def _web_last_web_user_ts_key(self, session_id: str) -> str:
+        return f"web.last_web_user_ts.{session_id}"
+
     def _web_last_steps_key(self, session_id: str) -> str:
         return f"web.last_steps_forwarded.{session_id}"
 
@@ -942,6 +951,12 @@ class Bridge:
                 if completed is None:
                     completed = True
 
+                tg_ts = self._db.get_kv(self._web_last_tg_ts_key(session_id))
+                web_ts = self._db.get_kv(self._web_last_web_user_ts_key(session_id))
+                if tg_ts and (not web_ts or float(web_ts) <= float(tg_ts)):
+                    await asyncio.sleep(self._web_sync_interval)
+                    continue
+
                 digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 hkey = self._web_last_assistant_hash_key(session_id)
                 if self._db.get_kv(hkey) == digest:
@@ -961,10 +976,15 @@ class Bridge:
                     if user_text.strip():
                         ukey = self._web_last_user_key(session_id)
                         tkey = self._web_last_user_from_tg_key(chat_id, thread_id)
+                        wkey = self._web_last_web_user_key(session_id)
+                        wts_key = self._web_last_web_user_ts_key(session_id)
                         digest = hashlib.sha256(user_text.encode("utf-8")).hexdigest()
                         if self._db.get_kv(tkey) == digest:
                             await asyncio.sleep(self._web_sync_interval)
                             continue
+                        if self._db.get_kv(wkey) != digest:
+                            self._db.set_kv(wkey, digest)
+                            self._db.set_kv(wts_key, str(_now()))
                         if self._db.get_kv(ukey) != digest:
                             await self._tg.send_message(
                                 chat_id,
@@ -1182,6 +1202,7 @@ class Bridge:
             return
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         self._db.set_kv(self._web_last_user_from_tg_key(chat_id, thread_id), digest)
+        self._db.set_kv(self._web_last_tg_ts_key(ctx.session_id), str(_now()))
         await self._run_prompt(ctx, text)
 
     async def _handle_callback(self, cq: dict[str, Any]) -> None:
