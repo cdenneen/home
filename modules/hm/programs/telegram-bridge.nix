@@ -159,6 +159,34 @@ in
         description = "GitHub users allowed via Cloudflare Access (documented for policy).";
       };
     };
+
+    web = {
+      enable = lib.mkEnableOption "sync OpenCode web responses to Telegram";
+
+      baseUrl = lib.mkOption {
+        type = lib.types.str;
+        default = "http://127.0.0.1:4096";
+        description = "Base URL for opencode web server (no trailing slash).";
+      };
+
+      username = lib.mkOption {
+        type = lib.types.str;
+        default = "opencode";
+        description = "Username for opencode web basic auth.";
+      };
+
+      passwordFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Path to opencode web password file (sops secret).";
+      };
+
+      syncIntervalSec = lib.mkOption {
+        type = lib.types.int;
+        default = 10;
+        description = "Polling interval for web->Telegram sync.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -255,6 +283,13 @@ in
           }"
           export OPENCODE_DEFAULT_PROVIDER="${cfg.opencode.defaultProvider}"
           export CHAT_ALLOWED_GITHUB_USERS="${lib.concatStringsSep "," cfg.chat.allowedGithubUsers}"
+          export OPENCODE_WEB_ENABLE="${if cfg.web.enable then "1" else "0"}"
+          export OPENCODE_WEB_BASE_URL="${cfg.web.baseUrl}"
+          export OPENCODE_WEB_USERNAME="${cfg.web.username}"
+          export OPENCODE_WEB_PASSWORD_FILE="${
+            lib.optionalString (cfg.web.passwordFile != null) cfg.web.passwordFile
+          }"
+          export OPENCODE_WEB_SYNC_INTERVAL_SEC="${toString cfg.web.syncIntervalSec}"
           export CONFIG_FILE="$cfg_file"
 
           ${pkgs.python3}/bin/python - <<'PY'
@@ -315,6 +350,16 @@ in
           default_provider = os.environ.get("OPENCODE_DEFAULT_PROVIDER")
           if default_provider:
               cfg["opencode"]["default_provider"] = default_provider
+
+          web_enable = os.environ.get("OPENCODE_WEB_ENABLE", "")
+          if web_enable and web_enable.lower() not in ("0", "false", "no", "off"):
+              cfg["web"] = {
+                  "enable": True,
+                  "base_url": os.environ.get("OPENCODE_WEB_BASE_URL", ""),
+                  "username": os.environ.get("OPENCODE_WEB_USERNAME", ""),
+                  "password_file": os.environ.get("OPENCODE_WEB_PASSWORD_FILE", ""),
+                  "sync_interval_sec": int(os.environ.get("OPENCODE_WEB_SYNC_INTERVAL_SEC", "10")),
+              }
 
           allowed_github = os.environ.get("CHAT_ALLOWED_GITHUB_USERS", "")
           if allowed_github:

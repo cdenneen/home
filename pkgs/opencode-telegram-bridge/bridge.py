@@ -1,7 +1,9 @@
 import asyncio
+import base64
 import contextlib
 import json
 import os
+import re
 import signal
 import sqlite3
 import time
@@ -490,6 +492,15 @@ class Bridge:
         if saved_model:
             self._default_model = saved_model
 
+        web_cfg = _cfg(cfg, ("web",), {}) or {}
+        self._web_enabled = bool(web_cfg.get("enable", False))
+        self._web_base_url = str(web_cfg.get("base_url", "http://127.0.0.1:4096")).rstrip("/")
+        self._web_username = str(web_cfg.get("username") or "opencode")
+        self._web_password_file = str(web_cfg.get("password_file") or "")
+        self._web_sync_interval = int(web_cfg.get("sync_interval_sec") or 10)
+        self._web_auth_header = self._load_web_auth_header()
+        self._web_task: Optional[asyncio.Task[None]] = None
+
         self._db_retention_days = _cfg_int(cfg, ("telegram", "db_retention_days"), 30)
         self._db_max_topics = _cfg_int(cfg, ("telegram", "db_max_topics"), 500)
 
@@ -506,6 +517,24 @@ class Bridge:
         self._instances: dict[str, OpenCodeInstance] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
 
+    def _load_web_auth_header(self) -> Optional[str]:
+        if not self._web_enabled:
+            return None
+        if not self._web_password_file:
+            print("web sync disabled: missing web password file")
+            return None
+        try:
+            with open(self._web_password_file, "r", encoding="utf-8") as fh:
+                password = fh.read().strip()
+        except OSError:
+            print("web sync disabled: cannot read web password file")
+            return None
+        if not password:
+            print("web sync disabled: web password empty")
+            return None
+        token = base64.b64encode(f"{self._web_username}:{password}".encode("utf-8")).decode("ascii")
+        return f"Basic {token}"
+
     def _check_allowed(self, chat_id: int) -> bool:
         if self._allowed_chats is None:
             return True
@@ -520,10 +549,167 @@ class Bridge:
     def _prune_db(self) -> None:
         self._db.prune_topics(retention_days=self._db_retention_days, max_topics=self._db_max_topics)
 
+    async def _web_list_sessions(self) -> list[dict[str, Any]]:
+        if not self._web_auth_header:
+            return []
+        headers = {"Authorization": self._web_auth_header}
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            try:
+                r = await c.get(f"{self._web_base_url}/session", headers=headers)
+            except Exception as e:
+                print(f"web sync list sessions failed: {e}")
+                return []
+            if r.status_code == 401:
+                print("web sync disabled: unauthorized")
+                return []
+            r.raise_for_status()
+            data = r.json()
+
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("items") or data.get("data") or []
+        return []
+
+    def _parse_web_title(self, title: str) -> Optional[tuple[int, int]]:
+        m = re.search(r"tg:(\d+)/(\d+)", title)
+        if not m:
+            return None
+        return int(m.group(1)), int(m.group(2))
+
+    async def _web_fetch_last_assistant_info(self, session_id: str) -> dict[str, Any]:
+        if not self._web_auth_header:
+            return {}
+        headers = {"Authorization": self._web_auth_header}
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            url = f"{self._web_base_url}/session/{urllib.parse.quote(session_id)}/message"
+            try:
+                r = await c.get(url, params={"limit": 50}, headers=headers)
+            except Exception as e:
+                print(f"web sync fetch last assistant failed: {e}")
+                return {}
+            r.raise_for_status()
+            msgs = r.json()
+
+        for item in reversed(msgs):
+            info = item.get("info") or {}
+            if info.get("role") != "assistant":
+                continue
+            return info
+        return {}
+
+    async def _web_fetch_last_assistant_text(self, session_id: str) -> str:
+        if not self._web_auth_header:
+            return ""
+        headers = {"Authorization": self._web_auth_header}
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            url = f"{self._web_base_url}/session/{urllib.parse.quote(session_id)}/message"
+            try:
+                r = await c.get(url, params={"limit": 50}, headers=headers)
+            except Exception as e:
+                print(f"web sync fetch last assistant failed: {e}")
+                return ""
+            r.raise_for_status()
+            msgs = r.json()
+
+        for item in reversed(msgs):
+            info = item.get("info") or {}
+            if info.get("role") != "assistant":
+                continue
+            parts = item.get("parts") or []
+            out = ""
+            for p in parts:
+                if p.get("type") == "text":
+                    out += str(p.get("text") or "")
+            if out.strip():
+                return out
+        return ""
+
+    def _web_last_forwarded_key(self, session_id: str) -> str:
+        return f"web.last_forwarded.{session_id}"
+
+    async def _web_sync_once(self) -> None:
+        sessions = await self._web_list_sessions()
+        if not sessions:
+            return
+
+        topic_map: dict[str, tuple[int, int]] = {}
+        for t in self._db.list_topics():
+            chat_id = t.get("chat_id")
+            thread_id = t.get("thread_id")
+            sess = t.get("opencode_session_id")
+            if chat_id is None or thread_id is None or not sess:
+                continue
+            topic_map[str(sess)] = (int(chat_id), int(thread_id))
+
+        for s in sessions:
+            if not isinstance(s, dict):
+                continue
+            session_id = s.get("id") or s.get("sessionID")
+            title = s.get("title") or ""
+            if not session_id or not title:
+                if not session_id:
+                    continue
+
+            parsed = self._parse_web_title(str(title)) if title else None
+            if parsed:
+                chat_id, thread_id = parsed
+            elif str(session_id) in topic_map:
+                chat_id, thread_id = topic_map[str(session_id)]
+            else:
+                continue
+            if not self._check_allowed(chat_id):
+                continue
+
+            topic = self._db.get_topic(chat_id, thread_id)
+            if not topic:
+                continue
+
+            info = await self._web_fetch_last_assistant_info(str(session_id))
+            msg_id = info.get("id")
+            if msg_id is None:
+                continue
+            completed = (info.get("time") or {}).get("completed")
+            if completed is None:
+                continue
+
+            key = self._web_last_forwarded_key(str(session_id))
+            last = self._db.get_kv(key)
+            if last is not None and last == str(msg_id):
+                continue
+
+            text = await self._web_fetch_last_assistant_text(str(session_id))
+            if not text.strip():
+                continue
+
+            try:
+                await self._tg.send_message(chat_id, _truncate_telegram(text), thread_id=thread_id)
+            except Exception as e:
+                print(f"web sync send failed: {e}")
+                continue
+
+            self._db.set_kv(key, str(msg_id))
+
+    async def _web_sync_loop(self) -> None:
+        if not self._web_enabled or not self._web_auth_header:
+            return
+        while True:
+            try:
+                await self._web_sync_once()
+            except Exception as e:
+                print(f"web sync loop error: {e}")
+            await asyncio.sleep(self._web_sync_interval)
+
     async def run_polling(self) -> None:
         # Ensure webhook is disabled to avoid missing updates.
         with contextlib.suppress(Exception):
             await self._tg.delete_webhook(drop_pending_updates=False)
+
+        if self._web_enabled and self._web_task is None:
+            self._web_task = asyncio.create_task(self._web_sync_loop())
 
         last = self._db.get_kv("telegram.last_update_id")
         offset: Optional[int] = None
@@ -546,6 +732,8 @@ class Bridge:
                     print(f"update handling failed: {e}")
 
     async def run_webhook(self) -> None:
+        if self._web_enabled and self._web_task is None:
+            self._web_task = asyncio.create_task(self._web_sync_loop())
         if self._webhook_public_url:
             url = self._webhook_public_url.rstrip("/") + self._webhook_path
             with contextlib.suppress(Exception):
@@ -1280,8 +1468,13 @@ async def amain() -> None:
             task = asyncio.create_task(bridge.run_polling())
         await stop.wait()
         task.cancel()
+        if bridge._web_task is not None:
+            bridge._web_task.cancel()
         with contextlib.suppress(Exception):
             await task
+        if bridge._web_task is not None:
+            with contextlib.suppress(Exception):
+                await bridge._web_task
 
 
 if __name__ == "__main__":

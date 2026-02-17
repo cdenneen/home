@@ -202,6 +202,9 @@
 
       serviceConfig = {
         Type = "simple";
+        Environment = [
+          "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin"
+        ];
         ExecStart = run;
         Restart = "always";
         RestartSec = 2;
@@ -216,6 +219,7 @@
 
         ${pkgs.python3}/bin/python - <<'PY'
         import json
+        import base64
         import os
         import sqlite3
         import time
@@ -224,6 +228,17 @@
 
         db_path = os.path.expanduser("~/.local/share/opencode-telegram-bridge/state.sqlite")
         base_url = "http://127.0.0.1:4096"
+        user = "opencode"
+        pw_file = "${config.sops.secrets.opencode_server_password.path}"
+
+        try:
+            with open(pw_file, "r", encoding="utf-8") as fh:
+                password = fh.read().strip()
+        except OSError:
+            print("opencode-web-warm: password file not readable, skipping", flush=True)
+            raise SystemExit(0)
+
+        token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
 
         if not os.path.exists(db_path):
             print("opencode-web-warm: bridge DB missing, skipping", flush=True)
@@ -232,7 +247,7 @@
         def http(method, path, body=None, timeout=2):
             url = f"{base_url}{path}"
             data = None
-            headers = {}
+            headers = {"Authorization": f"Basic {token}"}
             if body is not None:
                 data = json.dumps(body).encode("utf-8")
                 headers["Content-Type"] = "application/json"
@@ -286,11 +301,9 @@
 
         warmed = 0
         for chat_id, thread_id, workspace, topic_title in rows:
-            title = ""
+            title = f"tg:{chat_id}/{thread_id}"
             if workspace:
-                title = os.path.basename(str(workspace))
-            if not title:
-                title = f"tg:{chat_id}/{thread_id}"
+                title = f"{title} {os.path.basename(str(workspace))}"
             if topic_title:
                 title = f"{title} {topic_title}"
             title = title.strip()
@@ -363,6 +376,14 @@
     telegram.webhook.publicUrl = "https://nyx.denneen.net";
 
     opencode.workspaceRoot = "/home/cdenneen/src/workspace";
+
+    web = {
+      enable = true;
+      baseUrl = "http://127.0.0.1:4096";
+      username = "opencode";
+      passwordFile = config.sops.secrets.opencode_server_password.path;
+      syncIntervalSec = 10;
+    };
 
     chat.allowedGithubUsers = [ "cdenneen" ];
   };
