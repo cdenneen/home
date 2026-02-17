@@ -1070,6 +1070,7 @@ class Bridge:
             return
         while True:
             try:
+                await self._ensure_web_sessions()
                 desired = await self._web_session_mappings()
                 desired_ids = set(desired.keys())
                 existing_ids = set(self._web_monitors.keys())
