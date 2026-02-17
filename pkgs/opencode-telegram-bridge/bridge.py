@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -498,6 +499,8 @@ class Bridge:
         self._web_username = str(web_cfg.get("username") or "opencode")
         self._web_password_file = str(web_cfg.get("password_file") or "")
         self._web_sync_interval = int(web_cfg.get("sync_interval_sec") or 10)
+        self._web_forward_user = bool(web_cfg.get("forward_user_prompts", False))
+        self._web_forward_steps = bool(web_cfg.get("forward_agent_steps", False))
         self._web_auth_header = self._load_web_auth_header()
         self._web_task: Optional[asyncio.Task[None]] = None
         self._web_monitors: dict[str, asyncio.Task[None]] = {}
@@ -629,12 +632,79 @@ class Bridge:
                 return out
         return ""
 
+    async def _web_fetch_last_user_text(self, session_id: str) -> str:
+        if not self._web_auth_header:
+            return ""
+        headers = {"Authorization": self._web_auth_header}
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            url = f"{self._web_base_url}/session/{urllib.parse.quote(session_id)}/message"
+            try:
+                r = await c.get(url, params={"limit": 50}, headers=headers)
+            except Exception as e:
+                print(f"web sync fetch last user failed: {e}")
+                return ""
+            r.raise_for_status()
+            msgs = r.json()
+
+        for item in reversed(msgs):
+            info = item.get("info") or {}
+            if info.get("role") != "user":
+                continue
+            parts = item.get("parts") or []
+            out = ""
+            for p in parts:
+                if p.get("type") == "text":
+                    out += str(p.get("text") or "")
+            if out.strip():
+                return out
+        return ""
+
+    async def _web_fetch_last_assistant_steps(self, session_id: str) -> str:
+        if not self._web_auth_header:
+            return ""
+        headers = {"Authorization": self._web_auth_header}
+        timeout = httpx.Timeout(5.0, connect=2.0)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            url = f"{self._web_base_url}/session/{urllib.parse.quote(session_id)}/message"
+            try:
+                r = await c.get(url, params={"limit": 50}, headers=headers)
+            except Exception as e:
+                print(f"web sync fetch steps failed: {e}")
+                return ""
+            r.raise_for_status()
+            msgs = r.json()
+
+        for item in reversed(msgs):
+            info = item.get("info") or {}
+            if info.get("role") != "assistant":
+                continue
+            parts = item.get("parts") or []
+            steps: list[str] = []
+            for p in parts:
+                ptype = str(p.get("type") or "")
+                if not ptype or ptype == "text":
+                    continue
+                payload = dict(p)
+                payload.pop("text", None)
+                steps.append(f"{ptype}: {json.dumps(payload, ensure_ascii=True)}")
+            if steps:
+                return "\n".join(steps)
+        return ""
+
     def _web_last_forwarded_key(self, session_id: str) -> str:
         return f"web.last_forwarded.{session_id}"
 
+    def _web_last_user_key(self, session_id: str) -> str:
+        return f"web.last_user_forwarded.{session_id}"
+
+    def _web_last_steps_key(self, session_id: str) -> str:
+        return f"web.last_steps_forwarded.{session_id}"
+
     async def _web_session_mappings(self) -> dict[str, tuple[int, int]]:
         mapping: dict[str, tuple[int, int]] = {}
-        for t in self._db.list_topics():
+        topics = self._db.list_topics()
+        for t in topics:
             chat_id = t.get("chat_id")
             thread_id = t.get("thread_id")
             sess = t.get("opencode_session_id")
@@ -654,12 +724,31 @@ class Bridge:
                 continue
             parsed = self._parse_web_title(str(title))
             if not parsed:
+                parsed = None
+            if parsed:
+                chat_id, thread_id = parsed
+                if not self._check_allowed(chat_id):
+                    continue
+                mapping[str(session_id)] = (chat_id, thread_id)
+                self._db.upsert_topic(chat_id, thread_id, opencode_session_id=str(session_id))
                 continue
-            chat_id, thread_id = parsed
-            if not self._check_allowed(chat_id):
-                continue
-            mapping[str(session_id)] = (chat_id, thread_id)
-            self._db.upsert_topic(chat_id, thread_id, opencode_session_id=str(session_id))
+
+            title_str = str(title)
+            for t in topics:
+                chat_id = t.get("chat_id")
+                thread_id = t.get("thread_id")
+                workspace = t.get("workspace")
+                if chat_id is None or thread_id is None or not workspace:
+                    continue
+                if not self._check_allowed(int(chat_id)):
+                    continue
+                base = os.path.basename(str(workspace))
+                if not base:
+                    continue
+                if re.search(rf"\b{re.escape(base)}\b", title_str):
+                    mapping[str(session_id)] = (int(chat_id), int(thread_id))
+                    self._db.upsert_topic(int(chat_id), int(thread_id), opencode_session_id=str(session_id))
+                    break
 
         return mapping
 
@@ -695,6 +784,32 @@ class Bridge:
                 self._db.set_kv(key, str(msg_id))
                 print(
                     f"web sync forwarded session={session_id} chat_id={chat_id} thread_id={thread_id}")
+
+                if self._web_forward_user:
+                    user_text = await self._web_fetch_last_user_text(session_id)
+                    if user_text.strip():
+                        ukey = self._web_last_user_key(session_id)
+                        digest = hashlib.sha256(user_text.encode("utf-8")).hexdigest()
+                        if self._db.get_kv(ukey) != digest:
+                            await self._tg.send_message(
+                                chat_id,
+                                _truncate_telegram(f"User: {user_text}"),
+                                thread_id=thread_id,
+                            )
+                            self._db.set_kv(ukey, digest)
+
+                if self._web_forward_steps:
+                    steps_text = await self._web_fetch_last_assistant_steps(session_id)
+                    if steps_text.strip():
+                        skey = self._web_last_steps_key(session_id)
+                        digest = hashlib.sha256(steps_text.encode("utf-8")).hexdigest()
+                        if self._db.get_kv(skey) != digest:
+                            await self._tg.send_message(
+                                chat_id,
+                                _truncate_telegram(f"Steps:\n{steps_text}"),
+                                thread_id=thread_id,
+                            )
+                            self._db.set_kv(skey, digest)
             except asyncio.CancelledError:
                 raise
             except Exception as e:

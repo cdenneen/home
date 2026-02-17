@@ -186,6 +186,18 @@ in
         default = 10;
         description = "Polling interval for web->Telegram sync.";
       };
+
+      forwardUserPrompts = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Forward user prompts from web sessions to Telegram topics.";
+      };
+
+      forwardAgentSteps = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Forward assistant step/tool parts (if available) to Telegram topics.";
+      };
     };
   };
 
@@ -290,6 +302,8 @@ in
             lib.optionalString (cfg.web.passwordFile != null) cfg.web.passwordFile
           }"
           export OPENCODE_WEB_SYNC_INTERVAL_SEC="${toString cfg.web.syncIntervalSec}"
+          export OPENCODE_WEB_FORWARD_USER_PROMPTS="${if cfg.web.forwardUserPrompts then "1" else "0"}"
+          export OPENCODE_WEB_FORWARD_AGENT_STEPS="${if cfg.web.forwardAgentSteps then "1" else "0"}"
           export CONFIG_FILE="$cfg_file"
 
           ${pkgs.python3}/bin/python - <<'PY'
@@ -359,6 +373,10 @@ in
                   "username": os.environ.get("OPENCODE_WEB_USERNAME", ""),
                   "password_file": os.environ.get("OPENCODE_WEB_PASSWORD_FILE", ""),
                   "sync_interval_sec": int(os.environ.get("OPENCODE_WEB_SYNC_INTERVAL_SEC", "10")),
+                  "forward_user_prompts": os.environ.get("OPENCODE_WEB_FORWARD_USER_PROMPTS", "")
+                    .lower() not in ("", "0", "false", "no", "off"),
+                  "forward_agent_steps": os.environ.get("OPENCODE_WEB_FORWARD_AGENT_STEPS", "")
+                    .lower() not in ("", "0", "false", "no", "off"),
               }
 
           allowed_github = os.environ.get("CHAT_ALLOWED_GITHUB_USERS", "")

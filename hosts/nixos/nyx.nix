@@ -339,6 +339,10 @@
     let
       run = pkgs.writeShellScript "opencode-user-restart" ''
         set -euo pipefail
+        if [ -z "''${XDG_RUNTIME_DIR:-}" ] || [ ! -S "''${XDG_RUNTIME_DIR}/bus" ]; then
+          echo "opencode-user-restart: user bus not available, skipping" >&2
+          exit 0
+        fi
         exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service opencode-web-warm.service
       '';
     in
@@ -383,6 +387,8 @@
       username = "opencode";
       passwordFile = config.sops.secrets.opencode_server_password.path;
       syncIntervalSec = 10;
+      forwardUserPrompts = true;
+      forwardAgentSteps = true;
     };
 
     chat.allowedGithubUsers = [ "cdenneen" ];
