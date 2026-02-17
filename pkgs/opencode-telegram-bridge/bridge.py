@@ -500,6 +500,7 @@ class Bridge:
         self._web_sync_interval = int(web_cfg.get("sync_interval_sec") or 10)
         self._web_auth_header = self._load_web_auth_header()
         self._web_task: Optional[asyncio.Task[None]] = None
+        self._web_monitors: dict[str, asyncio.Task[None]] = {}
 
         self._db_retention_days = _cfg_int(cfg, ("telegram", "db_retention_days"), 30)
         self._db_max_topics = _cfg_int(cfg, ("telegram", "db_max_topics"), 500)
@@ -631,74 +632,76 @@ class Bridge:
     def _web_last_forwarded_key(self, session_id: str) -> str:
         return f"web.last_forwarded.{session_id}"
 
-    async def _web_sync_once(self) -> None:
-        sessions = await self._web_list_sessions()
-        if not sessions:
-            return
-
-        topic_map: dict[str, tuple[int, int]] = {}
+    def _web_mapped_topics(self) -> dict[str, tuple[int, int]]:
+        mapping: dict[str, tuple[int, int]] = {}
         for t in self._db.list_topics():
             chat_id = t.get("chat_id")
             thread_id = t.get("thread_id")
             sess = t.get("opencode_session_id")
+            workspace = t.get("workspace")
             if chat_id is None or thread_id is None or not sess:
                 continue
-            topic_map[str(sess)] = (int(chat_id), int(thread_id))
-
-        for s in sessions:
-            if not isinstance(s, dict):
+            if not workspace:
                 continue
-            session_id = s.get("id") or s.get("sessionID")
-            title = s.get("title") or ""
-            if not session_id or not title:
-                if not session_id:
+            mapping[str(sess)] = (int(chat_id), int(thread_id))
+        return mapping
+
+    async def _web_monitor_session(self, session_id: str, chat_id: int, thread_id: int) -> None:
+        while True:
+            try:
+                if not self._check_allowed(chat_id):
+                    await asyncio.sleep(self._web_sync_interval)
                     continue
 
-            parsed = self._parse_web_title(str(title)) if title else None
-            if parsed:
-                chat_id, thread_id = parsed
-            elif str(session_id) in topic_map:
-                chat_id, thread_id = topic_map[str(session_id)]
-            else:
-                continue
-            if not self._check_allowed(chat_id):
-                continue
+                info = await self._web_fetch_last_assistant_info(session_id)
+                msg_id = info.get("id")
+                if msg_id is None:
+                    await asyncio.sleep(self._web_sync_interval)
+                    continue
+                completed = (info.get("time") or {}).get("completed")
+                if completed is None:
+                    await asyncio.sleep(self._web_sync_interval)
+                    continue
 
-            topic = self._db.get_topic(chat_id, thread_id)
-            if not topic:
-                continue
+                key = self._web_last_forwarded_key(session_id)
+                last = self._db.get_kv(key)
+                if last is not None and last == str(msg_id):
+                    await asyncio.sleep(self._web_sync_interval)
+                    continue
 
-            info = await self._web_fetch_last_assistant_info(str(session_id))
-            msg_id = info.get("id")
-            if msg_id is None:
-                continue
-            completed = (info.get("time") or {}).get("completed")
-            if completed is None:
-                continue
+                text = await self._web_fetch_last_assistant_text(session_id)
+                if not text.strip():
+                    await asyncio.sleep(self._web_sync_interval)
+                    continue
 
-            key = self._web_last_forwarded_key(str(session_id))
-            last = self._db.get_kv(key)
-            if last is not None and last == str(msg_id):
-                continue
-
-            text = await self._web_fetch_last_assistant_text(str(session_id))
-            if not text.strip():
-                continue
-
-            try:
                 await self._tg.send_message(chat_id, _truncate_telegram(text), thread_id=thread_id)
+                self._db.set_kv(key, str(msg_id))
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
-                print(f"web sync send failed: {e}")
-                continue
+                print(f"web sync monitor failed: {e}")
 
-            self._db.set_kv(key, str(msg_id))
+            await asyncio.sleep(self._web_sync_interval)
 
     async def _web_sync_loop(self) -> None:
         if not self._web_enabled or not self._web_auth_header:
             return
         while True:
             try:
-                await self._web_sync_once()
+                desired = self._web_mapped_topics()
+                desired_ids = set(desired.keys())
+                existing_ids = set(self._web_monitors.keys())
+
+                for sess in existing_ids - desired_ids:
+                    task = self._web_monitors.pop(sess, None)
+                    if task is not None:
+                        task.cancel()
+
+                for sess in desired_ids - existing_ids:
+                    chat_id, thread_id = desired[sess]
+                    self._web_monitors[sess] = asyncio.create_task(
+                        self._web_monitor_session(sess, chat_id, thread_id)
+                    )
             except Exception as e:
                 print(f"web sync loop error: {e}")
             await asyncio.sleep(self._web_sync_interval)
@@ -1470,11 +1473,16 @@ async def amain() -> None:
         task.cancel()
         if bridge._web_task is not None:
             bridge._web_task.cancel()
+        for task in list(bridge._web_monitors.values()):
+            task.cancel()
         with contextlib.suppress(Exception):
             await task
         if bridge._web_task is not None:
             with contextlib.suppress(Exception):
                 await bridge._web_task
+        for task in list(bridge._web_monitors.values()):
+            with contextlib.suppress(Exception):
+                await task
 
 
 if __name__ == "__main__":
