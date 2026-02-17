@@ -11,7 +11,7 @@
       set -as terminal-features ",xterm-256color:RGB"
       set -g status-position top
       set -g base-index 1
-      set -g pane-base-index 1
+      setw -g pane-base-index 1
       set -g renumber-windows on
 
       set -g status on

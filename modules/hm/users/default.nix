@@ -82,7 +82,7 @@ in
         settings = {
           add_newline = false;
           format = "$hostname$directory$character";
-          right_format = "$aws$kubernetes$nix_shell$git_branch$git_status";
+          right_format = "$aws$kubernetes$nix_shell$env_var$git_branch$git_status";
           command_timeout = 1000;
 
           palette = lib.mkDefault "default";
@@ -93,21 +93,21 @@ in
             };
             nyx = {
               host = "red";
-              dir = "red";
+              dir = "white";
             };
             eros = {
               host = "yellow";
-              dir = "yellow";
+              dir = "white";
             };
             VNJTECMBCD = {
               host = "blue";
-              dir = "blue";
+              dir = "white";
             };
           };
 
           hostname = {
             ssh_only = true;
-            ssh_symbol = "↯ ";
+            ssh_symbol = "🌐 ";
             format = "[$ssh_symbol$hostname]($style) ";
             style = "bold fg:host";
           };
@@ -127,10 +127,10 @@ in
           directory.style = "bold fg:dir";
 
           nix_shell = {
-            format = "[$symbol$state]($style) ";
-            symbol = " ";
-            impure_msg = "dev";
-            pure_msg = "pure";
+            format = "[$symbol]($style) ";
+            symbol = "";
+            impure_msg = "";
+            pure_msg = "";
             style = "bold cyan";
           };
 
