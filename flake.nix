@@ -90,6 +90,16 @@
                 lndir = prev.lndir;
               };
 
+              # inetutils fails on darwin with -Werror=format-security.
+              inetutils = prev.inetutils.overrideAttrs (old: {
+                NIX_CFLAGS_COMPILE =
+                  (old.NIX_CFLAGS_COMPILE or [ ])
+                  ++ prev.lib.optionals prev.stdenv.isDarwin [
+                    "-Wno-error=format-security"
+                    "-Wno-format-security"
+                  ];
+              });
+
               # vimnix expects rust-analyzer-nightly; fall back to rust-analyzer.
               rust-analyzer-nightly =
                 if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;
