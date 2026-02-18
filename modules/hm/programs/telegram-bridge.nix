@@ -240,7 +240,7 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [
       cfg.package
-      pkgs.opencode
+      config.programs.opencode.package
       pkgs.sqlite
     ];
 
@@ -430,13 +430,23 @@ in
                     .lower() not in ("", "0", "false", "no", "off"),
               }
 
+          chat = {}
           allowed_github = os.environ.get("CHAT_ALLOWED_GITHUB_USERS", "")
           if allowed_github:
-              cfg["chat"] = {
-                  "allowed_github_users": [
-                      user.strip() for user in allowed_github.split(",") if user.strip()
-                  ]
-              }
+              chat["allowed_github_users"] = [
+                  user.strip() for user in allowed_github.split(",") if user.strip()
+              ]
+
+          announce_startup = os.environ.get("CHAT_ANNOUNCE_STARTUP", "")
+          if announce_startup and announce_startup.lower() not in ("0", "false", "no", "off"):
+              chat["announce_startup"] = True
+              chat["announce_message"] = os.environ.get(
+                  "CHAT_ANNOUNCE_MESSAGE",
+                  "Bridge connected.",
+              )
+
+          if chat:
+              cfg["chat"] = chat
 
           path = Path(os.environ.get("CONFIG_FILE", ""))
           path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")

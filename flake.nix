@@ -54,6 +54,7 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    opencode.url = "github:anomalyco/opencode/dev";
     nur.url = "github:nix-community/nur";
     vimnix.url = "github:cdenneen/vimnix";
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";

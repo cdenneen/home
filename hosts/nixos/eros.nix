@@ -20,13 +20,27 @@
   services.amazon-cloudwatch-agent = {
     enable = true;
     mode = "ec2";
+    user = "root";
+    commonConfiguration = {
+      credentials = {
+        imds_version = 2;
+      };
+    };
     configuration = {
       agent = {
         metrics_collection_interval = 60;
+        region = "us-east-1";
         logfile = "/var/log/amazon-cloudwatch-agent/amazon-cloudwatch-agent.log";
       };
       metrics = {
         namespace = "CWAgent";
+        append_dimensions = {
+          ImageId = "\${aws:ImageId}";
+          InstanceId = "\${aws:InstanceId}";
+          InstanceType = "\${aws:InstanceType}";
+          AutoScalingGroupName = "\${aws:AutoScalingGroupName}";
+        };
+        aggregation_dimensions = [ [ "InstanceId" ] ];
         metrics_collected = {
           cpu = {
             measurement = [
@@ -39,12 +53,49 @@
             metrics_collection_interval = 60;
           };
           mem = {
-            measurement = [ "mem_used_percent" ];
+            measurement = [
+              "mem_used_percent"
+              "mem_available"
+              "mem_available_percent"
+            ];
             metrics_collection_interval = 60;
           };
           disk = {
             measurement = [ "used_percent" ];
             resources = [ "/" ];
+            drop_device = true;
+            metrics_collection_interval = 60;
+          };
+          diskio = {
+            measurement = [
+              "reads"
+              "writes"
+              "read_bytes"
+              "write_bytes"
+              "io_time"
+            ];
+            resources = [ "*" ];
+            metrics_collection_interval = 60;
+          };
+          net = {
+            measurement = [
+              "bytes_sent"
+              "bytes_recv"
+            ];
+            resources = [ "*" ];
+            metrics_collection_interval = 60;
+          };
+          swap = {
+            measurement = [ "used_percent" ];
+            metrics_collection_interval = 60;
+          };
+          processes = {
+            measurement = [
+              "running"
+              "sleeping"
+              "zombies"
+              "total"
+            ];
             metrics_collection_interval = 60;
           };
         };

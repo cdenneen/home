@@ -2,6 +2,7 @@
   lib,
   pkgs,
   config,
+  opencode ? null,
   ...
 }:
 {
@@ -16,13 +17,27 @@
   services.amazon-cloudwatch-agent = {
     enable = true;
     mode = "ec2";
+    user = "root";
+    commonConfiguration = {
+      credentials = {
+        imds_version = 2;
+      };
+    };
     configuration = {
       agent = {
         metrics_collection_interval = 60;
+        region = "us-east-1";
         logfile = "/var/log/amazon-cloudwatch-agent/amazon-cloudwatch-agent.log";
       };
       metrics = {
         namespace = "CWAgent";
+        append_dimensions = {
+          ImageId = "\${aws:ImageId}";
+          InstanceId = "\${aws:InstanceId}";
+          InstanceType = "\${aws:InstanceType}";
+          AutoScalingGroupName = "\${aws:AutoScalingGroupName}";
+        };
+        aggregation_dimensions = [ [ "InstanceId" ] ];
         metrics_collected = {
           cpu = {
             measurement = [
@@ -35,12 +50,49 @@
             metrics_collection_interval = 60;
           };
           mem = {
-            measurement = [ "mem_used_percent" ];
+            measurement = [
+              "mem_used_percent"
+              "mem_available"
+              "mem_available_percent"
+            ];
             metrics_collection_interval = 60;
           };
           disk = {
             measurement = [ "used_percent" ];
             resources = [ "/" ];
+            drop_device = true;
+            metrics_collection_interval = 60;
+          };
+          diskio = {
+            measurement = [
+              "reads"
+              "writes"
+              "read_bytes"
+              "write_bytes"
+              "io_time"
+            ];
+            resources = [ "*" ];
+            metrics_collection_interval = 60;
+          };
+          net = {
+            measurement = [
+              "bytes_sent"
+              "bytes_recv"
+            ];
+            resources = [ "*" ];
+            metrics_collection_interval = 60;
+          };
+          swap = {
+            measurement = [ "used_percent" ];
+            metrics_collection_interval = 60;
+          };
+          processes = {
+            measurement = [
+              "running"
+              "sleeping"
+              "zombies"
+              "total"
+            ];
             metrics_collection_interval = 60;
           };
         };
@@ -177,8 +229,8 @@
   systemd.user.services.opencode-serve =
     let
       run = pkgs.writeShellScript "opencode-web" ''
-        set -euo pipefail
-        pw_file="${config.sops.secrets.opencode_server_password.path}"
+         set -euo pipefail
+         pw_file="${config.sops.secrets.opencode_server_password.path}"
         if [ ! -r "$pw_file" ]; then
           echo "opencode-web: password file not readable" >&2
           exit 1
@@ -199,17 +251,96 @@
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "default.target" ];
+      unitConfig = {
+        StartLimitIntervalSec = "5min";
+        StartLimitBurst = 3;
+      };
 
       serviceConfig = {
         Type = "simple";
         Environment = [
-          "PATH=/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin"
+          "PATH=${lib.makeBinPath [ pkgs.curl ]}:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin"
         ];
         ExecStart = run;
+        MemoryAccounting = true;
+        MemoryHigh = "5G";
+        MemoryMax = "6G";
+        MemorySwapMax = "0";
+        RuntimeMaxSec = "4h";
+        OOMPolicy = "stop";
         Restart = "always";
-        RestartSec = 2;
+        RestartSec = 15;
       };
     };
+
+  systemd.user.services.opencode-serve-watchdog =
+    let
+      limitMb = 5200;
+      peakLimitMb = 5400;
+      run = pkgs.writeShellScript "opencode-serve-watchdog" ''
+        set -euo pipefail
+        limit_bytes=$(( ${toString limitMb} * 1024 * 1024 ))
+        peak_limit_bytes=$(( ${toString peakLimitMb} * 1024 * 1024 ))
+        log_dir="${config.users.users.cdenneen.home}/.local/state"
+        log_file="$log_dir/opencode-serve-watchdog.log"
+        ${pkgs.coreutils}/bin/mkdir -p "$log_dir"
+
+        timestamp="$(${pkgs.coreutils}/bin/date -Is)"
+        cg="$(${pkgs.systemd}/bin/systemctl --user show -p ControlGroup --value opencode-serve.service || true)"
+        cgroup_bytes=""
+        cgroup_peak=""
+        if [ -n "$cg" ] && [ -r "/sys/fs/cgroup''${cg}/memory.current" ]; then
+          cgroup_bytes="$(${pkgs.coreutils}/bin/cat "/sys/fs/cgroup''${cg}/memory.current" || true)"
+          if [ -r "/sys/fs/cgroup''${cg}/memory.peak" ]; then
+            cgroup_peak="$(${pkgs.coreutils}/bin/cat "/sys/fs/cgroup''${cg}/memory.peak" || true)"
+          fi
+        fi
+
+        pid="$(${pkgs.systemd}/bin/systemctl --user show -p MainPID --value opencode-serve.service || true)"
+        rss_kb=""
+        if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+          rss_kb="$(${pkgs.gawk}/bin/awk '/^VmRSS:/ {print $2}' "/proc/$pid/status" || true)"
+        fi
+
+        echo "$timestamp pid=$pid rss_kb=$rss_kb cgroup_bytes=$cgroup_bytes cgroup_peak=$cgroup_peak limit_bytes=$limit_bytes peak_limit_bytes=$peak_limit_bytes" >> "$log_file"
+
+        if [ -n "$cgroup_peak" ] && [ "$cgroup_peak" -gt "$peak_limit_bytes" ]; then
+          echo "$timestamp restart reason=cgroup_peak cgroup_peak=$cgroup_peak peak_limit_bytes=$peak_limit_bytes" >> "$log_file"
+          exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service
+        fi
+
+        if [ -n "$cgroup_bytes" ] && [ "$cgroup_bytes" -gt "$limit_bytes" ]; then
+          echo "$timestamp restart reason=cgroup_bytes cgroup_bytes=$cgroup_bytes limit_bytes=$limit_bytes" >> "$log_file"
+          exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service
+        fi
+
+        if [ -n "$rss_kb" ]; then
+          limit_kb=$(( ${toString limitMb} * 1024 ))
+          if [ "$rss_kb" -gt "$limit_kb" ]; then
+            echo "$timestamp restart reason=rss_kb rss_kb=$rss_kb limit_kb=$limit_kb" >> "$log_file"
+            exec ${pkgs.systemd}/bin/systemctl --user restart opencode-serve.service
+          fi
+        fi
+      '';
+    in
+    {
+      description = "Restart OpenCode web if cgroup memory too high";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = run;
+      };
+    };
+
+  systemd.user.timers.opencode-serve-watchdog = {
+    description = "Monitor OpenCode web memory usage";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "2m";
+      OnUnitActiveSec = "30s";
+      Persistent = true;
+      Unit = "opencode-serve-watchdog.service";
+    };
+  };
 
   systemd.services.opencode-user-restart =
     let
@@ -275,6 +406,13 @@
     chat.announceStartup = true;
     chat.announceMessage = "Bridge connected.";
   };
+
+  home-manager.users.cdenneen.programs.opencode.package = lib.mkForce (
+    if opencode != null then
+      opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
+    else
+      pkgs.opencode
+  );
 
   home-manager.users.cdenneen.programs.starship.settings.palette = lib.mkForce "nyx";
 }

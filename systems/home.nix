@@ -16,6 +16,12 @@ let
       profiles.gui.enable = pkgs.stdenv.isDarwin;
     };
 
+  opencodeHomeModule =
+    { pkgs, ... }:
+    {
+      programs.opencode.package = inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    };
+
   homeConfiguration = mkHomeConfiguration;
 
   users = [ "cdenneen" ];
@@ -32,7 +38,10 @@ let
               s = builtins.getEnv "NIX_SYSTEM";
             in
             if s != "" then s else throw "homeConfigurations: set NIX_SYSTEM or use --impure";
-        homeModules = [ (defaultHomeModule username) ];
+        homeModules = [
+          (defaultHomeModule username)
+          opencodeHomeModule
+        ];
       };
     }) users
   );

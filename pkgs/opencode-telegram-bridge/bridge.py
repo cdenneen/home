@@ -1030,12 +1030,21 @@ class Bridge:
 
         existing = await self._web_list_sessions()
         by_id = {}
+        session_rows = []
         for s in existing:
             if not isinstance(s, dict):
                 continue
             sid = s.get("id") or s.get("sessionID")
-            if sid:
-                by_id[str(sid)] = s
+            if not sid:
+                continue
+            by_id[str(sid)] = s
+            updated = (s.get("time") or {}).get("updated") or 0
+            session_rows.append({
+                "id": str(sid),
+                "title": str(s.get("title") or ""),
+                "directory": str(s.get("directory") or ""),
+                "updated": int(updated) if isinstance(updated, (int, float)) else 0,
+            })
 
         for t in topics:
             chat_id = t.get("chat_id")
@@ -1056,9 +1065,43 @@ class Bridge:
             title = f"tg:{thread_id} {name}".strip()
 
             session_id = t.get("opencode_session_id")
+            if workspace:
+                workspace_str = str(workspace)
+                matches = [s for s in session_rows if s["directory"] == workspace_str]
+                if not matches:
+                    base = os.path.basename(workspace_str)
+                    if base:
+                        matches = [
+                            s for s in session_rows
+                            if re.search(rf"\b{re.escape(base)}\b", s["title"])
+                        ]
+                if matches:
+                    matches.sort(key=lambda x: x["updated"], reverse=True)
+                    chosen = matches[0]
+                    if str(session_id or "") != chosen["id"]:
+                        self._db.upsert_topic(
+                            int(chat_id),
+                            int(thread_id),
+                            opencode_session_id=chosen["id"],
+                        )
+                        session_id = chosen["id"]
+                    try:
+                        await self._update_session_title(
+                            self._op_shared_port or 4096,
+                            chosen["id"],
+                            title,
+                        )
+                    except Exception as e:
+                        print(f"web ensure: update title failed: {e}")
+                    continue
+
             if session_id and str(session_id) in by_id:
                 try:
-                    await self._update_session_title(self._op_shared_port or 4096, str(session_id), title)
+                    await self._update_session_title(
+                        self._op_shared_port or 4096,
+                        str(session_id),
+                        title,
+                    )
                 except Exception as e:
                     print(f"web ensure: update title failed: {e}")
                 continue

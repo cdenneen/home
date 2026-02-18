@@ -4,6 +4,7 @@
   pkgs,
   system,
   osConfig,
+  opencode ? null,
   unstablePkgs ? pkgs,
   ...
 }:
@@ -70,10 +71,7 @@ in
     # With home-manager.useGlobalPkgs = true, nixpkgs configuration
     # must live at the system level (NixOS / nix-darwin).
     # XDG config files managed by Home Manager
-    xdg.configFile = {
-      # Restore user zsh functions and helpers
-      "zsh".source = ./cdenneen/zsh;
-    };
+    xdg.configFile = { };
     programs = {
       home-manager.enable = true;
       starship = {
@@ -200,7 +198,12 @@ in
       direnv.nix-direnv.enable = lib.mkDefault true;
 
       opencode.enable = lib.mkDefault true;
-      opencode.package = unstablePkgs.opencode;
+      opencode.package = lib.mkDefault (
+        if opencode != null then
+          opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
+        else
+          unstablePkgs.opencode
+      );
     };
     # Catppuccin program integrations (top-level module, not under programs)
     # Catppuccin program integrations (supported by the flake)
