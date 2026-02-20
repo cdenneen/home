@@ -50,6 +50,7 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    opnix.url = "github:brizzbuzz/opnix";
     nixos-hardware.url = "github:nixos/nixos-hardware";
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";

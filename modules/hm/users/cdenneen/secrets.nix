@@ -6,15 +6,131 @@
   ...
 }:
 let
-  hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
+  hostName =
+    if osConfig != null then (osConfig.networking.hostName or "") else builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
 
   opencodeConfigJson = builtins.toJSON {
     "$schema" = "https://opencode.ai/config.json";
+    # Keep compaction enabled so long sessions stay responsive.
+    compaction = {
+      auto = true;
+      prune = true;
+      reserved = 10000;
+    };
+    mcp = {
+      gitlab = {
+        type = "local";
+        command = [
+          "npx"
+          "-y"
+          "@zereight/mcp-gitlab"
+        ];
+        enabled = true;
+        environment = {
+          GITLAB_PERSONAL_ACCESS_TOKEN = "{env:GITLAB_TOKEN}";
+          GITLAB_API_URL = "https://git.ap.org/api/v4";
+          GITLAB_READ_ONLY_MODE = "true";
+        };
+      };
+      kubernetes = {
+        type = "local";
+        command = [
+          "npx"
+          "-y"
+          "@strowk/mcp-k8s"
+        ];
+        enabled = true;
+      };
+      aws = {
+        type = "local";
+        command = [
+          "npx"
+          "-y"
+          "aws-mcp-readonly-lite"
+        ];
+        enabled = true;
+      };
+      terraform = {
+        type = "local";
+        # Use HashiCorp's MCP server in stdio mode (no TFE token required).
+        command = [
+          "podman"
+          "run"
+          "-i"
+          "--rm"
+          "hashicorp/terraform-mcp-server:0.4.0"
+        ];
+        enabled = true;
+      };
+      duckduckgo = {
+        type = "local";
+        command = [
+          "npx"
+          "-y"
+          "ddg-mcp-search"
+        ];
+        enabled = true;
+      };
+      context7 = {
+        type = "local";
+        command = [
+          "npx"
+          "-y"
+          "@upstash/context7-mcp"
+        ];
+        enabled = true;
+        environment = {
+          CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+        };
+      };
+      playwright = {
+        type = "local";
+        command = [
+          "npx"
+          "-y"
+          "@playwright/mcp"
+        ];
+        enabled = true;
+      };
+    };
     plugin = [ "telegram-notify" ];
+    permission = {
+      skill = {
+        "*" = "allow";
+      };
+    };
+    skills = {
+      paths = [
+        "/home/cdenneen/.agents/skills"
+        "/home/cdenneen/.opencode/skills"
+      ];
+    };
   };
 in
 {
+  programs.onepassword-secrets = {
+    enable = true;
+    tokenFile = "${config.home.homeDirectory}/.config/opnix/token";
+    secrets = {
+      gitlabToken = {
+        reference = "op://keys/gitlab/credential";
+        path = ".config/opnix/gitlab_token";
+        mode = "0600";
+      };
+      chatOauthClientSecret = {
+        reference = "op://keys/chat_oauth2/credential";
+        path = ".config/opnix/chat_oauth_client_secret";
+        mode = "0600";
+      };
+      chatOauthCookieSecret = {
+        reference = "op://keys/chat_oauth2/cookie_secret";
+        path = ".config/opnix/chat_oauth_cookie_secret";
+        mode = "0600";
+      };
+    };
+  };
+
   sops.secrets = {
     fortress_rsa.mode = "0600";
     cdenneen_ed25519_2024.mode = "0600";
@@ -176,9 +292,9 @@ in
       ".ssh/id_rsa_cloud9.pub".source = ../../../../pub/ssh/id_rsa_cloud9.pub;
     }
 
-    (lib.mkIf isNyx {
+    {
       ".opencode/opencode.json".text = opencodeConfigJson;
-    })
+    }
 
     {
       ".local/bin/update-secrets" = {

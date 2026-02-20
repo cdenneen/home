@@ -11,6 +11,7 @@ let
     nixpkgs
     nixos-crostini
     nixos-wsl
+    opnix
     nur
     sops-nix
     ;
@@ -25,6 +26,7 @@ let
     nix-index-database.homeModules.nix-index
     nur.modules.homeManager.default
     self.homeModules.default
+    opnix.homeManagerModules.default
     sops-nix.homeManagerModules.sops
   ];
 
@@ -33,6 +35,7 @@ let
     nix-index-database.homeModules.nix-index
     nur.modules.homeManager.default
     self.homeModules.default
+    opnix.homeManagerModules.default
     sops-nix.homeManagerModules.sops
   ];
 

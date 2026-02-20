@@ -84,6 +84,7 @@ in
       _1password-cli
       awscli2
       ssm-session-manager-plugin
+      oauth2-proxy
 
       # Clipboard
       lemonade
@@ -91,6 +92,10 @@ in
     ++ lib.optionals pkgs.stdenv.isLinux [
       netcat-openbsd
       xsel
+    ]
+    ++ lib.optionals (pkgs.stdenv.isLinux && hostName == "nyx") [
+      chromium
+      firefox
     ];
 
   programs.nh = {

@@ -86,3 +86,18 @@ git ws-branch feat/my-branch [start-point]
 - Creates `feat/my-branch@<workspace>` locally.
 - Pushes to `origin/feat/my-branch`.
 - Sets upstream accordingly.
+
+## MCP and Skills
+
+### MCP servers
+
+- MCP tools are available by default; use them automatically when relevant.
+- Prefer read-only tools unless the user explicitly asks to write or mutate.
+- If a specific MCP is requested, use it explicitly.
+
+### Skills
+
+- Skills are discovered from:
+  - `~/.agents/skills/<name>/SKILL.md`
+  - `~/.opencode/skills/<name>/SKILL.md`
+- Load skills on demand using the `skill` tool.

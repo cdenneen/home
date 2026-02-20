@@ -106,7 +106,11 @@
   networking.firewall.trustedInterfaces = lib.mkAfter [ "tailscale0" ];
 
   # Convenience for ad-hoc HTTP services during debugging.
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 8080 ];
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [
+    53
+    8080
+  ];
+  networking.firewall.interfaces.tailscale0.allowedUDPPorts = [ 53 ];
 
   programs.mosh.enable = true;
   networking.firewall.allowedUDPPortRanges = lib.mkAfter [
@@ -158,29 +162,31 @@
     memoryPercent = 50;
   };
 
+  # Allow subnet routing for Tailscale (routing features manage sysctls).
+  services.tailscale.useRoutingFeatures = "server";
+  services.tailscale.extraSetFlags = [
+    "--accept-dns=false"
+    "--advertise-routes=10.208.0.0/16"
+  ];
+
+  # Keep resolvconf from injecting localhost DNS servers.
+  # dnsmasq is only for Tailscale split DNS on tailscale0.
+  networking.resolvconf.useLocalResolver = false;
+
   # Let user systemd services start at boot (no login needed).
   users.users.cdenneen.linger = true;
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
 
-  systemd.user.services.tailscale-up =
-    let
-      run = pkgs.writeShellScript "tailscale-up" ''
-        set -euo pipefail
-        exec ${pkgs.tailscale}/bin/tailscale up --accept-dns=false
-      '';
-    in
-    {
-      description = "Tailscale up";
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
-      wantedBy = [ "default.target" ];
-
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = run;
-        RemainAfterExit = true;
-      };
+  services.dnsmasq = {
+    enable = true;
+    settings = {
+      # Answer DNS queries from Tailscale clients for split DNS.
+      interface = "tailscale0";
+      bind-interfaces = true;
+      domain-needed = true;
+      bogus-priv = true;
     };
+  };
 
   # Cloudflare Tunnel for Telegram webhook.
   environment.systemPackages = lib.mkAfter [ pkgs.cloudflared ];
@@ -230,20 +236,18 @@
     let
       run = pkgs.writeShellScript "opencode-web" ''
          set -euo pipefail
-         pw_file="${config.sops.secrets.opencode_server_password.path}"
-        if [ ! -r "$pw_file" ]; then
-          echo "opencode-web: password file not readable" >&2
-          exit 1
+         gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
+        if [ -r "$gitlab_file" ]; then
+          gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$gitlab_file")"
+          if [ -z "$gitlab_token" ]; then
+            echo "opencode-web: gitlab token file empty" >&2
+          else
+            export GITLAB_TOKEN="$gitlab_token"
+          fi
+        else
+          echo "opencode-web: gitlab token file not readable" >&2
         fi
-        pw="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$pw_file")"
-        if [ -z "$pw" ]; then
-          echo "opencode-web: password file empty" >&2
-          exit 1
-        fi
-        echo "opencode-web: loaded password length ''${#pw}" >&2
-        export OPENCODE_SERVER_USERNAME="opencode"
-        export OPENCODE_SERVER_PASSWORD="$pw"
-        exec /etc/profiles/per-user/cdenneen/bin/opencode serve --hostname 127.0.0.1 --port 4096
+        exec /etc/profiles/per-user/cdenneen/bin/opencode serve --hostname 127.0.0.1 --port 4097
       '';
     in
     {
@@ -261,6 +265,7 @@
         Environment = [
           "PATH=${lib.makeBinPath [ pkgs.curl ]}:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin"
         ];
+        EnvironmentFile = [ ];
         ExecStart = run;
         MemoryAccounting = true;
         MemoryHigh = "5G";
@@ -270,6 +275,61 @@
         OOMPolicy = "stop";
         Restart = "always";
         RestartSec = 15;
+      };
+    };
+
+  systemd.user.services.opencode-oauth2-proxy =
+    let
+      run = pkgs.writeShellScript "opencode-oauth2-proxy" ''
+        set -euo pipefail
+        client_secret_file="${config.users.users.cdenneen.home}/.config/opnix/chat_oauth_client_secret"
+        cookie_secret_file="${config.users.users.cdenneen.home}/.config/opnix/chat_oauth_cookie_secret"
+
+        if [ ! -r "$client_secret_file" ]; then
+          echo "opencode-oauth2-proxy: client secret file not readable" >&2
+          exit 1
+        fi
+        if [ ! -r "$cookie_secret_file" ]; then
+          echo "opencode-oauth2-proxy: cookie secret file not readable" >&2
+          exit 1
+        fi
+
+        export OAUTH2_PROXY_PROVIDER="github"
+        export OAUTH2_PROXY_CLIENT_ID="Ov23liTeufmUc2bOkNIM"
+        export OAUTH2_PROXY_CLIENT_SECRET
+        OAUTH2_PROXY_CLIENT_SECRET="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$client_secret_file")"
+        export OAUTH2_PROXY_COOKIE_SECRET
+        OAUTH2_PROXY_COOKIE_SECRET="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$cookie_secret_file")"
+
+        exec ${pkgs.oauth2-proxy}/bin/oauth2-proxy \
+          --http-address=127.0.0.1:4096 \
+          --upstream=http://127.0.0.1:4097 \
+          --redirect-url=https://chat.denneen.net/oauth2/callback \
+          --email-domain=* \
+          --github-user=cdenneen \
+          --cookie-domain=chat.denneen.net \
+          --cookie-secure=true \
+          --cookie-samesite=lax \
+          --set-authorization-header=true \
+          --pass-access-token=true
+      '';
+    in
+    {
+      description = "OpenCode GitHub OAuth proxy";
+      after = [
+        "network-online.target"
+        "opencode-serve.service"
+      ];
+      wants = [
+        "network-online.target"
+        "opencode-serve.service"
+      ];
+      wantedBy = [ "default.target" ];
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = run;
+        Restart = "always";
+        RestartSec = 5;
       };
     };
 
@@ -339,6 +399,69 @@
       OnUnitActiveSec = "30s";
       Persistent = true;
       Unit = "opencode-serve-watchdog.service";
+    };
+  };
+
+  systemd.user.services.opencode-serve-compact =
+    let
+      run = pkgs.writeShellScript "opencode-serve-compact" ''
+        set -euo pipefail
+        pw_file="${config.sops.secrets.opencode_server_password.path}"
+        log_dir="${config.users.users.cdenneen.home}/.local/state"
+        log_file="$log_dir/opencode-serve-compact.log"
+        ${pkgs.coreutils}/bin/mkdir -p "$log_dir"
+
+        timestamp="$(${pkgs.coreutils}/bin/date -Is)"
+        if [ ! -r "$pw_file" ]; then
+          echo "$timestamp missing password file" >> "$log_file"
+          exit 0
+        fi
+
+        pw="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$pw_file")"
+        if [ -z "$pw" ]; then
+          echo "$timestamp empty password file" >> "$log_file"
+          exit 0
+        fi
+
+        auth="opencode:$pw"
+        sessions="$(${pkgs.curl}/bin/curl -sS -u "$auth" http://127.0.0.1:4096/session \
+          | ${pkgs.jq}/bin/jq -r '.[].id' || true)"
+
+        if [ -z "$sessions" ]; then
+          echo "$timestamp no sessions to compact" >> "$log_file"
+          exit 0
+        fi
+
+        payload='{"command":"compact","arguments":""}'
+        for sid in $sessions; do
+          if ! ${pkgs.curl}/bin/curl -sS -u "$auth" \
+            -H "content-type: application/json" \
+            -X POST "http://127.0.0.1:4096/session/$sid/command" \
+            -d "$payload" >/dev/null; then
+            echo "$timestamp compact failed session=$sid" >> "$log_file"
+          fi
+        done
+
+        count="$(${pkgs.coreutils}/bin/printf "%s" "$sessions" | ${pkgs.coreutils}/bin/wc -w | ${pkgs.coreutils}/bin/tr -d ' ')"
+        echo "$timestamp compacted sessions=$count" >> "$log_file"
+      '';
+    in
+    {
+      description = "Compact OpenCode sessions via HTTP API";
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = run;
+      };
+    };
+
+  systemd.user.timers.opencode-serve-compact = {
+    description = "Periodic OpenCode session compaction";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "5m";
+      OnUnitActiveSec = "6h";
+      Persistent = true;
+      Unit = "opencode-serve-compact.service";
     };
   };
 
