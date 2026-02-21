@@ -101,3 +101,7 @@ git ws-branch feat/my-branch [start-point]
   - `~/.agents/skills/<name>/SKILL.md`
   - `~/.opencode/skills/<name>/SKILL.md`
 - Load skills on demand using the `skill` tool.
+
+## Git Workflow
+
+- Always run `git pull --rebase` before `git push` to avoid remote divergence.
