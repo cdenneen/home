@@ -14,6 +14,21 @@ in
   options.programs.telegram-bridge = {
     enable = lib.mkEnableOption "OpenCode Telegram bridge";
 
+    systemdMode = lib.mkOption {
+      type = lib.types.enum [
+        "user"
+        "system"
+      ];
+      default = "user";
+      description = "Install systemd units as user or system services.";
+    };
+
+    enableLinger = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Whether to enable user linger so user services start at boot.";
+    };
+
     package = lib.mkOption {
       type = lib.types.package;
       default = pkgs.callPackage ../../../pkgs/opencode-telegram-bridge.nix { };
@@ -235,6 +250,22 @@ in
         description = "Forward assistant step/tool parts (if available) to Telegram topics.";
       };
     };
+
+    cloudflared = {
+      enable = lib.mkEnableOption "Cloudflare Tunnel for the Telegram webhook";
+
+      tokenFile = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Path to the Cloudflare Tunnel token file.";
+      };
+
+      configText = lib.mkOption {
+        type = lib.types.nullOr lib.types.lines;
+        default = null;
+        description = "cloudflared config YAML contents for the tunnel.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -453,7 +484,7 @@ in
           PY
         '';
 
-    systemd.user.services.opencode-telegram-bridge = {
+    systemd.user.services.opencode-telegram-bridge = lib.mkIf (cfg.systemdMode == "user") {
       Unit = {
         Description = "OpenCode <-> Telegram bridge";
         After = [ "network-online.target" ];
@@ -476,5 +507,55 @@ in
         WantedBy = [ "default.target" ];
       };
     };
+
+    systemd.user.services.cloudflared-telegram-bridge =
+      lib.mkIf (cfg.cloudflared.enable && cfg.systemdMode == "user")
+        (
+          let
+            cfg_file = pkgs.writeText "cloudflared-telegram-bridge.yml" (
+              lib.optionalString (cfg.cloudflared.configText != null) cfg.cloudflared.configText
+            );
+            run = pkgs.writeShellScript "cloudflared-telegram-bridge" ''
+              set -euo pipefail
+              token_file="${cfg.cloudflared.tokenFile}"
+              if [ -z "$token_file" ]; then
+                echo "cloudflared-telegram-bridge: token file not configured" >&2
+                exit 1
+              fi
+              if [ ! -r "$token_file" ]; then
+                echo "cloudflared-telegram-bridge: token file not readable" >&2
+                exit 1
+              fi
+              exec ${pkgs.cloudflared}/bin/cloudflared \
+                --config "${cfg_file}" \
+                tunnel run \
+                --token "$(${pkgs.coreutils}/bin/cat "$token_file")"
+            '';
+          in
+          {
+            Unit = {
+              Description = "Cloudflare Tunnel (Telegram bridge + chat)";
+              After = [
+                "network-online.target"
+                "opencode-telegram-bridge.service"
+              ];
+              Wants = [
+                "network-online.target"
+                "opencode-telegram-bridge.service"
+              ];
+            };
+
+            Service = {
+              Type = "simple";
+              ExecStart = run;
+              Restart = "always";
+              RestartSec = 2;
+            };
+
+            Install = {
+              WantedBy = [ "default.target" ];
+            };
+          }
+        );
   };
 }

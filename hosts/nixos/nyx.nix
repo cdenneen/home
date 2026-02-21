@@ -173,8 +173,12 @@
   # dnsmasq is only for Tailscale split DNS on tailscale0.
   networking.resolvconf.useLocalResolver = false;
 
-  # Let user systemd services start at boot (no login needed).
-  users.users.cdenneen.linger = true;
+  services.opencode-telegram-bridge = {
+    enable = true;
+    user = "cdenneen";
+    systemdMode = "user";
+    enableLinger = true;
+  };
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
 
   services.dnsmasq = {
@@ -189,49 +193,16 @@
   };
 
   # Cloudflare Tunnel for Telegram webhook.
-  environment.systemPackages = lib.mkAfter [ pkgs.cloudflared ];
   sops.secrets.cloudflare_tunnel_token = {
+    owner = "cdenneen";
+    group = "users";
     mode = "0400";
-    restartUnits = [ "cloudflared-telegram-bridge.service" ];
   };
   sops.secrets.opencode_server_password = {
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
-  systemd.services.cloudflared-telegram-bridge =
-    let
-      configFile = pkgs.writeText "cloudflared-telegram-bridge.yml" ''
-        ingress:
-          - hostname: nyx.denneen.net
-            path: /telegram
-            service: http://127.0.0.1:18080
-          - hostname: chat.denneen.net
-            service: http://127.0.0.1:4096
-          - service: http_status:404
-      '';
-      run = pkgs.writeShellScript "cloudflared-telegram-bridge" ''
-        set -euo pipefail
-        token_file="${config.sops.secrets.cloudflare_tunnel_token.path}"
-        exec ${pkgs.cloudflared}/bin/cloudflared \
-          --config "${configFile}" \
-          tunnel run \
-          --token "$(cat "$token_file")"
-      '';
-    in
-    {
-      description = "Cloudflare Tunnel (Telegram bridge + chat)";
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
-      wantedBy = [ "multi-user.target" ];
-
-      serviceConfig = {
-        ExecStart = run;
-        Restart = "always";
-        RestartSec = 2;
-      };
-    };
-
   systemd.user.services.opencode-serve =
     let
       run = pkgs.writeShellScript "opencode-web" ''
@@ -503,6 +474,8 @@
 
   home-manager.users.cdenneen.programs.telegram-bridge = {
     enable = true;
+    systemdMode = "user";
+    enableLinger = true;
 
     telegram.botTokenFile = config.home-manager.users.cdenneen.sops.secrets.telegram_bot_token.path;
     telegram.ownerChatIdFile = config.home-manager.users.cdenneen.sops.secrets.telegram_chat_id.path;
@@ -511,18 +484,32 @@
 
     opencode.workspaceRoot = "/home/cdenneen/src/workspace";
     opencode.useSharedServer = true;
-    opencode.serverUrl = "http://127.0.0.1:4096";
-    opencode.serverUsername = "opencode";
-    opencode.serverPasswordFile = config.sops.secrets.opencode_server_password.path;
+    opencode.serverUrl = "http://127.0.0.1:4097";
+    opencode.serverUsername = "";
+    opencode.serverPasswordFile = null;
 
     web = {
       enable = true;
-      baseUrl = "http://127.0.0.1:4096";
-      username = "opencode";
-      passwordFile = config.sops.secrets.opencode_server_password.path;
+      baseUrl = "http://127.0.0.1:4097";
+      username = "";
+      passwordFile = null;
       syncIntervalSec = 10;
       forwardUserPrompts = true;
       forwardAgentSteps = true;
+    };
+
+    cloudflared = {
+      enable = true;
+      tokenFile = config.sops.secrets.cloudflare_tunnel_token.path;
+      configText = ''
+        ingress:
+          - hostname: nyx.denneen.net
+            path: /telegram
+            service: http://127.0.0.1:18080
+          - hostname: chat.denneen.net
+            service: http://127.0.0.1:4096
+          - service: http_status:404
+      '';
     };
 
     chat.allowedGithubUsers = [ "cdenneen" ];

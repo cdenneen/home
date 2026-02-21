@@ -9,6 +9,7 @@
     ../default.nix
     ./podman.nix
     ./ollama.nix
+    ./telegram-bridge.nix
     # User-scoped Homebrew additions (conditionally enabled internally)
     ./users/cdenneen/homebrew.nix
   ];
