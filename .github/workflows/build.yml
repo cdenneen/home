@@ -23,6 +23,7 @@ jobs:
       - name: Update flake.lock
         uses: DeterminateSystems/update-flake-lock@main
         id: update-flake-lock
+        if: github.event_name != 'pull_request'
         with:
           token: ${{ secrets.GH_PAT }}
           pr-title: "Update Nix flake inputs"
