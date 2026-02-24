@@ -902,11 +902,11 @@
         "nixpkgs": "nixpkgs_10"
       },
       "locked": {
-        "lastModified": 1771901537,
-        "narHash": "sha256-GZq7ZMaUZYGMLrN/b4H2BIhnQ+jA4c0pLMlb3SUw+4Y=",
+        "lastModified": 1771902841,
+        "narHash": "sha256-xi+0WfVTnANwi6t733DJo+DH1GHTXH4nfLkBqBE+wVo=",
         "owner": "nix-community",
         "repo": "nur",
-        "rev": "93a792de7a329b5a56f53835f9cb05a9f9ad47ab",
+        "rev": "5eb8fcafccf354158fc691766a2af67bf7f1341c",
         "type": "github"
       },
       "original": {
