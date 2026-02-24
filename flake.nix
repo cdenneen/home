@@ -188,6 +188,10 @@
             sops-verify-keys = pkgs.callPackage ./pkgs/sops-verify-keys.nix { };
             sops-bootstrap-host = pkgs.callPackage ./pkgs/sops-bootstrap-host.nix { };
             opencode-telegram-bridge = pkgs.callPackage ./pkgs/opencode-telegram-bridge.nix { };
+            update-workspace-agents = pkgs.callPackage ./pkgs/update-workspace-agents.nix { };
+            workspace-init = pkgs.callPackage ./pkgs/workspace-init.nix { };
+            setup-repo = pkgs.callPackage ./pkgs/setup-repo.nix { };
+            update-workspace = pkgs.callPackage ./pkgs/update-workspace.nix { };
           };
 
           devshells.default = {

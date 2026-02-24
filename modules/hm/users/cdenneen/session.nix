@@ -2,6 +2,10 @@
 
 {
   # Session-wide defaults for cdenneen
+  home.sessionPath = [
+    "/etc/profiles/per-user/cdenneen/bin"
+    "$HOME/.nix-profile/bin"
+  ];
   home.sessionVariables = {
     EDITOR = "nvim";
     VISUAL = "nvim";

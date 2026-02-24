@@ -85,6 +85,10 @@ in
       awscli2
       ssm-session-manager-plugin
       oauth2-proxy
+      (pkgs.callPackage ../../../../pkgs/update-workspace-agents.nix { })
+      (pkgs.callPackage ../../../../pkgs/workspace-init.nix { })
+      (pkgs.callPackage ../../../../pkgs/setup-repo.nix { })
+      (pkgs.callPackage ../../../../pkgs/update-workspace.nix { })
 
       # Clipboard
       lemonade
@@ -387,4 +391,6 @@ in
       export KUBECONFIG
     }
   '';
+
+  # Telegram bridge wiring is configured per-host (see hosts/nixos/nyx.nix).
 }

@@ -172,12 +172,25 @@
   # Keep resolvconf from injecting localhost DNS servers.
   # dnsmasq is only for Tailscale split DNS on tailscale0.
   networking.resolvconf.useLocalResolver = false;
+  networking.resolvconf.enable = false;
+  networking.nameservers = [ "10.224.0.2" ];
+  environment.etc."resolv.conf".text = ''
+    search ec2.internal
+    nameserver 10.224.0.2
+    options edns0
+  '';
 
   services.opencode-telegram-bridge = {
     enable = true;
     user = "cdenneen";
     systemdMode = "user";
     enableLinger = true;
+  };
+
+  systemd.services.home-manager-cdenneen = {
+    environment = {
+      OP_NIX_TOKEN_FILE = "/home/cdenneen/.config/opnix/token";
+    };
   };
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
 
@@ -189,6 +202,9 @@
       bind-interfaces = true;
       domain-needed = true;
       bogus-priv = true;
+      no-resolv = true;
+      # Route git.ap.org lookups to the VPC resolver.
+      server = [ "/git.ap.org/10.224.0.2" ];
     };
   };
 
@@ -472,50 +488,7 @@
     };
   };
 
-  home-manager.users.cdenneen.programs.telegram-bridge = {
-    enable = true;
-    systemdMode = "user";
-    enableLinger = true;
-
-    telegram.botTokenFile = config.home-manager.users.cdenneen.sops.secrets.telegram_bot_token.path;
-    telegram.ownerChatIdFile = config.home-manager.users.cdenneen.sops.secrets.telegram_chat_id.path;
-    telegram.updatesMode = "webhook";
-    telegram.webhook.publicUrl = "https://nyx.denneen.net";
-
-    opencode.workspaceRoot = "/home/cdenneen/src/workspace";
-    opencode.useSharedServer = true;
-    opencode.serverUrl = "http://127.0.0.1:4097";
-    opencode.serverUsername = "";
-    opencode.serverPasswordFile = null;
-
-    web = {
-      enable = true;
-      baseUrl = "http://127.0.0.1:4097";
-      username = "";
-      passwordFile = null;
-      syncIntervalSec = 10;
-      forwardUserPrompts = true;
-      forwardAgentSteps = true;
-    };
-
-    cloudflared = {
-      enable = true;
-      tokenFile = config.sops.secrets.cloudflare_tunnel_token.path;
-      configText = ''
-        ingress:
-          - hostname: nyx.denneen.net
-            path: /telegram
-            service: http://127.0.0.1:18080
-          - hostname: chat.denneen.net
-            service: http://127.0.0.1:4096
-          - service: http_status:404
-      '';
-    };
-
-    chat.allowedGithubUsers = [ "cdenneen" ];
-    chat.announceStartup = true;
-    chat.announceMessage = "Bridge connected.";
-  };
+  home-manager.users.cdenneen.imports = [ ./nyx-home.nix ];
 
   home-manager.users.cdenneen.programs.opencode.package = lib.mkForce (
     if opencode != null then
@@ -524,5 +497,5 @@
       pkgs.opencode
   );
 
-  home-manager.users.cdenneen.programs.starship.settings.palette = lib.mkForce "nyx";
+  # Starship palette is configured in nyx-home.nix.
 }

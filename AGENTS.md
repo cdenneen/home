@@ -2,100 +2,36 @@
 
 This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These notes are for agentic coding tools working autonomously here.
 
+## How to read context
+
+- Read this file first.
+- Then read any referenced docs in this file (kept short and focused).
+- Always read workspace-level `AGENTS.md` and repo-level `AGENTS.md` when present.
+
 ## Quick Facts
 
 - Flake wiring lives under `systems/`, hosts under `hosts/`, modules under `modules/`.
 - Home Manager is integrated by default and uses its own nixpkgs (unstable) via per-user HM config.
 - `secrets/secrets.yaml` is encrypted with sops + age; recipients are managed via `.sops.yaml`.
 - Prefer conservative changes; keep diffs small and readable.
+- Prefer OpenTofu (`tofu`) over `terraform` for all Terraform commands.
+
+## Workspace Roots
+
+- Linux WORKSPACE_ROOT: `$HOME/src/workspace`
+- Darwin WORKSPACE_ROOT: `$HOME/code/workspace`
+
+Each workspace lives under WORKSPACE_ROOT (e.g. `gitlab`, `infra`, `eks`, `backstage`, `work`).
+OpenCode sessions should save durable context to a workspace-level `AGENTS.md`
+inside the workspace folder (e.g. `$WORKSPACE_ROOT/gitlab/AGENTS.md`).
+Repo-level `AGENTS.md` files can be used for more granular context.
+
+If a section of this file grows too large or complex, move it to a dedicated
+markdown doc and reference it here.
 
 ## Commands (Build / Lint / Test)
 
-### Evaluate the flake
-
-```sh
-nix flake show
-```
-
-### Build a single thing (fast iteration)
-
-- Build one check:
-
-```sh
-nix build .#checks.aarch64-darwin.<check>
-nix build .#checks.aarch64-linux.<check>
-```
-
-- List check names:
-
-```sh
-nix flake show | sed -n '/checks/,$p'
-```
-
-- Build one host system output:
-
-```sh
-nix build .#darwinConfigurations.<host>.system
-nix build .#nixosConfigurations.<host>.config.system.build.toplevel
-```
-
-### Switch (only on the target machine)
-
-```sh
-sudo darwin-rebuild switch --flake .
-sudo nixos-rebuild switch --flake .
-```
-
-### Home Manager
-
-```sh
-home-manager switch --flake .#cdenneen
-```
-
-### Bootstrap with a minimal flake
-
-```nix
-{
-  inputs.home.url = "github:cdenneen/home";
-
-  outputs = { home, ... }:
-    let
-      host = "foobar";
-    in
-    home.lib.bootstrap {
-      hostName = host;
-      kind = "nixos"; # nixos or darwin
-      system = "x86_64-linux";
-      tags = [ "crostini" ];
-      users = [ "cdenneen" ];
-      nixosModules = [ ./configuration.nix ];
-    };
-}
-```
-
-### Formatting / lint
-
-- Repo formatter (treefmt via flake):
-
-```sh
-nix fmt
-```
-
-- If you need the wrapper directly:
-
-```sh
-nix develop -c treefmt
-nix develop -c treefmt --check
-```
-
-Rule: run `nix fmt` before committing.
-
-### “Single test” equivalents
-
-There aren’t unit tests in the usual sense; the closest is building one derivation:
-
-- One check: `nix build .#checks.<system>.<check>`
-- One host: `nix build .#(darwin|nixos)Configurations.<host>...`
+See `docs/agent-commands.md` (relative to `~/.config/opencode/`).
 
 ## Nix Style Guidelines
 
@@ -125,40 +61,7 @@ There aren’t unit tests in the usual sense; the closest is building one deriva
 
 ## Secrets (sops-nix + age)
 
-Files:
-
-- Encrypted: `secrets/secrets.yaml`
-- Recipients config: `.sops.yaml`
-- Human registry: `pub/age-recipients.txt`
-
-Devshell helpers (preferred):
-
-```sh
-nix develop
-sops-edit
-sops-diff-keys
-sops-update-keys   # non-interactive
-sops-verify-keys
-sops-bootstrap-host
-```
-
-Safe recipient rotation:
-
-1. Bootstrap host key: `sops-bootstrap-host`
-2. Update `pub/age-recipients.txt` and `.sops.yaml`
-3. Re-encrypt: `sops-update-keys`
-4. Verify registry: `sops-verify-keys`
-
-Host key conventions (Linux):
-
-- System key: `/var/sops/age/keys.txt`
-- Permissions: `root:sops` + directory `0750`, file `0440` so user sops-nix can read.
-
-If you add a user to the `sops` group after login, the systemd user manager may not pick up the new supplementary groups. Fix by re-logging in or restarting the user manager:
-
-```sh
-sudo systemctl restart user@$(id -u <user>).service
-```
+See `docs/agent-secrets.md` (relative to `~/.config/opencode/`).
 
 ## GC / Maintenance
 

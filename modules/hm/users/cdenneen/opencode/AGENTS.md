@@ -87,6 +87,11 @@ git ws-branch feat/my-branch [start-point]
 - Pushes to `origin/feat/my-branch`.
 - Sets upstream accordingly.
 
+#### Repo setup (required)
+
+- Always use `setup_repo` or `git clone` (alias) so repos are created as worktrees from the cache.
+- Never run plain `git clone` without the alias; it breaks the cache/worktree workflow.
+
 ## MCP and Skills
 
 ### MCP servers

@@ -97,7 +97,7 @@ sudo darwin-rebuild switch --flake .#<host>
 Home Manager configs are keyed by username (e.g. `cdenneen`) and target the current system.
 
 ```sh
-home-manager switch --flake .#cdenneen
+home-manager switch --flake .#cdenneen@<host>
 ```
 
 ### HM integration in system builds
@@ -138,7 +138,7 @@ Then:
 
 ```sh
 sudo nixos-rebuild switch --flake /etc/nixos#foobar
-home-manager switch --flake /etc/nixos#cdenneen
+home-manager switch --flake /etc/nixos#cdenneen@<host>
 ```
 
 Tags can include `ec2`, `amazon-ami`, `qemu-guest`, `wsl`, and `crostini`.

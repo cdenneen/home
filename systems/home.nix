@@ -26,24 +26,28 @@ let
 
   users = [ "cdenneen" ];
 
+  hostDefs = import ../hosts;
+  allHosts = hostDefs.nixos ++ hostDefs.darwin;
+
+  extraModulesForHost = hostName: if hostName == "nyx" then [ ../hosts/nixos/nyx-home.nix ] else [ ];
+
   homeConfigurations = builtins.listToAttrs (
-    map (username: {
-      name = username;
-      value = homeConfiguration {
-        system =
-          if builtins ? currentSystem then
-            builtins.currentSystem
-          else
-            let
-              s = builtins.getEnv "NIX_SYSTEM";
-            in
-            if s != "" then s else throw "homeConfigurations: set NIX_SYSTEM or use --impure";
-        homeModules = [
-          (defaultHomeModule username)
-          opencodeHomeModule
-        ];
-      };
-    }) users
+    builtins.concatLists (
+      map (
+        host:
+        (map (username: {
+          name = "${username}@${host.name}";
+          value = homeConfiguration {
+            system = host.system;
+            homeModules = [
+              (defaultHomeModule username)
+              opencodeHomeModule
+            ]
+            ++ extraModulesForHost host.name;
+          };
+        }) users)
+      ) allHosts
+    )
   );
 in
 {

@@ -220,6 +220,12 @@ in
         description = "Base URL for opencode web server (no trailing slash).";
       };
 
+      publicUrl = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Public base URL for opencode web UI (scheme+host).";
+      };
+
       username = lib.mkOption {
         type = lib.types.str;
         default = "opencode";
@@ -372,6 +378,7 @@ in
           export CHAT_ANNOUNCE_MESSAGE="${cfg.chat.announceMessage}"
           export OPENCODE_WEB_ENABLE="${if cfg.web.enable then "1" else "0"}"
           export OPENCODE_WEB_BASE_URL="${cfg.web.baseUrl}"
+          export OPENCODE_WEB_PUBLIC_URL="${if cfg.web.publicUrl == null then "" else cfg.web.publicUrl}"
           export OPENCODE_WEB_USERNAME="${cfg.web.username}"
           export OPENCODE_WEB_PASSWORD_FILE="${
             lib.optionalString (cfg.web.passwordFile != null) cfg.web.passwordFile
@@ -452,6 +459,7 @@ in
               cfg["web"] = {
                   "enable": True,
                   "base_url": os.environ.get("OPENCODE_WEB_BASE_URL", ""),
+                  "public_url": os.environ.get("OPENCODE_WEB_PUBLIC_URL", "") or None,
                   "username": os.environ.get("OPENCODE_WEB_USERNAME", ""),
                   "password_file": os.environ.get("OPENCODE_WEB_PASSWORD_FILE", ""),
                   "sync_interval_sec": int(os.environ.get("OPENCODE_WEB_SYNC_INTERVAL_SEC", "10")),

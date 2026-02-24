@@ -72,6 +72,7 @@ nix build .#opencode-telegram-bridge
 ```
 
 Notes:
+
 - The HM module renders `~/.config/opencode-telegram-bridge/config.json`.
 - User service units are only created when `programs.telegram-bridge.systemdMode = "user"` (default).
 
@@ -120,6 +121,7 @@ Notes:
 ```
 
 Notes:
+
 - `systemdMode = "user"` uses Home Manager user services; set `enableLinger = true` to run at boot.
 - `systemdMode = "system"` creates system services (runs as the configured `user`).
 
@@ -170,5 +172,9 @@ Notes:
 `hosts/nixos/nyx.nix` sets:
 
 - `services.opencode-telegram-bridge` to user mode with linger
-- `home-manager.users.cdenneen.programs.telegram-bridge` with shared server URL on `127.0.0.1:4097`
-- `cloudflared` tunnel config for `/telegram`
+- `home-manager.users.cdenneen.imports = [ ./nyx-home.nix ]`
+
+`hosts/nixos/nyx-home.nix` contains the Home Manager bridge configuration and
+the starship palette override for nyx.
+
+Home Manager per-user defaults intentionally do not enable the bridge; it is configured per-host.

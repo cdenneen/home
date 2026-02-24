@@ -13,6 +13,8 @@
   home.file.".aws/config.source".source = ./files/aws-config;
 
   home.file.".config/opencode/AGENTS.md".source = ./opencode/AGENTS.md;
+  home.file.".config/opencode/docs/agent-commands.md".source = ./opencode/docs/agent-commands.md;
+  home.file.".config/opencode/docs/agent-secrets.md".source = ./opencode/docs/agent-secrets.md;
 
   home.activation.awsConfigWrite = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     set -euo pipefail
@@ -39,6 +41,15 @@
       $DRY_RUN_CMD ${pkgs.gnused}/bin/sed -i \
         -e 's/source_profile[[:space:]]*=[[:space:]]*sso-apss/credential_source = Ec2InstanceMetadata/g' \
         "$HOME/.aws/config" || true
+    fi
+  '';
+
+  home.activation.cleanupTelegramBridgeEnv = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    set -euo pipefail
+
+    env_file="$HOME/.config/opencode-telegram-bridge/env"
+    if [ -f "$env_file" ]; then
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$env_file"
     fi
   '';
 

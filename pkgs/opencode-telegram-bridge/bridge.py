@@ -222,7 +222,7 @@ class DB:
 
     def list_topics(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
-            "SELECT chat_id, thread_id, workspace, opencode_port, opencode_session_id, updated_at FROM topics ORDER BY updated_at DESC"
+            "SELECT chat_id, thread_id, topic_title, workspace, opencode_port, opencode_session_id, updated_at FROM topics ORDER BY updated_at DESC"
         ).fetchall()
         out = []
         for r in rows:
@@ -230,10 +230,11 @@ class DB:
                 {
                     "chat_id": int(r[0]),
                     "thread_id": int(r[1]),
-                    "workspace": r[2],
-                    "opencode_port": r[3],
-                    "opencode_session_id": r[4],
-                    "updated_at": int(r[5]),
+                    "topic_title": r[2],
+                    "workspace": r[3],
+                    "opencode_port": r[4],
+                    "opencode_session_id": r[5],
+                    "updated_at": int(r[6]),
                 }
             )
         return out
@@ -534,6 +535,7 @@ class Bridge:
         web_cfg = _cfg(cfg, ("web",), {}) or {}
         self._web_enabled = bool(web_cfg.get("enable", False))
         self._web_base_url = str(web_cfg.get("base_url", "http://127.0.0.1:4096")).rstrip("/")
+        self._web_public_url = str(web_cfg.get("public_url") or "").rstrip("/")
         self._web_username = str(web_cfg.get("username") or "opencode")
         self._web_password_file = str(web_cfg.get("password_file") or "")
         self._web_sync_interval = int(web_cfg.get("sync_interval_sec") or 10)
@@ -1286,6 +1288,18 @@ class Bridge:
         if text.strip() in ("/id", "/ids"):
             await self._cmd_ids(chat_id, thread_id)
             return
+        if text.strip() in ("/session", "/sessionid", "/sid"):
+            await self._cmd_session(chat_id, thread_id)
+            return
+        if text.strip() in ("/sessions", "/sessionids"):
+            await self._cmd_sessions(chat_id, thread_id)
+            return
+        if text.strip() in ("/sessionurls", "/session-urls", "/sessionlinks"):
+            await self._cmd_session_urls(chat_id, thread_id)
+            return
+        if text.strip() in ("/sessionurl", "/session-url", "/sessionlink"):
+            await self._cmd_session_url(chat_id, thread_id)
+            return
         if text.strip() in ("/allowhere", "/pair"):
             await self._cmd_allowhere(chat_id, thread_id, from_id)
             return
@@ -1380,6 +1394,107 @@ class Bridge:
             ),
             thread_id=thread_id,
         )
+
+    async def _cmd_session(self, chat_id: int, thread_id: int) -> None:
+        t = self._db.get_topic(chat_id, thread_id)
+        sid = t.get("opencode_session_id")
+        ws = t.get("workspace")
+        await self._tg.send_message(
+            chat_id,
+            "\n".join(
+                [
+                    f"session_id: {sid or '(none)'}",
+                    f"workspace: {ws or '(unmapped)'}",
+                ]
+            ),
+            thread_id=thread_id,
+        )
+
+    async def _cmd_sessions(self, chat_id: int, thread_id: int) -> None:
+        rows = self._db.list_topics()
+        if not rows:
+            await self._tg.send_message(chat_id, "No topics mapped yet.", thread_id=thread_id)
+            return
+
+        lines = []
+        limit = 50
+        for idx, row in enumerate(rows[:limit], start=1):
+            title = row.get("topic_title") or ""
+            ws = row.get("workspace") or ""
+            ws_short = os.path.basename(ws) if ws else ""
+            sid = row.get("opencode_session_id") or ""
+            lines.append(
+                f"{idx}. chat_id={row['chat_id']} thread_id={row['thread_id']} "
+                f"title={title or '-'} session={sid or '-'} workspace={ws_short or '-'}"
+            )
+
+        if len(rows) > limit:
+            lines.append(f"... {len(rows) - limit} more not shown")
+
+        await self._tg.send_message(chat_id, "\n".join(lines), thread_id=thread_id)
+
+    async def _cmd_session_urls(self, chat_id: int, thread_id: int) -> None:
+        rows = [r for r in self._db.list_topics() if r.get("chat_id") == int(chat_id)]
+        if not rows:
+            await self._tg.send_message(chat_id, "No topics mapped yet.", thread_id=thread_id)
+            return
+
+        lines = []
+        limit = 50
+        for idx, row in enumerate(rows[:limit], start=1):
+            sid = row.get("opencode_session_id") or ""
+            ws = row.get("workspace") or ""
+            title = row.get("topic_title") or ""
+            if not sid or not ws:
+                continue
+            url = self._session_url(ws, sid)
+            ws_short = os.path.basename(ws) if ws else ""
+            lines.append(
+                f"{idx}. thread_id={row['thread_id']} title={title or '-'} "
+                f"workspace={ws_short or '-'}\n{url}"
+            )
+
+        if not lines:
+            await self._tg.send_message(
+                chat_id,
+                "No session URLs available (missing mappings or web URL).",
+                thread_id=thread_id,
+            )
+            return
+
+        if len(rows) > limit:
+            lines.append(f"... {len(rows) - limit} more not shown")
+
+        await self._tg.send_message(chat_id, "\n".join(lines), thread_id=thread_id)
+
+    def _session_url(self, workspace: str, session_id: str) -> str:
+        base = self._web_public_url or self._web_base_url
+        if not base:
+            return ""
+        workspace_bytes = workspace.encode("utf-8")
+        workspace_key = base64.urlsafe_b64encode(workspace_bytes).decode("ascii").rstrip("=")
+        return f"{base}/{workspace_key}/session/{urllib.parse.quote(session_id)}"
+
+    async def _cmd_session_url(self, chat_id: int, thread_id: int) -> None:
+        t = self._db.get_topic(chat_id, thread_id)
+        sid = t.get("opencode_session_id")
+        ws = t.get("workspace")
+        if not sid or not ws:
+            await self._tg.send_message(
+                chat_id,
+                "This topic is not mapped to a session yet. Use /map first.",
+                thread_id=thread_id,
+            )
+            return
+        url = self._session_url(ws, sid)
+        if not url:
+            await self._tg.send_message(
+                chat_id,
+                "Session URL is not available (missing web base URL).",
+                thread_id=thread_id,
+            )
+            return
+        await self._tg.send_message(chat_id, url, thread_id=thread_id)
 
     async def _cmd_allowhere(self, chat_id: int, thread_id: int, from_id: Any) -> None:
         if self._owner_chat_id is not None and from_id is not None:
@@ -1529,9 +1644,15 @@ class Bridge:
         self._db.upsert_topic(chat_id, thread_id, opencode_port=port)
 
         session_id = t.get("opencode_session_id")
+        if session_id:
+            exists = await self._session_exists(port, session_id)
+            if not exists:
+                session_id = None
         if not session_id:
-            session_id = await self._create_session(port, title=f"tg:{chat_id}:{thread_id}")
-            self._db.upsert_topic(chat_id, thread_id, opencode_session_id=session_id)
+            session_id = await self._find_existing_session(port, workspace, thread_id, t.get("topic_title"))
+        if not session_id:
+            session_id = await self._create_session(port, title=self._session_title(workspace, thread_id, t.get("topic_title")))
+        self._db.upsert_topic(chat_id, thread_id, opencode_session_id=session_id)
 
         return TopicContext(chat_id=chat_id, thread_id=thread_id, workspace=workspace, session_id=session_id)
 
@@ -1609,6 +1730,57 @@ class Bridge:
             data = r.json()
             return str(data["id"])
 
+    async def _session_exists(self, port: int, session_id: str) -> bool:
+        headers = self._opencode_headers()
+        async with httpx.AsyncClient() as c:
+            try:
+                r = await c.get(
+                    f"{self._opencode_base_url(port)}/session/{urllib.parse.quote(session_id)}",
+                    headers=headers,
+                    timeout=15,
+                )
+            except Exception:
+                return False
+            if r.status_code == 404:
+                return False
+            return r.status_code < 400
+
+    async def _find_existing_session(
+        self,
+        port: int,
+        workspace: str,
+        thread_id: int,
+        topic_title: Optional[str],
+    ) -> Optional[str]:
+        headers = self._opencode_headers()
+        async with httpx.AsyncClient() as c:
+            r = await c.get(
+                f"{self._opencode_base_url(port)}/session",
+                headers=headers,
+                timeout=30,
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        candidates = []
+        for item in data:
+            if item.get("directory") != workspace:
+                continue
+            title = str(item.get("title") or "")
+            updated = int(item.get("time", {}).get("updated") or 0)
+            candidates.append((title, updated, str(item.get("id"))))
+
+        if not candidates:
+            return None
+
+        prefer = "ws:" + (os.path.basename(workspace) or "workspace")
+        for title, _, sid in sorted(candidates, key=lambda x: x[1], reverse=True):
+            if title == prefer:
+                return sid
+
+        # Fall back to the most recently updated session for this workspace.
+        return sorted(candidates, key=lambda x: x[1], reverse=True)[0][2]
+
     async def _update_session_title(self, port: int, session_id: str, title: str) -> None:
         headers = self._opencode_headers()
         async with httpx.AsyncClient() as c:
@@ -1617,8 +1789,8 @@ class Bridge:
             r.raise_for_status()
 
     def _session_title(self, workspace: str, thread_id: int, topic_title: Optional[str]) -> str:
-        label = topic_title or os.path.basename(workspace) or "workspace"
-        return f"tg:{thread_id} {label}"
+        label = os.path.basename(workspace) or "workspace"
+        return f"ws:{label}"
 
     async def warm_sessions(self) -> None:
         topics = self._db.list_topics()
