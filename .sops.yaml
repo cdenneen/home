@@ -8,6 +8,7 @@ keys:
   - &server_eros age1q9pv3enk7x3w7dxm55f4svqlhse9ztfcfwmsfc2eqcfclha34pls7vw2w2
   - &server_vnjtecmbcd age1jukfrhvgtf9w07p7gyulz4tc3ypudul0llvevl6k8p88ps7fsv6qqc8v5y
   - &server_nyx age1svkqsf5r7ykyw2wam85vecgkp7sy3e8ava8ajfamjnsxgcep9vgsep4292
+  - &server_macbookpronix age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8
 creation_rules:
   - path_regex: secrets.yaml$
     key_groups:
@@ -17,3 +18,4 @@ creation_rules:
           - *server_eros
           - *server_vnjtecmbcd
           - *server_nyx
+          - *server_macbookpronix

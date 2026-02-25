@@ -14,3 +14,4 @@ age1q9pv3enk7x3w7dxm55f4svqlhse9ztfcfwmsfc2eqcfclha34pls7vw2w2  # eros (host)
 # age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # wsl
 age1jukfrhvgtf9w07p7gyulz4tc3ypudul0llvevl6k8p88ps7fsv6qqc8v5y  # VNJTECMBCD (host)
 age1svkqsf5r7ykyw2wam85vecgkp7sy3e8ava8ajfamjnsxgcep9vgsep4292 # nyx
+age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8 # MacBook-Pro-NixOS
