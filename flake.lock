@@ -920,11 +920,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1771962547,
-        "narHash": "sha256-unUUnOHuoRQLQLe5FcQkICuUuWzT9RrcgUdEdpoZWlc=",
+        "lastModified": 1771979087,
+        "narHash": "sha256-G63qtxZu5UK5hmkYsDQrgcYjO8hwLT+7QDrPaglcW4Y=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "2a87860c06b6aaa0e3d017b5cc464d83983efd1d",
+        "rev": "3af12c53c433d1f49abde0874dc02c2e6c018930",
         "type": "github"
       },
       "original": {
