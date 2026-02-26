@@ -369,11 +369,11 @@
         "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1772121433,
-        "narHash": "sha256-N+vO329pUMpJ5Dc/WFoK6Tyt4i/C1F9X42QWrLaoKVw=",
+        "lastModified": 1772125854,
+        "narHash": "sha256-hf7nIYMXe/0aU/xkh7hMOVfo6hDBrlkvcXczO6d14Bc=",
         "owner": "cdenneen",
         "repo": "happy.nix",
-        "rev": "2efc86fe176d28f4e511d4c2f1b5c583b2ac96d5",
+        "rev": "ec56f59912c1db312bd905402f97a6a86db1fd5f",
         "type": "github"
       },
       "original": {

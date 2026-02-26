@@ -61,6 +61,7 @@
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    happyNix.url = "github:cdenneen/happy.nix";
   };
 
   outputs =

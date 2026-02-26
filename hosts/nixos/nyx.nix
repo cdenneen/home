@@ -2,10 +2,17 @@
   lib,
   pkgs,
   config,
+  happyNix,
+  unstablePkgs,
   opencode ? null,
   ...
 }:
 {
+  imports = [
+    happyNix.nixosModules.happy-server
+    happyNix.nixosModules.happy-codex-agent
+  ];
+
   networking.hostName = "nyx";
   ec2.efi = true;
 
@@ -99,6 +106,63 @@
       };
     };
   };
+
+  services.happy-server = {
+    enable = true;
+    envFile = "/var/lib/happy/env";
+    workspaceRoot = "/home/cdenneen/src/workspace";
+    bindAddress = "127.0.0.1";
+    publicUrl = "https://happy.denneen.net";
+    port = 3000;
+    storage = {
+      mode = "pglite";
+      local.bundle.enable = false;
+    };
+  };
+
+  services.happy-codex-agent = {
+    enable = true;
+    mode = "user";
+    pathPackages = [
+      unstablePkgs.happy-coder
+      unstablePkgs.codex
+      unstablePkgs.coreutils
+    ];
+    instances = [
+      {
+        name = "nix";
+        workspace = "/home/cdenneen/src/workspace/nix";
+        happyServerUrl = "https://happy.denneen.net";
+      }
+      {
+        name = "gitlab";
+        workspace = "/home/cdenneen/src/workspace/gitlab";
+        happyServerUrl = "https://happy.denneen.net";
+      }
+      {
+        name = "infra";
+        workspace = "/home/cdenneen/src/workspace/infra";
+        happyServerUrl = "https://happy.denneen.net";
+      }
+      {
+        name = "eks";
+        workspace = "/home/cdenneen/src/workspace/eks";
+        happyServerUrl = "https://happy.denneen.net";
+      }
+      {
+        name = "backstage";
+        workspace = "/home/cdenneen/src/workspace/backstage";
+        happyServerUrl = "https://happy.denneen.net";
+      }
+      {
+        name = "work";
+        workspace = "/home/cdenneen/src/workspace/work";
+        happyServerUrl = "https://happy.denneen.net";
+      }
+    ];
+  };
+
+  virtualisation.docker.enable = lib.mkForce false;
 
   services.amazon-ssm-agent.enable = true;
 
