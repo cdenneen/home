@@ -61,7 +61,6 @@
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
-    happyNix.url = "github:cdenneen/happy.nix";
     happier.url = "github:das-monki/nix-happier";
   };
 
@@ -261,7 +260,7 @@
                   )
                   (
                     filterAttrs (
-                      n: v: self.homeConfigurations."${n}".pkgs.stdenv.system == system
+                      n: v: self.homeConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
                     ) self.homeConfigurations
                   );
               nixosChecks =
@@ -274,7 +273,7 @@
                   )
                   (
                     filterAttrs (
-                      n: v: self.nixosConfigurations."${n}".pkgs.stdenv.system == system
+                      n: v: self.nixosConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
                     ) self.nixosConfigurations
                   );
               darwinChecks =
@@ -287,7 +286,7 @@
                   )
                   (
                     filterAttrs (
-                      n: v: self.darwinConfigurations."${n}".pkgs.stdenv.system == system
+                      n: v: self.darwinConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
                     ) self.darwinConfigurations
                   );
             in
