@@ -111,7 +111,33 @@
                 if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;
 
               # Opencode requires bun >= 1.3.10; pull bun from nixpkgs-unstable.
-              bun = (import inputs.nixpkgs-unstable { system = final.system; }).bun;
+              bun =
+                let
+                  system = final.stdenv.hostPlatform.system;
+                  version = "1.3.10";
+                  srcInfo =
+                    if system == "aarch64-linux" then
+                      {
+                        url = "https://github.com/oven-sh/bun/releases/download/bun-v${version}/bun-linux-aarch64.zip";
+                        sha256 = "1lrnavai44jk0vc3fy3cm3q0mpa6kmqk7y50hxf8z3psr8jwnpps";
+                      }
+                    else if system == "x86_64-linux" then
+                      {
+                        url = "https://github.com/oven-sh/bun/releases/download/bun-v${version}/bun-linux-x64.zip";
+                        sha256 = "021f7mrppp2lpa0ajcbipvbv51jlvagkhfms2vkksqirgqcc0yzm";
+                      }
+                    else
+                      null;
+                in
+                if srcInfo == null then
+                  prev.bun
+                else
+                  prev.bun.overrideAttrs (_: {
+                    inherit version;
+                    src = final.fetchurl {
+                      inherit (srcInfo) url sha256;
+                    };
+                  });
             })
             nur.overlays.default
             # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
