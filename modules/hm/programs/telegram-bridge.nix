@@ -134,6 +134,12 @@ in
         description = "Workspace root for /map <name>.";
       };
 
+      createSessions = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Allow the bridge to create missing OpenCode sessions.";
+      };
+
       bin = lib.mkOption {
         type = lib.types.str;
         default = "${pkgs.opencode}/bin/opencode";
@@ -360,6 +366,7 @@ in
           export OPENCODE_BIN="${cfg.opencode.bin}"
           export OPENCODE_MAX_SESSIONS="${toString cfg.opencode.maxSessions}"
           export OPENCODE_IDLE_TIMEOUT_SEC="${toString cfg.opencode.idleTimeoutSec}"
+          export OPENCODE_CREATE_SESSIONS="${if cfg.opencode.createSessions then "1" else "0"}"
           export OPENCODE_DEFAULT_MODEL="${
             lib.optionalString (cfg.opencode.defaultModel != null) cfg.opencode.defaultModel
           }"
@@ -426,6 +433,8 @@ in
                   "bin": os.environ.get("OPENCODE_BIN", "opencode"),
                   "max_sessions": int(os.environ.get("OPENCODE_MAX_SESSIONS", "5")),
                   "idle_timeout_sec": int(os.environ.get("OPENCODE_IDLE_TIMEOUT_SEC", "3600")),
+                  "create_sessions": os.environ.get("OPENCODE_CREATE_SESSIONS", "1")
+                    .lower() not in ("0", "false", "no", "off"),
               },
           }
 

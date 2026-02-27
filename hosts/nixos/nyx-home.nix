@@ -19,6 +19,7 @@
     opencode.serverUrl = "http://127.0.0.1:4097";
     opencode.serverUsername = "";
     opencode.serverPasswordFile = null;
+    opencode.createSessions = false;
 
     web = {
       enable = true;

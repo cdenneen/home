@@ -523,6 +523,7 @@ class Bridge:
 
         op_cfg = _cfg(cfg, ("opencode",), {}) or {}
         self._op_use_shared = bool(op_cfg.get("use_shared_server", False))
+        self._op_create_sessions = bool(op_cfg.get("create_sessions", True))
         self._op_base_url = str(op_cfg.get("server_url", "http://127.0.0.1:4096")).rstrip("/")
         self._op_username = str(op_cfg.get("server_username") or "opencode")
         self._op_password_file = str(op_cfg.get("server_password_file") or "")
@@ -1025,6 +1026,8 @@ class Bridge:
 
     async def _ensure_web_sessions(self) -> None:
         if not self._op_use_shared:
+            return
+        if not self._op_create_sessions:
             return
         topics = self._db.list_topics()
         if not topics:
@@ -1651,7 +1654,12 @@ class Bridge:
         if not session_id:
             session_id = await self._find_existing_session(port, workspace, thread_id, t.get("topic_title"))
         if not session_id:
-            session_id = await self._create_session(port, title=self._session_title(workspace, thread_id, t.get("topic_title")))
+            if not self._op_create_sessions:
+                return None
+            session_id = await self._create_session(
+                port,
+                title=self._session_title(workspace, thread_id, t.get("topic_title")),
+            )
         self._db.upsert_topic(chat_id, thread_id, opencode_session_id=session_id)
 
         return TopicContext(chat_id=chat_id, thread_id=thread_id, workspace=workspace, session_id=session_id)
@@ -1793,6 +1801,8 @@ class Bridge:
         return f"ws:{label}"
 
     async def warm_sessions(self) -> None:
+        if not self._op_create_sessions:
+            return
         topics = self._db.list_topics()
         warmed = 0
         for t in topics:
@@ -1816,7 +1826,12 @@ class Bridge:
 
             session_id = t.get("opencode_session_id")
             if not session_id:
-                session_id = await self._create_session(port, title=self._session_title(workspace, thread_id, topic_title))
+                if not self._op_create_sessions:
+                    continue
+                session_id = await self._create_session(
+                    port,
+                    title=self._session_title(workspace, thread_id, topic_title),
+                )
                 self._db.upsert_topic(chat_id, thread_id, opencode_session_id=session_id)
 
             with contextlib.suppress(Exception):

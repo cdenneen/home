@@ -244,13 +244,6 @@
     options edns0
   '';
 
-  services.opencode-telegram-bridge = {
-    enable = true;
-    user = "cdenneen";
-    systemdMode = "user";
-    enableLinger = true;
-  };
-
   systemd.services.home-manager-cdenneen = {
     environment = {
       OP_NIX_TOKEN_FILE = "/home/cdenneen/.config/opnix/token";
