@@ -25,7 +25,7 @@ jobs:
           - home-manager
           - nix-darwin
           - opencode
-          - happyNix
+          - happier
           - nixos-hardware
           - nix-index-database
           - nixos-wsl

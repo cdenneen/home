@@ -94,7 +94,6 @@ let
         enabled = true;
       };
     };
-    plugin = [ "telegram-notify" ];
     permission = {
       skill = {
         "*" = "allow";
@@ -140,9 +139,6 @@ in
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
-
-    telegram_bot_token.mode = "0600";
-    telegram_chat_id.mode = "0600";
   };
 
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
@@ -326,33 +322,21 @@ in
     })
   ];
 
-  home.activation.opencodeTelegramNotifyBuild = lib.mkIf isNyx (
+  home.activation.codexTelegramNotifyInstall = lib.mkIf isNyx (
     lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       set -euo pipefail
 
       src="${config.sops.secrets.opencode_telegram_notify_ts.path}"
-      ts_dst="$HOME/.opencode/plugins/telegram-notify.ts"
-      js_dst="$HOME/.opencode/plugins/telegram-notify.js"
+      ts_dst="$HOME/.codex/plugins/telegram-notify.ts"
 
-      $DRY_RUN_CMD mkdir -p "$HOME/.opencode/plugins"
+      $DRY_RUN_CMD mkdir -p "$HOME/.codex/plugins"
 
-      # opencode/esbuild should read a real .ts file (not a symlink) so the
-      # TypeScript loader is used reliably.
       if [ -L "$ts_dst" ]; then
         $DRY_RUN_CMD rm -f "$ts_dst"
       fi
 
       if [ -r "$src" ]; then
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src" "$ts_dst"
-      fi
-
-      if [ -r "$ts_dst" ]; then
-        $DRY_RUN_CMD ${pkgs.esbuild}/bin/esbuild \
-          "$ts_dst" \
-          --platform=node \
-          --format=esm \
-          --outfile="$js_dst"
-        $DRY_RUN_CMD chmod 600 "$js_dst"
       fi
     ''
   );

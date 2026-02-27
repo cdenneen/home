@@ -2,7 +2,6 @@
   lib,
   pkgs,
   config,
-  happyNix,
   happier,
   unstablePkgs,
   opencode ? null,
@@ -10,8 +9,6 @@
 }:
 {
   imports = [
-    happyNix.nixosModules.happy-server
-    happyNix.nixosModules.happy-codex-agent
     happier.nixosModules.happier-server
   ];
 
@@ -109,65 +106,13 @@
     };
   };
 
-  services.happy-server = {
-    enable = true;
-    envFile = "/var/lib/happy/env";
-    workspaceRoot = "/home/cdenneen/src/workspace";
-    bindAddress = "127.0.0.1";
-    publicUrl = "https://happy.denneen.net";
-    port = 3000;
-    storage = {
-      mode = "local";
-      local.postgres.enable = true;
-    };
-  };
-
-  services.happy-codex-agent = {
-    enable = false;
-    mode = "user";
-    happyBin = "${unstablePkgs.happy-coder}/bin/happy";
-    pathPackages = [
-      unstablePkgs.happy-coder
-      unstablePkgs.codex
-      unstablePkgs.coreutils
-    ];
-    instances = [
-      {
-        name = "nix";
-        workspace = "/home/cdenneen/src/workspace/nix";
-        happyServerUrl = "https://happy.denneen.net";
-      }
-      {
-        name = "gitlab";
-        workspace = "/home/cdenneen/src/workspace/gitlab";
-        happyServerUrl = "https://happy.denneen.net";
-      }
-      {
-        name = "infra";
-        workspace = "/home/cdenneen/src/workspace/infra";
-        happyServerUrl = "https://happy.denneen.net";
-      }
-      {
-        name = "eks";
-        workspace = "/home/cdenneen/src/workspace/eks";
-        happyServerUrl = "https://happy.denneen.net";
-      }
-      {
-        name = "backstage";
-        workspace = "/home/cdenneen/src/workspace/backstage";
-        happyServerUrl = "https://happy.denneen.net";
-      }
-      {
-        name = "work";
-        workspace = "/home/cdenneen/src/workspace/work";
-        happyServerUrl = "https://happy.denneen.net";
-      }
-    ];
-  };
-
   services.happier-server = {
     enable = true;
     package = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-server;
+    mode = "full";
+    port = 3005;
+    environmentFile = config.sops.secrets.happier-env.path;
+    minio.rootCredentialsFile = config.sops.secrets.minio-credentials.path;
   };
 
   virtualisation.docker.enable = lib.mkForce false;
@@ -240,6 +185,7 @@
     "--accept-dns=false"
     "--advertise-routes=10.208.0.0/16"
   ];
+  services.tailscale.permitCertUid = "caddy";
 
   # Keep resolvconf from injecting localhost DNS servers.
   # dnsmasq is only for Tailscale split DNS on tailscale0.
@@ -272,6 +218,33 @@
       server = [ "/git.ap.org/10.224.0.2" ];
     };
   };
+
+  services.caddy = {
+    enable = true;
+    virtualHosts."nyx.tail0e55.ts.net".extraConfig = ''
+      reverse_proxy localhost:3005
+    '';
+  };
+
+  services.cloudflared = {
+    enable = true;
+    tunnels = {
+      "opencode" = {
+        credentialsFile = config.sops.secrets.cloudflare_tunnel_token.path;
+        ingress = {
+          "chat.denneen.net" = "http://127.0.0.1:4096";
+          "" = "http_status:404";
+        };
+        originRequest = {
+          connectTimeout = "30s";
+          noTLSVerify = false;
+        };
+      };
+    };
+  };
+
+  sops.secrets.happier-env.owner = "root";
+  sops.secrets.minio-credentials.owner = "root";
 
   # Cloudflare Tunnel for Telegram webhook.
   sops.secrets.cloudflare_tunnel_token = {

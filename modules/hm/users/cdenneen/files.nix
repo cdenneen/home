@@ -184,14 +184,5 @@ in
     fi
   '';
 
-  home.activation.cleanupTelegramBridgeEnv = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    set -euo pipefail
-
-    env_file="$HOME/.config/opencode-telegram-bridge/env"
-    if [ -f "$env_file" ]; then
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$env_file"
-    fi
-  '';
-
   home.file.".kube/switch-config.yaml".source = ./switch-config.yaml;
 }

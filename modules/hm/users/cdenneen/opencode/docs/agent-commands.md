@@ -9,9 +9,9 @@ nix flake show
 ## Pre-handoff evals (required)
 
 ```sh
-nix eval --impure .#homeConfigurations.cdenneen@nyx.config.programs.telegram-bridge.enable
+nix eval --impure .#homeConfigurations.cdenneen@nyx.config.programs.starship.settings.palette
 nix eval --impure .#homeConfigurations.cdenneen@VNJTECMBCD.config.programs.starship.settings.palette
-nix eval --impure .#nixosConfigurations.nyx.config.home-manager.users.cdenneen.programs.telegram-bridge.enable
+nix eval --impure .#nixosConfigurations.nyx.config.system.build.toplevel
 ```
 
 ## Build a single thing (fast iteration)

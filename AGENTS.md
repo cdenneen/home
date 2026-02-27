@@ -122,13 +122,6 @@ nix eval --impure .#darwinConfigurations.<host>.system
 - Emit actionable errors to stderr and return non-zero exit codes.
 - Avoid partial state changes; keep operations atomic.
 
-## Telegram bridge
-
-- Managed via `programs.telegram-bridge` (HM module).
-- Legacy per-user `opencode-telegram-bridge.nix` is removed.
-- Use `pkgs/opencode-telegram-bridge.nix` and configure through
-  `modules/hm/programs/telegram-bridge.nix`.
-
 ## Secrets (sops-nix + age)
 
 See `docs/agent-secrets.md` (relative to `~/.config/opencode/`).
