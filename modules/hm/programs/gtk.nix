@@ -18,10 +18,6 @@ in
       };
       iconTheme = {
         name = "Papirus-Dark";
-        package = pkgs.catppuccin-papirus-folders.override {
-          flavor = config.catppuccin.flavor;
-          accent = config.catppuccin.accent;
-        };
       };
       cursorTheme = {
         name = config.home.pointerCursor.name;
