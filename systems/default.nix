@@ -77,33 +77,8 @@ let
       pkgsSet = mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
-      opencodeOverride =
-        if system == "aarch64-linux" then
-          let
-            opencodeSrc = inputs.opencode.outPath;
-            opencodeRev = inputs.opencode.shortRev or inputs.opencode.dirtyShortRev or "dirty";
-            node_modules = stablePkgs.callPackage "${opencodeSrc}/nix/node_modules.nix" {
-              rev = opencodeRev;
-              hash = "sha256-xWp4LLJrbrCPFL1F6SSbProq/t/az4CqhTcymPvjOBQ=";
-            };
-            opencodePkg = stablePkgs.callPackage "${opencodeSrc}/nix/opencode.nix" {
-              inherit node_modules;
-            };
-          in
-          inputs.opencode
-          // {
-            packages = inputs.opencode.packages // {
-              ${system} = inputs.opencode.packages.${system} // {
-                default = opencodePkg;
-                opencode = opencodePkg;
-              };
-            };
-          }
-        else
-          inputs.opencode;
       specialArgs = inputs // {
         inherit system stablePkgs unstablePkgs;
-        opencode = opencodeOverride;
       };
     in
     nixpkgs.lib.nixosSystem {
