@@ -24,6 +24,7 @@ in
       noto-fonts-monochrome-emoji
       monaspace
       nerd-fonts.monaspace
+      nerd-fonts.jetbrains-mono
       nerd-fonts.symbols-only
     ];
     environment = {
