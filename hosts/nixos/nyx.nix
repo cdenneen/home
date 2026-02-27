@@ -115,8 +115,8 @@
     publicUrl = "https://happy.denneen.net";
     port = 3000;
     storage = {
-      mode = "pglite";
-      local.bundle.enable = false;
+      mode = "local";
+      local.postgres.enable = true;
     };
   };
 
@@ -133,32 +133,32 @@
       {
         name = "nix";
         workspace = "/home/cdenneen/src/workspace/nix";
-        happyServerUrl = "http://127.0.0.1:3000";
+        happyServerUrl = "https://happy.denneen.net";
       }
       {
         name = "gitlab";
         workspace = "/home/cdenneen/src/workspace/gitlab";
-        happyServerUrl = "http://127.0.0.1:3000";
+        happyServerUrl = "https://happy.denneen.net";
       }
       {
         name = "infra";
         workspace = "/home/cdenneen/src/workspace/infra";
-        happyServerUrl = "http://127.0.0.1:3000";
+        happyServerUrl = "https://happy.denneen.net";
       }
       {
         name = "eks";
         workspace = "/home/cdenneen/src/workspace/eks";
-        happyServerUrl = "http://127.0.0.1:3000";
+        happyServerUrl = "https://happy.denneen.net";
       }
       {
         name = "backstage";
         workspace = "/home/cdenneen/src/workspace/backstage";
-        happyServerUrl = "http://127.0.0.1:3000";
+        happyServerUrl = "https://happy.denneen.net";
       }
       {
         name = "work";
         workspace = "/home/cdenneen/src/workspace/work";
-        happyServerUrl = "http://127.0.0.1:3000";
+        happyServerUrl = "https://happy.denneen.net";
       }
     ];
   };
