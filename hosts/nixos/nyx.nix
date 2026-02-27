@@ -123,7 +123,7 @@
   };
 
   services.happy-codex-agent = {
-    enable = true;
+    enable = false;
     mode = "user";
     happyBin = "${unstablePkgs.happy-coder}/bin/happy";
     pathPackages = [
