@@ -3,6 +3,7 @@
   pkgs,
   config,
   happyNix,
+  happier,
   unstablePkgs,
   opencode ? null,
   ...
@@ -11,6 +12,7 @@
   imports = [
     happyNix.nixosModules.happy-server
     happyNix.nixosModules.happy-codex-agent
+    happier.nixosModules.happier-server
   ];
 
   networking.hostName = "nyx";
@@ -161,6 +163,11 @@
         happyServerUrl = "https://happy.denneen.net";
       }
     ];
+  };
+
+  services.happier-server = {
+    enable = true;
+    package = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-server;
   };
 
   virtualisation.docker.enable = lib.mkForce false;
