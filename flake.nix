@@ -106,6 +106,9 @@
               # vimnix expects rust-analyzer-nightly; fall back to rust-analyzer.
               rust-analyzer-nightly =
                 if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;
+
+              # Opencode requires bun >= 1.3.10; pull bun from nixpkgs-unstable.
+              bun = (import inputs.nixpkgs-unstable { system = final.system; }).bun;
             })
             nur.overlays.default
             # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
