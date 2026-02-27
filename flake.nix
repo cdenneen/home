@@ -62,7 +62,7 @@
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     happyNix.url = "github:cdenneen/happy.nix";
-    happier.url = "github:das-monki/happier/dev";
+    happier.url = "github:das-monki/nix-happier";
   };
 
   outputs =
