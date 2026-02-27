@@ -16,12 +16,17 @@ in
     programs.kitty = {
       font = {
         name = "JetBrainsMono Nerd Font Mono";
-        size = 14;
+        size = 11;
       };
       settings = {
         shell = "${lib.getExe pkgs.zsh}";
       };
-      extraConfig = "";
+      extraConfig = ''
+        map super+plus change_font_size all +1.0
+        map super+equal change_font_size all +1.0
+        map super+minus change_font_size all -1.0
+        map super+0 change_font_size all 0
+      '';
     };
   };
 }
