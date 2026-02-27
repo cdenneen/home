@@ -42,7 +42,7 @@ in
           # yubikey-manager-qt
           # yubioath-flutter
         ]
-        ++ lib.optionals (stdenv.system == "x86_64-linux") [
+        ++ lib.optionals (stdenv.hostPlatform.system == "x86_64-linux") [
           proton-pass
           protonvpn-gui
           protonmail-desktop
