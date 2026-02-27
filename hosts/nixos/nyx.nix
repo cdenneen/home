@@ -133,32 +133,32 @@
       {
         name = "nix";
         workspace = "/home/cdenneen/src/workspace/nix";
-        happyServerUrl = "https://happy.denneen.net";
+        happyServerUrl = "http://127.0.0.1:3000";
       }
       {
         name = "gitlab";
         workspace = "/home/cdenneen/src/workspace/gitlab";
-        happyServerUrl = "https://happy.denneen.net";
+        happyServerUrl = "http://127.0.0.1:3000";
       }
       {
         name = "infra";
         workspace = "/home/cdenneen/src/workspace/infra";
-        happyServerUrl = "https://happy.denneen.net";
+        happyServerUrl = "http://127.0.0.1:3000";
       }
       {
         name = "eks";
         workspace = "/home/cdenneen/src/workspace/eks";
-        happyServerUrl = "https://happy.denneen.net";
+        happyServerUrl = "http://127.0.0.1:3000";
       }
       {
         name = "backstage";
         workspace = "/home/cdenneen/src/workspace/backstage";
-        happyServerUrl = "https://happy.denneen.net";
+        happyServerUrl = "http://127.0.0.1:3000";
       }
       {
         name = "work";
         workspace = "/home/cdenneen/src/workspace/work";
-        happyServerUrl = "https://happy.denneen.net";
+        happyServerUrl = "http://127.0.0.1:3000";
       }
     ];
   };
