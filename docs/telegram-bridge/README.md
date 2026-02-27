@@ -44,6 +44,7 @@ nix build .#opencode-telegram-bridge
             opencode.workspaceRoot = "/home/myuser/src/workspace";
             opencode.useSharedServer = true;
             opencode.serverUrl = "http://127.0.0.1:4097";
+            opencode.createSessions = false;
 
             web = {
               enable = true;
@@ -103,6 +104,7 @@ Notes:
             opencode.workspaceRoot = "/home/myuser/src/workspace";
             opencode.useSharedServer = true;
             opencode.serverUrl = "http://127.0.0.1:4097";
+            opencode.createSessions = false;
             cloudflared.enable = true;
             cloudflared.tokenFile = "/run/secrets/cloudflare_tunnel_token";
             cloudflared.configText = ''
@@ -150,6 +152,7 @@ Notes:
             opencode.workspaceRoot = "/Users/myuser/src/workspace";
             opencode.useSharedServer = true;
             opencode.serverUrl = "http://127.0.0.1:4097";
+            opencode.createSessions = false;
             cloudflared.enable = true;
             cloudflared.tokenFile = "/run/secrets/cloudflare_tunnel_token";
             cloudflared.configText = ''
@@ -168,11 +171,6 @@ Notes:
 ```
 
 ## Nyx (current wiring)
-
-`hosts/nixos/nyx.nix` sets:
-
-- `services.opencode-telegram-bridge` to user mode with linger
-- `home-manager.users.cdenneen.imports = [ ./nyx-home.nix ]`
 
 `hosts/nixos/nyx-home.nix` contains the Home Manager bridge configuration and
 the starship palette override for nyx.

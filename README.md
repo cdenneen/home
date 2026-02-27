@@ -143,6 +143,8 @@ home-manager switch --flake /etc/nixos#cdenneen@<host>
 
 Tags can include `ec2`, `amazon-ami`, `qemu-guest`, `wsl`, and `crostini`.
 
+NixOS hosts include `nyx` (aarch64) and `MacBook-Pro-NixOS` (x86_64).
+
 ### Structure
 
 - `hosts/` host definitions

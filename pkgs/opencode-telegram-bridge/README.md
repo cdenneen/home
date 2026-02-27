@@ -59,6 +59,14 @@ programs.telegram-bridge.enable = true;
   Optional default agent.
 - `programs.telegram-bridge.opencode.defaultProvider`
   Provider prefix for models without a provider (default `openai`).
+- `programs.telegram-bridge.opencode.createSessions`
+  When false, the bridge only attaches to existing OpenCode sessions and never creates new ones.
+
+The OpenCode session database lives at:
+
+```
+~/.local/share/opencode/opencode.db
+```
 
 ### User override file
 
