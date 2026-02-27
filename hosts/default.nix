@@ -28,6 +28,12 @@ let
       tags = [ "ec2" ];
     }
     {
+      name = "MacBook-Pro-NixOS";
+      system = "x86_64-linux";
+      modules = [ ./nixos/MacBook-Pro-NixOS.nix ];
+      tags = [ ];
+    }
+    {
       name = "oracle-cloud-nixos";
       system = "aarch64-linux";
       modules = [ ./nixos/oracle-cloud-nixos.nix ];
