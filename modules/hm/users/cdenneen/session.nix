@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ config, lib, ... }:
 
 {
   # Session-wide defaults for cdenneen
@@ -12,8 +12,8 @@
     MANPAGER = lib.mkForce "nvim --cmd ':lua vim.g.noplugins=1' +Man!";
     MANWIDTH = "999";
     # Keep XDG defaults explicit for tools that don't set them.
-    XDG_DATA_HOME = "$HOME/.local/share";
-    XDG_CACHE_HOME = "$HOME/.cache";
+    XDG_DATA_HOME = "${config.home.homeDirectory}/.local/share";
+    XDG_CACHE_HOME = "${config.home.homeDirectory}/.cache";
     AWS_SHARED_CREDENTIALS_FILE = "$HOME/.aws/credentials";
     AWS_CONFIG_FILE = "$HOME/.aws/config";
     KUBECACHEDIR = "$XDG_RUNTIME_DIR/kube";
