@@ -13,28 +13,63 @@ permissions:
   issues: write
   pull-requests: write
 jobs:
-  Build:
+  Update-flake-inputs:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        input:
+          - nixpkgs
+          - nixpkgs-unstable
+          - home-manager
+          - nix-darwin
+          - opencode
+          - happyNix
+          - nixos-hardware
+          - nix-index-database
+          - nixos-wsl
+          - nixos-crostini
+          - disko
+          - arion
+          - sops-nix
+          - nur
+          - vimnix
+          - nix-homebrew
+          - mac-app-util
+          - apple-silicon-support
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Install nix
         uses: DeterminateSystems/determinate-nix-action@main
-      - name: Update flake.lock
-        uses: DeterminateSystems/update-flake-lock@main
-        id: update-flake-lock
-        if: github.event_name != 'pull_request'
-        with:
-          token: ${{ secrets.GH_PAT }}
-          pr-title: "Update Nix flake inputs"
-          pr-labels: |
-            dependencies
-            automated
-      # - name: Build nix packages
-      #   run: nix run nixpkgs#nix-fast-build -- --skip-cached --flake ".#checks.$(nix eval --raw --impure --expr builtins.currentSystem)" -j 1 --eval-workers 1 --no-nom --cachix-cache toyvo --option accept-flake-config true
-      #   env:
-      #     CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      # Do not auto-merge here.
-      # Merging of flake.lock PRs is gated by branch protection
-      # and required CI checks (nixos-eval, darwin-eval).
-      # Auto-merge should be enabled via repository settings.
+      - name: Update flake input
+        id: update
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          input="${{ matrix.input }}"
+          git checkout -B "update-flake-${input}"
+          nix flake lock --update-input "$input"
+          if git diff --exit-code flake.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add flake.lock
+          git commit -m "Update flake input ${input}"
+          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}"
+          gh pr create \
+            --base main \
+            --head "update-flake-${input}" \
+            --title "Update flake input ${input}" \
+            --label "dependencies" \
+            --label "automated" \
+            --label "flake-lock" \
+            --body "Updates ${input} in flake.lock." \
+            || true
+          echo "changed=true" >> "$GITHUB_OUTPUT"

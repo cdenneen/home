@@ -29,8 +29,10 @@ jobs:
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Evaluate NixOS (aarch64-linux)
-        run: nix build .#nixosConfigurations.eros.config.system.build.toplevel --accept-flake-config
+      - name: Evaluate NixOS (nyx)
+        run: nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
+      - name: Evaluate NixOS (MacBook-Pro-NixOS)
+        run: nix build .#nixosConfigurations.MacBook-Pro-NixOS.config.system.build.toplevel --accept-flake-config
 
   darwin-eval:
     runs-on: macos-latest
@@ -45,7 +47,7 @@ jobs:
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Evaluate Darwin (aarch64-darwin)
+      - name: Evaluate Darwin (VNJTECMBCD)
         run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
 
   flake-checks-full:

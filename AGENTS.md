@@ -76,6 +76,12 @@ nix eval --impure .#nixosConfigurations.<host>.config.system.build.toplevel
 nix eval --impure .#darwinConfigurations.<host>.system
 ```
 
+### Flake input update workflow
+
+- Flake input updates are opened as one PR per input (`Update flake input <name>`).
+- Auto-merge is allowed only after CI evals pass.
+- CI evaluates: `nixosConfigurations.nyx`, `nixosConfigurations.MacBook-Pro-NixOS`, and `darwinConfigurations.VNJTECMBCD`.
+
 ## Code style guidelines
 
 ### Nix
