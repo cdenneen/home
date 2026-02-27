@@ -23,7 +23,7 @@ let
     map (host: {
       name = host.name;
       value = allNixosConfigurations.${host.name};
-    }) (builtins.filter (host: host.system == "aarch64-linux") hostDefs.nixos)
+    }) hostDefs.nixos
   );
 in
 {

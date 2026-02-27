@@ -10,6 +10,7 @@
     ./direnv.nix
     ./git.nix
     ./gpg.nix
+    ./hyprland.nix
     ./zsh.nix
     ./secrets.nix
   ];

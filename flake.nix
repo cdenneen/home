@@ -204,6 +204,8 @@
                 direnv
                 fzf
                 eza
+                opencode
+                codex
               ]
               ++ [ self'.packages.treefmt ];
             commands = [

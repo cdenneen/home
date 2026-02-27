@@ -15,6 +15,29 @@ in
     };
     programs.alacritty = {
       settings = {
+        font.size = 11.0;
+        key_bindings = [
+          {
+            key = "Equals";
+            mods = "Super";
+            action = "IncreaseFontSize";
+          }
+          {
+            key = "Plus";
+            mods = "Super";
+            action = "IncreaseFontSize";
+          }
+          {
+            key = "Minus";
+            mods = "Super";
+            action = "DecreaseFontSize";
+          }
+          {
+            key = "Key0";
+            mods = "Super";
+            action = "ResetFontSize";
+          }
+        ];
         shell = {
           program = "${lib.getExe pkgs.bashInteractive}";
           args = [ "-l" ];

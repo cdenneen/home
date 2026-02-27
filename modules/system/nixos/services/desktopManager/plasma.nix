@@ -15,7 +15,7 @@ in
       displayManager.sddm.enable = true;
     };
     environment.systemPackages = with pkgs; [
-      kate
+      kdePackages.kate
       kdePackages.sddm-kcm
     ];
     catppuccin.sddm.enable = true;

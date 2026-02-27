@@ -41,6 +41,7 @@ See `docs/agent-commands.md` (relative to `~/.config/opencode/`).
 - Home Manager with `useGlobalPkgs`: do not set `nixpkgs.config` / `nixpkgs.overlays` in HM modules.
 - `mkDefault` for defaults; `mkForce` only for invariants or upstream breakage.
 - Keep option schemas accurate (types + descriptions) when adding new options.
+- Hyprland: avoid `windowrulev2` (deprecated); use `windowrule` syntax.
 
 ## Naming / Structure
 
