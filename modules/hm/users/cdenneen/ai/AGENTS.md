@@ -110,3 +110,9 @@ git ws-branch feat/my-branch [start-point]
 ## Git Workflow
 
 - Always run `git pull --rebase` before `git push` to avoid remote divergence.
+
+## Response Style
+
+- Always include 1 or 2 suggestions in responses.
+- Keep suggestions simple, direct, and actionable.
+- Do not overcomplicate wording or steps.

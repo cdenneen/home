@@ -31,7 +31,7 @@ let
     // {
       model = "gpt-5.3-codex";
       model_reasoning_effort = "xhigh";
-      model_reasoning_summary = "auto";
+      model_reasoning_summary = "detailed";
       personality = "none";
       file_opener = "none";
       show_raw_agent_reasoning = true;
@@ -41,24 +41,31 @@ let
       };
       mcp_servers = {
         github = {
-          command = "github-mcp-server";
-          args = [ "stdio" ];
+          command = "npx";
+          args = [
+            "-y"
+            "github-mcp-server"
+            "stdio"
+          ];
           env = {
             GITHUB_TOOLSETS = "context,actions,code_security,dependabot,discussions,gists,git,issues,labels,notifications,orgs,projects,pull_requests,repos,secret_protection,security_advisories,stargazers,users";
           };
           env_vars = [ "GITHUB_TOKEN" ];
         };
         gitlab = {
-          command = "npx";
+          command = "bash";
           args = [
-            "-y"
-            "@zereight/mcp-gitlab"
+            "-lc"
+            "if [ -n \"$GITLAB_TOKEN\" ] && [ -z \"$GITLAB_PERSONAL_ACCESS_TOKEN\" ]; then export GITLAB_PERSONAL_ACCESS_TOKEN=\"$GITLAB_TOKEN\"; fi; exec npx -y @zereight/mcp-gitlab"
           ];
           env = {
             GITLAB_API_URL = "https://git.ap.org/api/v4";
             GITLAB_READ_ONLY_MODE = "true";
           };
-          env_vars = [ "GITLAB_TOKEN" ];
+          env_vars = [
+            "GITLAB_PERSONAL_ACCESS_TOKEN"
+            "GITLAB_TOKEN"
+          ];
         };
         kubernetes = {
           command = "npx";
@@ -73,6 +80,9 @@ let
             "-y"
             "aws-mcp-readonly-lite"
           ];
+          env = {
+            LOG_LEVEL = "error";
+          };
         };
         terraform = {
           command = "podman";
@@ -81,6 +91,11 @@ let
             "-i"
             "--rm"
             "hashicorp/terraform-mcp-server:0.4.0"
+          ];
+          env_vars = [
+            "TF_TOKEN_app_terraform_io"
+            "TERRAFORM_TOKEN"
+            "TFE_TOKEN"
           ];
         };
         duckduckgo = {
