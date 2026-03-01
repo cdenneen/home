@@ -13,6 +13,9 @@
   ];
 
   networking.hostName = "nyx";
+  networking.extraHosts = ''
+    100.80.58.4 nyx.tail0e55.ts.net
+  '';
   ec2.efi = true;
 
   services.tailscale = {
@@ -229,18 +232,78 @@
   services.cloudflared = {
     enable = true;
     tunnels = {
-      "opencode" = {
-        credentialsFile = config.sops.secrets.cloudflare_tunnel_token.path;
+      "d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" = {
+        credentialsFile = "/var/lib/cloudflared/opencode.json";
         ingress = {
           "chat.denneen.net" = "http://127.0.0.1:4096";
-          "" = "http_status:404";
         };
+        default = "http_status:404";
         originRequest = {
           connectTimeout = "30s";
           noTLSVerify = false;
         };
       };
     };
+  };
+
+  systemd.tmpfiles.rules = [
+    "d /var/lib/cloudflared 0700 root root -"
+  ];
+
+  systemd.services.cloudflared-credentials-opencode =
+    let
+      script = pkgs.writeShellScript "cloudflared-credentials-opencode" ''
+        set -euo pipefail
+
+        token_file="${config.sops.secrets.cloudflare_tunnel_token.path}"
+        cred_dir="/var/lib/cloudflared"
+        cred_file="$cred_dir/opencode.json"
+
+        if [ ! -r "$token_file" ]; then
+          echo "cloudflared-credentials-opencode: token file not readable" >&2
+          exit 1
+        fi
+
+        token_json="$(${pkgs.coreutils}/bin/cat "$token_file" | ${pkgs.coreutils}/bin/tr -d '\n\r' | ${pkgs.coreutils}/bin/base64 -d)"
+        account_tag="$(${pkgs.jq}/bin/jq -r '.a // empty' <<<"$token_json")"
+        tunnel_id="$(${pkgs.jq}/bin/jq -r '.t // empty' <<<"$token_json")"
+        tunnel_secret="$(${pkgs.jq}/bin/jq -r '.s // empty' <<<"$token_json")"
+
+        if [ -z "$account_tag" ] || [ -z "$tunnel_id" ] || [ -z "$tunnel_secret" ]; then
+          echo "cloudflared-credentials-opencode: invalid token contents" >&2
+          exit 1
+        fi
+
+        ${pkgs.coreutils}/bin/mkdir -p "$cred_dir"
+        ${pkgs.jq}/bin/jq -n \
+          --arg account_tag "$account_tag" \
+          --arg tunnel_id "$tunnel_id" \
+          --arg tunnel_secret "$tunnel_secret" \
+          --arg tunnel_name "opencode" \
+          '{
+            AccountTag: $account_tag,
+            TunnelID: $tunnel_id,
+            TunnelName: $tunnel_name,
+            TunnelSecret: $tunnel_secret
+          }' >"$cred_file"
+        ${pkgs.coreutils}/bin/chmod 0400 "$cred_file"
+      '';
+    in
+    {
+      description = "Generate Cloudflared credentials from token";
+      before = [
+        "cloudflared-tunnel-d1d49353-ddca-4c9c-bc8a-3bbb1885aa98.service"
+      ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = script;
+        RemainAfterExit = true;
+      };
+    };
+
+  systemd.services."cloudflared-tunnel-d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" = {
+    requires = [ "cloudflared-credentials-opencode.service" ];
+    after = [ "cloudflared-credentials-opencode.service" ];
   };
 
   sops.secrets.happier-env.owner = "root";
