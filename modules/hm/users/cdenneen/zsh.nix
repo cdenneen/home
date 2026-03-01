@@ -1,88 +1,55 @@
-{ pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
+let
+  initParts = [
+    (import ./zsh/init/core.nix)
+    (import ./zsh/init/completion.nix)
+    (import ./zsh/init/keybindings.nix)
+    (import ./zsh/init/less.nix)
+    (import ./zsh/init/clipboard.nix)
+    (import ./zsh/init/functions.nix)
+  ];
+in
 {
   programs.zsh.enable = true;
+  programs.zsh.enableCompletion = true;
 
-  # Ensure correct PATH setup for zsh across platforms.
-  programs.zsh.envExtra = lib.concatStringsSep "\n" [
-    (lib.optionalString pkgs.stdenv.isDarwin ''
-      export PATH="/run/wrappers/bin:/run/current-system/sw/bin:$HOME/.nix-profile/bin:$PATH"
-      if [ -r /etc/zprofile ]; then
-        source /etc/zprofile
-      fi
-    '')
-    (lib.optionalString pkgs.stdenv.isLinux ''
-      if [ -r /etc/profile ]; then
-        source /etc/profile
-      fi
-      export PATH="/run/wrappers/bin:$PATH"
-    '')
-  ];
-
-  programs.zsh.shellAliases = {
-    # General
-    c = "clear";
-    e = "$EDITOR";
-    se = "sudoedit";
-    vi = "nvim";
-    vim = "nvim";
-    python = "python3";
-
-    # Git
-    g = "git";
-    ga = "git add";
-    gb = "git branch";
-    gc = "git commit";
-    gcm = "git commit -m";
-    gco = "git checkout";
-    gcob = "git checkout -b";
-    gcp = "git cherry-pick";
-    gd = "git diff";
-    gdiff = "git diff";
-    gf = "git fetch";
-    gl = "git prettylog";
-    gm = "git merge";
-    gp = "git push";
-    gpl = "git pull";
-    gpr = "git pull --rebase";
-    gr = "git rebase -i";
-    gs = "git status -sb";
-    gt = "git tag";
-    gu = "git reset @ --";
-    gx = "git reset --hard @";
-
-    # Jujutsu
-    jf = "jj git fetch";
-    jn = "jj new";
-    js = "jj st";
-
-    # Kubernetes
-    k = "kubectl";
-    kprod = "switch eks_prod-2-use1";
-    kshared = "switch eks_shared-1-use1";
-    kinteract = "switch eks_apinteractives-datateam";
-    kinteractdr = "switch eks_apinteractives-datateam-dr";
-
-    # AWS SSO
-    sso = "aws sso login --profile sso-apss --no-browser --use-device-code";
-    ssod = "aws sso login --profile sso-capdev --no-browser --use-device-code";
-    ssoq = "aws sso login --profile sso-awsqa --no-browser --use-device-code";
-    ssop = "aws sso login --profile sso-awsprod --no-browser --use-device-code";
-
-    # Tailscale
-    tsup = "tailscale up --accept-dns=false";
-    tsdown = "tailscale down";
+  programs.zsh.syntaxHighlighting.styles = {
+    default = "none";
+    cursor = "bg=10";
+    "unknown-token" = "fg=9,bold";
+    "reserved-word" = "fg=3";
+    alias = "fg=4";
+    builtin = "fg=4";
+    function = "fg=4";
+    command = "fg=4";
+    precommand = "none";
+    commandseparator = "none";
+    "hashed-command" = "fg=12";
+    path = "none";
+    path_prefix = "none";
+    path_approx = "fg=3";
+    globbing = "fg=10";
+    "history-expansion" = "fg=10";
+    "single-hyphen-option" = "fg=12";
+    "double-hyphen-option" = "fg=13";
+    "back-quoted-argument" = "none";
+    "single-quoted-argument" = "fg=3";
+    "double-quoted-argument" = "fg=3";
+    "dollar-double-quoted-argument" = "fg=6";
+    "back-double-quoted-argument" = "fg=6";
+    assign = "none";
   };
 
-  # Ensure git aliases and helper functions are available.
-  programs.zsh.initContent = lib.mkAfter ''
-    # Synthetic worktree branch safety: prefer <branch>@<workspace>.
-    # These override the shell aliases of the same name.
-    unalias gco gcob >/dev/null 2>&1 || true
+  programs.zsh.envExtra = import ./zsh/env.nix { inherit pkgs lib; };
 
-    # Keep "gco" / "gcob" muscle-memory paths but delegate to git aliases,
-    # so there's only one implementation of the synthetic branch logic.
-    gco() { git co "$@"; }
-    gcob() { git cob "$@"; }
-  '';
+  programs.zsh.shellAliases = import ./zsh/aliases.nix;
+
+  # Ensure git aliases and helper functions are available.
+  programs.zsh.initContent = lib.mkAfter (lib.concatStringsSep "\n\n" initParts);
 }
