@@ -24,7 +24,7 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - uses: cachix/cachix-action@v14
+      - uses: cachix/cachix-action@v16
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
@@ -42,7 +42,7 @@ jobs:
         with:
           extra-conf: |
             experimental-features = nix-command flakes
-      - uses: cachix/cachix-action@v14
+      - uses: cachix/cachix-action@v16
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
