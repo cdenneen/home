@@ -411,11 +411,11 @@
         "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1772208864,
-        "narHash": "sha256-KuUqDpUJhUIIRw6Za3DNUPd/A6Uv5SRGW1ELJYAbYP8=",
+        "lastModified": 1772236066,
+        "narHash": "sha256-/9TrbDynxgPp26tCssfFzC5Dj5SPx1Szrseg+3cusiY=",
         "owner": "das-monki",
         "repo": "nix-happier",
-        "rev": "68c1713385fb7890301cd449b53a69ac9a5d2b9e",
+        "rev": "ce93cb210fe0014ca2f098f34253c8d218647364",
         "type": "github"
       },
       "original": {

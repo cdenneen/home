@@ -1,5 +1,6 @@
 .DS_Store
 .direnv
+.dev
 .idea
 .luarc.json
 result
