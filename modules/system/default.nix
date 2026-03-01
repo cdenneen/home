@@ -4,10 +4,12 @@
   pkgs,
   unstablePkgs ? pkgs,
   self,
+  happier,
   ...
 }@inputs:
 let
   cfg = config.profiles;
+  happierPkg = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-cli;
 in
 {
   imports = [
@@ -51,13 +53,21 @@ in
       '';
 
       # Ensure home-manager CLI is available even before HM activation.
-      environment.systemPackages = [ pkgs.home-manager ];
+      environment.systemPackages = [
+        pkgs.home-manager
+        happierPkg
+        pkgs.codex
+      ];
     }
     # NOTE: Do NOT set security.sudo.enable here.
     # sudo enablement is handled by NixOS defaults and by modules/system/sudo.nix,
     # and must not be referenced at all on nix-darwin.
 
     (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
+      sops.secrets.github-token = { };
+      sops.templates."github-token.nix.conf".content =
+        "access-tokens = github.com=${config.sops.secrets.github-token.placeholder}";
+
       home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
         backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
         useUserPackages = true;
@@ -94,6 +104,9 @@ in
           ];
           auto-optimise-store = true;
         };
+        extraOptions = lib.mkAfter ''
+          include ${config.sops.templates."github-token.nix.conf".path}
+        '';
         nixPath = [
           "nixpkgs=${inputs.nixpkgs-unstable}"
         ];
