@@ -89,9 +89,19 @@
         };
       };
       plugins = {
+        entries = {
+          "happier-session-control" = {
+            config = {
+              happierServerUrl = "https://nyx.tail0e55.ts.net";
+              happierWebappUrl = "https://nyx.tail0e55.ts.net";
+              happierHomeDir = "${config.home.homeDirectory}/.config/happier";
+            };
+          };
+        };
         allow = [
           "acpx"
           "acp-dispatch"
+          "happier-session-control"
           "memory-core"
           "telegram"
         ];
@@ -99,6 +109,7 @@
           paths = [
             "${config.home.homeDirectory}/.openclaw/extensions/acpx"
             "${config.home.homeDirectory}/.openclaw/extensions/acp-dispatch"
+            "${config.home.homeDirectory}/.openclaw/extensions/happier-session-control"
             "${config.home.homeDirectory}/.openclaw/extensions/memory-core"
             "${config.home.homeDirectory}/.openclaw/extensions/telegram"
           ];
@@ -196,12 +207,13 @@
 
   home.activation.openclawExtensions = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     $DRY_RUN_CMD rm -rf "$HOME/.openclaw/extensions"
-    $DRY_RUN_CMD mkdir -p "$HOME/.openclaw/extensions/acpx" "$HOME/.openclaw/extensions/acp-dispatch" "$HOME/.openclaw/extensions/memory-core" "$HOME/.openclaw/extensions/telegram"
+    $DRY_RUN_CMD mkdir -p "$HOME/.openclaw/extensions/acpx" "$HOME/.openclaw/extensions/acp-dispatch" "$HOME/.openclaw/extensions/happier-session-control" "$HOME/.openclaw/extensions/memory-core" "$HOME/.openclaw/extensions/telegram"
     $DRY_RUN_CMD cp -R "${pkgs.openclaw-gateway}/lib/openclaw/extensions/acpx/." "$HOME/.openclaw/extensions/acpx/"
     $DRY_RUN_CMD cp -R "${../../modules/hm/users/cdenneen/opencode/extensions/acp-dispatch}/." "$HOME/.openclaw/extensions/acp-dispatch/"
+    $DRY_RUN_CMD cp -R "${../../modules/hm/users/cdenneen/opencode/extensions/happier-session-control}/." "$HOME/.openclaw/extensions/happier-session-control/"
     $DRY_RUN_CMD cp -R "${pkgs.openclaw-gateway}/lib/openclaw/extensions/memory-core/." "$HOME/.openclaw/extensions/memory-core/"
     $DRY_RUN_CMD cp -R "${pkgs.openclaw-gateway}/lib/openclaw/extensions/telegram/." "$HOME/.openclaw/extensions/telegram/"
-    $DRY_RUN_CMD chmod -R u+rwX,go+rX "$HOME/.openclaw/extensions/acpx" "$HOME/.openclaw/extensions/acp-dispatch" "$HOME/.openclaw/extensions/memory-core" "$HOME/.openclaw/extensions/telegram"
+    $DRY_RUN_CMD chmod -R u+rwX,go+rX "$HOME/.openclaw/extensions/acpx" "$HOME/.openclaw/extensions/acp-dispatch" "$HOME/.openclaw/extensions/happier-session-control" "$HOME/.openclaw/extensions/memory-core" "$HOME/.openclaw/extensions/telegram"
   '';
 
 }

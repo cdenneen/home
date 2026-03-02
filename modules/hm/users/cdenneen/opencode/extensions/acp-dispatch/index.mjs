@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { GatewayClient } from "openclaw/plugin-sdk/gateway/client.js";
 
 const STATE_FILE = "acp-dispatch.json";
-const COMMAND_NAME = "session";
+const COMMAND_NAMES = ["acpbind", "bind"];
 
 function normalizeAccountId(accountId) {
   return accountId && String(accountId).trim() ? String(accountId).trim() : "default";
@@ -45,31 +45,57 @@ function makeBindingKey(ctx, metadata) {
   return `${ctx.channelId}:${accountId}:${conversationId}`;
 }
 
-function resolveGatewayUrl(api) {
-  const envUrl = process.env.OPENCLAW_GATEWAY_URL;
-  if (envUrl && envUrl.trim()) return envUrl.trim();
-  const remoteUrl = api.config?.gateway?.remote?.url;
-  if (remoteUrl && String(remoteUrl).trim()) return String(remoteUrl).trim();
-  return "ws://127.0.0.1:18789";
-}
-
-function resolveGatewayToken() {
-  const token = process.env.OPENCLAW_GATEWAY_TOKEN;
-  return token && token.trim() ? token.trim() : undefined;
-}
-
-function createGatewayClient(api) {
-  return new GatewayClient({
-    url: resolveGatewayUrl(api),
-    token: resolveGatewayToken(),
-    clientName: "gateway-client",
-    clientDisplayName: "acp-dispatch",
-    mode: "backend",
-  });
-}
-
 function isSessionKey(value) {
   return typeof value === "string" && value.startsWith("agent:");
+}
+
+function resolveStateDir() {
+  const envDir = process.env.OPENCLAW_STATE_DIR;
+  if (envDir && envDir.trim()) return envDir.trim();
+  return path.join(os.homedir(), ".openclaw");
+}
+
+async function listSessionStores() {
+  const agentsDir = path.join(resolveStateDir(), "agents");
+  let entries = [];
+  try {
+    entries = await fs.readdir(agentsDir, { withFileTypes: true });
+  } catch (err) {
+    return [];
+  }
+
+  const stores = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const storePath = path.join(agentsDir, entry.name, "sessions", "sessions.json");
+    stores.push(storePath);
+  }
+  return stores;
+}
+
+async function loadSessionStore(storePath) {
+  try {
+    const raw = await fs.readFile(storePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (err) {
+    if (err && err.code === "ENOENT") return {};
+    return {};
+  }
+}
+
+async function resolveSessionKeyFromStores(value) {
+  const target = String(value).trim();
+  const stores = await listSessionStores();
+  for (const storePath of stores) {
+    const store = await loadSessionStore(storePath);
+    for (const [key, entry] of Object.entries(store)) {
+      if (!entry || typeof entry !== "object") continue;
+      if (entry.label && entry.label === target) return key;
+      if (entry.sessionId && entry.sessionId === target) return key;
+    }
+  }
+  return null;
 }
 
 async function loadState(statePath) {
@@ -92,8 +118,8 @@ async function saveState(statePath, state) {
   await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
-function buildUsage() {
-  return "Usage: /session use <session-key|session-id|session-label> | /session status | /session clear";
+function buildUsage(commandName) {
+  return `Usage: /${commandName} use <session-key|session-id|session-label> | /${commandName} status | /${commandName} clear`;
 }
 
 function resolveMessageId(metadata) {
@@ -114,7 +140,12 @@ function shouldSkipContent(content) {
   const trimmed = content.trim();
   if (!trimmed) return true;
   if (!trimmed.startsWith("/")) return false;
-  return trimmed.startsWith("/session") || trimmed.startsWith("/acp");
+  return (
+    trimmed.startsWith("/session") ||
+    trimmed.startsWith("/acp") ||
+    trimmed.startsWith("/acpbind") ||
+    trimmed.startsWith("/bind")
+  );
 }
 
 function isGroupMessage(metadata) {
@@ -132,88 +163,80 @@ const plugin = {
     const logger = api.logger;
     const statePath = path.join(api.runtime.state.resolveStateDir(api.config), STATE_FILE);
     const allowRepliesUntil = new Map();
-    let gatewayClient;
-
     const resolveSessionKey = async (raw) => {
       if (!raw) return { ok: false, error: "Missing session reference." };
       if (isSessionKey(raw)) return { ok: true, key: raw, label: raw };
 
-      if (!gatewayClient) {
-        gatewayClient = createGatewayClient(api);
-        gatewayClient.start();
-      }
-
-      try {
-        const resolved = await gatewayClient.request("sessions.resolve", { label: raw });
-        const key = resolved?.key;
-        if (typeof key === "string" && key.trim()) {
-          return { ok: true, key: key.trim(), label: raw };
-        }
-        return { ok: false, error: `Unable to resolve session label: ${raw}` };
-      } catch (err) {
-        return { ok: false, error: `Unable to resolve session label: ${raw}` };
-      }
+      const resolvedKey = await resolveSessionKeyFromStores(raw);
+      if (resolvedKey) return { ok: true, key: resolvedKey, label: raw };
+      return { ok: false, error: `Unable to resolve session label: ${raw}` };
     };
 
-    api.registerCommand({
-      name: COMMAND_NAME,
-      description: "Bind this conversation to an ACP session.",
-      acceptsArgs: true,
-      handler: async (ctx) => {
-        if (!ctx.isAuthorizedSender) {
-          return { text: "Not authorized." };
-        }
+    const registerSessionCommand = (name) => {
+      api.registerCommand({
+        name,
+        description: "Bind this conversation to an ACP session.",
+        acceptsArgs: true,
+        handler: async (ctx) => {
+          if (!ctx.isAuthorizedSender) {
+            return { text: "Not authorized." };
+          }
 
-        const key = makeBindingKey(ctx);
-        if (!key) {
-          return { text: "Unable to resolve conversation id for binding." };
-        }
+          const key = makeBindingKey(ctx);
+          if (!key) {
+            return { text: "Unable to resolve conversation id for binding." };
+          }
 
-        const args = (ctx.args ?? "").trim();
-        if (!args) {
-          return { text: buildUsage() };
-        }
+          const args = (ctx.args ?? "").trim();
+          if (!args) {
+            return { text: buildUsage(name) };
+          }
 
-        const [actionRaw, ...rest] = args.split(/\s+/);
-        const action = actionRaw?.toLowerCase();
-        const target = rest.join(" ").trim();
+          const [actionRaw, ...rest] = args.split(/\s+/);
+          const action = actionRaw?.toLowerCase();
+          const target = rest.join(" ").trim();
 
-        const state = await loadState(statePath);
-        if (action === "use") {
-          if (!target) return { text: buildUsage() };
-          const resolved = await resolveSessionKey(target);
-          if (!resolved.ok) return { text: resolved.error };
-          state.bindings[key] = {
-            target,
-            sessionKey: resolved.key,
-            boundAt: Date.now(),
-          };
-          await saveState(statePath, state);
-          allowRepliesUntil.set(key, Date.now() + 5000);
-          return { text: `Bound ACP session to this chat: ${target}` };
-        }
-
-        if (action === "status") {
-          const binding = state.bindings[key];
-          if (!binding) return { text: "No ACP session bound for this chat." };
-          const resolved = await resolveSessionKey(binding.target ?? binding.sessionKey);
-          if (!resolved.ok) return { text: resolved.error };
-          return { text: `ACP session bound: ${binding.target} (${resolved.key})` };
-        }
-
-        if (action === "clear") {
-          if (state.bindings[key]) {
-            delete state.bindings[key];
+          const state = await loadState(statePath);
+          if (action === "use") {
+            if (!target) return { text: buildUsage(name) };
+            const resolved = await resolveSessionKey(target);
+            if (!resolved.ok) return { text: resolved.error };
+            state.bindings[key] = {
+              target,
+              sessionKey: resolved.key,
+              boundAt: Date.now(),
+            };
             await saveState(statePath, state);
             allowRepliesUntil.set(key, Date.now() + 5000);
-            return { text: "Cleared ACP session binding for this chat." };
+            return { text: `Bound ACP session to this chat: ${target}` };
           }
-          return { text: "No ACP session bound for this chat." };
-        }
 
-        return { text: buildUsage() };
-      },
-    });
+          if (action === "status") {
+            const binding = state.bindings[key];
+            if (!binding) return { text: "No ACP session bound for this chat." };
+            const resolved = await resolveSessionKey(binding.target ?? binding.sessionKey);
+            if (!resolved.ok) return { text: resolved.error };
+            return { text: `ACP session bound: ${binding.target} (${resolved.key})` };
+          }
+
+          if (action === "clear") {
+            if (state.bindings[key]) {
+              delete state.bindings[key];
+              await saveState(statePath, state);
+              allowRepliesUntil.set(key, Date.now() + 5000);
+              return { text: "Cleared ACP session binding for this chat." };
+            }
+            return { text: "No ACP session bound for this chat." };
+          }
+
+          return { text: buildUsage(name) };
+        },
+      });
+    };
+
+    for (const name of COMMAND_NAMES) {
+      registerSessionCommand(name);
+    }
 
     api.registerHook("message_received", async (event, ctx) => {
       if (ctx.channelId !== "telegram") return;
