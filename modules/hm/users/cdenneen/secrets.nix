@@ -136,6 +136,14 @@ in
     github_ed25519.mode = "0600";
     codecommit_rsa.mode = "0600";
     id_rsa_cloud9.mode = "0600";
+
+    openclaw_gateway_token = {
+      mode = "0400";
+      path = ".config/openclaw/gateway.token";
+    };
+
+    openai_api_key.mode = "0400";
+    telegram_bot_token.mode = "0400";
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";

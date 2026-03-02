@@ -44,4 +44,60 @@
         WantedBy = [ "default.target" ];
       };
     };
+
+  programs.openclaw = {
+    enable = true;
+    systemd.enable = true;
+    exposePluginPackages = false;
+    package = pkgs.openclaw-gateway;
+    config = {
+      gateway = {
+        mode = "local";
+        bind = "tailnet";
+        auth = {
+          mode = "token";
+        };
+        controlUi = {
+          allowedOrigins = [ "https://clawd.denneen.net" ];
+        };
+      };
+      channels.telegram = {
+        enabled = true;
+        tokenFile = config.sops.secrets.telegram_bot_token.path;
+        streaming = "partial";
+      };
+      session = {
+        dmScope = "per-channel-peer";
+      };
+    };
+  };
+
+  systemd.user.services.openclaw-gateway =
+    let
+      run = pkgs.writeShellScript "openclaw-gateway-wrapper" ''
+        set -euo pipefail
+
+        token_file="${config.sops.secrets.openclaw_gateway_token.path}"
+        openai_file="${config.sops.secrets.openai_api_key.path}"
+
+        if [ ! -r "$token_file" ]; then
+          echo "openclaw-gateway: token file not readable" >&2
+          exit 1
+        fi
+
+        if [ ! -r "$openai_file" ]; then
+          echo "openclaw-gateway: openai api key file not readable" >&2
+          exit 1
+        fi
+
+        export OPENCLAW_GATEWAY_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$token_file")"
+        export OPENAI_API_KEY="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$openai_file")"
+
+        exec ${pkgs.openclaw}/bin/openclaw gateway --port 18789
+      '';
+    in
+    {
+      Service.ExecStart = lib.mkForce run;
+    };
+
 }

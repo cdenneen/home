@@ -50,6 +50,7 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-openclaw.url = "git+https://github.com/openclaw/nix-openclaw";
     opnix.url = "github:brizzbuzz/opnix";
     nixos-hardware.url = "github:nixos/nixos-hardware";
     nixos-wsl.url = "github:nix-community/nixos-wsl";
@@ -109,6 +110,7 @@
 
             })
             nur.overlays.default
+            inputs.nix-openclaw.overlays.default
             # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
           ];
           config = {

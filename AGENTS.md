@@ -126,6 +126,33 @@ nix eval --impure .#darwinConfigurations.<host>.system
 
 See `docs/agent-secrets.md` (relative to `~/.config/opencode/`).
 
+## OpenClaw (clawd)
+
+- Gateway runs only on `nyx` as a systemd _user_ service.
+- Web UI: `https://clawd.denneen.net/` (Cloudflare Access + GitHub auth).
+- CLI/ACP: `ws://100.80.58.4:18789` (Tailscale IP; avoids MagicDNS/VPN issues).
+- Shared token file on all machines: `~/.config/openclaw/gateway.token`.
+- First-time UI access requires device pairing:
+  - `openclaw devices list`
+  - `openclaw devices approve <id>`
+
+Common ACP ops:
+
+```sh
+/acp spawn codex --mode persistent --cwd /path/to/repo
+/acp cwd /path/to/repo
+/acp model gpt-5.2-codex
+/acp permissions strict
+/acp cancel
+/acp close
+```
+
+Helper CLI:
+
+- `openclawd-sessions`
+- `openclawd-attach`
+- `openclawd-acp`
+
 ## GC / maintenance
 
 - NixOS: `nix.gc.automatic = true` with weekly schedule.
