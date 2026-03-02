@@ -63,72 +63,84 @@ in
     # sudo enablement is handled by NixOS defaults and by modules/system/sudo.nix,
     # and must not be referenced at all on nix-darwin.
 
-    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
-      sops.secrets.github-token = {
-        owner = "cdenneen";
-        mode = "0400";
-      };
-      sops.templates."github-token.nix.conf".content =
-        "access-tokens = github.com=${config.sops.secrets.github-token.placeholder}";
-
-      home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
-        backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
-        useUserPackages = true;
-        useGlobalPkgs = false;
-        sharedModules = [
-          {
-            nix.package = lib.mkForce config.nix.package;
-            home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
-          }
-        ];
-      };
-      nix = {
-        settings = {
-          # Allow local user to use substituters (avoid source builds for nix shell/profile)
-          trusted-users = [
-            "root"
-            config.userPresets.cdenneen.name
-          ];
-          experimental-features = [
-            "nix-command"
-            "flakes"
-            "pipe-operators"
-          ];
-          substituters = config.nix.settings.trusted-substituters;
-          trusted-substituters = [
-            "https://cache.nixos.org"
-            "https://nix-community.cachix.org"
-            "https://cdenneen.cachix.org"
-          ];
-          trusted-public-keys = [
-            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-            "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-            "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
-          ];
-          auto-optimise-store = true;
+    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) (
+      let
+        githubTokenPlaceholder =
+          if config.sops.secrets.github-token ? placeholder then
+            config.sops.secrets.github-token.placeholder
+          else
+            null;
+      in
+      {
+        sops.secrets.github-token = {
+          owner = "cdenneen";
+          mode = "0400";
         };
-        extraOptions = lib.mkAfter ''
-          include ${config.sops.templates."github-token.nix.conf".path}
-        '';
-        nixPath = [
-          "nixpkgs=${inputs.nixpkgs-unstable}"
-        ];
-      };
+        sops.templates."github-token.nix.conf".content = lib.optionalString (
+          githubTokenPlaceholder != null
+        ) "access-tokens = github.com=${githubTokenPlaceholder}";
 
-      # Containers: make Podman available everywhere by default.
-      virtualisation.podman = {
-        enable = lib.mkDefault true;
-        dockerCompat = lib.mkDefault true;
-      };
+        home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
+          backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
+          useUserPackages = true;
+          useGlobalPkgs = false;
+          sharedModules = [
+            {
+              nix.package = lib.mkForce config.nix.package;
+              home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
+            }
+          ];
+        };
+        nix = {
+          settings = {
+            # Allow local user to use substituters (avoid source builds for nix shell/profile)
+            trusted-users = [
+              "root"
+              config.userPresets.cdenneen.name
+            ];
+            experimental-features = [
+              "nix-command"
+              "flakes"
+              "pipe-operators"
+            ];
+            substituters = config.nix.settings.trusted-substituters;
+            trusted-substituters = [
+              "https://cache.nixos.org"
+              "https://nix-community.cachix.org"
+              "https://cdenneen.cachix.org"
+            ];
+            trusted-public-keys = [
+              "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+              "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+              "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
+            ];
+            auto-optimise-store = true;
+          };
+          extraOptions = lib.mkAfter (
+            lib.optionalString (githubTokenPlaceholder != null) ''
+              include ${config.sops.templates."github-token.nix.conf".path}
+            ''
+          );
+          nixPath = [
+            "nixpkgs=${inputs.nixpkgs-unstable}"
+          ];
+        };
 
-      # Periodic maintenance to keep /nix/store tidy.
-      nix.gc.automatic = true;
-      nix.gc.options = "--delete-older-than 14d";
-      sops = {
-        defaultSopsFile = ../../secrets/secrets.yaml;
-        age.keyFile = "/var/sops/age/keys.txt";
-      };
-    })
+        # Containers: make Podman available everywhere by default.
+        virtualisation.podman = {
+          enable = lib.mkDefault true;
+          dockerCompat = lib.mkDefault true;
+        };
+
+        # Periodic maintenance to keep /nix/store tidy.
+        nix.gc.automatic = true;
+        nix.gc.options = "--delete-older-than 14d";
+        sops = {
+          defaultSopsFile = ../../secrets/secrets.yaml;
+          age.keyFile = "/var/sops/age/keys.txt";
+        };
+      }
+    ))
 
     (lib.mkIf
       (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)
