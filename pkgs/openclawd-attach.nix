@@ -3,7 +3,7 @@
 pkgs.writeShellScriptBin "openclawd-attach" ''
   set -euo pipefail
 
-  url="''${OPENCLAWD_GATEWAY_URL:-ws://100.80.58.4:18789}"
+  url="''${OPENCLAWD_GATEWAY_URL:-wss://nyx.tail0e55.ts.net}"
   token_file="''${OPENCLAWD_GATEWAY_TOKEN_FILE:-$HOME/.config/openclaw/gateway.token}"
 
   if [ ! -r "$token_file" ]; then
@@ -11,7 +11,11 @@ pkgs.writeShellScriptBin "openclawd-attach" ''
     exit 1
   fi
 
-  sessions_json="$(${pkgs.openclaw-gateway}/bin/openclaw sessions --json --url "$url" --token-file "$token_file")"
+  export OPENCLAW_GATEWAY_URL="$url"
+  export OPENCLAW_GATEWAY_TOKEN_FILE="$token_file"
+  export OPENCLAW_GATEWAY_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$token_file")"
+
+  sessions_json="$(${pkgs.openclaw-gateway}/bin/openclaw sessions --json)"
   if [ -z "$sessions_json" ]; then
     echo "openclawd-attach: no sessions found" >&2
     exit 1
@@ -61,5 +65,5 @@ pkgs.writeShellScriptBin "openclawd-attach" ''
     exit 1
   fi
 
-  exec ${pkgs.openclaw-gateway}/bin/openclaw acp client --server-args --url "$url" --token-file "$token_file" --session "$session_key"
+  exec ${pkgs.openclaw-gateway}/bin/openclaw acp client --server-args --session "$session_key"
 ''

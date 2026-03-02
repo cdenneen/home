@@ -139,7 +139,7 @@ in
 
     openclaw_gateway_token = {
       mode = "0400";
-      path = ".config/openclaw/gateway.token";
+      path = "${config.home.homeDirectory}/.config/openclaw/gateway.token";
     };
 
     openai_api_key.mode = "0400";

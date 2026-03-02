@@ -3,7 +3,7 @@
 pkgs.writeShellScriptBin "openclawd-sessions" ''
   set -euo pipefail
 
-  url="''${OPENCLAWD_GATEWAY_URL:-ws://100.80.58.4:18789}"
+  url="''${OPENCLAWD_GATEWAY_URL:-wss://nyx.tail0e55.ts.net}"
   token_file="''${OPENCLAWD_GATEWAY_TOKEN_FILE:-$HOME/.config/openclaw/gateway.token}"
 
   if [ ! -r "$token_file" ]; then
@@ -11,5 +11,9 @@ pkgs.writeShellScriptBin "openclawd-sessions" ''
     exit 1
   fi
 
-  exec ${pkgs.openclaw-gateway}/bin/openclaw sessions --json --url "$url" --token-file "$token_file" "$@"
+  export OPENCLAW_GATEWAY_URL="$url"
+  export OPENCLAW_GATEWAY_TOKEN_FILE="$token_file"
+  export OPENCLAW_GATEWAY_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$token_file")"
+
+  exec ${pkgs.openclaw-gateway}/bin/openclaw sessions --json "$@"
 ''

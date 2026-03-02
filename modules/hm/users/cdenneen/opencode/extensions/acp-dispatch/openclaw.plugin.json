@@ -1,0 +1,10 @@
+{
+  "id": "acp-dispatch",
+  "name": "ACP Dispatch",
+  "description": "Auto-dispatch Telegram DMs to ACP sessions.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

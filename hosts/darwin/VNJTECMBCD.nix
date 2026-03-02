@@ -1,6 +1,9 @@
 { lib, pkgs, ... }:
 {
   networking.hostName = "VNJTECMBCD";
+  networking.extraHosts = ''
+    100.80.58.4 nyx.tail0e55.ts.net
+  '';
 
   system.stateVersion = 6;
 
