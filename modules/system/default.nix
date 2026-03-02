@@ -64,7 +64,10 @@ in
     # and must not be referenced at all on nix-darwin.
 
     (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
-      sops.secrets.github-token = { };
+      sops.secrets.github-token = {
+        owner = "cdenneen";
+        mode = "0400";
+      };
       sops.templates."github-token.nix.conf".content =
         "access-tokens = github.com=${config.sops.secrets.github-token.placeholder}";
 

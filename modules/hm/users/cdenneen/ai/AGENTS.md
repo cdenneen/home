@@ -1,4 +1,3 @@
-
 ## Table of Contents
 
 - GitLab IaC Pipelines (glab + Terraform/OpenTofu/Terragrunt + AWS OIDC)
@@ -28,10 +27,10 @@
 
 A deployment task is only “done” when:
 
-1) The target pipeline reaches a terminal state (success/failed/canceled), AND
-2) All relevant child/bridge pipelines are also terminal, AND
-3) If the workflow depends on artifacts, the agent has checked whether artifacts exist and were produced by the expected job(s), AND
-4) The agent prints a final status summary including:
+1. The target pipeline reaches a terminal state (success/failed/canceled), AND
+2. All relevant child/bridge pipelines are also terminal, AND
+3. If the workflow depends on artifacts, the agent has checked whether artifacts exist and were produced by the expected job(s), AND
+4. The agent prints a final status summary including:
    - pipeline ID + URL
    - failing job(s) with stage
    - child pipeline status (if any)
@@ -380,10 +379,10 @@ git ws-branch feat/my-branch [start-point]
 
 A deployment task is only “done” when:
 
-1) The target pipeline reaches a terminal state (success/failed/canceled), AND
-2) All relevant child/bridge pipelines are also terminal, AND
-3) If the workflow depends on artifacts, the agent has checked whether artifacts exist and were produced by the expected job(s), AND
-4) The agent prints a final status summary including:
+1. The target pipeline reaches a terminal state (success/failed/canceled), AND
+2. All relevant child/bridge pipelines are also terminal, AND
+3. If the workflow depends on artifacts, the agent has checked whether artifacts exist and were produced by the expected job(s), AND
+4. The agent prints a final status summary including:
    - pipeline ID + URL
    - failing job(s) with stage
    - child pipeline status (if any)

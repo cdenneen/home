@@ -17,5 +17,10 @@ lib.concatStringsSep "\n" [
     if [ -r "$HOME/.secrets" ]; then
       source "$HOME/.secrets"
     fi
+    if [ -r /run/secrets/github-token ]; then
+      export GITHUB_TOKEN="$(tr -d '\n' </run/secrets/github-token)"
+    elif [ -r /var/run/secrets/github-token ]; then
+      export GITHUB_TOKEN="$(tr -d '\n' </var/run/secrets/github-token)"
+    fi
   ''
 ]
