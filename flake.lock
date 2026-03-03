@@ -429,11 +429,11 @@
         "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1772236066,
-        "narHash": "sha256-/9TrbDynxgPp26tCssfFzC5Dj5SPx1Szrseg+3cusiY=",
+        "lastModified": 1772490203,
+        "narHash": "sha256-8p1poEzjRrSeH/IDDTt8HCynkX4JGwwJaBUu139qzi8=",
         "owner": "das-monki",
         "repo": "nix-happier",
-        "rev": "ce93cb210fe0014ca2f098f34253c8d218647364",
+        "rev": "161bf61e5a4aa6765de8debf81f0234c30361434",
         "type": "github"
       },
       "original": {
@@ -445,15 +445,16 @@
     "happier_2": {
       "flake": false,
       "locked": {
-        "lastModified": 1772114292,
-        "narHash": "sha256-nSF/bbZKakatNl2JSQS9WV3r+Mgtgvl5mVfj+GFYWbs=",
+        "lastModified": 1772259841,
+        "narHash": "sha256-ryQuh4QDBbesjv3OG/4ASlfmMZDGStVYL7yrQN0M6Ig=",
         "owner": "happier-dev",
         "repo": "happier",
-        "rev": "e7a17e05528bc787f09267a8019816c113025eb2",
+        "rev": "1037536329cc13dbad12d896169fb7dc84c12337",
         "type": "github"
       },
       "original": {
         "owner": "happier-dev",
+        "ref": "preview",
         "repo": "happier",
         "type": "github"
       }
