@@ -89,9 +89,6 @@ in
       (pkgs.callPackage ../../../../pkgs/workspace-init.nix { })
       (pkgs.callPackage ../../../../pkgs/setup-repo.nix { })
       (pkgs.callPackage ../../../../pkgs/update-workspace.nix { })
-      (pkgs.callPackage ../../../../pkgs/openclawd-sessions.nix { })
-      (pkgs.callPackage ../../../../pkgs/openclawd-attach.nix { })
-      (pkgs.callPackage ../../../../pkgs/openclawd-acp.nix { })
 
       # Clipboard
       lemonade
