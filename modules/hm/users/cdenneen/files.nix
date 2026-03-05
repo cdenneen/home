@@ -41,16 +41,8 @@ let
       };
       mcp_servers = {
         github = {
-          command = "npx";
-          args = [
-            "-y"
-            "github-mcp-server"
-            "stdio"
-          ];
-          env = {
-            GITHUB_TOOLSETS = "context,actions,code_security,dependabot,discussions,gists,git,issues,labels,notifications,orgs,projects,pull_requests,repos,secret_protection,security_advisories,stargazers,users";
-          };
-          env_vars = [ "GITHUB_TOKEN" ];
+          url = "https://api.githubcopilot.com/mcp/";
+          bearer_token_env_var = "GITHUB_TOKEN";
         };
         gitlab = {
           command = "bash";

@@ -23,33 +23,6 @@
     openFirewall = true;
   };
 
-  systemd.services.tailscale-serve-openclaw =
-    let
-      serve = pkgs.writeShellScript "tailscale-serve-nyx" ''
-        set -euo pipefail
-
-        ${pkgs.tailscale}/bin/tailscale serve reset
-        ${pkgs.tailscale}/bin/tailscale serve --yes --bg --https 443 http://127.0.0.1:3005
-        ${pkgs.tailscale}/bin/tailscale serve --yes --bg --https 443 --set-path /ui http://127.0.0.1:18789
-        ${pkgs.tailscale}/bin/tailscale serve --yes --bg --https 443 --set-path /__openclaw http://127.0.0.1:18789
-      '';
-    in
-    {
-      description = "Tailscale Serve nyx routes";
-      after = [
-        "network-online.target"
-        "tailscaled.service"
-      ];
-      wants = [ "network-online.target" ];
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = serve;
-        ExecStop = "${pkgs.tailscale}/bin/tailscale serve reset";
-      };
-    };
-
   services.amazon-cloudwatch-agent = {
     enable = true;
     mode = "ec2";
@@ -255,64 +228,7 @@
     virtualHosts."nyx.tail0e55.ts.net".extraConfig = ''
       reverse_proxy 127.0.0.1:3005
     '';
-    virtualHosts."http://clawd.denneen.net".extraConfig = ''
-      redir / /ui/ 302
-      redir /ui /ui/ 302
-
-      handle /ui/seed {
-        header Content-Type text/html
-        respond "<!doctype html><html><head><meta charset=\"utf-8\"></head><body><script>localStorage.setItem('openclaw.control.settings.v1', JSON.stringify({gatewayUrl:'wss://clawd.denneen.net', token:'{env.OPENCLAW_GATEWAY_TOKEN}', sessionKey:'main', lastActiveSessionKey:'main'}));location.replace('/ui/');</script></body></html>" 200
-      }
-
-      handle /__openclaw/* {
-        rewrite * /ui{uri}
-        reverse_proxy http://127.0.0.1:18789 {
-          header_up Authorization "Bearer {env.OPENCLAW_GATEWAY_TOKEN}"
-          header_up Cf-Access-Authenticated-User-Email {http.request.header.Cf-Access-Authenticated-User-Email}
-          header_up Cf-Access-Jwt-Assertion {http.request.header.Cf-Access-Jwt-Assertion}
-        }
-      }
-
-      handle /ui/* {
-        reverse_proxy http://127.0.0.1:18789 {
-          header_up Authorization "Bearer {env.OPENCLAW_GATEWAY_TOKEN}"
-          header_up Cf-Access-Authenticated-User-Email {http.request.header.Cf-Access-Authenticated-User-Email}
-          header_up Cf-Access-Jwt-Assertion {http.request.header.Cf-Access-Jwt-Assertion}
-        }
-      }
-
-      handle {
-        reverse_proxy http://127.0.0.1:18789 {
-          header_up Authorization "Bearer {env.OPENCLAW_GATEWAY_TOKEN}"
-          header_up Cf-Access-Authenticated-User-Email {http.request.header.Cf-Access-Authenticated-User-Email}
-          header_up Cf-Access-Jwt-Assertion {http.request.header.Cf-Access-Jwt-Assertion}
-        }
-      }
-    '';
   };
-
-  sops.secrets.openclaw_gateway_token = {
-    owner = "caddy";
-    mode = "0400";
-  };
-  systemd.services.caddy.serviceConfig = {
-    EnvironmentFile = "-/run/caddy/openclaw.env";
-  };
-  systemd.services.caddy.preStart = lib.mkAfter ''
-    token_file="${config.sops.secrets.openclaw_gateway_token.path}"
-    env_file="/run/caddy/openclaw.env"
-
-    if [ ! -r "$token_file" ]; then
-      echo "caddy: openclaw token file not readable" >&2
-      exit 1
-    fi
-
-    umask 0077
-    token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$token_file")"
-    printf 'OPENCLAW_GATEWAY_TOKEN=%s\n' "$token" >"$env_file"
-    ${pkgs.coreutils}/bin/chown caddy:caddy "$env_file"
-    ${pkgs.coreutils}/bin/chmod 0600 "$env_file"
-  '';
 
   services.cloudflared = {
     enable = true;
@@ -321,7 +237,6 @@
         credentialsFile = "/var/lib/cloudflared/opencode.json";
         ingress = {
           "chat.denneen.net" = "http://127.0.0.1:4096";
-          "clawd.denneen.net" = "http://127.0.0.1";
         };
         default = "http_status:404";
         originRequest = {

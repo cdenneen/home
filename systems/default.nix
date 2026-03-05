@@ -8,7 +8,6 @@ let
     home-manager
     mac-app-util
     nix-index-database
-    nix-openclaw
     nixpkgs
     nixos-crostini
     nixos-wsl
@@ -25,7 +24,6 @@ let
   sharedHomeModulesIntegrated = [
     catppuccin.homeModules.catppuccin
     nix-index-database.homeModules.nix-index
-    nix-openclaw.homeManagerModules.openclaw
     nur.modules.homeManager.default
     self.homeModules.default
     opnix.homeManagerModules.default
@@ -35,7 +33,6 @@ let
   sharedHomeModulesStandalone = [
     catppuccin.homeModules.catppuccin
     nix-index-database.homeModules.nix-index
-    nix-openclaw.homeManagerModules.openclaw
     nur.modules.homeManager.default
     self.homeModules.default
     opnix.homeManagerModules.default
