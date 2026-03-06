@@ -44,7 +44,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Install nix
-        uses: DeterminateSystems/determinate-nix-action@main
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
       - name: Update flake input
         id: update
         env:
