@@ -62,8 +62,7 @@ jobs:
           git config user.email "github-actions@github.com"
           git add flake.lock
           git commit -m "Update flake input ${input}"
-          git pull --rebase origin "update-flake-${input}" || true
-          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}"
+          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force-with-lease
           gh pr create \
             --base main \
             --head "update-flake-${input}" \
