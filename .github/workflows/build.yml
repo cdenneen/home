@@ -68,8 +68,18 @@ jobs:
           git config user.email "github-actions@github.com"
           git add flake.lock
           git commit -m "Update flake input ${input}"
-          git fetch origin "update-flake-${input}" || true
-          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force-with-lease
+          attempts=5
+          for attempt in $(seq 1 "$attempts"); do
+            git fetch origin "update-flake-${input}" || true
+            if git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force-with-lease; then
+              break
+            fi
+            if [ "$attempt" -eq "$attempts" ]; then
+              echo "Push failed after ${attempts} attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 2))
+          done
           gh pr create \
             --base main \
             --head "update-flake-${input}" \
