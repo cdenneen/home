@@ -71,6 +71,7 @@ jobs:
           attempts=5
           for attempt in $(seq 1 "$attempts"); do
             git fetch origin "update-flake-${input}" || true
+            git rebase "origin/update-flake-${input}" || true
             if git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force-with-lease; then
               break
             fi
