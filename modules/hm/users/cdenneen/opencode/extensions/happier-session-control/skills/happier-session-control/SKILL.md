@@ -1,7 +1,14 @@
 ---
 name: happier-session-control
 description: Manage Happier sessions (list/status/send/wait/history/stop + execution runs) via the happier CLI JSON contract.
-metadata: {"openclaw":{"requires":{"bins":["happier"]},"homepage":"https://github.com/happier-dev/happier"}}
+metadata:
+  {
+    "openclaw":
+      {
+        "requires": { "bins": ["happier"] },
+        "homepage": "https://github.com/happier-dev/happier",
+      },
+  }
 ---
 
 # Happier Session Control (CLI JSON)

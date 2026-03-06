@@ -6,7 +6,9 @@ const STATE_FILE = "acp-dispatch.json";
 const COMMAND_NAMES = ["acpbind", "bind"];
 
 function normalizeAccountId(accountId) {
-  return accountId && String(accountId).trim() ? String(accountId).trim() : "default";
+  return accountId && String(accountId).trim()
+    ? String(accountId).trim()
+    : "default";
 }
 
 function normalizeConversationId(conversationId) {
@@ -67,7 +69,12 @@ async function listSessionStores() {
   const stores = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const storePath = path.join(agentsDir, entry.name, "sessions", "sessions.json");
+    const storePath = path.join(
+      agentsDir,
+      entry.name,
+      "sessions",
+      "sessions.json",
+    );
     stores.push(storePath);
   }
   return stores;
@@ -102,10 +109,17 @@ async function loadState(statePath) {
   try {
     const raw = await fs.readFile(statePath, "utf8");
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return { bindings: {}, lastSeen: {} };
+    if (!parsed || typeof parsed !== "object")
+      return { bindings: {}, lastSeen: {} };
     return {
-      bindings: typeof parsed.bindings === "object" && parsed.bindings ? parsed.bindings : {},
-      lastSeen: typeof parsed.lastSeen === "object" && parsed.lastSeen ? parsed.lastSeen : {},
+      bindings:
+        typeof parsed.bindings === "object" && parsed.bindings
+          ? parsed.bindings
+          : {},
+      lastSeen:
+        typeof parsed.lastSeen === "object" && parsed.lastSeen
+          ? parsed.lastSeen
+          : {},
     };
   } catch (err) {
     if (err && err.code === "ENOENT") return { bindings: {}, lastSeen: {} };
@@ -123,11 +137,7 @@ function buildUsage(commandName) {
 }
 
 function resolveMessageId(metadata) {
-  const candidates = [
-    metadata?.messageId,
-    metadata?.message_id,
-    metadata?.id,
-  ];
+  const candidates = [metadata?.messageId, metadata?.message_id, metadata?.id];
   for (const candidate of candidates) {
     if (candidate === undefined || candidate === null) continue;
     const value = String(candidate).trim();
@@ -150,7 +160,8 @@ function shouldSkipContent(content) {
 
 function isGroupMessage(metadata) {
   if (!metadata || typeof metadata !== "object") return false;
-  if (metadata.chatType === "group" || metadata.chatType === "channel") return true;
+  if (metadata.chatType === "group" || metadata.chatType === "channel")
+    return true;
   if (metadata.isGroup === true) return true;
   return false;
 }
@@ -161,7 +172,10 @@ const plugin = {
   description: "Auto-dispatch Telegram DMs to ACP sessions.",
   register(api) {
     const logger = api.logger;
-    const statePath = path.join(api.runtime.state.resolveStateDir(api.config), STATE_FILE);
+    const statePath = path.join(
+      api.runtime.state.resolveStateDir(api.config),
+      STATE_FILE,
+    );
     const allowRepliesUntil = new Map();
     const resolveSessionKey = async (raw) => {
       if (!raw) return { ok: false, error: "Missing session reference." };
@@ -213,10 +227,15 @@ const plugin = {
 
           if (action === "status") {
             const binding = state.bindings[key];
-            if (!binding) return { text: "No ACP session bound for this chat." };
-            const resolved = await resolveSessionKey(binding.target ?? binding.sessionKey);
+            if (!binding)
+              return { text: "No ACP session bound for this chat." };
+            const resolved = await resolveSessionKey(
+              binding.target ?? binding.sessionKey,
+            );
             if (!resolved.ok) return { text: resolved.error };
-            return { text: `ACP session bound: ${binding.target} (${resolved.key})` };
+            return {
+              text: `ACP session bound: ${binding.target} (${resolved.key})`,
+            };
           }
 
           if (action === "clear") {
@@ -247,7 +266,9 @@ const plugin = {
       try {
         state = await loadState(statePath);
       } catch (err) {
-        logger.warn(`acp-dispatch: failed to load state: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `acp-dispatch: failed to load state: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return;
       }
 
@@ -256,7 +277,9 @@ const plugin = {
       const binding = state.bindings[key];
       if (!binding?.target && !binding?.sessionKey) return;
 
-      const resolved = await resolveSessionKey(binding.sessionKey ?? binding.target);
+      const resolved = await resolveSessionKey(
+        binding.sessionKey ?? binding.target,
+      );
       if (!resolved.ok) {
         logger.warn(`acp-dispatch: ${resolved.error}`);
         return;
@@ -269,7 +292,9 @@ const plugin = {
       try {
         await saveState(statePath, state);
       } catch (err) {
-        logger.warn(`acp-dispatch: failed to persist state: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `acp-dispatch: failed to persist state: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       const chatId = resolveConversationId(ctx, event.metadata);
@@ -297,32 +322,46 @@ const plugin = {
       });
 
       try {
-        await api.runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-          ctx: ctxPayload,
-          cfg: api.config,
-          dispatcherOptions: {
-            deliver: async (payload) => {
-              const text = payload.text ?? "";
-              const mediaUrl = payload.mediaUrl ?? payload.mediaUrls?.[0];
-              if (!text && !mediaUrl) return;
+        await api.runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher(
+          {
+            ctx: ctxPayload,
+            cfg: api.config,
+            dispatcherOptions: {
+              deliver: async (payload) => {
+                const text = payload.text ?? "";
+                const mediaUrl = payload.mediaUrl ?? payload.mediaUrls?.[0];
+                if (!text && !mediaUrl) return;
 
-              const replyToMessageId = messageId ? Number.parseInt(messageId, 10) : NaN;
+                const replyToMessageId = messageId
+                  ? Number.parseInt(messageId, 10)
+                  : NaN;
 
-              await api.runtime.channel.telegram.sendMessageTelegram(chatId, text, {
-                accountId: ctx.accountId,
-                mediaUrl,
-                replyToMessageId: Number.isFinite(replyToMessageId) ? replyToMessageId : void 0,
-                asVoice: payload.audioAsVoice ?? false,
-                asVideoNote: payload.videoAsVideoNote ?? false,
-              });
-            },
-            onError: (err, info) => {
-              logger.warn(`acp-dispatch: delivery error (${info?.kind ?? "unknown"}): ${err instanceof Error ? err.message : String(err)}`);
+                await api.runtime.channel.telegram.sendMessageTelegram(
+                  chatId,
+                  text,
+                  {
+                    accountId: ctx.accountId,
+                    mediaUrl,
+                    replyToMessageId: Number.isFinite(replyToMessageId)
+                      ? replyToMessageId
+                      : void 0,
+                    asVoice: payload.audioAsVoice ?? false,
+                    asVideoNote: payload.videoAsVideoNote ?? false,
+                  },
+                );
+              },
+              onError: (err, info) => {
+                logger.warn(
+                  `acp-dispatch: delivery error (${info?.kind ?? "unknown"}): ${err instanceof Error ? err.message : String(err)}`,
+                );
+              },
             },
           },
-        });
+        );
       } catch (err) {
-        logger.warn(`acp-dispatch: dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `acp-dispatch: dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     });
 
