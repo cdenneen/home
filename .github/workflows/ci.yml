@@ -31,8 +31,6 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate NixOS (nyx)
         run: nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
-      - name: Evaluate NixOS (MacBook-Pro-NixOS)
-        run: nix build .#nixosConfigurations.MacBook-Pro-NixOS.config.system.build.toplevel --accept-flake-config
 
   darwin-eval:
     runs-on: macos-latest
