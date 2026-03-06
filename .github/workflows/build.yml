@@ -16,6 +16,9 @@ jobs:
   Update-flake-inputs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    concurrency:
+      group: update-flake-${{ matrix.input }}
+      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
@@ -65,6 +68,7 @@ jobs:
           git config user.email "github-actions@github.com"
           git add flake.lock
           git commit -m "Update flake input ${input}"
+          git fetch origin "update-flake-${input}" || true
           git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force-with-lease
           gh pr create \
             --base main \
