@@ -11,6 +11,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: flake-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Flake checks are intentionally omitted in CI.
   # They are strict under flake-parts and require per-system guarantees

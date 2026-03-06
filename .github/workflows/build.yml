@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: "30 7 * * *"
   workflow_dispatch:
+concurrency:
+  group: build-populate-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
   id-token: write
@@ -58,7 +61,8 @@ jobs:
         run: |
           set -euo pipefail
           input="${{ matrix.input }}"
-          git checkout -B "update-flake-${input}"
+          git fetch origin main
+          git checkout -B "update-flake-${input}" "origin/main"
           nix flake lock --update-input "$input"
           if git diff --exit-code flake.lock; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -68,15 +72,9 @@ jobs:
           git config user.email "github-actions@github.com"
           git add flake.lock
           git commit -m "Update flake input ${input}"
-          attempts=5
+          attempts=3
           for attempt in $(seq 1 "$attempts"); do
-            git rebase --abort || true
-            rm -rf .git/rebase-merge .git/rebase-apply
-            git fetch origin "update-flake-${input}" || true
-            if git show-ref --verify --quiet "refs/remotes/origin/update-flake-${input}"; then
-              git rebase "origin/update-flake-${input}" || true
-            fi
-            if git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force-with-lease; then
+            if git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force; then
               break
             fi
             if [ "$attempt" -eq "$attempts" ]; then
