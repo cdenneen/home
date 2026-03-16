@@ -83,13 +83,21 @@ jobs:
             fi
             sleep $((attempt * 2))
           done
-          gh pr create \
+          existing_pr=$(gh pr list \
             --base main \
             --head "update-flake-${input}" \
-            --title "Update flake input ${input}" \
-            --label "dependencies" \
-            --label "automated" \
-            --label "flake-lock" \
-            --body "Updates ${input} in flake.lock." \
-            || true
+            --state open \
+            --json number \
+            --jq '.[0]?.number // empty')
+          if [ -n "$existing_pr" ]; then
+            echo "PR #${existing_pr} already open for update-flake-${input}"
+          else
+            gh pr create \
+              --base main \
+              --head "update-flake-${input}" \
+              --title "Update flake input ${input}" \
+              --label "dependencies" \
+              --label "automated" \
+              --body "Updates ${input} in flake.lock."
+          fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
