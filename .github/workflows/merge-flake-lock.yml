@@ -44,6 +44,13 @@ jobs:
         id: pr
         if: steps.evals.outputs.ready == 'true'
         run: |
+          HEAD_REPO=$(jq -r '.workflow_run.head_repository.full_name // empty' "$GITHUB_EVENT_PATH")
+          if [ -z "$HEAD_REPO" ] || [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "Run head repository '$HEAD_REPO' does not match '$GITHUB_REPOSITORY'; skipping auto-merge."
+            echo "pr=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           HEAD_BRANCH=$(jq -r '.workflow_run.head_branch // empty' "$GITHUB_EVENT_PATH")
           if [[ "$HEAD_BRANCH" != update-flake-* ]]; then
             echo "Run is for branch '$HEAD_BRANCH', not update-flake-*; skipping auto-merge."
@@ -73,6 +80,6 @@ jobs:
 
       - name: Merge flake.lock PR
         if: steps.evals.outputs.ready == 'true' && steps.pr.outputs.pr != ''
-        run: gh pr merge --auto --squash ${{ steps.pr.outputs.pr }}
+        run: gh pr merge --auto --squash "${{ steps.pr.outputs.pr }}"
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
