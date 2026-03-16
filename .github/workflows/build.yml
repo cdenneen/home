@@ -88,7 +88,7 @@ jobs:
             --head "update-flake-${input}" \
             --state open \
             --json number \
-            --jq '.[0].number // empty')
+            --jq '.[0]?.number // empty')
           if [ -n "$existing_pr" ]; then
             echo "PR #${existing_pr} already open for update-flake-${input}"
           else

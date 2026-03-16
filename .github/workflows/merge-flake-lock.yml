@@ -70,7 +70,7 @@ jobs:
               --head "$HEAD_BRANCH" \
               --state open \
               --json number \
-              --jq '.[0].number // empty')
+              --jq '.[0]?.number // empty')
           else
             PR=""
           fi
