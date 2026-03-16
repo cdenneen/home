@@ -11,34 +11,68 @@ permissions:
 
 jobs:
   merge:
-    # Only run when CI succeeded on a pull request
+    # Only evaluate pull request-triggered CI runs
     if: >
-      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Verify required eval jobs passed
+        id: evals
+        run: |
+          RUN_ID=$(jq -r '.workflow_run.id' "$GITHUB_EVENT_PATH")
+          JOBS_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100")
+
+          NIXOS_RESULT=$(echo "$JOBS_JSON" | jq -r '.jobs[] | select(.name=="nixos-eval") | .conclusion' | head -n1)
+          DARWIN_RESULT=$(echo "$JOBS_JSON" | jq -r '.jobs[] | select(.name=="darwin-eval") | .conclusion' | head -n1)
+
+          echo "nixos=${NIXOS_RESULT:-missing}" >> "$GITHUB_OUTPUT"
+          echo "darwin=${DARWIN_RESULT:-missing}" >> "$GITHUB_OUTPUT"
+
+          if [ "${NIXOS_RESULT:-}" = "success" ] && [ "${DARWIN_RESULT:-}" = "success" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Required eval checks not successful; PR will remain open."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
       - name: Locate flake.lock PR
         id: pr
+        if: steps.evals.outputs.ready == 'true'
         run: |
+          HEAD_BRANCH=$(jq -r '.workflow_run.head_branch // empty' "$GITHUB_EVENT_PATH")
+          if [[ "$HEAD_BRANCH" != update-flake-* ]]; then
+            echo "Run is for branch '$HEAD_BRANCH', not update-flake-*; skipping auto-merge."
+            echo "pr=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           PR=$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")
           if [ -n "$PR" ]; then
             echo "pr=$PR" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          PR=$(gh pr list \
-            --label flake-lock \
-            --state open \
-            --json number \
-            --jq '.[0].number')
+
+          if [ -n "$HEAD_BRANCH" ]; then
+            PR=$(gh pr list \
+              --base main \
+              --head "$HEAD_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty')
+          else
+            PR=""
+          fi
           echo "pr=$PR" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
       - name: Merge flake.lock PR
-        if: steps.pr.outputs.pr != ''
+        if: steps.evals.outputs.ready == 'true' && steps.pr.outputs.pr != ''
         run: gh pr merge --auto --squash ${{ steps.pr.outputs.pr }}
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
