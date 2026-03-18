@@ -1028,11 +1028,11 @@
         "nixpkgs": "nixpkgs_12"
       },
       "locked": {
-        "lastModified": 1773719253,
-        "narHash": "sha256-4LRyvmdtx5gyMh8+iRS8OHLkUhobWnlhOfOWqHeC3Qk=",
+        "lastModified": 1773816413,
+        "narHash": "sha256-goNe9j4oGoDZfV+ckCKcm4rweogK0BgGcU9gsEmPs5I=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "e14e874e513178ac056cec7be5bac4ff5fd842ef",
+        "rev": "a43783a6d47a069ca2fd187c378b8e9899093b37",
         "type": "github"
       },
       "original": {
