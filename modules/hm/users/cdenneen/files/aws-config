@@ -44,6 +44,21 @@ sso_account_id=198401342403
 sso_role_name=SystemAdministrator
 sso_session=cdenneen
 
+[profile sso-devapi]
+sso_account_id=166617892223
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile sso-qaapi]
+sso_account_id=344404607343
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile sso-prodapi]
+sso_account_id=621154228136
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
 [profile tf-apss]
 role_arn=arn:aws:iam::838870929816:role/gitlab-terraform-role
 role_session_name=terraform-eks
