@@ -355,6 +355,15 @@ git ws-branch feat/my-branch [start-point]
   - `~/.opencode/skills/<name>/SKILL.md`
 - Load skills on demand using the `skill` tool.
 
+## Codex Subagent Routing
+
+- When a task is primarily Kubernetes cluster/manifests/troubleshooting, delegate to `kubernetes-expert`.
+- When a task is primarily Terraform/OpenTofu/Terragrunt planning/state/module work, delegate to `terraform-expert`.
+- When a task is primarily GitLab CI pipeline/job/artifact/bridge debugging, delegate to `gitlab-ci-expert`.
+- When a task is primarily AWS IAM/OIDC/STS/service diagnostics, delegate to `aws-expert`.
+- When a task is primarily Nix/NixOS/nix-darwin/Home Manager/flake design or debugging, delegate to `nix-expert`.
+- For mixed tasks, split by domain to the matching subagents and synthesize a single final answer.
+
 ## Git Workflow
 
 - Always run `git pull --rebase` before `git push` to avoid remote divergence.

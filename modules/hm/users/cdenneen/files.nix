@@ -36,8 +36,12 @@ let
       file_opener = "none";
       show_raw_agent_reasoning = true;
       web_search = "live";
+      agents = {
+        max_threads = 6;
+      };
       features = {
-        multi_agent = true;
+        child_agents_md = true;
+        steer = true;
       };
       mcp_servers = {
         github = {
@@ -60,10 +64,21 @@ let
           ];
         };
         kubernetes = {
-          command = "npx";
+          command = "bash";
           args = [
-            "-y"
-            "@strowk/mcp-k8s"
+            "-lc"
+            ''
+              set -euo pipefail
+
+              kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+              if [ -r "$kubeconfig" ]; then
+                sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
+                sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+                export KUBECONFIG="$sanitized"
+              fi
+
+              exec npx -y @strowk/mcp-k8s
+            ''
           ];
         };
         aws = {
@@ -77,12 +92,18 @@ let
           };
         };
         terraform = {
-          command = "podman";
+          command = "bash";
           args = [
-            "run"
-            "-i"
-            "--rm"
-            "hashicorp/terraform-mcp-server:0.4.0"
+            "-lc"
+            ''
+              set -euo pipefail
+
+              if command -v podman >/dev/null 2>&1; then
+                exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
+              fi
+
+              exec npx -y terraform-mcp-server
+            ''
           ];
           env_vars = [
             "TF_TOKEN_app_terraform_io"
@@ -142,11 +163,33 @@ in
   home.file.".config/opencode/docs/agent-secrets.md".source = ./opencode/docs/agent-secrets.md;
 
   home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
+  home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
+  home.file.".codex/subagents/terraform-expert.md".source = ./ai/subagents/terraform-expert.md;
+  home.file.".codex/subagents/gitlab-ci-expert.md".source = ./ai/subagents/gitlab-ci-expert.md;
+  home.file.".codex/subagents/aws-expert.md".source = ./ai/subagents/aws-expert.md;
+  home.file.".codex/subagents/nix-expert.md".source = ./ai/subagents/nix-expert.md;
   home.file.".codex/notify.py" = {
     source = ./ai/notify.py;
     executable = true;
   };
-  home.file.".codex/config.toml".source = tomlFormat.generate "codex-config.toml" codexConfigAttrs;
+  home.file.".codex/config.toml.source".source = tomlFormat.generate "codex-config.toml" codexConfigAttrs;
+
+  home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    set -euo pipefail
+
+    src="$HOME/.codex/config.toml.source"
+    dst="$HOME/.codex/config.toml"
+
+    if [ -f "$src" ]; then
+      $DRY_RUN_CMD mkdir -p "$HOME/.codex"
+
+      if [ -L "$dst" ]; then
+        $DRY_RUN_CMD rm -f "$dst"
+      fi
+
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src" "$dst"
+    fi
+  '';
 
   home.activation.awsConfigWrite = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     set -euo pipefail
