@@ -2,16 +2,16 @@
   inputs,
   self,
   lib,
+  hostCatalog ? import ../hosts,
 }:
 let
   inherit (lib) mkHomeConfiguration;
 
   defaultHomeModule =
-    username:
     { pkgs, ... }:
     {
-      home.username = username;
-      home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
+      home.username = "cdenneen";
+      home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
       profiles.defaults.enable = true;
       profiles.gui.enable = pkgs.stdenv.isDarwin;
     };
@@ -24,30 +24,22 @@ let
 
   homeConfiguration = mkHomeConfiguration;
 
-  users = [ "cdenneen" ];
-
-  hostDefs = import ../hosts;
-  allHosts = hostDefs.nixos ++ hostDefs.darwin;
+  allHosts = builtins.attrValues hostCatalog.allByName;
 
   extraModulesForHost = hostName: if hostName == "nyx" then [ ../hosts/nixos/nyx-home.nix ] else [ ];
 
   homeConfigurations = builtins.listToAttrs (
-    builtins.concatLists (
-      map (
-        host:
-        (map (username: {
-          name = "${username}@${host.name}";
-          value = homeConfiguration {
-            system = host.system;
-            homeModules = [
-              (defaultHomeModule username)
-              opencodeHomeModule
-            ]
-            ++ extraModulesForHost host.name;
-          };
-        }) users)
-      ) allHosts
-    )
+    map (host: {
+      name = "cdenneen@${host.name}";
+      value = homeConfiguration {
+        system = host.system;
+        homeModules = [
+          defaultHomeModule
+          opencodeHomeModule
+        ]
+        ++ extraModulesForHost host.name;
+      };
+    }) allHosts
   );
 in
 {

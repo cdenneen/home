@@ -10,7 +10,7 @@ Workspace focus: GitLab CI/CD design, debugging, and delivery reliability.
 
 Routing guidance:
 - Use `gitlab-ci-expert` first for .gitlab-ci.yml design and pipeline/job triage.
-- Use `terraform-expert`, `kubernetes-expert`, and `aws-expert` as domain specialists when failures cross into IaC, cluster, or cloud auth.
+- Use `terraform-expert`, `kubernetes-expert`, `flux-expert`, and `aws-expert` as domain specialists when failures cross into IaC, GitOps controllers, cluster, or cloud auth.
 
 Pipeline style guidance:
 - Keep CI config DRY using components/includes, hidden jobs, and anchors/aliases.

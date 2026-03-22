@@ -21,7 +21,9 @@ let
     unstable = self.lib.import_nixpkgs system inputs.nixpkgs-unstable;
   };
 
-  sharedHomeModulesIntegrated = [
+  hostCatalog = import ../hosts;
+
+  sharedHomeModules = [
     catppuccin.homeModules.catppuccin
     nix-index-database.homeModules.nix-index
     nur.modules.homeManager.default
@@ -30,14 +32,9 @@ let
     sops-nix.homeManagerModules.sops
   ];
 
-  sharedHomeModulesStandalone = [
-    catppuccin.homeModules.catppuccin
-    nix-index-database.homeModules.nix-index
-    nur.modules.homeManager.default
-    self.homeModules.default
-    opnix.homeManagerModules.default
-    sops-nix.homeManagerModules.sops
-  ];
+  sharedHomeModulesIntegrated = sharedHomeModules;
+
+  sharedHomeModulesStandalone = sharedHomeModules;
 
   extraModulesForTags =
     tags:
@@ -175,8 +172,10 @@ let
       mkNixosSystem
       mkDarwinSystem
       mkHomeConfiguration
+      sharedHomeModules
       sharedHomeModulesIntegrated
       sharedHomeModulesStandalone
+      hostCatalog
       extraModulesForTags
       ;
 
@@ -186,31 +185,26 @@ let
         system,
         kind ? "nixos",
         tags ? [ ],
-        users ? [ "cdenneen" ],
         nixosModules ? [ ],
         darwinModules ? [ ],
         homeModules ? [ ],
       }:
       let
         defaultHomeModule =
-          username:
           { pkgs, ... }:
           {
-            home.username = username;
-            home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
+            home.username = "cdenneen";
+            home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
             profiles.defaults.enable = true;
             profiles.gui.enable = pkgs.stdenv.isDarwin;
           };
 
-        homeConfigurations = builtins.listToAttrs (
-          map (username: {
-            name = username;
-            value = mkHomeConfiguration {
-              inherit system;
-              homeModules = [ (defaultHomeModule username) ] ++ homeModules;
-            };
-          }) users
-        );
+        homeConfigurations = {
+          cdenneen = mkHomeConfiguration {
+            inherit system;
+            homeModules = [ defaultHomeModule ] ++ homeModules;
+          };
+        };
 
         nixosConfigurations = {
           ${hostName} = mkNixosSystem {
@@ -249,9 +243,30 @@ let
       };
   };
 
-  nixos = import ./nixos.nix { inherit inputs self lib; };
-  darwin = import ./darwin.nix { inherit inputs self lib; };
-  home = import ./home.nix { inherit inputs self lib; };
+  nixos = import ./nixos.nix {
+    inherit
+      inputs
+      self
+      lib
+      hostCatalog
+      ;
+  };
+  darwin = import ./darwin.nix {
+    inherit
+      inputs
+      self
+      lib
+      hostCatalog
+      ;
+  };
+  home = import ./home.nix {
+    inherit
+      inputs
+      self
+      lib
+      hostCatalog
+      ;
+  };
 in
 {
   lib = lib // {

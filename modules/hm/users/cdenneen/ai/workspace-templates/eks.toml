@@ -10,6 +10,7 @@ Workspace focus: EKS and Kubernetes operations.
 
 Routing guidance:
 - Use `kubernetes-expert` first for cluster context, events, logs, rollout, and manifest issues.
+- Use `flux-expert` for FluxCD/Flux Operator state, source drift, and reconciliation failures.
 - Use `aws-expert` for EKS IAM/OIDC, node/IRSA auth, and AWS service integration failures.
 - Use `terraform-expert` when the issue is rooted in IaC wiring or module outputs.
 - Use `gitlab-ci-expert` for deployment pipeline blockers or environment promotion flow.

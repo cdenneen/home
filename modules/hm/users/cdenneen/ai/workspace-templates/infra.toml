@@ -12,6 +12,7 @@ Routing guidance:
 - Use `terraform-expert` for Terraform/OpenTofu/Terragrunt changes, planning, state, and module composition.
 - Use `aws-expert` for IAM/OIDC, trust policy, STS, and service-level auth issues.
 - Use `kubernetes-expert` for EKS cluster and workload diagnostics.
+- Use `flux-expert` for FluxCD/Flux Operator reconciliation, GitOps repo topology, and release orchestration.
 - Use `gitlab-ci-expert` for parent/child pipeline architecture, DRY GitLab YAML, artifacts, and manual gates.
 
 Execution guidance:

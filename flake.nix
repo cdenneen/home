@@ -53,7 +53,7 @@
     opnix.url = "github:brizzbuzz/opnix";
     nixos-hardware.url = "github:nixos/nixos-hardware";
     nixos-wsl.url = "github:nix-community/nixos-wsl";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     opencode.url = "github:anomalyco/opencode/dev";
     nur.url = "github:nix-community/nur";
@@ -240,55 +240,16 @@
             };
           };
 
+          # Keep flake checks fast and pure. Full host eval/build targets are
+          # executed explicitly in CI workflow jobs.
           checks =
             with pkgs.lib;
             let
-              fullChecks = (builtins.getEnv "FULL_CHECKS") == "1";
               isCacheable = v: isDerivation v;
-              devShellChecks = mapAttrs' (n: nameValuePair "devShells-${n}") (
-                filterAttrs (n: v: isCacheable v) self'.devShells
-              );
-              homeChecks =
-                mapAttrs'
-                  (
-                    n: v:
-                    (nameValuePair "homeConfigurations-${n}") (
-                      self.homeConfigurations."${n}".config.home.activationPackage
-                    )
-                  )
-                  (
-                    filterAttrs (
-                      n: v: self.homeConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
-                    ) self.homeConfigurations
-                  );
-              nixosChecks =
-                mapAttrs'
-                  (
-                    n: v:
-                    (nameValuePair "nixosConfigurations-${n}") (
-                      self.nixosConfigurations."${n}".config.system.build.toplevel
-                    )
-                  )
-                  (
-                    filterAttrs (
-                      n: v: self.nixosConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
-                    ) self.nixosConfigurations
-                  );
-              darwinChecks =
-                mapAttrs'
-                  (
-                    n: v:
-                    (nameValuePair "darwinConfigurations-${n}") (
-                      self.darwinConfigurations."${n}".config.system.build.toplevel
-                    )
-                  )
-                  (
-                    filterAttrs (
-                      n: v: self.darwinConfigurations."${n}".pkgs.stdenv.hostPlatform.system == system
-                    ) self.darwinConfigurations
-                  );
             in
-            devShellChecks // (if fullChecks then homeChecks // nixosChecks // darwinChecks else { });
+            mapAttrs' (n: nameValuePair "devShells-${n}") (
+              filterAttrs (n: v: isCacheable v) self'.devShells
+            );
         };
     };
 }

@@ -2,21 +2,18 @@
   inputs,
   self,
   lib,
+  hostCatalog ? import ../hosts,
 }:
 let
   inherit (lib) mkDarwinSystem;
 
-  hostDefs = import ../hosts;
-
-  darwinConfigurations = builtins.listToAttrs (
-    map (host: {
-      name = host.name;
-      value = mkDarwinSystem {
-        system = host.system;
-        darwinModules = host.modules;
-      };
-    }) hostDefs.darwin
-  );
+  darwinConfigurations = builtins.mapAttrs (
+    _: host:
+    mkDarwinSystem {
+      system = host.system;
+      darwinModules = host.modules;
+    }
+  ) hostCatalog.darwinByName;
 in
 {
   darwinSystem = mkDarwinSystem;

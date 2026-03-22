@@ -1,4 +1,6 @@
 let
+  mkHostMap = hosts: builtins.listToAttrs (map (host: { name = host.name; value = host; }) hosts);
+
   nixos = [
     {
       name = "eros";
@@ -61,9 +63,15 @@ let
       tags = [ ];
     }
   ];
+
+  all = nixos ++ darwin;
 in
 {
-  inherit nixos darwin;
+  inherit nixos darwin all;
+
+  nixosByName = mkHostMap nixos;
+  darwinByName = mkHostMap darwin;
+  allByName = mkHostMap all;
 
   hostsByKind = {
     nixos = nixos;

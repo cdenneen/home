@@ -261,11 +261,13 @@ in
   home.file.".codex/subagents/gitlab-ci-expert.md".source = ./ai/subagents/gitlab-ci-expert.md;
   home.file.".codex/subagents/aws-expert.md".source = ./ai/subagents/aws-expert.md;
   home.file.".codex/subagents/nix-expert.md".source = ./ai/subagents/nix-expert.md;
+  home.file.".codex/subagents/flux-expert.md".source = ./ai/subagents/flux-expert.md;
   home.file.".codex/agents/kubernetes-expert.toml".source = ./ai/agents/kubernetes-expert.toml;
   home.file.".codex/agents/terraform-expert.toml".source = ./ai/agents/terraform-expert.toml;
   home.file.".codex/agents/gitlab-ci-expert.toml".source = ./ai/agents/gitlab-ci-expert.toml;
   home.file.".codex/agents/aws-expert.toml".source = ./ai/agents/aws-expert.toml;
   home.file.".codex/agents/nix-expert.toml".source = ./ai/agents/nix-expert.toml;
+  home.file.".codex/agents/flux-expert.toml".source = ./ai/agents/flux-expert.toml;
   home.file.".codex/templates/infra.toml".source = ./ai/workspace-templates/infra.toml;
   home.file.".codex/templates/eks.toml".source = ./ai/workspace-templates/eks.toml;
   home.file.".codex/templates/gitlab.toml".source = ./ai/workspace-templates/gitlab.toml;

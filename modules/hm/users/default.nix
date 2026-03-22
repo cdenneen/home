@@ -13,7 +13,6 @@ let
 in
 {
   imports = [
-    ./chloe.nix
     ./cdenneen/default.nix
   ];
 

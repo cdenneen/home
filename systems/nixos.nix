@@ -2,29 +2,21 @@
   inputs,
   self,
   lib,
+  hostCatalog ? import ../hosts,
 }:
 let
-  inherit (lib) mkNixosSystem extraModulesForTags;
+  inherit (lib) mkNixosSystem;
 
-  hostDefs = import ../hosts;
+  allNixosConfigurations = builtins.mapAttrs (
+    _: host:
+    mkNixosSystem {
+      system = host.system;
+      nixosModules = host.modules;
+      tags = host.tags or [ ];
+    }
+  ) hostCatalog.nixosByName;
 
-  allNixosConfigurations = builtins.listToAttrs (
-    map (host: {
-      name = host.name;
-      value = mkNixosSystem {
-        system = host.system;
-        nixosModules = host.modules;
-        tags = host.tags or [ ];
-      };
-    }) hostDefs.nixos
-  );
-
-  nixosConfigurations = builtins.listToAttrs (
-    map (host: {
-      name = host.name;
-      value = allNixosConfigurations.${host.name};
-    }) hostDefs.nixos
-  );
+  nixosConfigurations = allNixosConfigurations;
 in
 {
   nixosSystem = mkNixosSystem;
