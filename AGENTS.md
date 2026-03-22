@@ -13,6 +13,7 @@ This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These
 - Flake wiring lives under `systems/`, hosts under `hosts/`, modules under `modules/`.
 - Home Manager is integrated by default and uses its own nixpkgs (unstable) via per-user HM config.
 - `secrets/secrets.yaml` is encrypted with sops + age; recipients are managed via `.sops.yaml`.
+- `~/.config/glab-cli/config.yml` is managed from SOPS secret `glab_cli_config` (mode `0600`).
 - Prefer conservative changes; keep diffs small and readable.
 - Prefer OpenTofu (`tofu`) over `terraform` for all Terraform commands.
 
@@ -20,6 +21,11 @@ This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These
 
 - Linux WORKSPACE_ROOT: `$HOME/src/workspace`
 - Darwin WORKSPACE_ROOT: `$HOME/code/workspace`
+
+## Cache roots
+
+- Linux CACHE_ROOT: `/home/cdenneen/src/cache`
+- Darwin CACHE_ROOT: `/Users/cdenneen/code/cache`
 
 Each workspace lives under WORKSPACE_ROOT (e.g. `gitlab`, `infra`, `eks`, `backstage`, `work`).
 OpenCode sessions should save durable context to a workspace-level `AGENTS.md`

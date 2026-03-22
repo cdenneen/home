@@ -83,6 +83,16 @@
     [ -f ~/.secrets ] && source ~/.secrets
   }
 
+  _default_cache_root() {
+    if [[ -n "''${CACHE_ROOT:-}" ]]; then
+      print -r -- "$CACHE_ROOT"
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      print -r -- "$HOME/code/cache"
+    else
+      print -r -- "$HOME/src/cache"
+    fi
+  }
+
   _setup_repo_workspace_name() {
     setopt localoptions extendedglob
     local ws
@@ -368,7 +378,8 @@
         shift
       fi
 
-      local cache_root="''${CACHE_ROOT:-$HOME/src/cache}"
+      local cache_root
+      cache_root="$(_default_cache_root)"
       local ws
       ws="$(_setup_repo_workspace_name)"
       if [[ -z "$ws" ]]; then
@@ -482,7 +493,8 @@
   setup_repo() {
     local remote_url="$1"
     local branch="''${2:-}"
-    local cache_root="''${CACHE_ROOT:-$HOME/src/cache}"
+    local cache_root
+    cache_root="$(_default_cache_root)"
 
     if [[ -z "$remote_url" ]]; then
       echo "usage: setup_repo <git-url> [branch]" >&2
@@ -570,7 +582,7 @@
     echo "Worktree ready: $worktree_dir"
   }
 
-  functions +t update_workspace setup_repo _setup_repo_parse_remote _setup_repo_expected_bare_dir \
+  functions +t update_workspace setup_repo _default_cache_root _setup_repo_parse_remote _setup_repo_expected_bare_dir \
     _setup_repo_origin_default_branch _setup_repo_worktree_default_branch _setup_repo_migrate_worktree_cache \
     _git_common_dir_abs _worktree_common_dir_from_gitfile >/dev/null 2>&1 || true
 

@@ -275,45 +275,8 @@ in
     };
   };
 
-  # glab requires strict perms on its config file (0600). Home Manager's
-  # `home.file.<name>.text` produces a store symlink (read-only), so we write a
-  # source file and then copy+chmod it at activation time.
-  home.file.".config/glab-cli/config.yml.source".text = ''
-    git_protocol: ssh
-    editor:
-    browser:
-    glamour_style: dark
-    check_update: true
-    display_hyperlinks: false
-    host: git.ap.org
-    no_prompt: false
-    telemetry: false
-
-    hosts:
-      gitlab.com:
-        api_protocol: https
-        git_protocol: ssh
-        user: cdenneen
-        container_registry_domains:
-          - gitlab.com
-          - gitlab.com:443
-          - registry.gitlab.com
-
-      git.ap.org:
-        api_protocol: https
-        git_protocol: ssh
-        user: cdenneen
-        container_registry_domains:
-          - git.ap.org
-          - git.ap.org:443
-          - registry.associatedpress.com
-  '';
-
-  home.activation.glabCliConfigPerms = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    $DRY_RUN_CMD mkdir -p "$HOME/.config/glab-cli"
-    $DRY_RUN_CMD cp -f "$HOME/.config/glab-cli/config.yml.source" "$HOME/.config/glab-cli/config.yml"
-    $DRY_RUN_CMD chmod 600 "$HOME/.config/glab-cli/config.yml"
-  '';
+  # glab config is sourced from SOPS secret `glab_cli_config` and written to
+  # ~/.config/glab-cli/config.yml with mode 0600.
 
   # direnv loads this automatically (if present). Keep it tiny and just source
   # shared helpers so individual repos can assume they exist.

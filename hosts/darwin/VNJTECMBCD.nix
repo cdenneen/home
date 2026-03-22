@@ -6,15 +6,6 @@
 
   home-manager.users.cdenneen = {
     programs.starship.settings.palette = lib.mkForce "VNJTECMBCD";
-    home.sessionVariables = {
-      # This host uses ~/code/* instead of ~/src/*
-      CACHE_ROOT = "$HOME/code/cache";
-      WORKSPACE_ROOT = "$HOME/code/workspace";
-
-      # Back-compat / convenience
-      CACHE_HOME = "$HOME/code/cache";
-      WORKSPACE_HOME = "$HOME/code/workspace";
-    };
 
     # Tokyo Night (TUI focus) for Ghostty + Neovim.
     xdg.configFile."ghostty/themes/tokyonight-night".text = ''

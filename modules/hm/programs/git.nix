@@ -236,7 +236,13 @@ in
                               exit 1
                             fi
 
-                            cache_root="''${CACHE_ROOT:-\$HOME/src/cache}"
+                            if [ -n "''${CACHE_ROOT:-}" ]; then
+                              cache_root="\$CACHE_ROOT"
+                            elif [ "\$(uname -s)" = "Darwin" ]; then
+                              cache_root="\$HOME/code/cache"
+                            else
+                              cache_root="\$HOME/src/cache"
+                            fi
                             cache_repo="''${cache_root}/''${host}_''${path//\//_}.git"
 
                             mkdir -p "\$cache_root"

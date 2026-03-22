@@ -1,4 +1,14 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+
+let
+  cacheRoot = if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/cache" else "/home/cdenneen/src/cache";
+  workspaceRoot = if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/workspace" else "/home/cdenneen/src/workspace";
+in
 
 {
   # Session-wide defaults for cdenneen
@@ -16,6 +26,10 @@
     XDG_CACHE_HOME = "${config.home.homeDirectory}/.cache";
     AWS_SHARED_CREDENTIALS_FILE = "$HOME/.aws/credentials";
     AWS_CONFIG_FILE = "$HOME/.aws/config";
+    CACHE_ROOT = cacheRoot;
+    WORKSPACE_ROOT = workspaceRoot;
+    CACHE_HOME = cacheRoot;
+    WORKSPACE_HOME = workspaceRoot;
     KUBECACHEDIR = "$XDG_RUNTIME_DIR/kube";
     # Avoid relying on ordering for XDG_CACHE_HOME expansion.
     STARSHIP_CACHE = "$HOME/.cache/starship";

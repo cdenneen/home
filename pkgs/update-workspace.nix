@@ -3,7 +3,13 @@ pkgs.writeShellScriptBin "update_workspace" ''
   set -euo pipefail
 
   migrate=0
-  root="''${WORKSPACE_ROOT:-$HOME/src/workspace}"
+  if [ -n "''${WORKSPACE_ROOT:-}" ]; then
+    root="$WORKSPACE_ROOT"
+  elif [ "$(uname -s)" = "Darwin" ]; then
+    root="$HOME/code/workspace"
+  else
+    root="$HOME/src/workspace"
+  fi
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -21,7 +27,13 @@ pkgs.writeShellScriptBin "update_workspace" ''
     exit 1
   fi
 
-  cache_root="''${CACHE_ROOT:-$HOME/src/cache}"
+  if [ -n "''${CACHE_ROOT:-}" ]; then
+    cache_root="$CACHE_ROOT"
+  elif [ "$(uname -s)" = "Darwin" ]; then
+    cache_root="$HOME/code/cache"
+  else
+    cache_root="$HOME/src/cache"
+  fi
 
   for repo in "$root"/*; do
     [ -d "$repo" ] || continue

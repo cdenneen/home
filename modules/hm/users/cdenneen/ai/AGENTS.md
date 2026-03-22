@@ -48,6 +48,11 @@ Use `glab` CLI to query:
 
 Never assume a pipeline is “running normally” — always check for manual jobs or stalled stages.
 
+Auth preference:
+
+- Prefer `glab` host auth from `~/.config/glab-cli/config.yml` (managed as secret).
+- Do not require `GITLAB_TOKEN` for `glab` workflows.
+
 ### 3) Polling / Monitoring MUST be executed (evidence required)
 
 If the pipeline is not in a terminal state (success/failed/canceled) AND not blocked on a manual job,
@@ -233,8 +238,10 @@ Goals:
 
 Each remote repo is cloned once as a _bare_ repository under `CACHE_ROOT`.
 
-- Default varies by host; always check:
-  - `echo $CACHE_ROOT`
+- Defaults:
+  - Linux: `/home/cdenneen/src/cache`
+  - Darwin: `/Users/cdenneen/code/cache`
+  - Verify current shell: `echo $CACHE_ROOT`
 - Cache layout: flat key per repo:
   - `$CACHE_ROOT/<host>_<path>.git` (slashes in `<path>` become `_`)
   - Example: `~/src/cache/git.ap.org_gitops_infra_eks-apps.git`
@@ -245,8 +252,10 @@ This bare repo is not used directly for day-to-day work; it backs worktrees.
 
 Workspaces typically live under:
 
-- Default varies by host; always check:
-  - `echo $WORKSPACE_ROOT`
+- Defaults:
+  - Linux: `/home/cdenneen/src/workspace`
+  - Darwin: `/Users/cdenneen/code/workspace`
+  - Verify current shell: `echo $WORKSPACE_ROOT`
 
 When you "clone" a repo into a workspace, you actually add a Git worktree backed by the bare cache.
 

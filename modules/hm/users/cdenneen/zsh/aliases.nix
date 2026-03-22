@@ -9,6 +9,7 @@
 
   # Git
   g = "git";
+  glab = "env -u GITLAB_TOKEN -u GITLAB_PERSONAL_ACCESS_TOKEN command glab";
   ga = "git add";
   gb = "git branch";
   gc = "git commit";

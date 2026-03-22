@@ -124,7 +124,21 @@ let
           command = "bash";
           args = [
             "-lc"
-            "if [ -n \"$GITLAB_TOKEN\" ] && [ -z \"$GITLAB_PERSONAL_ACCESS_TOKEN\" ]; then export GITLAB_PERSONAL_ACCESS_TOKEN=\"$GITLAB_TOKEN\"; fi; exec npx -y @zereight/mcp-gitlab"
+            ''
+              set -euo pipefail
+
+              if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+                token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+                if [ -z "$token" ]; then
+                  token="$(glab auth token 2>/dev/null || true)"
+                fi
+                if [ -n "$token" ]; then
+                  export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+                fi
+              fi
+
+              exec npx -y @zereight/mcp-gitlab
+            ''
           ];
           required = false;
           startup_timeout_sec = 20;
@@ -135,7 +149,6 @@ let
           };
           env_vars = [
             "GITLAB_PERSONAL_ACCESS_TOKEN"
-            "GITLAB_TOKEN"
           ];
         };
         kubernetes = {

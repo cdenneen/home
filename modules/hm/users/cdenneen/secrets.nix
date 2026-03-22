@@ -22,13 +22,26 @@ let
       gitlab = {
         type = "local";
         command = [
-          "npx"
-          "-y"
-          "@zereight/mcp-gitlab"
+          "bash"
+          "-lc"
+          ''
+            set -euo pipefail
+
+            if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+              token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+              if [ -z "$token" ]; then
+                token="$(glab auth token 2>/dev/null || true)"
+              fi
+              if [ -n "$token" ]; then
+                export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+              fi
+            fi
+
+            exec npx -y @zereight/mcp-gitlab
+          ''
         ];
         enabled = true;
         environment = {
-          GITLAB_PERSONAL_ACCESS_TOKEN = "{env:GITLAB_TOKEN}";
           GITLAB_API_URL = "https://git.ap.org/api/v4";
           GITLAB_READ_ONLY_MODE = "true";
         };
@@ -144,6 +157,11 @@ in
 
     openai_api_key.mode = "0400";
     telegram_bot_token.mode = "0400";
+
+    glab_cli_config = {
+      mode = "0600";
+      path = "${config.home.homeDirectory}/.config/glab-cli/config.yml";
+    };
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
