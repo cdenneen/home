@@ -1012,11 +1012,11 @@
         "nixpkgs": "nixpkgs_12"
       },
       "locked": {
-        "lastModified": 1774142233,
-        "narHash": "sha256-B/yHcGYwSCzP/L7vGmH19amqnmTjO0lEYs9Icze/RgE=",
+        "lastModified": 1774154391,
+        "narHash": "sha256-+VjxCydPjfECSwLtNhuu8BhhrwmkmVDymqfVMLpZu6o=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "13bac9c91a908f560f74f19a49c7c865e4bfd5ec",
+        "rev": "c529529f84ef60f93ae187b2d89824852b365508",
         "type": "github"
       },
       "original": {
