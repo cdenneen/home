@@ -26,24 +26,22 @@ source_profile=sso-apss
 
 [profile k8s-apss]
 sso_account_id=838870929816
-sso_role_name=KubernetesAdministrator
+sso_role_name=KubernetesAdmin
 sso_session=cdenneen
 
 [profile k8s-dev]
 sso_account_id=222259241209
-sso_role_name=KubernetesAdministrator
+sso_role_name=KubernetesAdmin
 sso_session=cdenneen
 
 [profile k8s-qa]
 sso_account_id=720322524327
-sso_role_name=KubernetesAdministrator
-sso_role_name=SystemAdministrator
+sso_role_name=KubernetesAdmin
 sso_session=cdenneen
 
 [profile k8s-prod]
 sso_account_id=198401342403
-sso_role_name=SystemAdministrator
-sso_role_name=KubernetesAdministrator
+sso_role_name=KubernetesAdmin
 sso_session=cdenneen
 
 [profile sso-apss]
@@ -107,11 +105,9 @@ role_session_name=terraform-eks
 source_profile=sso-apss
 
 [profile gitlabadmin]
-sso_session = cdenneen
-sso_account_id = 198401342403
-sso_role_name = GitlabAdmin
-region = us-east-1
-output = json
+sso_account_id=198401342403
+sso_role_name=GitlabAdmin
+sso_session=cdenneen
 
 [sso-session cdenneen]
 sso_region = us-east-1

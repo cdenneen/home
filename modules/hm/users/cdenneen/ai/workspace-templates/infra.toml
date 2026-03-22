@@ -1,0 +1,21 @@
+profile = "ci-runner"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+default_permissions = "ci-runner"
+model_reasoning_effort = "high"
+model_reasoning_summary = "detailed"
+
+developer_instructions = """
+Workspace focus: infrastructure and platform delivery.
+
+Routing guidance:
+- Use `terraform-expert` for Terraform/OpenTofu/Terragrunt changes, planning, state, and module composition.
+- Use `aws-expert` for IAM/OIDC, trust policy, STS, and service-level auth issues.
+- Use `kubernetes-expert` for EKS cluster and workload diagnostics.
+- Use `gitlab-ci-expert` for parent/child pipeline architecture, DRY GitLab YAML, artifacts, and manual gates.
+
+Execution guidance:
+- Keep changes minimal and reversible.
+- Prefer evidence-backed triage and explicit validation commands.
+- For pipeline monitoring, use bounded polling with clear status summaries.
+"""
