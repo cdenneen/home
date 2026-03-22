@@ -994,11 +994,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1774166464,
-        "narHash": "sha256-nWfOk1Xk1095hOlJAnEfRLS0dPW+UVxZNSn86atKBQ0=",
+        "lastModified": 1774168274,
+        "narHash": "sha256-i9E/AsNcB8Ht9sNovIepTa98xiqL3SLPq1wDYB2a6HU=",
         "owner": "nix-community",
         "repo": "nur",
-        "rev": "bdcabdfb2986518d2dac835ffdb26328438f6035",
+        "rev": "a55159747aa583d07f4a3a9f1d38c6124f283b1e",
         "type": "github"
       },
       "original": {
