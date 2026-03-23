@@ -288,6 +288,10 @@ in
     source = ./ai/notify.py;
     executable = true;
   };
+  home.file.".local/bin/restart-tmux" = {
+    source = ./files/restart-tmux;
+    executable = true;
+  };
   home.file.".codex/config.toml.source".source = tomlFormat.generate "codex-config.toml" codexConfigAttrs;
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''

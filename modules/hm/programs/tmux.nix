@@ -38,6 +38,9 @@
       bind -r K resize-pane -U 5
       bind -r L resize-pane -R 5
 
+      bind S run-shell "~/.local/bin/restart-tmux #{session_name} --snapshot >/dev/null 2>&1 || true" \; display-message "snapshot saved: #{session_name}"
+      set-hook -g client-detached 'run-shell "~/.local/bin/restart-tmux #{session_name} --snapshot >/dev/null 2>&1 || true"'
+
       bind b set-option -g status
       bind s set-window-option synchronize-panes
     '';

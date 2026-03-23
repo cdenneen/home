@@ -1,0 +1,363 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION_NAME=""
+SNAPSHOT_ONLY=0
+REFRESH_SNAPSHOT=0
+NO_ATTACH=0
+
+SCRIPT_NAME="$(basename "$0")"
+
+usage() {
+  cat >&2 <<EOF
+Usage: $SCRIPT_NAME <session-name> [--snapshot] [--refresh-snapshot] [--no-attach]
+
+Options:
+  --snapshot          Capture snapshot only and exit.
+  --snapshot-only     Alias for --snapshot.
+  --refresh-snapshot  Refresh snapshot before restart.
+  --no-attach         Do not attach/switch after restore.
+  --help, -h          Show this help.
+EOF
+}
+
+sanitize_field() {
+  printf '%s' "$1" | tr '\t\r\n' '   '
+}
+
+extract_uuid() {
+  grep -Eo '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' <<<"$1" | head -n1 || true
+}
+
+is_shell_program() {
+  local cmd="$1"
+  local first
+
+  first="${cmd%% *}"
+  first="${first##*/}"
+  first="${first#-}"
+  first="${first%%[*]}"
+
+  case "$first" in
+    bash|zsh|sh|fish|dash|ksh|tcsh|nu)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+default_shell_name() {
+  local shell_path
+  shell_path="$(tmux show-options -gv default-shell 2>/dev/null || true)"
+  if [[ -z "$shell_path" ]]; then
+    shell_path="${SHELL:-/bin/sh}"
+  fi
+  basename "$shell_path"
+}
+
+infer_restore_command() {
+  local pane_tty="$1"
+  local pane_pid="$2"
+  local tty_short ps_rows candidate shell_cmd codex_pid session_id
+
+  tty_short="${pane_tty#/dev/}"
+  ps_rows="$(ps -t "$tty_short" -o pid=,ppid=,state=,command= 2>/dev/null || true)"
+
+  shell_cmd="$(ps -p "$pane_pid" -o command= 2>/dev/null | sed -E 's/^[[:space:]]+//' | head -n1 || true)"
+  if [[ -z "$shell_cmd" ]]; then
+    shell_cmd="${SHELL##*/}"
+  fi
+
+  candidate="$(printf '%s\n' "$ps_rows" | awk -v panepid="$pane_pid" '
+    {
+      ppid=$2
+      state=$3
+      $1=""; $2=""; $3=""
+      sub(/^ +/, "")
+      cmd=$0
+      if (cmd == "") next
+      if (state ~ /Z/) next
+
+      split(cmd, parts, " ")
+      prog=parts[1]
+      gsub(/^.*\//, "", prog)
+      sub(/^-/, "", prog)
+      low=tolower(prog)
+
+      if (low ~ /^(bash|zsh|sh|fish|dash|ksh|tcsh|nu)$/) {
+        last_shell=cmd
+        next
+      }
+
+      if (low ~ /^(atuin|direnv|zoxide|starship|mise)$/) next
+
+      if (low ~ /^tmux(:|$)/) next
+
+      if (state ~ /\+/) {
+        last_fg_non_shell=cmd
+      }
+
+      if (ppid == panepid) {
+        if (state ~ /\+/) last_direct_fg_non_shell=cmd
+        last_direct_non_shell=cmd
+      }
+
+      last_non_shell=cmd
+    }
+    END {
+      if (last_direct_fg_non_shell != "") print last_direct_fg_non_shell
+      else if (last_direct_non_shell != "") print last_direct_non_shell
+      else if (last_fg_non_shell != "") print last_fg_non_shell
+      else if (last_non_shell != "") print last_non_shell
+      else if (last_shell != "") print last_shell
+    }
+  ' || true)"
+
+  if [[ -z "$candidate" ]]; then
+    candidate="$shell_cmd"
+  fi
+
+  if [[ "$candidate" =~ ^([^[:space:]]*/)?atuin[[:space:]]+history[[:space:]]+start[[:space:]]+--[[:space:]]+(.+)$ ]]; then
+    candidate="${BASH_REMATCH[2]}"
+  fi
+
+  codex_pid="$(printf '%s\n' "$ps_rows" | awk '
+    {
+      pid=$1
+      $1=""; $2=""; $3=""
+      sub(/^ +/, "")
+      cmd=tolower($0)
+      if (cmd ~ /(^|[[:space:]])codex([[:space:]]|$)/ || cmd ~ /\.codex-wrapped/) {
+        print pid
+        exit
+      }
+    }
+  ' || true)"
+
+  if [[ -n "$codex_pid" || "$candidate" == *"codex"* ]]; then
+    session_id="$(extract_uuid "$candidate")"
+
+    if [[ -z "$session_id" ]]; then
+      session_id="$(printf '%s\n' "$ps_rows" | grep -Eo '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -n1 || true)"
+    fi
+
+    if [[ -z "$session_id" && -n "$codex_pid" ]]; then
+      session_id="$({
+        lsof -p "$codex_pid" 2>/dev/null
+      } | grep -Eo '/\.codex/sessions/.+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl' \
+        | sed -E 's#.*-([0-9a-f-]{36})\.jsonl#\1#' \
+        | head -n1 || true)"
+    fi
+
+    if [[ -n "$session_id" ]]; then
+      candidate="codex resume $session_id"
+    else
+      candidate="codex"
+    fi
+  fi
+
+  printf '%s\n' "$candidate"
+}
+
+snapshot_dir() {
+  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/tmux"
+}
+
+snapshot_file() {
+  local dir
+  dir="$(snapshot_dir)"
+  printf '%s\n' "$dir/${SESSION_NAME}.snapshot.tsv"
+}
+
+capture_snapshot() {
+  local dir file tmp_file
+  dir="$(snapshot_dir)"
+  file="$(snapshot_file)"
+
+  if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "$SCRIPT_NAME: tmux session not found for snapshot: $SESSION_NAME" >&2
+    exit 1
+  fi
+
+  mkdir -p "$dir"
+  tmp_file="${file}.tmp.$$"
+
+  {
+    printf 'window\tname\tpath\tcommand\n'
+
+    tmux list-windows -t "$SESSION_NAME" -F '#{window_index}|#{window_name}' \
+      | sort -n -k1,1 \
+      | while IFS='|' read -r win name; do
+        local pane_info path tty pane_pid command
+
+        pane_info="$({
+          tmux list-panes -t "$SESSION_NAME:$win" -F '#{pane_index}|#{pane_active}|#{pane_current_path}|#{pane_tty}|#{pane_pid}'
+        } | awk -F '|' '$2==1 {print; found=1} END{if(!found) exit 1}' || true)"
+
+        if [[ -z "$pane_info" ]]; then
+          pane_info="$(tmux list-panes -t "$SESSION_NAME:$win" -F '#{pane_index}|#{pane_active}|#{pane_current_path}|#{pane_tty}|#{pane_pid}' | head -n1)"
+        fi
+
+        path="$(awk -F '|' '{print $3}' <<<"$pane_info")"
+        tty="$(awk -F '|' '{print $4}' <<<"$pane_info")"
+        pane_pid="$(awk -F '|' '{print $5}' <<<"$pane_info")"
+        command="$(infer_restore_command "$tty" "$pane_pid")"
+
+        printf '%s\t%s\t%s\t%s\n' \
+          "$(sanitize_field "$win")" \
+          "$(sanitize_field "$name")" \
+          "$(sanitize_field "$path")" \
+          "$(sanitize_field "$command")"
+      done
+  } > "$tmp_file"
+
+  if ! awk -F '\t' 'NR>1 && $1 != "" {found=1} END{exit found?0:1}' "$tmp_file"; then
+    rm -f "$tmp_file"
+    echo "$SCRIPT_NAME: failed to write snapshot entries" >&2
+    exit 1
+  fi
+
+  mv "$tmp_file" "$file"
+  printf '%s\n' "$file"
+}
+
+restore_from_snapshot() {
+  local file active_window default_shell
+  file="$(snapshot_file)"
+
+  if [[ ! -f "$file" ]]; then
+    echo "$SCRIPT_NAME: snapshot not found: $file" >&2
+    echo "Run: $SCRIPT_NAME $SESSION_NAME --snapshot" >&2
+    exit 1
+  fi
+
+  if ! awk -F '\t' 'NR>1 && $1 != "" {found=1} END{exit found?0:1}' "$file"; then
+    echo "$SCRIPT_NAME: snapshot has no window entries: $file" >&2
+    echo "Run: $SCRIPT_NAME $SESSION_NAME --snapshot" >&2
+    exit 1
+  fi
+
+  active_window=""
+  if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    active_window="$(tmux list-windows -t "$SESSION_NAME" -F '#{window_index}|#{window_active}' | awk -F '|' '$2==1 {print $1; exit}')"
+    tmux kill-session -t "$SESSION_NAME"
+  fi
+
+  default_shell="$(default_shell_name)"
+
+  local first
+  first=1
+  while IFS=$'\t' read -r win name path command; do
+    [[ "$win" == "window" ]] && continue
+    [[ -z "$win" ]] && continue
+
+    local restore_path pane_index target cmd_first
+    restore_path="$path"
+    if [[ -z "$restore_path" || ! -d "$restore_path" ]]; then
+      restore_path="$HOME"
+    fi
+
+    if [[ "$first" -eq 1 ]]; then
+      tmux new-session -d -s "$SESSION_NAME" -n "$name" -c "$restore_path"
+      first_index="$(tmux list-windows -t "$SESSION_NAME" -F '#{window_index}' | head -n1)"
+      if [[ "$first_index" != "$win" ]]; then
+        tmux move-window -s "$SESSION_NAME:$first_index" -t "$SESSION_NAME:$win"
+      fi
+      first=0
+    else
+      tmux new-window -d -t "$SESSION_NAME:$win" -n "$name" -c "$restore_path"
+    fi
+
+    pane_index="$(tmux list-panes -t "$SESSION_NAME:$win" -F '#{pane_index}' | head -n1)"
+    target="$SESSION_NAME:$win.$pane_index"
+
+    if [[ -n "$command" ]]; then
+      cmd_first="${command%% *}"
+      cmd_first="${cmd_first##*/}"
+      cmd_first="${cmd_first#-}"
+
+      if ! is_shell_program "$command" || [[ "$cmd_first" != "$default_shell" ]]; then
+        tmux send-keys -t "$target" "$command" C-m
+      fi
+    fi
+  done < "$file"
+
+  if [[ "$first" -eq 1 ]]; then
+    echo "$SCRIPT_NAME: snapshot parse failed (no windows): $file" >&2
+    exit 1
+  fi
+
+  if [[ -n "$active_window" ]]; then
+    tmux select-window -t "$SESSION_NAME:$active_window" || true
+  fi
+
+  if [[ "$NO_ATTACH" -eq 1 ]]; then
+    exit 0
+  fi
+
+  if [[ -n "${TMUX:-}" ]]; then
+    tmux switch-client -t "$SESSION_NAME"
+  else
+    tmux attach -t "$SESSION_NAME"
+  fi
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 2
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --snapshot|--snapshot-only)
+      SNAPSHOT_ONLY=1
+      ;;
+    --refresh-snapshot)
+      REFRESH_SNAPSHOT=1
+      ;;
+    --no-attach)
+      NO_ATTACH=1
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --*)
+      echo "$SCRIPT_NAME: unknown option: $arg" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [[ -n "$SESSION_NAME" ]]; then
+        echo "$SCRIPT_NAME: session specified multiple times: $arg" >&2
+        usage
+        exit 2
+      fi
+      SESSION_NAME="$arg"
+      ;;
+  esac
+done
+
+if [[ -z "$SESSION_NAME" ]]; then
+  echo "$SCRIPT_NAME: missing session name" >&2
+  usage
+  exit 2
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "$SCRIPT_NAME: tmux not found" >&2
+  exit 127
+fi
+
+if [[ "$SNAPSHOT_ONLY" -eq 1 ]]; then
+  capture_snapshot
+  exit 0
+fi
+
+if [[ "$REFRESH_SNAPSHOT" -eq 1 ]]; then
+  capture_snapshot >/dev/null
+fi
+
+restore_from_snapshot

@@ -57,7 +57,11 @@
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     opencode.url = "github:anomalyco/opencode/dev";
     nur.url = "github:nix-community/nur";
-    vimnix.url = "github:cdenneen/vimnix";
+    vimnix = {
+      url = "github:cdenneen/vimnix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";

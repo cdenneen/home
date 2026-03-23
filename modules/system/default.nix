@@ -56,7 +56,7 @@ in
       environment.systemPackages = [
         pkgs.home-manager
         happierPkg
-        pkgs.codex
+        unstablePkgs.codex
       ];
     }
     # NOTE: Do NOT set security.sudo.enable here.
