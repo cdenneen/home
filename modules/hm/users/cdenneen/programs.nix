@@ -75,6 +75,9 @@ in
       eks-node-viewer
       fluxcd
       pkgs."fluxcd-operator"
+      yq-go
+      kustomize
+      kubeconform
       glab
       gh
 

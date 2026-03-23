@@ -1,9 +1,8 @@
-{ ... }:
+{ fluxcdAgentSkills, ... }:
 
 {
-  # Consolidated Home Manager configuration for user cdenneen.
-  # This file serves as the single import point for all user-scoped modules.
   imports = [
+    fluxcdAgentSkills.homeManagerModules.default
     ./programs.nix
     ./files.nix
     ./session.nix

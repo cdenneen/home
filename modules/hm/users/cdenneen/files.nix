@@ -268,6 +268,15 @@ in
   home.file.".config/opencode/docs/agent-commands.md".source = ./opencode/docs/agent-commands.md;
   home.file.".config/opencode/docs/agent-secrets.md".source = ./opencode/docs/agent-secrets.md;
 
+  programs."fluxcd-agent-skills" = {
+    enable = true;
+    tools = [ "codex" ];
+    targets = [
+      ".agents/skills"
+      ".opencode/skills"
+    ];
+  };
+
   home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
   home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
   home.file.".codex/subagents/terraform-expert.md".source = ./ai/subagents/terraform-expert.md;

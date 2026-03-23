@@ -363,6 +363,10 @@ git ws-branch feat/my-branch [start-point]
   - `~/.agents/skills/<name>/SKILL.md`
   - `~/.opencode/skills/<name>/SKILL.md`
 - Load skills on demand using the `skill` tool.
+- FluxCD skills installed globally:
+  - `gitops-knowledge`
+  - `gitops-repo-audit`
+  - `gitops-cluster-debug`
 
 ## Codex Subagent Routing
 

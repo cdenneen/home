@@ -403,6 +403,26 @@
         "type": "github"
       }
     },
+    "fluxcdAgentSkills": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1774285599,
+        "narHash": "sha256-acZbav46VcvosmTug5/JmnVIeHij3YOQSLgtgx3Hrtg=",
+        "owner": "cdenneen",
+        "repo": "fluxcd-agent-skills",
+        "rev": "76c9cbd23c9f7023b2bb5eb8807b27cea25abe8f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cdenneen",
+        "repo": "fluxcd-agent-skills",
+        "type": "github"
+      }
+    },
     "happier": {
       "inputs": {
         "devshell": "devshell_2",
@@ -1016,6 +1036,7 @@
         "devshell": "devshell",
         "disko": "disko",
         "flake-parts": "flake-parts_2",
+        "fluxcdAgentSkills": "fluxcdAgentSkills",
         "happier": "happier",
         "home-manager": "home-manager",
         "mac-app-util": "mac-app-util",

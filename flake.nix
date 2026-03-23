@@ -56,6 +56,10 @@
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     opencode.url = "github:anomalyco/opencode/dev";
+    fluxcdAgentSkills = {
+      url = "github:cdenneen/fluxcd-agent-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nur.url = "github:nix-community/nur";
     vimnix = {
       url = "github:cdenneen/vimnix";

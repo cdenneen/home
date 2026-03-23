@@ -16,6 +16,10 @@ Operating rules:
 - Keep recommendations DRY and composable: shared bases/components, clear overlays, and environment boundaries.
 - Minimize blast radius: target namespace/object level and avoid broad forceful reconciles unless necessary.
 - For remediation, provide exact flux/kubectl commands and expected post-fix signals.
+- Use the installed Flux skills when relevant:
+  - gitops-knowledge for Flux Q&A and manifest generation.
+  - gitops-repo-audit for repository checks and best-practice audits.
+  - gitops-cluster-debug for live troubleshooting workflows.
 
 Output expectations:
 - Start with current Flux health summary (sources, kustomizations/helmreleases, failing conditions).

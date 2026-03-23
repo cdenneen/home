@@ -60,7 +60,7 @@ default_shell_name() {
 infer_restore_command() {
   local pane_tty="$1"
   local pane_pid="$2"
-  local tty_short ps_rows candidate shell_cmd codex_pid session_id
+  local tty_short ps_rows candidate shell_cmd codex_pid session_id candidate_first candidate_base
 
   tty_short="${pane_tty#/dev/}"
   ps_rows="$(ps -t "$tty_short" -o pid=,ppid=,state=,command= 2>/dev/null || true)"
@@ -123,20 +123,28 @@ infer_restore_command() {
     candidate="${BASH_REMATCH[2]}"
   fi
 
-  codex_pid="$(printf '%s\n' "$ps_rows" | awk '
-    {
-      pid=$1
-      $1=""; $2=""; $3=""
-      sub(/^ +/, "")
-      cmd=tolower($0)
-      if (cmd ~ /(^|[[:space:]])codex([[:space:]]|$)/ || cmd ~ /\.codex-wrapped/) {
-        print pid
-        exit
-      }
-    }
-  ' || true)"
+  if [[ "$candidate" == -* ]]; then
+    candidate="${candidate#-}"
+  fi
 
-  if [[ -n "$codex_pid" || "$candidate" == *"codex"* ]]; then
+  candidate_first="${candidate%% *}"
+  candidate_base="${candidate_first##*/}"
+  candidate_base="${candidate_base#-}"
+
+  if [[ "$candidate_base" == "codex" || "$candidate_base" == ".codex-wrapped" ]]; then
+    codex_pid="$(printf '%s\n' "$ps_rows" | awk '
+      {
+        pid=$1
+        $1=""; $2=""; $3=""
+        sub(/^ +/, "")
+        cmd=tolower($0)
+        if (cmd ~ /(^|[[:space:]])codex([[:space:]]|$)/ || cmd ~ /\.codex-wrapped/) {
+          print pid
+          exit
+        }
+      }
+    ' || true)"
+
     session_id="$(extract_uuid "$candidate")"
 
     if [[ -z "$session_id" ]]; then
