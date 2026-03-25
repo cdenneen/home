@@ -189,6 +189,16 @@ in
     };
   };
 
+  services.syncthing = {
+    enable = true;
+    tray.enable = pkgs.stdenv.isLinux;
+    settings = {
+      options = {
+        urAccepted = -1;
+      };
+    };
+  };
+
   programs = {
     atuin.enable = true;
     fzf.enable = true;

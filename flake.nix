@@ -255,9 +255,7 @@
             let
               isCacheable = v: isDerivation v;
             in
-            mapAttrs' (n: nameValuePair "devShells-${n}") (
-              filterAttrs (n: v: isCacheable v) self'.devShells
-            );
+            mapAttrs' (n: nameValuePair "devShells-${n}") (filterAttrs (n: v: isCacheable v) self'.devShells);
         };
     };
 }

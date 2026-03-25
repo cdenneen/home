@@ -291,6 +291,31 @@ in
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9.pub" "" "/nix/store/"
   '';
 
+  home.activation.fixDarwinSopsSecretsDir = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryBefore [ "sops-nix" ] ''
+      set -euo pipefail
+
+      secrets_dir="$HOME/.config/sops-nix/secrets"
+
+      if [ -L "$secrets_dir" ] && [ ! -e "$secrets_dir" ]; then
+        $DRY_RUN_CMD rm -f "$secrets_dir"
+      fi
+
+      $DRY_RUN_CMD mkdir -p "$HOME/.config/sops-nix"
+      $DRY_RUN_CMD chmod 700 "$HOME/.config/sops-nix"
+    ''
+  );
+
+  home.activation.materializeDarwinSopsSecrets = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryAfter [ "sops-nix" ] ''
+      set -euo pipefail
+
+      if command -v sops-nix-user >/dev/null 2>&1; then
+        $DRY_RUN_CMD sops-nix-user
+      fi
+    ''
+  );
+
   home.file = lib.mkMerge [
     {
       ".ssh/fortress_rsa".source =
@@ -338,11 +363,6 @@ in
     (lib.mkIf pkgs.stdenv.isDarwin {
       ".config/sops" = {
         source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/Library/Application Support/sops";
-        force = true;
-      };
-
-      ".config/sops-nix/secrets" = {
-        source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/Library/Application Support/sops-nix/secrets";
         force = true;
       };
     })

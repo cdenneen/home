@@ -1,5 +1,12 @@
 let
-  mkHostMap = hosts: builtins.listToAttrs (map (host: { name = host.name; value = host; }) hosts);
+  mkHostMap =
+    hosts:
+    builtins.listToAttrs (
+      map (host: {
+        name = host.name;
+        value = host;
+      }) hosts
+    );
 
   nixos = [
     {

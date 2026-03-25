@@ -301,7 +301,8 @@ in
     source = ./files/restart-tmux;
     executable = true;
   };
-  home.file.".codex/config.toml.source".source = tomlFormat.generate "codex-config.toml" codexConfigAttrs;
+  home.file.".codex/config.toml.source".source =
+    tomlFormat.generate "codex-config.toml" codexConfigAttrs;
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail
