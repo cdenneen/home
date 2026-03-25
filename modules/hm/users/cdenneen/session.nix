@@ -6,8 +6,10 @@
 }:
 
 let
-  cacheRoot = if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/cache" else "/home/cdenneen/src/cache";
-  workspaceRoot = if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/workspace" else "/home/cdenneen/src/workspace";
+  cacheRoot =
+    if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/cache" else "/home/cdenneen/src/cache";
+  workspaceRoot =
+    if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/workspace" else "/home/cdenneen/src/workspace";
 in
 
 {
@@ -26,6 +28,9 @@ in
     XDG_CACHE_HOME = "${config.home.homeDirectory}/.cache";
     AWS_SHARED_CREDENTIALS_FILE = "$HOME/.aws/credentials";
     AWS_CONFIG_FILE = "$HOME/.aws/config";
+    # Pin glab to the XDG config dir so macOS legacy paths do not cause
+    # duplicate-config warnings.
+    GLAB_CONFIG_DIR = "$HOME/.config/glab-cli";
     CACHE_ROOT = cacheRoot;
     WORKSPACE_ROOT = workspaceRoot;
     CACHE_HOME = cacheRoot;

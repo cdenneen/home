@@ -281,6 +281,30 @@ in
   # glab config is sourced from SOPS secret `glab_cli_config` and written to
   # ~/.config/glab-cli/config.yml with mode 0600.
 
+  # On macOS, older glab runs may leave a second config at
+  # ~/Library/Application Support/glab-cli/config.yml, which triggers noisy
+  # duplicate-config warnings. Keep one canonical config in ~/.config.
+  home.activation.glabConfigConsolidateDarwin = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    if [ "$(uname -s)" != "Darwin" ]; then
+      exit 0
+    fi
+
+    legacy_cfg="$HOME/Library/Application Support/glab-cli/config.yml"
+    canonical_cfg="$HOME/.config/glab-cli/config.yml"
+
+    if [ ! -e "$legacy_cfg" ]; then
+      exit 0
+    fi
+
+    if [ -e "$canonical_cfg" ] && ${pkgs.diffutils}/bin/cmp -s "$legacy_cfg" "$canonical_cfg"; then
+      $DRY_RUN_CMD rm -f "$legacy_cfg"
+      exit 0
+    fi
+
+    ts="$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)"
+    $DRY_RUN_CMD mv "$legacy_cfg" "$legacy_cfg.bak-$ts"
+  '';
+
   # direnv loads this automatically (if present). Keep it tiny and just source
   # shared helpers so individual repos can assume they exist.
   home.file.".config/direnv/direnvrc".text = ''
