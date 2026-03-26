@@ -192,6 +192,8 @@ in
   services.syncthing = {
     enable = true;
     tray.enable = pkgs.stdenv.isLinux;
+    overrideDevices = false;
+    overrideFolders = false;
     settings = {
       options = {
         urAccepted = -1;

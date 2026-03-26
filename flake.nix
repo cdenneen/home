@@ -115,6 +115,18 @@
               rust-analyzer-nightly =
                 if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;
 
+              # direnv 2.37.x on darwin builds with `-linkmode=external`,
+              # which requires cgo. Force cgo for this package until nixpkgs
+              # ships a fixed expression.
+              direnv = prev.direnv.overrideAttrs (
+                old:
+                prev.lib.optionalAttrs prev.stdenv.isDarwin {
+                  env = (old.env or { }) // {
+                    CGO_ENABLED = "1";
+                  };
+                }
+              );
+
             })
             nur.overlays.default
             # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
@@ -158,6 +170,17 @@
           self',
           ...
         }:
+        let
+          direnvForShell =
+            if pkgs.stdenv.isDarwin then
+              pkgs.direnv.overrideAttrs (old: {
+                env = (old.env or { }) // {
+                  CGO_ENABLED = "1";
+                };
+              })
+            else
+              pkgs.direnv;
+        in
         {
           # Let flake-parts provide pkgs; do not override to avoid recursion
           # Let flake-parts manage pkgs; do not override with a manual nixpkgs import
@@ -205,16 +228,14 @@
 
           devshells.default = {
             # Align devshell tooling with system/Home Manager pkgs
-            packages =
-              with pkgs;
-              [
-                git
-                ripgrep
-                direnv
-                fzf
-                eza
-              ]
-              ++ [ self'.packages.treefmt ];
+            packages = [
+              pkgs.git
+              pkgs.ripgrep
+              direnvForShell
+              pkgs.fzf
+              pkgs.eza
+              self'.packages.treefmt
+            ];
             commands = [
               {
                 package = self'.packages.setup-sops;
