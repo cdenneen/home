@@ -431,11 +431,11 @@
         "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1776500569,
-        "narHash": "sha256-oFctbKyToqcyljQzo3c+P+aMYTAOCkHEsCc7So+A3Ws=",
+        "lastModified": 1776501729,
+        "narHash": "sha256-wuQHVQxJwNm9OkydUxaFenmCF9TahCRhsnutvU60m+U=",
         "owner": "das-monki",
         "repo": "nix-happier",
-        "rev": "dc164e325f0f7fa41ecbf35c0fadf8d317ac3381",
+        "rev": "77be10a484c1a0db7aed2e3af4d6733e5be4f607",
         "type": "github"
       },
       "original": {
