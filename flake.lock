@@ -977,11 +977,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1778060214,
-        "narHash": "sha256-u/zbbmELxKoBzTwfbm5gj/g0Jvf4ehgAgFA8Pxa6O8g=",
+        "lastModified": 1778061998,
+        "narHash": "sha256-E29J6qIv9b4jmefoUFMhelRSiEIC87DZXp9PHg0tmCk=",
         "owner": "nix-community",
         "repo": "nur",
-        "rev": "653047036e2aa13562c8b50bf19316a4f56b44b2",
+        "rev": "56c5ab9755968a0743120b3bd39b2c51c11b19ce",
         "type": "github"
       },
       "original": {
