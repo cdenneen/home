@@ -995,11 +995,11 @@
         "nixpkgs": "nixpkgs_12"
       },
       "locked": {
-        "lastModified": 1778839524,
-        "narHash": "sha256-53aF+cSGMfT6oCVoXZYfPPx8iZuRTBUDqQ8WQ23bZV4=",
+        "lastModified": 1778840996,
+        "narHash": "sha256-TRcETbEu10ShZ9Xg6kZUxCe71RcdFkr8fh5ELuyGPiU=",
         "owner": "anomalyco",
         "repo": "opencode",
-        "rev": "eb5ef1c073b88d83a0631291aa635d0b53887a92",
+        "rev": "12b666e2c941f38578acdc046743838626e1b3f8",
         "type": "github"
       },
       "original": {
