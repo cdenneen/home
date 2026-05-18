@@ -3,10 +3,28 @@
   pkgs,
   config,
   happier,
-  unstablePkgs,
-  opencode ? null,
   ...
 }:
+let
+  convexHost = "nyx.tail0e55.ts.net";
+  convexCloudOrigin = "http://${convexHost}:3210";
+  convexSiteOrigin = "http://${convexHost}:3211";
+  opensyncPublicHost = "opensync.denneen.net";
+  convexBackendImage = "ghcr.io/get-convex/convex-backend@sha256:ed7ad78d762042f99dcaaf0d9e3d54394bc9c57f49db9a086022e6812c0fe2e5";
+  convexDashboardImage = "ghcr.io/get-convex/convex-dashboard@sha256:5130ab98244b8e9900c05603cfce8cf5a806c769af716a512e662545a9332db2";
+  opensyncRevision = "80005262fed8dac894fe618352a5e4b94c53813d";
+  recalliumHost = "nyx.tail0e55.ts.net";
+  recalliumApiPort = 18001;
+  recalliumUiPort = 19001;
+  recalliumMcpUrl = "http://${recalliumHost}:${toString recalliumApiPort}/mcp";
+  recalliumUiBaseUrl = "http://${recalliumHost}:${toString recalliumUiPort}";
+  recalliumImage = "docker.io/recalliumai/recallium@sha256:306b43857aa712bb0f8e63d1830776c621c0220131856d3be88a0429d22f907d";
+  wellnessApiHost = "nyx.tail0e55.ts.net";
+  wellnessApiPort = 8797;
+  wellnessRepoDir = "/home/cdenneen/src/workspace/personal/wellness";
+  wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
+  wellnessSupabaseAnonKey = "sb_publishable_niRmb4NzavLnlcWqAooi_A_0Yj_AOyA";
+in
 {
   imports = [
     happier.nixosModules.happier-server
@@ -118,6 +136,33 @@
     minio.rootCredentialsFile = config.sops.secrets.minio-credentials.path;
   };
 
+  systemd.services.redis-happier =
+    let
+      recoverIncompatibleRdb = pkgs.writeShellScript "redis-happier-recover-incompatible-rdb" ''
+        set -euo pipefail
+
+        db_dir="/var/lib/redis-happier"
+        dump_file="$db_dir/dump.rdb"
+
+        if [ ! -s "$dump_file" ]; then
+          exit 0
+        fi
+
+        if ${pkgs.redis}/bin/redis-check-rdb "$dump_file" >/dev/null 2>&1; then
+          exit 0
+        fi
+
+        ts="$(${pkgs.coreutils}/bin/date -u +%Y%m%dT%H%M%SZ)"
+        backup_file="$db_dir/dump.rdb.incompatible.$ts"
+
+        echo "redis-happier: incompatible dump.rdb detected, moving to $backup_file" >&2
+        ${pkgs.coreutils}/bin/mv "$dump_file" "$backup_file"
+      '';
+    in
+    {
+      serviceConfig.ExecStartPre = lib.mkBefore [ recoverIncompatibleRdb ];
+    };
+
   virtualisation.docker.enable = lib.mkForce false;
 
   services.amazon-ssm-agent.enable = true;
@@ -129,6 +174,7 @@
   networking.firewall.interfaces.tailscale0.allowedTCPPorts = [
     53
     8080
+    wellnessApiPort
   ];
   networking.firewall.interfaces.tailscale0.allowedUDPPorts = [ 53 ];
 
@@ -214,20 +260,29 @@
     settings = {
       # Answer DNS queries from Tailscale clients for split DNS.
       interface = "tailscale0";
-      bind-interfaces = true;
+      bind-dynamic = true;
       domain-needed = true;
       bogus-priv = true;
       no-resolv = true;
-      # Route git.ap.org lookups to the VPC resolver.
-      server = [ "/git.ap.org/10.224.0.2" ];
+      # Route AP internal split-DNS zones to the VPC resolver.
+      server = [
+        "/git.ap.org/10.224.0.2"
+        "/associatedpress.com/10.224.0.2"
+        "/apsharedservices.com/10.224.0.2"
+      ];
     };
   };
 
   services.caddy = {
     enable = true;
-    virtualHosts."nyx.tail0e55.ts.net".extraConfig = ''
-      reverse_proxy 127.0.0.1:3005
-    '';
+    virtualHosts = {
+      "nyx.tail0e55.ts.net".extraConfig = ''
+        reverse_proxy 127.0.0.1:3005
+      '';
+      "${opensyncPublicHost}".extraConfig = ''
+        reverse_proxy 127.0.0.1:5173
+      '';
+    };
   };
 
   services.cloudflared = {
@@ -237,6 +292,7 @@
         credentialsFile = "/var/lib/cloudflared/opencode.json";
         ingress = {
           "chat.denneen.net" = "http://127.0.0.1:4096";
+          "${opensyncPublicHost}" = "http://127.0.0.1:5173";
         };
         default = "http_status:404";
         originRequest = {
@@ -247,10 +303,259 @@
     };
   };
 
+  virtualisation.oci-containers.backend = "podman";
+  virtualisation.oci-containers.containers = {
+    convex-backend = {
+      image = convexBackendImage;
+      ports = [
+        "3210:3210"
+        "3211:3211"
+      ];
+      volumes = [
+        "/var/lib/convex/data:/convex/data"
+      ];
+      environment = {
+        CONVEX_CLOUD_ORIGIN = convexCloudOrigin;
+        CONVEX_SITE_ORIGIN = convexSiteOrigin;
+        DISABLE_METRICS_ENDPOINT = "true";
+        DOCUMENT_RETENTION_DELAY = "172800";
+        RUST_LOG = "info";
+      };
+      autoStart = true;
+    };
+
+    convex-dashboard = {
+      image = convexDashboardImage;
+      ports = [ "6791:6791" ];
+      environment = {
+        NEXT_PUBLIC_DEPLOYMENT_URL = convexCloudOrigin;
+      };
+      dependsOn = [ "convex-backend" ];
+      autoStart = true;
+    };
+
+    recallium = {
+      image = recalliumImage;
+      ports = [
+        "${toString recalliumUiPort}:9000"
+        "${toString recalliumApiPort}:8000"
+        "5433:5432"
+      ];
+      volumes = [
+        "/var/lib/recallium/data:/data"
+        "/var/lib/recallium/wal:/wal"
+        "/var/lib/recallium/docs:/documents"
+        "/var/lib/recallium/secrets:/secrets"
+      ];
+      environment = {
+        TZ = "America/Chicago";
+        LOG_LEVEL = "INFO";
+        RECALLIUM_EDITION = "community";
+        ENVIRONMENT = "production";
+        UI_BASE_URL = recalliumUiBaseUrl;
+        HOST_API_PORT = toString recalliumApiPort;
+        HOST_UI_PORT = toString recalliumUiPort;
+        HOST_POSTGRES_PORT = "5433";
+        DB_HOST = "localhost";
+        DB_PORT = "5432";
+        DB_USER = "recallium";
+        DB_PASSWORD = "recallium_password";
+        DB_NAME = "recallium_memories";
+        LOAD_SAMPLE_DATA = "false";
+      };
+      extraOptions = [
+        "--add-host=host.docker.internal:host-gateway"
+      ];
+      autoStart = true;
+    };
+  };
+
   systemd.tmpfiles.rules = [
     "d /var/lib/cloudflared 0700 root root -"
     "d /run/caddy 0750 caddy caddy -"
+    "d /var/lib/convex 0700 root root -"
+    "d /var/lib/convex/data 0700 root root -"
+    "d /var/lib/opensync 0750 cdenneen users -"
+    "d /var/lib/opensync/repo 0750 cdenneen users -"
+    "d /var/lib/opensync/state 0750 cdenneen users -"
+    "d /var/lib/recallium 0750 cdenneen users -"
+    "d /var/lib/recallium/data 0750 cdenneen users -"
+    "d /var/lib/recallium/wal 0750 cdenneen users -"
+    "d /var/lib/recallium/docs 0750 cdenneen users -"
+    "d /var/lib/recallium/secrets 0750 cdenneen users -"
   ];
+
+  systemd.services.convex-generate-admin-key = {
+    description = "Generate self-hosted Convex admin key";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "podman-convex-backend.service" ];
+    requires = [ "podman-convex-backend.service" ];
+    path = [
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gnugrep
+      pkgs.podman
+    ];
+    script = ''
+      set -euo pipefail
+
+      out="/var/lib/convex/admin.key"
+      out_opensync="/var/lib/opensync/state/convex-admin.key"
+      if [ -s "$out" ] && [ -s "$out_opensync" ]; then
+        exit 0
+      fi
+
+      for _ in $(seq 1 60); do
+        if ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:3210/version >/dev/null; then
+          break
+        fi
+        sleep 2
+      done
+
+      key="$(${pkgs.podman}/bin/podman exec convex-backend ./generate_admin_key.sh | ${pkgs.coreutils}/bin/tail -n 1 | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+      if [ -z "$key" ]; then
+        echo "convex-generate-admin-key: failed to generate key" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "$out"
+      printf '%s\n' "$key" > "$out"
+
+      ${pkgs.coreutils}/bin/install -m 640 -o cdenneen -g users /dev/null "$out_opensync"
+      printf '%s\n' "$key" > "$out_opensync"
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+    };
+  };
+
+  systemd.services.opensync-web = {
+    description = "OpenSync web on self-hosted Convex";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "podman-convex-backend.service"
+      "convex-generate-admin-key.service"
+    ];
+    wants = [ "network-online.target" ];
+    requires = [
+      "podman-convex-backend.service"
+      "convex-generate-admin-key.service"
+    ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.git
+      pkgs.gnugrep
+      pkgs.nodejs_24
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = "/var/lib/opensync";
+      Restart = "always";
+      RestartSec = "15s";
+      TimeoutStartSec = "15min";
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
+    };
+    script = ''
+            set -euo pipefail
+
+            repo_dir="/var/lib/opensync/repo"
+            branch="main"
+            revision="${opensyncRevision}"
+            remote="https://github.com/waynesutton/opensync.git"
+            admin_key_file="/var/lib/opensync/state/convex-admin.key"
+            workos_client_id_file="${config.sops.secrets.opensync_workos_client_id.path}"
+            workos_api_key_file="${config.sops.secrets.opensync_workos_api_key.path}"
+            workos_cookie_password_file="${config.sops.secrets.opensync_workos_cookie_password.path}"
+
+            if [ ! -s "$admin_key_file" ]; then
+              echo "opensync-web: missing Convex admin key at $admin_key_file" >&2
+              exit 1
+            fi
+
+            if [ ! -d "$repo_dir/.git" ]; then
+              rm -rf "$repo_dir"
+              git clone --branch "$branch" "$remote" "$repo_dir"
+            fi
+
+            cd "$repo_dir"
+            git fetch --prune origin "$branch"
+            if ! git cat-file -e "$revision^{commit}" 2>/dev/null; then
+              git fetch --depth 1 origin "$revision"
+            fi
+            git checkout --detach "$revision"
+            git reset --hard "$revision"
+
+            npm ci --no-audit --no-fund
+
+            workos_client_id="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$workos_client_id_file")"
+            workos_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$workos_api_key_file")"
+            workos_cookie_password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$workos_cookie_password_file")"
+            convex_admin_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$admin_key_file")"
+
+            if [ -z "$workos_client_id" ] || [ -z "$workos_api_key" ] || [ -z "$workos_cookie_password" ] || [ -z "$convex_admin_key" ]; then
+              echo "opensync-web: one or more required secrets are empty" >&2
+              exit 1
+            fi
+
+            export CONVEX_SELF_HOSTED_URL="http://127.0.0.1:3210"
+            export CONVEX_SELF_HOSTED_ADMIN_KEY="$convex_admin_key"
+
+            npx convex env set WORKOS_API_KEY "$workos_api_key"
+            npx convex env set WORKOS_CLIENT_ID "$workos_client_id"
+            npx convex deploy
+
+            cat > "$repo_dir/.env.local" <<EOF
+      VITE_CONVEX_URL=${convexCloudOrigin}
+      VITE_WORKOS_CLIENT_ID=$workos_client_id
+      VITE_REDIRECT_URI=http://localhost:5173/callback
+      WORKOS_COOKIE_PASSWORD=$workos_cookie_password
+      EOF
+
+            exec npm run dev -- --host 127.0.0.1 --port 5173
+    '';
+  };
+
+  systemd.services.wellness-api = {
+    description = "Wellness Tracker API";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.nodejs_24
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = wellnessRepoDir;
+      Restart = "always";
+      RestartSec = "10s";
+      TimeoutStartSec = "15min";
+      Environment = [
+        "HOME=/home/cdenneen"
+        "NODE_ENV=production"
+        "EXPO_PUBLIC_API_BASE_URL=http://${wellnessApiHost}:${toString wellnessApiPort}"
+        "EXPO_PUBLIC_SUPABASE_URL=${wellnessSupabaseUrl}"
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY=${wellnessSupabaseAnonKey}"
+        "API_BIND_HOST=0.0.0.0"
+        "API_PORT=${toString wellnessApiPort}"
+        "CORS_ALLOW_ORIGINS=*"
+        "SUPABASE_URL=${wellnessSupabaseUrl}"
+        "SUPABASE_ANON_KEY=${wellnessSupabaseAnonKey}"
+        "AI_MODEL=gpt-4.1-mini"
+      ];
+      ExecStart = "${pkgs.bash}/bin/bash -lc 'if [ ! -d node_modules ]; then npm ci --no-audit --no-fund; fi; exec npm run api:start'";
+    };
+  };
 
   systemd.services.cloudflared-credentials-opencode =
     let
@@ -318,6 +623,21 @@
     mode = "0400";
   };
   sops.secrets.opencode_server_password = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.opensync_workos_client_id = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.opensync_workos_api_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.opensync_workos_cookie_password = {
     owner = "cdenneen";
     group = "users";
     mode = "0400";
@@ -591,13 +911,15 @@
     };
   };
 
+  environment.variables = {
+    VITE_CONVEX_URL = convexCloudOrigin;
+    RECALLIUM_MCP_URL = recalliumMcpUrl;
+  };
+
   home-manager.users.cdenneen.imports = [ ./nyx-home.nix ];
 
   home-manager.users.cdenneen.programs.opencode.package = lib.mkForce (
-    if opencode != null then
-      opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
-    else
-      pkgs.opencode
+    pkgs.callPackage ../../pkgs/opencode-cli.nix { }
   );
 
   # Starship palette is configured in nyx-home.nix.

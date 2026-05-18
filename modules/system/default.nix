@@ -10,6 +10,14 @@
 let
   cfg = config.profiles;
   happierPkg = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-cli;
+  codexPkg = pkgs.callPackage ../../pkgs/codex-cli.nix { };
+  hmBackupSuffix =
+    if self ? shortRev then
+      self.shortRev
+    else if self ? dirtyShortRev then
+      self.dirtyShortRev
+    else
+      "local";
 in
 {
   imports = [
@@ -44,7 +52,7 @@ in
 
       # Always enable Home Manager backups to avoid clobbering existing files
       # on first activation when HM manages an existing home directory.
-      home-manager.backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
+      home-manager.backupFileExtension = "${hmBackupSuffix}.old";
 
       # Ensure security wrappers (sudo, ping, etc.) are found before system binaries
       # This must apply to SSH, TTY, and interactive shells
@@ -56,32 +64,21 @@ in
       environment.systemPackages = [
         pkgs.home-manager
         happierPkg
-        unstablePkgs.codex
+        codexPkg
       ];
     }
     # NOTE: Do NOT set security.sudo.enable here.
     # sudo enablement is handled by NixOS defaults and by modules/system/sudo.nix,
     # and must not be referenced at all on nix-darwin.
 
-    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) (
-      let
-        githubTokenPlaceholder =
-          if config.sops.secrets.github-token ? placeholder then
-            config.sops.secrets.github-token.placeholder
-          else
-            null;
-      in
-      {
+    (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
         sops.secrets.github-token = {
           owner = "cdenneen";
           mode = "0400";
         };
-        sops.templates."github-token.nix.conf".content = lib.optionalString (
-          githubTokenPlaceholder != null
-        ) "access-tokens = github.com=${githubTokenPlaceholder}";
 
         home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
-          backupFileExtension = "${self.shortRev or self.dirtyShortRev}.old";
+          backupFileExtension = "${hmBackupSuffix}.old";
           useUserPackages = true;
           useGlobalPkgs = false;
           sharedModules = [
@@ -116,11 +113,6 @@ in
             ];
             auto-optimise-store = true;
           };
-          extraOptions = lib.mkAfter (
-            lib.optionalString (githubTokenPlaceholder != null) ''
-              include ${config.sops.templates."github-token.nix.conf".path}
-            ''
-          );
           nixPath = [
             "nixpkgs=${inputs.nixpkgs-unstable}"
           ];
@@ -139,8 +131,7 @@ in
           defaultSopsFile = ../../secrets/secrets.yaml;
           age.keyFile = "/var/sops/age/keys.txt";
         };
-      }
-    ))
+      })
 
     (lib.mkIf
       (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)

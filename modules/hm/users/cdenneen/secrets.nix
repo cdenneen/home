@@ -46,6 +46,12 @@ let
           GITLAB_READ_ONLY_MODE = "true";
         };
       };
+      recallium = {
+        type = "remote";
+        url = "http://nyx.tail0e55.ts.net:18001/mcp";
+        enabled = true;
+        timeout = 15000;
+      };
       kubernetes = {
         type = "local";
         command = [
@@ -150,18 +156,18 @@ in
     codecommit_rsa.mode = "0600";
     id_rsa_cloud9.mode = "0600";
 
-    openclaw_gateway_token = {
-      mode = "0400";
-      path = "${config.home.homeDirectory}/.config/openclaw/gateway.token";
-    };
-
     openai_api_key.mode = "0400";
     telegram_bot_token.mode = "0400";
+    telegram_chat_id.mode = "0400";
 
     glab_cli_config = {
       mode = "0600";
       path = "${config.home.homeDirectory}/.config/glab-cli/config.yml";
     };
+
+    oci_config.mode = "0600";
+
+    oci_private_key.mode = "0600";
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
@@ -170,6 +176,8 @@ in
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
     mkdir -p "$HOME/.ssh"
     chmod 700 "$HOME/.ssh"
+    mkdir -p "$HOME/.oci"
+    chmod 700 "$HOME/.oci"
 
     is_hm_link() {
       local path="$1"
@@ -280,7 +288,6 @@ in
     backup_if_unmanaged "$HOME/.ssh/cdenneen_ed25519_2024" "${config.sops.secrets.cdenneen_ed25519_2024.path}"
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa" "${config.sops.secrets.codecommit_rsa.path}"
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9" "${config.sops.secrets.id_rsa_cloud9.path}"
-
     # Public keys: managed by Home Manager (symlink into /nix/store).
     backup_if_unmanaged "$HOME/.ssh/config" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/fortress_rsa.pub" "" "/nix/store/"
@@ -291,6 +298,12 @@ in
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9.pub" "" "/nix/store/"
   '';
 
+
+  home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+    ''
+  );
   home.activation.fixDarwinSopsSecretsDir = lib.mkIf pkgs.stdenv.isDarwin (
     lib.hm.dag.entryBefore [ "sops-nix" ] ''
       set -euo pipefail
@@ -310,11 +323,50 @@ in
     lib.hm.dag.entryAfter [ "sops-nix" ] ''
       set -euo pipefail
 
-      if command -v sops-nix-user >/dev/null 2>&1; then
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+
+      sops_nix_program="${config.launchd.agents.sops-nix.config.Program}"
+
+      if [ -x "$sops_nix_program" ]; then
+        $DRY_RUN_CMD "$sops_nix_program"
+      elif command -v sops-nix-user >/dev/null 2>&1; then
         $DRY_RUN_CMD sops-nix-user
       fi
     ''
   );
+
+  home.activation.materializeOciFiles =
+    lib.hm.dag.entryAfter (
+      if pkgs.stdenv.isDarwin then
+        [ "materializeDarwinSopsSecrets" ]
+      else
+        [ "sops-nix" ]
+    )
+      ''
+        set -euo pipefail
+
+        src_cfg="$HOME/.config/sops-nix/secrets/oci_config"
+        src_key="$HOME/.config/sops-nix/secrets/oci_private_key"
+        dst_dir="$HOME/.oci"
+
+        if [ ! -r "$src_cfg" ] || [ ! -r "$src_key" ]; then
+          echo "warning: OCI secrets are missing from sops-nix output; skipping OCI materialization ($src_cfg, $src_key)" >&2
+          exit 0
+        fi
+
+        $DRY_RUN_CMD mkdir -p "$dst_dir"
+        $DRY_RUN_CMD chmod 700 "$dst_dir"
+
+        if [ -L "$dst_dir/config" ]; then
+          $DRY_RUN_CMD rm -f "$dst_dir/config"
+        fi
+        if [ -L "$dst_dir/private_key.pem" ]; then
+          $DRY_RUN_CMD rm -f "$dst_dir/private_key.pem"
+        fi
+
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src_cfg" "$dst_dir/config"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src_key" "$dst_dir/private_key.pem"
+      '';
 
   home.file = lib.mkMerge [
     {

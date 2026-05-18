@@ -141,6 +141,56 @@ in
           randomizedDelaySec = "45min";
         };
       };
+      systemd.services.nixos-upgrade =
+        let
+          rebuildExe = lib.getExe pkgs.nixos-rebuild-ng;
+          flakeRef = config.system.autoUpgrade.flake;
+          rebootLower = config.system.autoUpgrade.rebootWindow.lower;
+          rebootUpper = config.system.autoUpgrade.rebootWindow.upper;
+        in
+        {
+          script = lib.mkForce ''
+            set -euo pipefail
+
+            token_file="/run/secrets/github-token"
+            access_flags=()
+            if [ -r "$token_file" ] && [ -s "$token_file" ]; then
+              token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+              access_flags=(--option access-tokens "github.com=$token")
+            fi
+
+            ${rebuildExe} boot --refresh --flake ${lib.escapeShellArg flakeRef} --upgrade "''${access_flags[@]}"
+
+            booted="$(${pkgs.coreutils}/bin/readlink /run/booted-system/{initrd,kernel,kernel-modules})"
+            built="$(${pkgs.coreutils}/bin/readlink /nix/var/nix/profiles/system/{initrd,kernel,kernel-modules})"
+
+            current_time="$(${pkgs.coreutils}/bin/date +%H:%M)"
+            lower=${lib.escapeShellArg rebootLower}
+            upper=${lib.escapeShellArg rebootUpper}
+
+            if [[ "$lower" < "$upper" ]]; then
+              if [[ "$current_time" > "$lower" ]] && [[ "$current_time" < "$upper" ]]; then
+                do_reboot="true"
+              else
+                do_reboot="false"
+              fi
+            else
+              if [[ "$current_time" < "$upper" ]] || [[ "$current_time" > "$lower" ]]; then
+                do_reboot="true"
+              else
+                do_reboot="false"
+              fi
+            fi
+
+            if [ "$booted" = "$built" ]; then
+              ${rebuildExe} switch --refresh --flake ${lib.escapeShellArg flakeRef} "''${access_flags[@]}"
+            elif [ "$do_reboot" != "true" ]; then
+              echo "Outside of configured reboot window, skipping."
+            else
+              ${pkgs.systemd}/bin/shutdown -r +1
+            fi
+          '';
+        };
       security.rtkit.enable = true;
       nix.optimise.automatic = true;
       boot = {
