@@ -542,8 +542,8 @@ in
         echo "wellness-api: OpenAI key file missing at ${wellnessOpenAiKeyFile}" >&2
       fi
 
-      if [ ! -d node_modules ]; then
-        npm ci --no-audit --no-fund
+      if [ ! -x node_modules/.bin/tsx ]; then
+        npm ci --include=dev --no-audit --no-fund
       fi
 
       exec npm run api:start
@@ -558,7 +558,6 @@ in
       TimeoutStartSec = "15min";
       Environment = [
         "HOME=/home/cdenneen"
-        "NODE_ENV=production"
         "EXPO_PUBLIC_API_BASE_URL=http://${wellnessApiHost}:${toString wellnessApiPort}"
         "EXPO_PUBLIC_SUPABASE_URL=${wellnessSupabaseUrl}"
         "EXPO_PUBLIC_SUPABASE_ANON_KEY=${wellnessSupabaseAnonKey}"
