@@ -24,6 +24,7 @@ let
   wellnessRepoDir = "/home/cdenneen/src/workspace/personal/wellness";
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
   wellnessSupabaseAnonKey = "sb_publishable_niRmb4NzavLnlcWqAooi_A_0Yj_AOyA";
+  wellnessOpenAiKeyFile = "/home/cdenneen/.config/sops-nix/secrets/openai_api_key";
 in
 {
   imports = [
@@ -532,6 +533,21 @@ in
       pkgs.coreutils
       pkgs.nodejs_24
     ];
+    script = ''
+      set -euo pipefail
+
+      if [ -r "${wellnessOpenAiKeyFile}" ]; then
+        export OPENAI_API_KEY="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessOpenAiKeyFile}")"
+      else
+        echo "wellness-api: OpenAI key file missing at ${wellnessOpenAiKeyFile}" >&2
+      fi
+
+      if [ ! -d node_modules ]; then
+        npm ci --no-audit --no-fund
+      fi
+
+      exec npm run api:start
+    '';
     serviceConfig = {
       Type = "simple";
       User = "cdenneen";
@@ -551,9 +567,8 @@ in
         "CORS_ALLOW_ORIGINS=*"
         "SUPABASE_URL=${wellnessSupabaseUrl}"
         "SUPABASE_ANON_KEY=${wellnessSupabaseAnonKey}"
-        "AI_MODEL=gpt-4.1-mini"
+        "AI_MODEL=gpt-4.3"
       ];
-      ExecStart = "${pkgs.bash}/bin/bash -lc 'if [ ! -d node_modules ]; then npm ci --no-audit --no-fund; fi; exec npm run api:start'";
     };
   };
 
