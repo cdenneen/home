@@ -9,6 +9,8 @@ let
   tomlFormat = pkgs.formats.toml { };
   homeDir = config.home.homeDirectory;
   isDarwin = pkgs.stdenv.isDarwin;
+  useNyxRemoteMcp = isDarwin;
+  nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
 
   writableRoots = [
     "/Users/cdenneen"
@@ -26,6 +28,89 @@ let
     "${homeDir}/.local/share/pnpm"
   ];
 
+  mkMcpCommand =
+    script:
+    if useNyxRemoteMcp then
+      {
+        command = "ssh";
+        args = [
+          "-T"
+          nyxMcpSshHost
+          "bash -lc ${lib.escapeShellArg script}"
+        ];
+      }
+    else
+      {
+        command = "bash";
+        args = [
+          "-lc"
+          script
+        ];
+      };
+
+  mcpGitlabScript = ''
+    set -euo pipefail
+
+    export GITLAB_API_URL="https://git.ap.org/api/v4"
+    export GITLAB_READ_ONLY_MODE="true"
+
+    if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+      token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+      if [ -z "$token" ]; then
+        token="$(glab auth token 2>/dev/null || true)"
+      fi
+      if [ -n "$token" ]; then
+        export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+      fi
+    fi
+
+    exec npx -y @zereight/mcp-gitlab
+  '';
+
+  mcpKubernetesScript = ''
+    set -euo pipefail
+
+    kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+    if [ -r "$kubeconfig" ]; then
+      sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
+      sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+      export KUBECONFIG="$sanitized"
+    fi
+
+    exec npx -y @strowk/mcp-k8s
+  '';
+
+  mcpAwsScript = ''
+    set -euo pipefail
+    export LOG_LEVEL="error"
+    exec npx -y aws-mcp-readonly-lite
+  '';
+
+  mcpTerraformScript = ''
+    set -euo pipefail
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+      exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
+    fi
+
+    exec npx -y terraform-mcp-server
+  '';
+
+  mcpDuckDuckGoScript = ''
+    set -euo pipefail
+    exec npx -y ddg-mcp-search
+  '';
+
+  mcpContext7Script = ''
+    set -euo pipefail
+    exec npx -y @upstash/context7-mcp
+  '';
+
+  mcpPlaywrightScript = ''
+    set -euo pipefail
+    exec npx -y @playwright/mcp
+  '';
+
   codexConfigAttrs =
     (lib.optionalAttrs isDarwin {
       notify = [
@@ -42,6 +127,10 @@ let
       file_opener = "none";
       show_raw_agent_reasoning = true;
       web_search = "live";
+      history = {
+        persistence = "save-all";
+        max_bytes = 268435456;
+      };
       agents = {
         max_threads = 6;
       };
@@ -120,121 +209,43 @@ let
           startup_timeout_sec = 12;
           tool_timeout_sec = 60;
         };
-        gitlab = {
-          command = "bash";
-          args = [
-            "-lc"
-            ''
-              set -euo pipefail
-
-              if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
-                token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
-                if [ -z "$token" ]; then
-                  token="$(glab auth token 2>/dev/null || true)"
-                fi
-                if [ -n "$token" ]; then
-                  export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
-                fi
-              fi
-
-              exec npx -y @zereight/mcp-gitlab
-            ''
-          ];
+        recallium = {
+          url = "http://nyx.tail0e55.ts.net:18001/mcp";
           required = false;
-          startup_timeout_sec = 20;
+          startup_timeout_sec = 10;
           tool_timeout_sec = 120;
-          env = {
-            GITLAB_API_URL = "https://git.ap.org/api/v4";
-            GITLAB_READ_ONLY_MODE = "true";
-          };
-          env_vars = [
-            "GITLAB_PERSONAL_ACCESS_TOKEN"
-          ];
         };
-        kubernetes = {
-          command = "bash";
-          args = [
-            "-lc"
-            ''
-              set -euo pipefail
-
-              kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
-              if [ -r "$kubeconfig" ]; then
-                sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
-                sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
-                export KUBECONFIG="$sanitized"
-              fi
-
-              exec npx -y @strowk/mcp-k8s
-            ''
-          ];
+        gitlab = (mkMcpCommand mcpGitlabScript) // {
           required = false;
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
-        aws = {
-          command = "npx";
-          args = [
-            "-y"
-            "aws-mcp-readonly-lite"
-          ];
+        kubernetes = (mkMcpCommand mcpKubernetesScript) // {
           required = false;
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
-          env = {
-            LOG_LEVEL = "error";
-          };
         };
-        terraform = {
-          command = "bash";
-          args = [
-            "-lc"
-            ''
-              set -euo pipefail
-
-              if command -v podman >/dev/null 2>&1; then
-                exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
-              fi
-
-              exec npx -y terraform-mcp-server
-            ''
-          ];
+        aws = (mkMcpCommand mcpAwsScript) // {
+          required = false;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
+        };
+        terraform = (mkMcpCommand mcpTerraformScript) // {
           required = false;
           startup_timeout_sec = 25;
           tool_timeout_sec = 180;
-          env_vars = [
-            "TF_TOKEN_app_terraform_io"
-            "TERRAFORM_TOKEN"
-            "TFE_TOKEN"
-          ];
         };
-        duckduckgo = {
-          command = "npx";
-          args = [
-            "-y"
-            "ddg-mcp-search"
-          ];
+        duckduckgo = (mkMcpCommand mcpDuckDuckGoScript) // {
           required = false;
           startup_timeout_sec = 10;
           tool_timeout_sec = 45;
         };
-        context7 = {
-          command = "npx";
-          args = [
-            "-y"
-            "@upstash/context7-mcp"
-          ];
+        context7 = (mkMcpCommand mcpContext7Script) // {
           required = false;
           startup_timeout_sec = 12;
           tool_timeout_sec = 60;
-          env_vars = [ "CONTEXT7_API_KEY" ];
         };
-        playwright = {
-          command = "npx";
-          args = [
-            "-y"
-            "@playwright/mcp"
-          ];
+        playwright = (mkMcpCommand mcpPlaywrightScript) // {
           required = false;
           startup_timeout_sec = 15;
           tool_timeout_sec = 120;
@@ -278,6 +289,7 @@ in
   };
 
   home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
+  home.file.".codex/RTK.md".source = ./ai/RTK.md;
   home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
   home.file.".codex/subagents/terraform-expert.md".source = ./ai/subagents/terraform-expert.md;
   home.file.".codex/subagents/gitlab-ci-expert.md".source = ./ai/subagents/gitlab-ci-expert.md;
@@ -299,6 +311,22 @@ in
   };
   home.file.".local/bin/restart-tmux" = {
     source = ./files/restart-tmux;
+    executable = true;
+  };
+  home.file.".local/bin/ivanti-reset" = {
+    source = ./files/ivanti-reset;
+    executable = true;
+  };
+  home.file.".local/bin/ensure-oci-ghost-runner" = {
+    source = ./files/ensure-oci-ghost-runner;
+    executable = true;
+  };
+  home.file.".local/bin/ensure-peps-runner" = {
+    source = ./files/ensure-peps-runner;
+    executable = true;
+  };
+  home.file.".local/bin/nyx-mcp-preflight" = {
+    source = ./files/nyx-mcp-preflight;
     executable = true;
   };
   home.file.".codex/config.toml.source".source =

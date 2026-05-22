@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+nyx_host="${NYX_MCP_HOST:-cdenneen@nyx.tail0e55.ts.net}"
+recallium_mcp_url="${RECALLIUM_MCP_URL:-http://nyx.tail0e55.ts.net:18001/mcp}"
+
+ssh_opts=(
+  -o BatchMode=yes
+  -o ConnectTimeout=8
+)
+
+failures=0
+warnings=0
+
+ok() {
+  printf 'ok   %s\n' "$1"
+}
+
+warn() {
+  printf 'warn %s\n' "$1" >&2
+  warnings=$((warnings + 1))
+}
+
+fail() {
+  printf 'fail %s\n' "$1" >&2
+  failures=$((failures + 1))
+}
+
+check_ssh() {
+  local remote_cmd="$1"
+  ssh "${ssh_opts[@]}" "$nyx_host" "$remote_cmd"
+}
+
+if check_ssh "true" >/dev/null 2>&1; then
+  ok "ssh reachable: $nyx_host"
+else
+  fail "ssh unreachable: $nyx_host"
+fi
+
+if check_ssh "command -v node >/dev/null && command -v npm >/dev/null && command -v npx >/dev/null && command -v glab >/dev/null" >/dev/null 2>&1; then
+  ok "nyx has node/npm/npx/glab"
+else
+  fail "nyx missing required mcp tooling (node/npm/npx/glab)"
+fi
+
+if check_ssh "systemctl --user is-active opencode-serve >/dev/null" >/dev/null 2>&1; then
+  ok "opencode-serve active on nyx"
+else
+  fail "opencode-serve is not active on nyx"
+fi
+
+if check_ssh "podman info >/dev/null 2>&1" >/dev/null 2>&1; then
+  ok "podman rootless runtime available on nyx"
+else
+  warn "podman rootless runtime unavailable; terraform mcp will use npx fallback"
+fi
+
+recallium_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$recallium_mcp_url" || true)"
+case "$recallium_code" in
+  200|400|405)
+    ok "recallium mcp endpoint reachable ($recallium_code)"
+    ;;
+  *)
+    fail "recallium mcp endpoint unreachable ($recallium_code): $recallium_mcp_url"
+    ;;
+esac
+
+printf 'summary failures=%s warnings=%s\n' "$failures" "$warnings"
+if [ "$failures" -gt 0 ]; then
+  exit 1
+fi

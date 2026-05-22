@@ -43,9 +43,9 @@ let
       tags = [ ];
     }
     {
-      name = "oracle-cloud-nixos";
+      name = "ghost";
       system = "aarch64-linux";
-      modules = [ ./nixos/oracle-cloud-nixos.nix ];
+      modules = [ ./nixos/ghost.nix ];
       tags = [ "qemu-guest" ];
     }
     {

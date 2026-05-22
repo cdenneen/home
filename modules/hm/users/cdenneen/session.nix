@@ -28,6 +28,7 @@ in
     XDG_CACHE_HOME = "${config.home.homeDirectory}/.cache";
     AWS_SHARED_CREDENTIALS_FILE = "$HOME/.aws/credentials";
     AWS_CONFIG_FILE = "$HOME/.aws/config";
+    OCI_CLI_CONFIG_FILE = "$HOME/.oci/config";
     # Pin glab to the XDG config dir so macOS legacy paths do not cause
     # duplicate-config warnings.
     GLAB_CONFIG_DIR = "$HOME/.config/glab-cli";
@@ -39,6 +40,9 @@ in
     # Avoid relying on ordering for XDG_CACHE_HOME expansion.
     STARSHIP_CACHE = "$HOME/.cache/starship";
     TFENV = "$XDG_DATA_HOME/terraform";
+    # Share provider/plugin downloads across all Terraform/OpenTofu projects on this machine.
+    # Keep this stable across hosts by anchoring it under the home directory.
+    TF_PLUGIN_CACHE_DIR = "${config.home.homeDirectory}/.cache/terraform/plugin-cache";
     CM_LAUNCHER = "fzf";
     FZF_DEFAULT_OPTS = lib.mkForce ''
       --color=fg:#ccd2d9,fg+:#d0d0d0,bg:#39274D,bg+:#39274D
@@ -63,4 +67,8 @@ in
     LESSCHARSET = "utf-8";
     MOSH_TITLE_NOPREFIX = "1";
   };
+
+  home.activation.tfPluginCacheDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    mkdir -p "${config.home.homeDirectory}/.cache/terraform/plugin-cache"
+  '';
 }

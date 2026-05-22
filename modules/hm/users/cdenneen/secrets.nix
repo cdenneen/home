@@ -9,6 +9,88 @@ let
   hostName =
     if osConfig != null then (osConfig.networking.hostName or "") else builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
+  isDarwin = pkgs.stdenv.isDarwin;
+  useNyxRemoteMcp = isDarwin && !isNyx;
+  nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
+
+  mkOpencodeMcpCommand =
+    script:
+    if useNyxRemoteMcp then
+      [
+        "ssh"
+        "-T"
+        nyxMcpSshHost
+        "bash -lc ${lib.escapeShellArg script}"
+      ]
+    else
+      [
+        "bash"
+        "-lc"
+        script
+      ];
+
+  mcpGitlabScript = ''
+    set -euo pipefail
+
+    export GITLAB_API_URL="https://git.ap.org/api/v4"
+    export GITLAB_READ_ONLY_MODE="true"
+
+    if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+      token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+      if [ -z "$token" ]; then
+        token="$(glab auth token 2>/dev/null || true)"
+      fi
+      if [ -n "$token" ]; then
+        export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+      fi
+    fi
+
+    exec npx -y @zereight/mcp-gitlab
+  '';
+
+  mcpKubernetesScript = ''
+    set -euo pipefail
+
+    kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+    if [ -r "$kubeconfig" ]; then
+      sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
+      sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+      export KUBECONFIG="$sanitized"
+    fi
+
+    exec npx -y @strowk/mcp-k8s
+  '';
+
+  mcpAwsScript = ''
+    set -euo pipefail
+    export LOG_LEVEL="error"
+    exec npx -y aws-mcp-readonly-lite
+  '';
+
+  mcpTerraformScript = ''
+    set -euo pipefail
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+      exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
+    fi
+
+    exec npx -y terraform-mcp-server
+  '';
+
+  mcpDuckDuckGoScript = ''
+    set -euo pipefail
+    exec npx -y ddg-mcp-search
+  '';
+
+  mcpContext7Script = ''
+    set -euo pipefail
+    exec npx -y @upstash/context7-mcp
+  '';
+
+  mcpPlaywrightScript = ''
+    set -euo pipefail
+    exec npx -y @playwright/mcp
+  '';
 
   opencodeConfigJson = builtins.toJSON {
     "$schema" = "https://opencode.ai/config.json";
@@ -21,30 +103,8 @@ let
     mcp = {
       gitlab = {
         type = "local";
-        command = [
-          "bash"
-          "-lc"
-          ''
-            set -euo pipefail
-
-            if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
-              token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
-              if [ -z "$token" ]; then
-                token="$(glab auth token 2>/dev/null || true)"
-              fi
-              if [ -n "$token" ]; then
-                export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
-              fi
-            fi
-
-            exec npx -y @zereight/mcp-gitlab
-          ''
-        ];
+        command = mkOpencodeMcpCommand mcpGitlabScript;
         enabled = true;
-        environment = {
-          GITLAB_API_URL = "https://git.ap.org/api/v4";
-          GITLAB_READ_ONLY_MODE = "true";
-        };
       };
       recallium = {
         type = "remote";
@@ -54,62 +114,37 @@ let
       };
       kubernetes = {
         type = "local";
-        command = [
-          "npx"
-          "-y"
-          "@strowk/mcp-k8s"
-        ];
+        command = mkOpencodeMcpCommand mcpKubernetesScript;
         enabled = true;
       };
       aws = {
         type = "local";
-        command = [
-          "npx"
-          "-y"
-          "aws-mcp-readonly-lite"
-        ];
+        command = mkOpencodeMcpCommand mcpAwsScript;
         enabled = true;
       };
       terraform = {
         type = "local";
-        # Use HashiCorp's MCP server in stdio mode (no TFE token required).
-        command = [
-          "podman"
-          "run"
-          "-i"
-          "--rm"
-          "hashicorp/terraform-mcp-server:0.4.0"
-        ];
+        command = mkOpencodeMcpCommand mcpTerraformScript;
         enabled = true;
       };
       duckduckgo = {
         type = "local";
-        command = [
-          "npx"
-          "-y"
-          "ddg-mcp-search"
-        ];
+        command = mkOpencodeMcpCommand mcpDuckDuckGoScript;
         enabled = true;
       };
       context7 = {
         type = "local";
-        command = [
-          "npx"
-          "-y"
-          "@upstash/context7-mcp"
-        ];
+        command = mkOpencodeMcpCommand mcpContext7Script;
         enabled = true;
+      }
+      // lib.optionalAttrs (!useNyxRemoteMcp) {
         environment = {
           CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
         };
       };
       playwright = {
         type = "local";
-        command = [
-          "npx"
-          "-y"
-          "@playwright/mcp"
-        ];
+        command = mkOpencodeMcpCommand mcpPlaywrightScript;
         enabled = true;
       };
     };
@@ -298,7 +333,6 @@ in
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9.pub" "" "/nix/store/"
   '';
 
-
   home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.isDarwin (
     lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
@@ -336,12 +370,8 @@ in
   );
 
   home.activation.materializeOciFiles =
-    lib.hm.dag.entryAfter (
-      if pkgs.stdenv.isDarwin then
-        [ "materializeDarwinSopsSecrets" ]
-      else
-        [ "sops-nix" ]
-    )
+    lib.hm.dag.entryAfter
+      (if pkgs.stdenv.isDarwin then [ "materializeDarwinSopsSecrets" ] else [ "sops-nix" ])
       ''
         set -euo pipefail
 

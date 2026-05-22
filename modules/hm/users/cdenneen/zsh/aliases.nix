@@ -52,4 +52,8 @@
   # Tailscale
   tsup = "tailscale up --accept-dns=false";
   tsdown = "tailscale down";
+
+  # Ivanti
+  ivr = "ivanti-reset";
+  ivrh = "ivanti-reset --hard";
 }

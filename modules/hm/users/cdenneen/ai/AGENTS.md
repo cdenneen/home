@@ -349,6 +349,11 @@ git ws-branch feat/my-branch [start-point]
 - Example: `nix shell nixpkgs#httpie -c http -- --version`
 - If Nix is not available but the system has `brew`/`apt`/`yum`/etc, suggest installing the tool or use a fallback.
 
+### Codex RTK reference
+
+- RTK guidance lives in `~/.codex/RTK.md`.
+- In Codex sessions, prefer `rtk <command>` when the wrapper is available.
+
 ## MCP and Skills
 
 ### MCP servers

@@ -4,12 +4,11 @@
   pkgs,
   system,
   osConfig,
-  opencode ? null,
-  unstablePkgs ? pkgs,
   ...
 }:
 let
   cfg = config.profiles;
+  opencodePkg = pkgs.callPackage ../../../pkgs/opencode-cli.nix { };
 in
 {
   imports = [
@@ -197,12 +196,7 @@ in
       direnv.nix-direnv.enable = lib.mkDefault true;
 
       opencode.enable = lib.mkDefault true;
-      opencode.package = lib.mkDefault (
-        if opencode != null then
-          opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
-        else
-          unstablePkgs.opencode
-      );
+      opencode.package = lib.mkDefault opencodePkg;
     };
     # Catppuccin program integrations (top-level module, not under programs)
     # Catppuccin program integrations (supported by the flake)

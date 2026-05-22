@@ -19,12 +19,27 @@ let
   recalliumMcpUrl = "http://${recalliumHost}:${toString recalliumApiPort}/mcp";
   recalliumUiBaseUrl = "http://${recalliumHost}:${toString recalliumUiPort}";
   recalliumImage = "docker.io/recalliumai/recallium@sha256:306b43857aa712bb0f8e63d1830776c621c0220131856d3be88a0429d22f907d";
-  wellnessApiHost = "nyx.tail0e55.ts.net";
+  terraformMcpImage = "hashicorp/terraform-mcp-server:0.4.0";
+  nyxMcpWarmPackages = [
+    "@zereight/mcp-gitlab"
+    "@strowk/mcp-k8s"
+    "aws-mcp-readonly-lite"
+    "terraform-mcp-server"
+    "ddg-mcp-search"
+    "@upstash/context7-mcp"
+    "@playwright/mcp"
+  ];
+  pepsApiHost = "peps-api.denneen.net";
+  pepsWebHost = "peps.denneen.net";
+  pepsApiPort = 8787;
+  pepsRepoDir = "/home/cdenneen/src/workspace/personal/peps";
+  wellnessApiHost = "wellness-api.denneen.net";
   wellnessApiPort = 8797;
   wellnessRepoDir = "/home/cdenneen/src/workspace/personal/wellness";
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
-  wellnessSupabaseAnonKey = "sb_publishable_niRmb4NzavLnlcWqAooi_A_0Yj_AOyA";
   wellnessOpenAiKeyFile = "/home/cdenneen/.config/sops-nix/secrets/openai_api_key";
+  wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
+  wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
 in
 {
   imports = [
@@ -175,7 +190,6 @@ in
   networking.firewall.interfaces.tailscale0.allowedTCPPorts = [
     53
     8080
-    wellnessApiPort
   ];
   networking.firewall.interfaces.tailscale0.allowedUDPPorts = [ 53 ];
 
@@ -294,6 +308,9 @@ in
         ingress = {
           "chat.denneen.net" = "http://127.0.0.1:4096";
           "${opensyncPublicHost}" = "http://127.0.0.1:5173";
+          "${pepsApiHost}" = "http://127.0.0.1:${toString pepsApiPort}";
+          "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
+          "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
         };
         default = "http_status:404";
         originRequest = {
@@ -542,6 +559,33 @@ in
         echo "wellness-api: OpenAI key file missing at ${wellnessOpenAiKeyFile}" >&2
       fi
 
+      if [ ! -r "${wellnessSupabasePublishableKeyFile}" ]; then
+        echo "wellness-api: Supabase publishable key file missing at ${wellnessSupabasePublishableKeyFile}" >&2
+        exit 1
+      fi
+
+      supabase_publishable_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabasePublishableKeyFile}")"
+      if [ -z "$supabase_publishable_key" ]; then
+        echo "wellness-api: Supabase publishable key is empty" >&2
+        exit 1
+      fi
+      export EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
+      export EXPO_PUBLIC_SUPABASE_ANON_KEY="$supabase_publishable_key"
+      export SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
+      export SUPABASE_ANON_KEY="$supabase_publishable_key"
+
+      if [ -r "${wellnessSupabaseSecretKeyFile}" ]; then
+        supabase_secret_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabaseSecretKeyFile}")"
+        if [ -n "$supabase_secret_key" ] && [ "$supabase_secret_key" != "REPLACE_WITH_SB_SECRET_KEY" ]; then
+          export SUPABASE_SECRET_KEY="$supabase_secret_key"
+          export SUPABASE_SERVICE_ROLE_KEY="$supabase_secret_key"
+        else
+          echo "wellness-api: Supabase secret key is unset in ${wellnessSupabaseSecretKeyFile}" >&2
+        fi
+      else
+        echo "wellness-api: Supabase secret key file missing at ${wellnessSupabaseSecretKeyFile} (account deletion will be limited)" >&2
+      fi
+
       if [ ! -x node_modules/.bin/tsx ]; then
         npm ci --include=dev --no-audit --no-fund
       fi
@@ -558,15 +602,91 @@ in
       TimeoutStartSec = "15min";
       Environment = [
         "HOME=/home/cdenneen"
-        "EXPO_PUBLIC_API_BASE_URL=http://${wellnessApiHost}:${toString wellnessApiPort}"
+        "EXPO_PUBLIC_API_BASE_URL=https://${wellnessApiHost}"
         "EXPO_PUBLIC_SUPABASE_URL=${wellnessSupabaseUrl}"
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY=${wellnessSupabaseAnonKey}"
-        "API_BIND_HOST=0.0.0.0"
+        "API_BIND_HOST=127.0.0.1"
         "API_PORT=${toString wellnessApiPort}"
         "CORS_ALLOW_ORIGINS=*"
         "SUPABASE_URL=${wellnessSupabaseUrl}"
-        "SUPABASE_ANON_KEY=${wellnessSupabaseAnonKey}"
-        "AI_MODEL=gpt-4.3"
+        "ENCRYPTED_STATE_TABLE=wellness_encrypted_state"
+        "ENCRYPTED_STATE_FILE_PATH=/home/cdenneen/.local/state/wellness-api/encrypted-state.json"
+        "AI_MODEL=gemini-3.5-flash"
+      ];
+    };
+  };
+
+  systemd.services.peps-api = {
+    description = "Peps API/web runtime";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.nodejs_24
+    ];
+    script = ''
+      set -euo pipefail
+
+      if [ ! -f package.json ]; then
+        echo "peps-api: repository not found at ${pepsRepoDir}" >&2
+        exit 1
+      fi
+
+      export SUPABASE_URL="${wellnessSupabaseUrl}"
+
+      if [ -r "${wellnessSupabasePublishableKeyFile}" ]; then
+        supabase_publishable_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabasePublishableKeyFile}")"
+        if [ -n "$supabase_publishable_key" ]; then
+          export SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
+          export SUPABASE_ANON_KEY="$supabase_publishable_key"
+          export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
+        fi
+      fi
+
+      if [ -r "${wellnessSupabaseSecretKeyFile}" ]; then
+        supabase_secret_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabaseSecretKeyFile}")"
+        if [ -n "$supabase_secret_key" ] && [ "$supabase_secret_key" != "REPLACE_WITH_SB_SECRET_KEY" ]; then
+          export SUPABASE_SECRET_KEY="$supabase_secret_key"
+          export SUPABASE_SERVICE_ROLE_KEY="$supabase_secret_key"
+        else
+          echo "peps-api: Supabase secret key is unset in ${wellnessSupabaseSecretKeyFile}; using file fallback state store" >&2
+        fi
+      fi
+
+      export PEPS_STATE_PROVIDER="supabase"
+      export PEPS_STATE_TABLE="peps_app_state"
+      export PEPS_STATE_ROW_ID="global"
+      export PEPS_STATE_FILE_PATH="/home/cdenneen/.local/state/peps-api/web-state.json"
+
+      if [ ! -x node_modules/.bin/tsx ]; then
+        npm ci --include=dev --no-audit --no-fund
+      fi
+
+      npm run web:build
+      exec npm run api:start
+    '';
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = pepsRepoDir;
+      Restart = "always";
+      RestartSec = "10s";
+      TimeoutStartSec = "20min";
+      EnvironmentFile = [
+        "${pepsRepoDir}/deploy/backend/.env"
+      ];
+      Environment = [
+        "HOME=/home/cdenneen"
+        "API_PORT=${toString pepsApiPort}"
+        "AUTH_REQUIRED=true"
+        "AUTH_ADMIN_EMAILS=cdenneen@gmail.com,c.denneen@gmail.com"
+        "SUPABASE_URL=${wellnessSupabaseUrl}"
+        "PEPS_STATE_PROVIDER=supabase"
+        "PEPS_STATE_TABLE=peps_app_state"
+        "PEPS_STATE_ROW_ID=global"
+        "PEPS_STATE_FILE_PATH=/home/cdenneen/.local/state/peps-api/web-state.json"
       ];
     };
   };
@@ -629,6 +749,16 @@ in
 
   sops.secrets.happier-env.owner = "root";
   sops.secrets.minio-credentials.owner = "root";
+  sops.secrets.wellness_supabase_publishable_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.wellness_supabase_secret_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
 
   # Cloudflare Tunnel for Telegram webhook.
   sops.secrets.cloudflare_tunnel_token = {
@@ -656,6 +786,66 @@ in
     group = "users";
     mode = "0400";
   };
+
+  systemd.user.services.nyx-mcp-warm-cache =
+    let
+      run = pkgs.writeShellScript "nyx-mcp-warm-cache" ''
+        set -euo pipefail
+
+        state_dir="$HOME/.local/state/nyx-mcp"
+        log_file="$state_dir/warm-cache.log"
+        ${pkgs.coreutils}/bin/mkdir -p "$state_dir"
+
+        echo "$(${pkgs.coreutils}/bin/date -Is) start" >> "$log_file"
+
+        warm_pkg() {
+          local pkg="$1"
+          if ${pkgs.nodejs_24}/bin/npm exec --yes --package "$pkg" -- node -e "process.exit(0)" >/dev/null 2>&1; then
+            echo "$(${pkgs.coreutils}/bin/date -Is) ok package=$pkg" >> "$log_file"
+          else
+            echo "$(${pkgs.coreutils}/bin/date -Is) warn package=$pkg failed" >> "$log_file"
+          fi
+        }
+
+        ${lib.concatMapStringsSep "\n" (pkg: "warm_pkg ${lib.escapeShellArg pkg}") nyxMcpWarmPackages}
+
+        if ${pkgs.podman}/bin/podman info >/dev/null 2>&1; then
+          if ${pkgs.podman}/bin/podman image exists ${lib.escapeShellArg terraformMcpImage}; then
+            echo "$(${pkgs.coreutils}/bin/date -Is) ok image=${terraformMcpImage} exists" >> "$log_file"
+          elif ${pkgs.podman}/bin/podman pull ${lib.escapeShellArg terraformMcpImage} >/dev/null 2>&1; then
+            echo "$(${pkgs.coreutils}/bin/date -Is) ok image=${terraformMcpImage} pulled" >> "$log_file"
+          else
+            echo "$(${pkgs.coreutils}/bin/date -Is) warn image=${terraformMcpImage} pull failed" >> "$log_file"
+          fi
+        else
+          echo "$(${pkgs.coreutils}/bin/date -Is) warn podman info unavailable" >> "$log_file"
+        fi
+
+        echo "$(${pkgs.coreutils}/bin/date -Is) done" >> "$log_file"
+      '';
+    in
+    {
+      description = "Warm nyx MCP package caches";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+      };
+      script = "exec ${run}";
+    };
+
+  systemd.user.timers.nyx-mcp-warm-cache = {
+    description = "Run nyx MCP cache warmup after boot";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "3min";
+      OnUnitActiveSec = "12h";
+      RandomizedDelaySec = "2min";
+      Persistent = true;
+      Unit = "nyx-mcp-warm-cache.service";
+    };
+  };
+
   systemd.user.services.opencode-serve =
     let
       run = pkgs.writeShellScript "opencode-web" ''

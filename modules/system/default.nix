@@ -72,66 +72,66 @@ in
     # and must not be referenced at all on nix-darwin.
 
     (lib.mkIf (cfg.defaults.enable && config ? system && config.system ? stateVersion) {
-        sops.secrets.github-token = {
-          owner = "cdenneen";
-          mode = "0400";
-        };
+      sops.secrets.github-token = {
+        owner = "cdenneen";
+        mode = "0400";
+      };
 
-        home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
-          backupFileExtension = "${hmBackupSuffix}.old";
-          useUserPackages = true;
-          useGlobalPkgs = false;
-          sharedModules = [
-            {
-              nix.package = lib.mkForce config.nix.package;
-              home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
-            }
+      home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
+        backupFileExtension = "${hmBackupSuffix}.old";
+        useUserPackages = true;
+        useGlobalPkgs = false;
+        sharedModules = [
+          {
+            nix.package = lib.mkForce config.nix.package;
+            home.sessionVariables.NIXPKGS_ALLOW_UNFREE = 1;
+          }
+        ];
+      };
+      nix = {
+        settings = {
+          # Allow local user to use substituters (avoid source builds for nix shell/profile)
+          trusted-users = [
+            "root"
+            config.userPresets.cdenneen.name
           ];
-        };
-        nix = {
-          settings = {
-            # Allow local user to use substituters (avoid source builds for nix shell/profile)
-            trusted-users = [
-              "root"
-              config.userPresets.cdenneen.name
-            ];
-            experimental-features = [
-              "nix-command"
-              "flakes"
-              "pipe-operators"
-            ];
-            substituters = config.nix.settings.trusted-substituters;
-            trusted-substituters = [
-              "https://cache.nixos.org"
-              "https://nix-community.cachix.org"
-              "https://cdenneen.cachix.org"
-            ];
-            trusted-public-keys = [
-              "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-              "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-              "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
-            ];
-            auto-optimise-store = true;
-          };
-          nixPath = [
-            "nixpkgs=${inputs.nixpkgs-unstable}"
+          experimental-features = [
+            "nix-command"
+            "flakes"
+            "pipe-operators"
           ];
+          substituters = config.nix.settings.trusted-substituters;
+          trusted-substituters = [
+            "https://cache.nixos.org"
+            "https://nix-community.cachix.org"
+            "https://cdenneen.cachix.org"
+          ];
+          trusted-public-keys = [
+            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+            "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+            "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
+          ];
+          auto-optimise-store = true;
         };
+        nixPath = [
+          "nixpkgs=${inputs.nixpkgs-unstable}"
+        ];
+      };
 
-        # Containers: make Podman available everywhere by default.
-        virtualisation.podman = {
-          enable = lib.mkDefault true;
-          dockerCompat = lib.mkDefault true;
-        };
+      # Containers: make Podman available everywhere by default.
+      virtualisation.podman = {
+        enable = lib.mkDefault true;
+        dockerCompat = lib.mkDefault true;
+      };
 
-        # Periodic maintenance to keep /nix/store tidy.
-        nix.gc.automatic = true;
-        nix.gc.options = "--delete-older-than 14d";
-        sops = {
-          defaultSopsFile = ../../secrets/secrets.yaml;
-          age.keyFile = "/var/sops/age/keys.txt";
-        };
-      })
+      # Periodic maintenance to keep /nix/store tidy.
+      nix.gc.automatic = true;
+      nix.gc.options = "--delete-older-than 14d";
+      sops = {
+        defaultSopsFile = ../../secrets/secrets.yaml;
+        age.keyFile = "/var/sops/age/keys.txt";
+      };
+    })
 
     (lib.mkIf
       (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)

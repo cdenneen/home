@@ -52,9 +52,10 @@ function isSessionKey(value) {
 }
 
 function resolveStateDir() {
-  const envDir = process.env.OPENCLAW_STATE_DIR;
+  const envDir =
+    process.env.OPENCODE_STATE_DIR || process.env.OPENCLAW_STATE_DIR;
   if (envDir && envDir.trim()) return envDir.trim();
-  return path.join(os.homedir(), ".openclaw");
+  return path.join(os.homedir(), ".opencode");
 }
 
 async function listSessionStores() {

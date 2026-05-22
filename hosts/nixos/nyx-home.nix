@@ -19,8 +19,9 @@
         Description = "Happier CLI daemon (nyx)";
       };
       Service = {
-        Type = "simple";
-        ExecStart = "${pkgs.nodejs_22}/bin/node ${happierCli}/lib/happier-cli/apps/cli/dist/index.mjs daemon start-sync";
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${happierCli}/bin/happier daemon start-sync";
         WorkingDirectory = "%h";
         Environment = [
           "PATH=${
@@ -38,7 +39,7 @@
           "HAPPIER_DAEMON_WAIT_FOR_AUTH=1"
           "HAPPIER_DAEMON_WAIT_FOR_AUTH_TIMEOUT_MS=0"
         ];
-        Restart = "on-failure";
+        Restart = "no";
       };
       Install = {
         WantedBy = [ "default.target" ];

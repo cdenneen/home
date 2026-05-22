@@ -86,6 +86,8 @@ in
       yarn
       _1password-cli
       awscli2
+      oci-cli
+      (pkgs.callPackage ../../../../pkgs/rtk.nix { })
       ssm-session-manager-plugin
       oauth2-proxy
       (pkgs.callPackage ../../../../pkgs/update-workspace-agents.nix { })
@@ -129,6 +131,44 @@ in
       };
       KeepAlive = true;
       RunAtLoad = true;
+    };
+  };
+
+  launchd.agents.oci-ghost-autostart = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${config.home.homeDirectory}/.local/bin/ensure-oci-ghost-runner"
+      ];
+      EnvironmentVariables = {
+        HOME = config.home.homeDirectory;
+        WORKSPACE_ROOT = "${config.home.homeDirectory}/code/workspace";
+        PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+      };
+      RunAtLoad = true;
+      StartInterval = 300;
+      ProcessType = "Background";
+      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/oci-ghost-autostart.log";
+      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/oci-ghost-autostart.log";
+    };
+  };
+
+  launchd.agents.peps-service = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${config.home.homeDirectory}/.local/bin/ensure-peps-runner"
+      ];
+      EnvironmentVariables = {
+        HOME = config.home.homeDirectory;
+        WORKSPACE_ROOT = "${config.home.homeDirectory}/code/workspace";
+        PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+      };
+      RunAtLoad = true;
+      KeepAlive = true;
+      ProcessType = "Background";
+      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/peps-service.log";
+      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/peps-service.log";
     };
   };
 
@@ -253,6 +293,11 @@ in
         remoteForwards = erosRemoteForwards;
       };
 
+      ghost = identityConfig // {
+        user = "cdenneen";
+        hostname = "158.101.105.21";
+      };
+
       "nyx-ssm" = identityConfig // {
         proxyCommand = ssmProxyCommand;
         user = "cdenneen";
@@ -297,24 +342,46 @@ in
   # ~/Library/Application Support/glab-cli/config.yml, which triggers noisy
   # duplicate-config warnings. Keep one canonical config in ~/.config.
   home.activation.glabConfigConsolidateDarwin = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-    if [ "$(uname -s)" != "Darwin" ]; then
-      exit 0
+    if [ "$(uname -s)" = "Darwin" ]; then
+      legacy_cfg="$HOME/Library/Application Support/glab-cli/config.yml"
+      canonical_cfg="$HOME/.config/glab-cli/config.yml"
+
+      if [ -e "$legacy_cfg" ]; then
+        if [ -e "$canonical_cfg" ] && ${pkgs.diffutils}/bin/cmp -s "$legacy_cfg" "$canonical_cfg"; then
+          $DRY_RUN_CMD rm -f "$legacy_cfg"
+        else
+          ts="$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)"
+          $DRY_RUN_CMD mv "$legacy_cfg" "$legacy_cfg.bak-$ts"
+        fi
+      fi
     fi
+  '';
 
-    legacy_cfg="$HOME/Library/Application Support/glab-cli/config.yml"
-    canonical_cfg="$HOME/.config/glab-cli/config.yml"
+  # Keep macOS as a Happier client only (no local happier-server), and ensure
+  # the official nyx daemon launch agent is installed/running at login.
+  home.activation.happierNyxDaemonDarwin = lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
+    if [ "$(uname -s)" = "Darwin" ]; then
+      happier_bin="$(command -v happier || true)"
+      if [ -n "$happier_bin" ] && [ -x "$happier_bin" ]; then
+        export HAPPIER_HOME_DIR="$HOME/.happier"
+        export HAPPIER_SERVER_URL="https://nyx.tail0e55.ts.net"
+        export HAPPIER_WEBAPP_URL="https://nyx.tail0e55.ts.net"
+        export HAPPIER_PUBLIC_SERVER_URL="https://nyx.tail0e55.ts.net"
+        export HAPPIER_NO_BROWSER_OPEN=1
+        export HAPPIER_DAEMON_WAIT_FOR_AUTH=1
+        export HAPPIER_DAEMON_WAIT_FOR_AUTH_TIMEOUT_MS=0
 
-    if [ ! -e "$legacy_cfg" ]; then
-      exit 0
+        $DRY_RUN_CMD "$happier_bin" --server nyx daemon service install --json >/dev/null
+        $DRY_RUN_CMD "$happier_bin" --server nyx daemon service start --json >/dev/null
+      fi
+
+      legacy_agent="$HOME/Library/LaunchAgents/org.nix-community.home.happier-daemon-nyx.plist"
+      if [ -e "$legacy_agent" ]; then
+        uid="$(${pkgs.coreutils}/bin/id -u)"
+        $DRY_RUN_CMD /bin/launchctl bootout "gui/$uid/org.nix-community.home.happier-daemon-nyx" 2>/dev/null || true
+        $DRY_RUN_CMD rm -f "$legacy_agent"
+      fi
     fi
-
-    if [ -e "$canonical_cfg" ] && ${pkgs.diffutils}/bin/cmp -s "$legacy_cfg" "$canonical_cfg"; then
-      $DRY_RUN_CMD rm -f "$legacy_cfg"
-      exit 0
-    fi
-
-    ts="$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)"
-    $DRY_RUN_CMD mv "$legacy_cfg" "$legacy_cfg.bak-$ts"
   '';
 
   # direnv loads this automatically (if present). Keep it tiny and just source

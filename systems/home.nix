@@ -19,7 +19,7 @@ let
   opencodeHomeModule =
     { pkgs, ... }:
     {
-      programs.opencode.package = inputs.opencode.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      programs.opencode.package = pkgs.callPackage ../pkgs/opencode-cli.nix { };
     };
 
   homeConfiguration = mkHomeConfiguration;
