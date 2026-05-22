@@ -3,15 +3,25 @@
   lib,
   pkgs,
   osConfig ? null,
+  nixHostName ? null,
   ...
 }:
 let
   hostName =
-    if osConfig != null then (osConfig.networking.hostName or "") else builtins.getEnv "HOSTNAME";
+    if osConfig != null then
+      (osConfig.networking.hostName or "")
+    else if nixHostName != null then
+      nixHostName
+    else
+      builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
   isDarwin = pkgs.stdenv.isDarwin;
   useNyxRemoteMcp = isDarwin && !isNyx;
   nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
+
+  # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
+  recalliumMcpUrl =
+    if isNyx then "http://127.0.0.1:18001/mcp" else "http://nyx.tail0e55.ts.net:18001/mcp";
 
   mkOpencodeMcpCommand =
     script:
@@ -108,7 +118,7 @@ let
       };
       recallium = {
         type = "remote";
-        url = "http://nyx.tail0e55.ts.net:18001/mcp";
+        url = recalliumMcpUrl;
         enabled = true;
         timeout = 15000;
       };
@@ -465,6 +475,25 @@ in
 
       if [ -r "$src" ]; then
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src" "$ts_dst"
+      fi
+    ''
+  );
+
+  # If a local user override exists for opencode-serve.service, it can shadow the
+  # system-managed user unit (defined in NixOS) and break PATH/MCP startup.
+  home.activation.opencodeNyxCleanupUserUnit = lib.mkIf isNyx (
+    lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
+      set -euo pipefail
+
+      unit="$HOME/.config/systemd/user/opencode-serve.service"
+      dropin_dir="$HOME/.config/systemd/user/opencode-serve.service.d"
+
+      if [ -e "$unit" ] || [ -d "$dropin_dir" ]; then
+        ${pkgs.systemd}/bin/systemctl --user stop opencode-serve.service 2>/dev/null || true
+        $DRY_RUN_CMD rm -f "$unit"
+        $DRY_RUN_CMD rm -rf "$dropin_dir"
+        ${pkgs.systemd}/bin/systemctl --user daemon-reload 2>/dev/null || true
+        ${pkgs.systemd}/bin/systemctl --user start opencode-serve.service 2>/dev/null || true
       fi
     ''
   );

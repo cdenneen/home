@@ -329,6 +329,10 @@ in
     source = ./files/nyx-mcp-preflight;
     executable = true;
   };
+  home.file.".local/bin/opencode-attach-latest" = {
+    source = ./files/opencode-attach-latest;
+    executable = true;
+  };
   home.file.".codex/config.toml.source".source =
     tomlFormat.generate "codex-config.toml" codexConfigAttrs;
 

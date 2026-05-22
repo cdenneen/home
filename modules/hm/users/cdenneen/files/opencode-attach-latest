@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+url="${1:-http://127.0.0.1:4097}"
+dir="${2:-${PWD}}"
+
+if command -v realpath >/dev/null 2>&1; then
+  dir="$(realpath -m "$dir")"
+fi
+
+sessions_json="$(curl -sf "$url/session")"
+
+sid="$(
+  printf '%s' "$sessions_json" \
+    | jq -r --arg dir "$dir" '
+        [ .[]
+          | select(.directory == $dir)
+          | { id: .id, updated: (.time.updated // 0) }
+        ]
+        | sort_by(.updated)
+        | last
+        | .id // empty
+      '
+)"
+
+if [ -z "$sid" ]; then
+  exec opencode attach "$url" --dir "$dir" --continue
+fi
+
+exec opencode attach "$url" --dir "$dir" --session "$sid"

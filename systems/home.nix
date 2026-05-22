@@ -36,6 +36,13 @@ let
         homeModules = [
           defaultHomeModule
           opencodeHomeModule
+          # Make the host name available during pure HM eval.
+          (
+            { ... }:
+            {
+              _module.args.nixHostName = host.name;
+            }
+          )
         ]
         ++ extraModulesForHost host.name;
       };
