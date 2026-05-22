@@ -792,6 +792,8 @@ in
       run = pkgs.writeShellScript "nyx-mcp-warm-cache" ''
         set -euo pipefail
 
+        export PATH="${pkgs.bash}/bin:${pkgs.nodejs_24}/bin:$PATH"
+
         state_dir="$HOME/.local/state/nyx-mcp"
         log_file="$state_dir/warm-cache.log"
         ${pkgs.coreutils}/bin/mkdir -p "$state_dir"
