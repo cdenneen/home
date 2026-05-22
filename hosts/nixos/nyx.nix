@@ -800,7 +800,7 @@ in
 
         warm_pkg() {
           local pkg="$1"
-          if ${pkgs.nodejs_24}/bin/npm exec --yes --package "$pkg" -- node -e "process.exit(0)" >/dev/null 2>&1; then
+          if ${pkgs.nodejs_24}/bin/npm exec --yes --package "$pkg" -- ${pkgs.nodejs_24}/bin/node -e "process.exit(0)" >/dev/null 2>&1; then
             echo "$(${pkgs.coreutils}/bin/date -Is) ok package=$pkg" >> "$log_file"
           else
             echo "$(${pkgs.coreutils}/bin/date -Is) warn package=$pkg failed" >> "$log_file"
