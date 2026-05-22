@@ -30,6 +30,7 @@ in
     if [ "$(uname -s)" = "Linux" ]; then
       happier_bin="${happierCli}/bin/happier"
       if [ -x "$happier_bin" ]; then
+        export PATH="${pkgs.systemd}/bin:$PATH"
         export HAPPIER_HOME_DIR="$HOME/.happier"
         export HAPPIER_NO_BROWSER_OPEN=1
         export HAPPIER_DAEMON_WAIT_FOR_AUTH=1
