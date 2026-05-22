@@ -1,8 +1,12 @@
 {
   lib,
   pkgs,
+  happier,
   ...
 }:
+let
+  happierCli = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-cli;
+in
 {
   sops.secrets = { };
 
@@ -24,8 +28,8 @@
 
   home.activation.happierNyxDaemonLinux = lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
     if [ "$(uname -s)" = "Linux" ]; then
-      happier_bin="$(command -v happier || true)"
-      if [ -n "$happier_bin" ] && [ -x "$happier_bin" ]; then
+      happier_bin="${happierCli}/bin/happier"
+      if [ -x "$happier_bin" ]; then
         export HAPPIER_HOME_DIR="$HOME/.happier"
         export HAPPIER_NO_BROWSER_OPEN=1
         export HAPPIER_DAEMON_WAIT_FOR_AUTH=1
