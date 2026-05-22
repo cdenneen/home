@@ -46,4 +46,13 @@
       };
     };
 
+  home.activation.happierNyxCleanupLegacyService = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    legacy_unit="$HOME/.config/systemd/user/happier-daemon.nyx.service"
+    if [ -e "$legacy_unit" ]; then
+      ${pkgs.systemd}/bin/systemctl --user disable --now happier-daemon.nyx.service 2>/dev/null || true
+      $DRY_RUN_CMD rm -f "$legacy_unit"
+      ${pkgs.systemd}/bin/systemctl --user daemon-reload 2>/dev/null || true
+    fi
+  '';
+
 }
