@@ -11,8 +11,10 @@ SCRIPT_NAME="$(basename "$0")"
 usage() {
   cat >&2 <<EOF
 Usage: $SCRIPT_NAME <session-name> [--snapshot] [--refresh-snapshot] [--no-attach]
+       $SCRIPT_NAME -s <session-name> [--snapshot] [--refresh-snapshot] [--no-attach]
 
 Options:
+  -s, --session <name>  tmux session name (alternative to positional arg).
   --snapshot          Capture snapshot only and exit.
   --snapshot-only     Alias for --snapshot.
   --refresh-snapshot  Refresh snapshot before restart.
@@ -27,6 +29,52 @@ sanitize_field() {
 
 extract_uuid() {
   grep -Eo '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' <<<"$1" | head -n1 || true
+}
+
+extract_opencode_session_id() {
+  grep -Eo 'ses_[A-Za-z0-9]+' <<<"$1" | head -n1 || true
+}
+
+opencode_attach_url() {
+  printf '%s\n' "${OPENCODE_ATTACH_URL:-http://127.0.0.1:4097}"
+}
+
+latest_opencode_session_for_dir() {
+  local dir="$1"
+  local url sessions sid db
+
+  sid=""
+
+  if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    url="$(opencode_attach_url)"
+    sessions="$(curl -sf "${url}/session" 2>/dev/null || true)"
+    if [[ -n "$sessions" ]]; then
+      sid="$(jq -r --arg d "$dir" '
+        [ .[] | select(.directory == $d) ]
+        | sort_by(.time.updated)
+        | last
+        | .id // empty
+      ' <<<"$sessions" 2>/dev/null || true)"
+    fi
+  fi
+
+  if [[ -z "$sid" && -x /usr/bin/sqlite3 ]]; then
+    db="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/opencode.db"
+    if [[ -f "$db" ]]; then
+      sid="$({
+        /usr/bin/sqlite3 -tabs "$db" "
+          SELECT id
+          FROM session
+          WHERE directory = '$dir'
+            AND (time_archived IS NULL OR time_archived = 0)
+          ORDER BY time_updated DESC
+          LIMIT 1;
+        "
+      } 2>/dev/null || true)"
+    fi
+  fi
+
+  printf '%s\n' "$sid"
 }
 
 is_shell_program() {
@@ -60,7 +108,9 @@ default_shell_name() {
 infer_restore_command() {
   local pane_tty="$1"
   local pane_pid="$2"
+  local pane_path="${3:-}"
   local tty_short ps_rows candidate shell_cmd codex_pid session_id candidate_first candidate_base
+  local opencode_session attach_url
 
   tty_short="${pane_tty#/dev/}"
   ps_rows="$(ps -t "$tty_short" -o pid=,ppid=,state=,command= 2>/dev/null || true)"
@@ -166,6 +216,29 @@ infer_restore_command() {
     fi
   fi
 
+  candidate_first="${candidate%% *}"
+  candidate_base="${candidate_first##*/}"
+  candidate_base="${candidate_base#-}"
+
+  if [[ "$candidate_base" == "opencode" || "$candidate_base" == ".opencode-wrapped" ]]; then
+    opencode_session="$(extract_opencode_session_id "$candidate")"
+
+    if [[ -z "$opencode_session" ]]; then
+      opencode_session="$(printf '%s\n' "$ps_rows" | grep -Eo 'ses_[A-Za-z0-9]+' | head -n1 || true)"
+    fi
+
+    if [[ -z "$opencode_session" && -n "$pane_path" ]]; then
+      opencode_session="$(latest_opencode_session_for_dir "$pane_path")"
+    fi
+
+    attach_url="$(opencode_attach_url)"
+    if [[ -n "$opencode_session" ]]; then
+      candidate="opencode attach $attach_url --session $opencode_session --dir $(printf '%q' "$pane_path")"
+    else
+      candidate="opencode attach $attach_url --continue --dir $(printf '%q' "$pane_path")"
+    fi
+  fi
+
   printf '%s\n' "$candidate"
 }
 
@@ -211,7 +284,7 @@ capture_snapshot() {
         path="$(awk -F '|' '{print $3}' <<<"$pane_info")"
         tty="$(awk -F '|' '{print $4}' <<<"$pane_info")"
         pane_pid="$(awk -F '|' '{print $5}' <<<"$pane_info")"
-        command="$(infer_restore_command "$tty" "$pane_pid")"
+        command="$(infer_restore_command "$tty" "$pane_pid" "$path")"
 
         printf '%s\t%s\t%s\t%s\n' \
           "$(sanitize_field "$win")" \
@@ -317,33 +390,51 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -s|--session)
+      if [[ $# -lt 2 ]]; then
+        echo "$SCRIPT_NAME: missing value for $1" >&2
+        usage
+        exit 2
+      fi
+      if [[ -n "$SESSION_NAME" ]]; then
+        echo "$SCRIPT_NAME: session specified multiple times: $2" >&2
+        usage
+        exit 2
+      fi
+      SESSION_NAME="$2"
+      shift 2
+      ;;
     --snapshot|--snapshot-only)
       SNAPSHOT_ONLY=1
+      shift
       ;;
     --refresh-snapshot)
       REFRESH_SNAPSHOT=1
+      shift
       ;;
     --no-attach)
       NO_ATTACH=1
+      shift
       ;;
     --help|-h)
       usage
       exit 0
       ;;
     --*)
-      echo "$SCRIPT_NAME: unknown option: $arg" >&2
+      echo "$SCRIPT_NAME: unknown option: $1" >&2
       usage
       exit 2
       ;;
     *)
       if [[ -n "$SESSION_NAME" ]]; then
-        echo "$SCRIPT_NAME: session specified multiple times: $arg" >&2
+        echo "$SCRIPT_NAME: session specified multiple times: $1" >&2
         usage
         exit 2
       fi
-      SESSION_NAME="$arg"
+      SESSION_NAME="$1"
+      shift
       ;;
   esac
 done

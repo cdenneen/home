@@ -134,6 +134,29 @@ in
     };
   };
 
+  launchd.agents.opencode-serve = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${config.home.profileDirectory}/bin/opencode"
+        "serve"
+        "--hostname"
+        "127.0.0.1"
+        "--port"
+        "4097"
+      ];
+      EnvironmentVariables = {
+        HOME = config.home.homeDirectory;
+        PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+      };
+      KeepAlive = true;
+      RunAtLoad = true;
+      ProcessType = "Background";
+      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/opencode-serve.log";
+      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/opencode-serve.log";
+    };
+  };
+
   launchd.agents.oci-ghost-autostart = lib.mkIf pkgs.stdenv.isDarwin {
     enable = true;
     config = {
