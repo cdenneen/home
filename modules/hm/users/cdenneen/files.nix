@@ -48,6 +48,14 @@ let
         ];
       };
 
+  mkLocalMcpCommand = script: {
+    command = "bash";
+    args = [
+      "-lc"
+      script
+    ];
+  };
+
   mcpGitlabScript = ''
     set -euo pipefail
 
@@ -245,7 +253,7 @@ let
           startup_timeout_sec = 12;
           tool_timeout_sec = 60;
         };
-        playwright = (mkMcpCommand mcpPlaywrightScript) // {
+        playwright = (mkLocalMcpCommand mcpPlaywrightScript) // {
           required = false;
           startup_timeout_sec = 15;
           tool_timeout_sec = 120;

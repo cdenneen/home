@@ -39,6 +39,12 @@ let
         script
       ];
 
+  mkLocalOpencodeMcpCommand = script: [
+    "bash"
+    "-lc"
+    script
+  ];
+
   mcpGitlabScript = ''
     set -euo pipefail
 
@@ -154,7 +160,7 @@ let
       };
       playwright = {
         type = "local";
-        command = mkOpencodeMcpCommand mcpPlaywrightScript;
+        command = mkLocalOpencodeMcpCommand mcpPlaywrightScript;
         enabled = true;
       };
     };
