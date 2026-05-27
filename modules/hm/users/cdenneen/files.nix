@@ -11,6 +11,17 @@ let
   isDarwin = pkgs.stdenv.isDarwin;
   useNyxRemoteMcp = isDarwin;
   nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
+  nyxMcpSshOptions = [
+    "-T"
+    "-o"
+    "ConnectTimeout=10"
+    "-o"
+    "ServerAliveInterval=30"
+    "-o"
+    "ServerAliveCountMax=2"
+    "-o"
+    "ExitOnForwardFailure=yes"
+  ];
 
   writableRoots = [
     "/Users/cdenneen"
@@ -33,8 +44,7 @@ let
     if useNyxRemoteMcp then
       {
         command = "ssh";
-        args = [
-          "-T"
+        args = nyxMcpSshOptions ++ [
           nyxMcpSshHost
           "bash -lc ${lib.escapeShellArg script}"
         ];

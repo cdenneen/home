@@ -18,6 +18,17 @@ let
   isDarwin = pkgs.stdenv.isDarwin;
   useNyxRemoteMcp = isDarwin && !isNyx;
   nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
+  nyxMcpSshOptions = [
+    "-T"
+    "-o"
+    "ConnectTimeout=10"
+    "-o"
+    "ServerAliveInterval=30"
+    "-o"
+    "ServerAliveCountMax=2"
+    "-o"
+    "ExitOnForwardFailure=yes"
+  ];
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
   recalliumMcpUrl =
@@ -28,7 +39,9 @@ let
     if useNyxRemoteMcp then
       [
         "ssh"
-        "-T"
+      ]
+      ++ nyxMcpSshOptions
+      ++ [
         nyxMcpSshHost
         "bash -lc ${lib.escapeShellArg script}"
       ]
