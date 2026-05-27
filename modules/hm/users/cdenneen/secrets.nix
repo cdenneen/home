@@ -17,40 +17,36 @@ let
   isNyx = hostName == "nyx";
   isDarwin = pkgs.stdenv.isDarwin;
   useNyxRemoteMcp = isDarwin && !isNyx;
-  nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
-  nyxMcpSshOptions = [
-    "-T"
-    "-o"
-    "ConnectTimeout=10"
-    "-o"
-    "ServerAliveInterval=30"
-    "-o"
-    "ServerAliveCountMax=2"
-    "-o"
-    "ExitOnForwardFailure=yes"
-  ];
+  useSharedNyxMcp = useNyxRemoteMcp || isNyx;
+  nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
-  recalliumMcpUrl =
-    if isNyx then "http://127.0.0.1:18001/mcp" else "http://nyx.tail0e55.ts.net:18001/mcp";
+  recalliumMcpUrl = nyxSharedMcpUrl 18001;
 
-  mkOpencodeMcpCommand =
-    script:
-    if useNyxRemoteMcp then
-      [
-        "ssh"
-      ]
-      ++ nyxMcpSshOptions
-      ++ [
-        nyxMcpSshHost
-        "bash -lc ${lib.escapeShellArg script}"
-      ]
+  mkSharedOpencodeMcp = port: {
+    type = "remote";
+    url = nyxSharedMcpUrl port;
+    enabled = true;
+    timeout = 15000;
+  };
+
+  mkOpencodeMcpCommand = script: [
+    "bash"
+    "-lc"
+    script
+  ];
+
+  mkOpencodeMcp =
+    port: script:
+    if useSharedNyxMcp then
+      mkSharedOpencodeMcp port
     else
-      [
-        "bash"
-        "-lc"
-        script
-      ];
+      {
+        type = "local";
+        command = mkOpencodeMcpCommand script;
+        enabled = true;
+      };
 
   mkLocalOpencodeMcpCommand = script: [
     "bash"
@@ -130,47 +126,24 @@ let
       reserved = 10000;
     };
     mcp = {
-      gitlab = {
-        type = "local";
-        command = mkOpencodeMcpCommand mcpGitlabScript;
-        enabled = true;
-      };
+      gitlab = mkOpencodeMcp 18101 mcpGitlabScript;
       recallium = {
         type = "remote";
         url = recalliumMcpUrl;
         enabled = true;
         timeout = 15000;
       };
-      kubernetes = {
-        type = "local";
-        command = mkOpencodeMcpCommand mcpKubernetesScript;
-        enabled = true;
-      };
-      aws = {
-        type = "local";
-        command = mkOpencodeMcpCommand mcpAwsScript;
-        enabled = true;
-      };
-      terraform = {
-        type = "local";
-        command = mkOpencodeMcpCommand mcpTerraformScript;
-        enabled = true;
-      };
-      duckduckgo = {
-        type = "local";
-        command = mkOpencodeMcpCommand mcpDuckDuckGoScript;
-        enabled = true;
-      };
-      context7 = {
-        type = "local";
-        command = mkOpencodeMcpCommand mcpContext7Script;
-        enabled = true;
-      }
-      // lib.optionalAttrs (!useNyxRemoteMcp) {
-        environment = {
-          CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+      kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
+      aws = mkOpencodeMcp 18103 mcpAwsScript;
+      terraform = mkOpencodeMcp 18104 mcpTerraformScript;
+      duckduckgo = mkOpencodeMcp 18105 mcpDuckDuckGoScript;
+      context7 =
+        (mkOpencodeMcp 18106 mcpContext7Script)
+        // lib.optionalAttrs (!useSharedNyxMcp) {
+          environment = {
+            CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+          };
         };
-      };
       playwright = {
         type = "local";
         command = mkLocalOpencodeMcpCommand mcpPlaywrightScript;

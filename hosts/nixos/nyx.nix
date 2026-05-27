@@ -21,6 +21,7 @@ let
   recalliumImage = "docker.io/recalliumai/recallium@sha256:306b43857aa712bb0f8e63d1830776c621c0220131856d3be88a0429d22f907d";
   terraformMcpImage = "hashicorp/terraform-mcp-server:0.4.0";
   nyxMcpWarmPackages = [
+    "supergateway"
     "@zereight/mcp-gitlab"
     "@strowk/mcp-k8s"
     "aws-mcp-readonly-lite"
@@ -29,6 +30,130 @@ let
     "@upstash/context7-mcp"
     "@playwright/mcp"
   ];
+  nyxSharedMcpServers = {
+    gitlab = {
+      port = 18101;
+      script = ''
+        set -euo pipefail
+
+        export GITLAB_API_URL="https://git.ap.org/api/v4"
+        export GITLAB_READ_ONLY_MODE="true"
+
+        token_file="$HOME/.config/opnix/gitlab_token"
+        if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && [ -r "$token_file" ]; then
+          token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$token_file")"
+          if [ -n "$token" ]; then
+            export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+          fi
+        fi
+
+        if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+          token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+          if [ -z "$token" ]; then
+            token="$(glab auth token 2>/dev/null || true)"
+          fi
+          if [ -n "$token" ]; then
+            export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+          fi
+        fi
+
+        exec ${pkgs.nodejs_24}/bin/npx -y @zereight/mcp-gitlab
+      '';
+    };
+    kubernetes = {
+      port = 18102;
+      script = ''
+        set -euo pipefail
+
+        kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+        if [ -r "$kubeconfig" ]; then
+          sanitized="''${TMPDIR:-/tmp}/nyx-mcp-kubeconfig.$$"
+          ${pkgs.gnused}/bin/sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+          export KUBECONFIG="$sanitized"
+        fi
+
+        exec ${pkgs.nodejs_24}/bin/npx -y @strowk/mcp-k8s
+      '';
+    };
+    aws = {
+      port = 18103;
+      script = ''
+        set -euo pipefail
+        export LOG_LEVEL="error"
+        exec ${pkgs.nodejs_24}/bin/npx -y aws-mcp-readonly-lite
+      '';
+    };
+    terraform = {
+      port = 18104;
+      script = ''
+        set -euo pipefail
+
+        if ${pkgs.podman}/bin/podman info >/dev/null 2>&1; then
+          exec ${pkgs.podman}/bin/podman run -i --rm ${lib.escapeShellArg terraformMcpImage}
+        fi
+
+        exec ${pkgs.nodejs_24}/bin/npx -y terraform-mcp-server
+      '';
+    };
+    duckduckgo = {
+      port = 18105;
+      script = ''
+        set -euo pipefail
+        exec ${pkgs.nodejs_24}/bin/npx -y ddg-mcp-search
+      '';
+    };
+    context7 = {
+      port = 18106;
+      script = ''
+        set -euo pipefail
+        exec ${pkgs.nodejs_24}/bin/npx -y @upstash/context7-mcp
+      '';
+    };
+  };
+  mkNyxMcpGatewayService =
+    name: spec:
+    let
+      stdioScript = pkgs.writeShellScript "nyx-mcp-${name}-stdio" spec.script;
+      run = pkgs.writeShellScript "nyx-mcp-${name}-gateway" ''
+        set -euo pipefail
+
+        export PATH="${
+          lib.makeBinPath [
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.glab
+            pkgs.gnused
+            pkgs.nodejs_24
+            pkgs.podman
+          ]
+        }:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:$PATH"
+
+        exec ${pkgs.nodejs_24}/bin/npx -y supergateway \
+          --stdio ${lib.escapeShellArg "${stdioScript}"} \
+          --outputTransport streamableHttp \
+          --port ${toString spec.port} \
+          --streamableHttpPath /mcp \
+          --healthEndpoint /healthz \
+          --logLevel info \
+          --stateful \
+          --sessionTimeout 3600000
+      '';
+    in
+    {
+      description = "Shared MCP ${name} gateway";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "default.target" ];
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = run;
+        Restart = "always";
+        RestartSec = 10;
+        MemoryAccounting = true;
+        MemoryHigh = "768M";
+        MemoryMax = "1G";
+      };
+    };
   pepsApiHost = "peps-api.denneen.net";
   pepsWebHost = "peps.denneen.net";
   pepsApiPort = 8787;
@@ -835,6 +960,13 @@ in
       };
       script = "exec ${run}";
     };
+
+  systemd.user.services.nyx-mcp-gitlab = mkNyxMcpGatewayService "gitlab" nyxSharedMcpServers.gitlab;
+  systemd.user.services.nyx-mcp-kubernetes = mkNyxMcpGatewayService "kubernetes" nyxSharedMcpServers.kubernetes;
+  systemd.user.services.nyx-mcp-aws = mkNyxMcpGatewayService "aws" nyxSharedMcpServers.aws;
+  systemd.user.services.nyx-mcp-terraform = mkNyxMcpGatewayService "terraform" nyxSharedMcpServers.terraform;
+  systemd.user.services.nyx-mcp-duckduckgo = mkNyxMcpGatewayService "duckduckgo" nyxSharedMcpServers.duckduckgo;
+  systemd.user.services.nyx-mcp-context7 = mkNyxMcpGatewayService "context7" nyxSharedMcpServers.context7;
 
   systemd.user.timers.nyx-mcp-warm-cache = {
     description = "Run nyx MCP cache warmup after boot";

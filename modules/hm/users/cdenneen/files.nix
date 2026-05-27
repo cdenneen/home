@@ -1,6 +1,8 @@
 {
   config,
   lib,
+  osConfig ? null,
+  nixHostName ? null,
   pkgs,
   ...
 }:
@@ -8,20 +10,18 @@
 let
   tomlFormat = pkgs.formats.toml { };
   homeDir = config.home.homeDirectory;
+  hostName =
+    if osConfig != null then
+      (osConfig.networking.hostName or "")
+    else if nixHostName != null then
+      nixHostName
+    else
+      builtins.getEnv "HOSTNAME";
+  isNyx = hostName == "nyx";
   isDarwin = pkgs.stdenv.isDarwin;
-  useNyxRemoteMcp = isDarwin;
-  nyxMcpSshHost = "cdenneen@nyx.tail0e55.ts.net";
-  nyxMcpSshOptions = [
-    "-T"
-    "-o"
-    "ConnectTimeout=10"
-    "-o"
-    "ServerAliveInterval=30"
-    "-o"
-    "ServerAliveCountMax=2"
-    "-o"
-    "ExitOnForwardFailure=yes"
-  ];
+  useSharedNyxMcp = isDarwin || isNyx;
+  nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   writableRoots = [
     "/Users/cdenneen"
@@ -39,24 +39,22 @@ let
     "${homeDir}/.local/share/pnpm"
   ];
 
-  mkMcpCommand =
-    script:
-    if useNyxRemoteMcp then
+  mkMcpCommand = script: {
+    command = "bash";
+    args = [
+      "-lc"
+      script
+    ];
+  };
+
+  mkSharedMcpCommand =
+    port: script:
+    if useSharedNyxMcp then
       {
-        command = "ssh";
-        args = nyxMcpSshOptions ++ [
-          nyxMcpSshHost
-          "bash -lc ${lib.escapeShellArg script}"
-        ];
+        url = nyxSharedMcpUrl port;
       }
     else
-      {
-        command = "bash";
-        args = [
-          "-lc"
-          script
-        ];
-      };
+      mkMcpCommand script;
 
   mkLocalMcpCommand = script: {
     command = "bash";
@@ -228,37 +226,37 @@ let
           tool_timeout_sec = 60;
         };
         recallium = {
-          url = "http://nyx.tail0e55.ts.net:18001/mcp";
+          url = nyxSharedMcpUrl 18001;
           required = false;
           startup_timeout_sec = 10;
           tool_timeout_sec = 120;
         };
-        gitlab = (mkMcpCommand mcpGitlabScript) // {
+        gitlab = (mkSharedMcpCommand 18101 mcpGitlabScript) // {
           required = false;
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
-        kubernetes = (mkMcpCommand mcpKubernetesScript) // {
+        kubernetes = (mkSharedMcpCommand 18102 mcpKubernetesScript) // {
           required = false;
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
-        aws = (mkMcpCommand mcpAwsScript) // {
+        aws = (mkSharedMcpCommand 18103 mcpAwsScript) // {
           required = false;
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
-        terraform = (mkMcpCommand mcpTerraformScript) // {
+        terraform = (mkSharedMcpCommand 18104 mcpTerraformScript) // {
           required = false;
           startup_timeout_sec = 25;
           tool_timeout_sec = 180;
         };
-        duckduckgo = (mkMcpCommand mcpDuckDuckGoScript) // {
+        duckduckgo = (mkSharedMcpCommand 18105 mcpDuckDuckGoScript) // {
           required = false;
           startup_timeout_sec = 10;
           tool_timeout_sec = 45;
         };
-        context7 = (mkMcpCommand mcpContext7Script) // {
+        context7 = (mkSharedMcpCommand 18106 mcpContext7Script) // {
           required = false;
           startup_timeout_sec = 12;
           tool_timeout_sec = 60;
@@ -345,6 +343,10 @@ in
   };
   home.file.".local/bin/nyx-mcp-preflight" = {
     source = ./files/nyx-mcp-preflight;
+    executable = true;
+  };
+  home.file.".local/bin/nyx-mcp-status" = {
+    source = ./files/nyx-mcp-status;
     executable = true;
   };
   home.file.".local/bin/opencode-attach-latest" = {
