@@ -8,6 +8,9 @@
 
     extraConfig = ''
       set -g default-terminal "tmux-256color"
+      set -g set-clipboard on
+      set -g allow-passthrough on
+      set -as terminal-features ",xterm*:clipboard"
       set -as terminal-features ",xterm-256color:RGB"
       set -g status-position top
       set -g base-index 1
