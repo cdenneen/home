@@ -961,11 +961,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1779911712,
-        "narHash": "sha256-n/TZp2M+HMWlVNsRXqJyQSbsKHuU+MJMskxeodG3bPE=",
+        "lastModified": 1779919724,
+        "narHash": "sha256-GbLaKeF7xnFkVVDoj58mC/aVZLfGRqnDf/+lETdIMZE=",
         "owner": "nix-community",
         "repo": "nur",
-        "rev": "806164b03e5e00b614e61d8bfe8751938e9f79f0",
+        "rev": "d49b3050aba8379fe6ac78d7fea5ebfeaa61b216",
         "type": "github"
       },
       "original": {
