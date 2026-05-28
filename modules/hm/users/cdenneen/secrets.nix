@@ -194,6 +194,7 @@ in
     id_rsa_cloud9.mode = "0600";
 
     openai_api_key.mode = "0400";
+    gemini_api_key.mode = "0400";
     telegram_bot_token.mode = "0400";
     telegram_chat_id.mode = "0400";
 

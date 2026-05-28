@@ -163,6 +163,7 @@ let
   wellnessRepoDir = "/home/cdenneen/src/workspace/personal/wellness";
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
   wellnessOpenAiKeyFile = "/home/cdenneen/.config/sops-nix/secrets/openai_api_key";
+  wellnessGeminiKeyFile = config.sops.secrets.gemini_api_key.path;
   wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
   wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
 in
@@ -684,6 +685,18 @@ in
         echo "wellness-api: OpenAI key file missing at ${wellnessOpenAiKeyFile}" >&2
       fi
 
+      if [ -r "${wellnessGeminiKeyFile}" ]; then
+        gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessGeminiKeyFile}")"
+        if [ -n "$gemini_api_key" ]; then
+          export GEMINI_API_KEY="$gemini_api_key"
+          export GOOGLE_API_KEY="$gemini_api_key"
+        else
+          echo "wellness-api: Gemini key is empty in ${wellnessGeminiKeyFile}" >&2
+        fi
+      else
+        echo "wellness-api: Gemini key file missing at ${wellnessGeminiKeyFile}" >&2
+      fi
+
       if [ ! -r "${wellnessSupabasePublishableKeyFile}" ]; then
         echo "wellness-api: Supabase publishable key file missing at ${wellnessSupabasePublishableKeyFile}" >&2
         exit 1
@@ -767,6 +780,18 @@ in
           export SUPABASE_ANON_KEY="$supabase_publishable_key"
           export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
         fi
+      fi
+
+      if [ -r "${wellnessGeminiKeyFile}" ]; then
+        gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessGeminiKeyFile}")"
+        if [ -n "$gemini_api_key" ]; then
+          export GEMINI_API_KEY="$gemini_api_key"
+          export GOOGLE_API_KEY="$gemini_api_key"
+        else
+          echo "peps-api: Gemini key is empty in ${wellnessGeminiKeyFile}" >&2
+        fi
+      else
+        echo "peps-api: Gemini key file missing at ${wellnessGeminiKeyFile}" >&2
       fi
 
       if [ -r "${wellnessSupabaseSecretKeyFile}" ]; then
@@ -880,6 +905,11 @@ in
     mode = "0400";
   };
   sops.secrets.wellness_supabase_secret_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.gemini_api_key = {
     owner = "cdenneen";
     group = "users";
     mode = "0400";
