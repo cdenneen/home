@@ -16,6 +16,10 @@ let
       builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
   isDarwin = pkgs.stdenv.isDarwin;
+  isLinux = pkgs.stdenv.isLinux;
+  # Avoid runtime-dir secret paths on Linux (e.g. /run/user/$UID) which may be
+  # missing when the user session is not active (notably on headless hosts).
+  linuxSopsSecretsDir = "${config.home.homeDirectory}/.local/share/sops-nix/secrets";
   useNyxRemoteMcp = isDarwin && !isNyx;
   useSharedNyxMcp = useNyxRemoteMcp || isNyx;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
@@ -192,11 +196,31 @@ in
   };
 
   sops.secrets = {
-    fortress_rsa.mode = "0600";
-    cdenneen_ed25519_2024.mode = "0600";
-    github_ed25519.mode = "0600";
-    codecommit_rsa.mode = "0600";
-    id_rsa_cloud9.mode = "0600";
+    fortress_rsa = {
+      mode = "0600";
+    } // lib.optionalAttrs isLinux {
+      path = "${linuxSopsSecretsDir}/fortress_rsa";
+    };
+    cdenneen_ed25519_2024 = {
+      mode = "0600";
+    } // lib.optionalAttrs isLinux {
+      path = "${linuxSopsSecretsDir}/cdenneen_ed25519_2024";
+    };
+    github_ed25519 = {
+      mode = "0600";
+    } // lib.optionalAttrs isLinux {
+      path = "${linuxSopsSecretsDir}/github_ed25519";
+    };
+    codecommit_rsa = {
+      mode = "0600";
+    } // lib.optionalAttrs isLinux {
+      path = "${linuxSopsSecretsDir}/codecommit_rsa";
+    };
+    id_rsa_cloud9 = {
+      mode = "0600";
+    } // lib.optionalAttrs isLinux {
+      path = "${linuxSopsSecretsDir}/id_rsa_cloud9";
+    };
 
     openai_api_key.mode = "0400";
     gemini_api_key.mode = "0400";
@@ -221,6 +245,10 @@ in
     chmod 700 "$HOME/.ssh"
     mkdir -p "$HOME/.oci"
     chmod 700 "$HOME/.oci"
+
+    mkdir -p "$HOME/.local/share/sops-nix/secrets"
+    chmod 700 "$HOME/.local/share/sops-nix"
+    chmod 700 "$HOME/.local/share/sops-nix/secrets"
 
     is_hm_link() {
       local path="$1"
