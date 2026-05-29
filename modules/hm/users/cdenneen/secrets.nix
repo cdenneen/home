@@ -133,6 +133,11 @@ let
         enabled = true;
         timeout = 15000;
       };
+      supabase = {
+        type = "remote";
+        url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
+        enabled = true;
+      };
       kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
       aws = mkOpencodeMcp 18103 mcpAwsScript;
       terraform = mkOpencodeMcp 18104 mcpTerraformScript;

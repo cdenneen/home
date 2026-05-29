@@ -231,6 +231,12 @@ let
           startup_timeout_sec = 10;
           tool_timeout_sec = 120;
         };
+        supabase = {
+          url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
+          required = false;
+          startup_timeout_sec = 12;
+          tool_timeout_sec = 120;
+        };
         gitlab = (mkSharedMcpCommand 18101 mcpGitlabScript) // {
           required = false;
           startup_timeout_sec = 20;
