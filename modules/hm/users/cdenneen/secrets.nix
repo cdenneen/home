@@ -405,6 +405,30 @@ in
     ''
   );
 
+  # On headless Linux hosts, `nh home switch` is sometimes executed via `su -` from
+  # root which does not create a user session (so `/run/user/$UID` and
+  # $XDG_RUNTIME_DIR are missing). sops-nix relies on XDG_RUNTIME_DIR to mount
+  # secrets, so provide a fallback under $HOME and materialize once during
+  # activation.
+  home.activation.materializeLinuxSopsSecrets = lib.mkIf pkgs.stdenv.isLinux (
+    lib.hm.dag.entryAfter [ "sops-nix" ] ''
+      set -euo pipefail
+
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+
+      if [ -z "''${XDG_RUNTIME_DIR:-}" ] || [ ! -d "''${XDG_RUNTIME_DIR:-}" ]; then
+        export XDG_RUNTIME_DIR="$HOME/.local/share/xdg-runtime"
+      fi
+
+      $DRY_RUN_CMD mkdir -p "$XDG_RUNTIME_DIR"
+      $DRY_RUN_CMD chmod 700 "$XDG_RUNTIME_DIR"
+
+      if command -v sops-nix-user >/dev/null 2>&1; then
+        $DRY_RUN_CMD sops-nix-user
+      fi
+    ''
+  );
+
   home.activation.materializeOciFiles =
     lib.hm.dag.entryAfter
       (if pkgs.stdenv.isDarwin then [ "materializeDarwinSopsSecrets" ] else [ "sops-nix" ])
