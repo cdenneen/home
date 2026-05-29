@@ -224,6 +224,7 @@ in
 
     openai_api_key.mode = "0400";
     gemini_api_key.mode = "0400";
+    supabase_access_token.mode = "0400";
     telegram_bot_token.mode = "0400";
     telegram_chat_id.mode = "0400";
 
@@ -547,4 +548,16 @@ in
       fi
     ''
   );
+
+  programs.zsh.initExtra = lib.mkAfter ''
+    if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
+      export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
+    fi
+  '';
+
+  programs.bash.initExtra = lib.mkAfter ''
+    if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
+      export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
+    fi
+  '';
 }

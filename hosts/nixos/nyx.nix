@@ -166,6 +166,8 @@ let
   wellnessGeminiKeyFile = config.sops.secrets.gemini_api_key.path;
   wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
   wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
+  wellnessSupabaseDbUrlFile = config.sops.secrets.wellness_supabase_db_url.path;
+  supabaseAccessTokenFile = config.sops.secrets.supabase_access_token.path;
 in
 {
   imports = [
@@ -724,6 +726,24 @@ in
         echo "wellness-api: Supabase secret key file missing at ${wellnessSupabaseSecretKeyFile} (account deletion will be limited)" >&2
       fi
 
+      if [ -r "${wellnessSupabaseDbUrlFile}" ]; then
+        supabase_db_url="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabaseDbUrlFile}")"
+        if [ -n "$supabase_db_url" ] && [ "$supabase_db_url" != "REPLACE_WITH_SUPABASE_DB_URL" ]; then
+          export SUPABASE_DB_URL="$supabase_db_url"
+        else
+          echo "wellness-api: Supabase DB URL is unset in ${wellnessSupabaseDbUrlFile}" >&2
+        fi
+      else
+        echo "wellness-api: Supabase DB URL file missing at ${wellnessSupabaseDbUrlFile} (deploy migrations will require manual DB URL)" >&2
+      fi
+
+      if [ -r "${supabaseAccessTokenFile}" ]; then
+        supabase_access_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${supabaseAccessTokenFile}")"
+        if [ -n "$supabase_access_token" ] && [ "$supabase_access_token" != "REPLACE_WITH_SUPABASE_ACCESS_TOKEN" ]; then
+          export SUPABASE_ACCESS_TOKEN="$supabase_access_token"
+        fi
+      fi
+
       if [ ! -x node_modules/.bin/tsx ]; then
         npm ci --include=dev --no-audit --no-fund
       fi
@@ -905,6 +925,16 @@ in
     mode = "0400";
   };
   sops.secrets.wellness_supabase_secret_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.wellness_supabase_db_url = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.supabase_access_token = {
     owner = "cdenneen";
     group = "users";
     mode = "0400";
