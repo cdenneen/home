@@ -601,11 +601,11 @@
         "nixpkgs": "nixpkgs_8"
       },
       "locked": {
-        "lastModified": 1777794704,
-        "narHash": "sha256-565nVbKK//UnXbv/6XX5vfbzCdAdZM62lLyFcwBoivo=",
+        "lastModified": 1780485937,
+        "narHash": "sha256-zC54ROIbsFHrDlXzcBI2Lc1raa2ITt7ZJyLA6LsThNc=",
         "owner": "aldur",
         "repo": "nixos-crostini",
-        "rev": "2b21e9136eaa35fc6b33034aee4b4ae9ddf49d8c",
+        "rev": "278fe20ffa18fe9b8658d3c90dbfa33c575bc2c5",
         "type": "github"
       },
       "original": {
@@ -944,11 +944,11 @@
     },
     "nixpkgs_8": {
       "locked": {
-        "lastModified": 1777578337,
-        "narHash": "sha256-Ad49moKWeXtKBJNy2ebiTQUEgdLyvGmTeykAQ9xM+Z4=",
+        "lastModified": 1780243769,
+        "narHash": "sha256-x5UQuRsH3MqI0U9afaXSNqzTPSeZlRLvFAav2Ux1pNw=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "15f4ee454b1dce334612fa6843b3e05cf546efab",
+        "rev": "331800de5053fcebacf6813adb5db9c9dca22a0c",
         "type": "github"
       },
       "original": {
