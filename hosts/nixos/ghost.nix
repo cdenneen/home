@@ -28,6 +28,7 @@ let
   wellnessGitBranch = "main";
   wellnessApiPort = 8797;
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
+  gitSshKeyFile = config.sops.secrets.cdenneen_ed25519_2024.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
   wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
@@ -119,6 +120,11 @@ in
   sops.secrets.ghost_cloudflare_tunnel_token = {
     owner = "root";
     group = "root";
+    mode = "0400";
+  };
+  sops.secrets.cdenneen_ed25519_2024 = {
+    owner = "cdenneen";
+    group = "users";
     mode = "0400";
   };
   sops.secrets.openai_api_key = {
@@ -219,12 +225,12 @@ in
     script = ''
       set -euo pipefail
 
-      if [ ! -r /home/cdenneen/.ssh/id_ed25519 ]; then
-        echo "Missing /home/cdenneen/.ssh/id_ed25519 for NAS clone auth" >&2
+      if [ ! -r "${gitSshKeyFile}" ]; then
+        echo "Missing git SSH key at ${gitSshKeyFile} for NAS clone auth" >&2
         exit 1
       fi
 
-      export GIT_SSH_COMMAND="ssh -i /home/cdenneen/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+      export GIT_SSH_COMMAND="ssh -i ${gitSshKeyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
       if [ ! -d "${pepsRepoDir}/.git" ]; then
         rm -rf "${pepsRepoDir}"
@@ -267,12 +273,12 @@ in
     script = ''
       set -euo pipefail
 
-      if [ ! -r /home/cdenneen/.ssh/id_ed25519 ]; then
-        echo "Missing /home/cdenneen/.ssh/id_ed25519 for wellness clone auth" >&2
+      if [ ! -r "${gitSshKeyFile}" ]; then
+        echo "Missing git SSH key at ${gitSshKeyFile} for wellness clone auth" >&2
         exit 1
       fi
 
-      export GIT_SSH_COMMAND="ssh -i /home/cdenneen/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+      export GIT_SSH_COMMAND="ssh -i ${gitSshKeyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 
       if [ ! -d "${wellnessRepoDir}/.git" ]; then
         rm -rf "${wellnessRepoDir}"
@@ -330,6 +336,8 @@ in
         "AUTH_REQUIRED=true"
         "AUTH_ADMIN_EMAILS=cdenneen@gmail.com,c.denneen@gmail.com"
         "SUPABASE_URL=${wellnessSupabaseUrl}"
+        "NEXT_PUBLIC_SUPABASE_URL=${wellnessSupabaseUrl}"
+        "VITE_SUPABASE_URL=${wellnessSupabaseUrl}"
         "PEPS_STATE_PROVIDER=supabase"
         "PEPS_STATE_TABLE=peps_app_state"
         "PEPS_STATE_ROW_ID=global"
@@ -352,6 +360,7 @@ in
           export SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
           export SUPABASE_ANON_KEY="$supabase_publishable_key"
           export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
+          export VITE_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
         fi
       fi
 
@@ -423,6 +432,7 @@ in
       Environment = [
         "HOME=/home/cdenneen"
         "EXPO_PUBLIC_API_BASE_URL=https://${wellnessApiHost}"
+        "EXPO_PUBLIC_PEPS_API_BASE_URL=https://${pepsApiHost}"
         "EXPO_PUBLIC_SUPABASE_URL=${wellnessSupabaseUrl}"
         "API_BIND_HOST=127.0.0.1"
         "API_PORT=${toString wellnessApiPort}"
