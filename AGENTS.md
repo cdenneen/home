@@ -14,6 +14,8 @@ This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These
 - Home Manager is integrated by default and uses its own nixpkgs (unstable) via per-user HM config.
 - `secrets/secrets.yaml` is encrypted with sops + age; recipients are managed via `.sops.yaml`.
 - `~/.config/glab-cli/config.yml` is managed from SOPS secret `glab_cli_config` (mode `0600`).
+- Prefer `gh` for `github.com` auth, checkout, and commit/push workflows when the task is interactive.
+- Prefer `glab` for `gitlab.com` and `git.ap.org` auth, checkout, and commit/push workflows when the task is interactive.
 - Prefer conservative changes; keep diffs small and readable.
 - Prefer OpenTofu (`tofu`) over `terraform` for all Terraform commands.
 

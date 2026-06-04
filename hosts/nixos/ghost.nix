@@ -24,11 +24,12 @@ let
   wellnessApiHost = "wellness-api.denneen.net";
   wellnessRuntimeDir = "/var/lib/wellness";
   wellnessRepoDir = "${wellnessRuntimeDir}/repo";
-  wellnessGitRemote = "git@github.com:cdenneen/wellness-tracker.git";
+  wellnessGitRemote = "https://github.com/cdenneen/wellness-tracker.git";
   wellnessGitBranch = "main";
   wellnessApiPort = 8797;
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
   gitSshKeyFile = config.sops.secrets.cdenneen_ed25519_2024.path;
+  githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
   wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
@@ -273,21 +274,31 @@ in
     script = ''
       set -euo pipefail
 
-      if [ ! -r "${gitSshKeyFile}" ]; then
-        echo "Missing git SSH key at ${gitSshKeyFile} for wellness clone auth" >&2
+      if [ ! -r "${githubTokenFile}" ]; then
+        echo "Missing GitHub token at ${githubTokenFile} for wellness clone auth" >&2
         exit 1
       fi
 
-      export GIT_SSH_COMMAND="ssh -i ${gitSshKeyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+      github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${githubTokenFile}")"
+      if [ -z "$github_token" ]; then
+        echo "GitHub token at ${githubTokenFile} is empty" >&2
+        exit 1
+      fi
+
+      auth_header="$(${pkgs.coreutils}/bin/printf 'x-access-token:%s' "$github_token" | ${pkgs.coreutils}/bin/base64 | ${pkgs.coreutils}/bin/tr -d '\n')"
+      git_auth=(
+        -c
+        "http.extraHeader=Authorization: Basic $auth_header"
+      )
 
       if [ ! -d "${wellnessRepoDir}/.git" ]; then
         rm -rf "${wellnessRepoDir}"
-        git clone --branch "${wellnessGitBranch}" "${wellnessGitRemote}" "${wellnessRepoDir}"
+        git "''${git_auth[@]}" clone --branch "${wellnessGitBranch}" "${wellnessGitRemote}" "${wellnessRepoDir}"
       fi
 
       cd "${wellnessRepoDir}"
       git remote set-url origin "${wellnessGitRemote}"
-      git fetch --prune origin "${wellnessGitBranch}"
+      git "''${git_auth[@]}" fetch --prune origin "${wellnessGitBranch}"
       git checkout -B "${wellnessGitBranch}" "origin/${wellnessGitBranch}"
       git reset --hard "origin/${wellnessGitBranch}"
     '';
