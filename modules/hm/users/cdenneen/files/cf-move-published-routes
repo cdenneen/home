@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: cf-move-published-routes [--also-dns] <ghost|nyx|mac> [hostname...]
+
+Moves published Cloudflare tunnel ingress for the default app hostnames:
+  peps.denneen.net
+  peps-api.denneen.net
+  wellness-api.denneen.net
+
+By default this updates the tunnel ingress only.
+Pass --also-dns to move the matching CNAME records too.
+
+Requires:
+  CLOUDFLARE_API_TOKEN / CF_API_TOKEN
+  CLOUDFLARE_ACCOUNT_ID / CF_ACCOUNT_ID
+EOF
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "cf-move-published-routes: missing required command: $1" >&2
+    exit 1
+  }
+}
+
+require_cmd curl
+require_cmd jq
+require_cmd mktemp
+
+move_dns=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --also-dns|--dns)
+      move_dns=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "cf-move-published-routes: unsupported flag '$1'" >&2
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+token="${CLOUDFLARE_API_TOKEN:-${CF_API_TOKEN:-}}"
+account_id="${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:-}}"
+zone_name="${CLOUDFLARE_ZONE_NAME:-denneen.net}"
+
+if [[ -z "$token" ]]; then
+  echo "cf-move-published-routes: CLOUDFLARE_API_TOKEN is not set" >&2
+  exit 1
+fi
+
+if [[ -z "$account_id" ]]; then
+  echo "cf-move-published-routes: CLOUDFLARE_ACCOUNT_ID is not set" >&2
+  exit 1
+fi
+
+target="$1"
+shift || true
+
+case "$target" in
+  ghost) target_tunnel_id="1481e71c-a53f-4fe0-8983-468a3e0fffdf" ;;
+  nyx) target_tunnel_id="d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" ;;
+  mac) target_tunnel_id="53b1d5f2-afa2-4269-81d4-b01c1037298b" ;;
+  *)
+    echo "cf-move-published-routes: unsupported target tunnel '$target'" >&2
+    exit 1
+    ;;
+esac
+
+if [[ $# -eq 0 ]]; then
+  set -- peps.denneen.net peps-api.denneen.net wellness-api.denneen.net
+fi
+
+api() {
+  local method="$1"
+  local url="$2"
+  local body_file="${3:-}"
+
+  if [[ -n "$body_file" ]]; then
+    curl -fsS -X "$method" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      --data @"$body_file" \
+      "$url"
+  else
+    curl -fsS -X "$method" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      "$url"
+  fi
+}
+
+service_for_hostname() {
+  case "$1" in
+    peps.denneen.net|peps-api.denneen.net)
+      printf '%s\n' "http://localhost:8787"
+      ;;
+    wellness-api.denneen.net)
+      printf '%s\n' "http://localhost:8797"
+      ;;
+    *)
+      echo "cf-move-published-routes: unsupported hostname '$1'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+known_tunnels=(
+  "ghost:1481e71c-a53f-4fe0-8983-468a3e0fffdf"
+  "nyx:d1d49353-ddca-4c9c-bc8a-3bbb1885aa98"
+  "mac:53b1d5f2-afa2-4269-81d4-b01c1037298b"
+)
+
+target_url="https://api.cloudflare.com/client/v4/accounts/${account_id}/cfd_tunnel/${target_tunnel_id}/configurations"
+target_lookup="$(api GET "https://api.cloudflare.com/client/v4/accounts/${account_id}/cfd_tunnel/${target_tunnel_id}")"
+if [[ "$(jq -r '.success' <<<"$target_lookup")" != "true" ]]; then
+  echo "cf-move-published-routes: unable to read target tunnel ${target_tunnel_id}" >&2
+  jq <<<"$target_lookup" >&2
+  exit 1
+fi
+
+hostnames_file="$(mktemp)"
+routes_file="$(mktemp)"
+empty_routes_file="$(mktemp)"
+cleanup() {
+  rm -f "$hostnames_file" "$routes_file" "$empty_routes_file"
+}
+trap cleanup EXIT
+
+printf '%s\n' "$@" | jq -R . | jq -s '.' > "$hostnames_file"
+
+{
+  for hostname in "$@"; do
+    service="$(service_for_hostname "$hostname")"
+    jq -cn \
+      --arg hostname "$hostname" \
+      --arg service "$service" \
+      '{hostname:$hostname, service:$service, originRequest:{}}'
+  done
+} | jq -s '.' > "$routes_file"
+
+printf '[]\n' > "$empty_routes_file"
+
+build_payload() {
+  local config_json="$1"
+  local routes_json_file="$2"
+
+  jq \
+    --slurpfile hostnames "$hostnames_file" \
+    --slurpfile routes "$routes_json_file" \
+    '
+      .result.config as $cfg
+      | (($cfg.ingress // [])
+          | map(select(.service == "http_status:404"))
+          | last // { service: "http_status:404" }) as $default
+      | {
+          config: {
+            ingress: (
+              (($cfg.ingress // [])
+                | map(select(.service != "http_status:404"))
+                | map(select(((.hostname? // "") as $h | ($hostnames[0] | index($h)) == null)))
+              ) + $routes[0] + [ $default ]
+            ),
+            "warp-routing": ($cfg["warp-routing"] // { enabled: false })
+          }
+        }
+    ' <<<"$config_json"
+}
+
+echo "Updating published routes on ${target}..."
+target_config="$(api GET "$target_url")"
+target_payload="$(mktemp)"
+build_payload "$target_config" "$routes_file" > "$target_payload"
+target_update="$(api PUT "$target_url" "$target_payload")"
+rm -f "$target_payload"
+if [[ "$(jq -r '.success' <<<"$target_update")" != "true" ]]; then
+  echo "cf-move-published-routes: failed to update target tunnel ${target}" >&2
+  jq <<<"$target_update" >&2
+  exit 1
+fi
+
+for tunnel in "${known_tunnels[@]}"; do
+  tunnel_name="${tunnel%%:*}"
+  tunnel_id="${tunnel##*:}"
+  if [[ "$tunnel_id" == "$target_tunnel_id" ]]; then
+    continue
+  fi
+
+  echo "Removing moved hostnames from ${tunnel_name}..."
+  tunnel_url="https://api.cloudflare.com/client/v4/accounts/${account_id}/cfd_tunnel/${tunnel_id}/configurations"
+  tunnel_config="$(api GET "$tunnel_url")"
+  tunnel_payload="$(mktemp)"
+  build_payload "$tunnel_config" "$empty_routes_file" > "$tunnel_payload"
+  tunnel_update="$(api PUT "$tunnel_url" "$tunnel_payload")"
+  rm -f "$tunnel_payload"
+
+  if [[ "$(jq -r '.success' <<<"$tunnel_update")" != "true" ]]; then
+    echo "cf-move-published-routes: failed to update tunnel ${tunnel_name}" >&2
+    jq <<<"$tunnel_update" >&2
+    exit 1
+  fi
+done
+
+echo "Published routes now on ${target}:"
+api GET "$target_url" |
+  jq -r '.result.config.ingress[] | select(.hostname? != null) | [.hostname, (.path // "-"), .service] | @tsv'
+
+if [[ "$move_dns" == "true" ]]; then
+  zone_lookup="$(api GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}")"
+  zone_id="$(jq -r '.result[0].id // empty' <<<"$zone_lookup")"
+
+  if [[ -z "$zone_id" ]]; then
+    echo "cf-move-published-routes: unable to resolve zone id for ${zone_name}" >&2
+    jq <<<"$zone_lookup" >&2
+    exit 1
+  fi
+
+  target_content="${target_tunnel_id}.cfargotunnel.com"
+  echo "Updating DNS records to ${target}..."
+
+  for hostname in "$@"; do
+    lookup="$(api GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${hostname}")"
+    record_id="$(jq -r '.result[0].id // empty' <<<"$lookup")"
+    current_content="$(jq -r '.result[0].content // empty' <<<"$lookup")"
+    current_type="$(jq -r '.result[0].type // empty' <<<"$lookup")"
+
+    if [[ -z "$record_id" ]]; then
+      echo "cf-move-published-routes: no DNS record found for ${hostname}" >&2
+      jq <<<"$lookup" >&2
+      exit 1
+    fi
+
+    if [[ "$current_type" != "CNAME" ]]; then
+      echo "cf-move-published-routes: ${hostname} is ${current_type}, expected CNAME" >&2
+      exit 1
+    fi
+
+    body_file="$(mktemp)"
+    jq -cn \
+      --arg type "CNAME" \
+      --arg name "$hostname" \
+      --arg content "$target_content" \
+      '{type:$type,name:$name,content:$content,ttl:1,proxied:true}' > "$body_file"
+    api PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" "$body_file" >/dev/null
+    rm -f "$body_file"
+
+    echo "${hostname}: ${current_content} -> ${target_content}"
+  done
+fi

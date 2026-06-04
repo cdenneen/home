@@ -355,6 +355,10 @@ in
     source = ./files/cf-move-routes;
     executable = true;
   };
+  home.file.".local/bin/cf-move-published-routes" = {
+    source = ./files/cf-move-published-routes;
+    executable = true;
+  };
   home.file.".local/bin/nyx-mcp-preflight" = {
     source = ./files/nyx-mcp-preflight;
     executable = true;
