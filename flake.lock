@@ -601,11 +601,11 @@
         "nixpkgs": "nixpkgs_8"
       },
       "locked": {
-        "lastModified": 1780485937,
-        "narHash": "sha256-zC54ROIbsFHrDlXzcBI2Lc1raa2ITt7ZJyLA6LsThNc=",
+        "lastModified": 1780575153,
+        "narHash": "sha256-ZzsQKy3TH1SjGDCk15CfAiFvBqpVgdleSWmJiLT6B34=",
         "owner": "aldur",
         "repo": "nixos-crostini",
-        "rev": "278fe20ffa18fe9b8658d3c90dbfa33c575bc2c5",
+        "rev": "e3da7e38190eb23e7a1526b9552f32fe03cca8ae",
         "type": "github"
       },
       "original": {
