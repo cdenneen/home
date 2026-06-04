@@ -22,6 +22,65 @@ require_cmd() {
   }
 }
 
+find_repo_dir() {
+  local override="$1"
+  shift
+  local candidate
+
+  if [[ -n "$override" && -d "$override/.git" ]]; then
+    printf '%s\n' "$override"
+    return 0
+  fi
+
+  for candidate in "$@"; do
+    if [[ -n "$candidate" && -d "$candidate/.git" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+assert_repo_pushed() {
+  local repo_dir="$1"
+  local label="$2"
+  local remote="${3:-origin}"
+
+  if [[ ! -d "$repo_dir/.git" ]]; then
+    echo "deploy-jarvis: $label repo not found at $repo_dir" >&2
+    exit 1
+  fi
+
+  if [[ -n "$(git -C "$repo_dir" status --porcelain)" ]]; then
+    echo "deploy-jarvis: $label repo has uncommitted changes at $repo_dir" >&2
+    echo "deploy-jarvis: commit/stash before deploying" >&2
+    exit 1
+  fi
+
+  local branch
+  branch="$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD)"
+  if [[ "$branch" == "HEAD" ]]; then
+    echo "deploy-jarvis: $label repo is in detached HEAD at $repo_dir" >&2
+    exit 1
+  fi
+
+  local local_head remote_head
+  local_head="$(git -C "$repo_dir" rev-parse HEAD)"
+  remote_head="$(git -C "$repo_dir" ls-remote "$remote" "refs/heads/$branch" | awk 'NR==1 { print $1 }')"
+
+  if [[ -z "$remote_head" ]]; then
+    echo "deploy-jarvis: unable to resolve $label remote tip for $remote/$branch" >&2
+    exit 1
+  fi
+
+  if [[ "$local_head" != "$remote_head" ]]; then
+    echo "deploy-jarvis: $label local HEAD $local_head != pushed $remote/$branch tip $remote_head" >&2
+    echo "deploy-jarvis: push your changes first, then rerun deploy-jarvis" >&2
+    exit 1
+  fi
+}
+
 wait_for_url() {
   local url="$1"
   local attempts="${2:-30}"
@@ -41,6 +100,44 @@ wait_for_url() {
 
 require_cmd curl
 require_cmd git
+
+detect_tailscale_cmd() {
+  if command -v tailscale >/dev/null 2>&1; then
+    command -v tailscale
+    return 0
+  fi
+
+  if [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
+    printf '%s\n' "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+    return 0
+  fi
+
+  return 1
+}
+
+app_repo_dir="$({
+  find_repo_dir "${DEPLOY_JARVIS_APP_SOURCE:-}" \
+    "$HOME/code/workspace/personal/jarvis" \
+    "$HOME/src/workspace/personal/jarvis"
+} || true)"
+flake_repo_dir="$({
+  find_repo_dir "${DEPLOY_JARVIS_FLAKE_SOURCE:-}" \
+    "$HOME/code/workspace/nix/home" \
+    "$HOME/src/workspace/nix/home"
+} || true)"
+
+if [[ -z "$app_repo_dir" ]]; then
+  echo "deploy-jarvis: unable to locate local app repo checkout" >&2
+  exit 1
+fi
+
+if [[ -z "$flake_repo_dir" ]]; then
+  echo "deploy-jarvis: unable to locate local flake repo checkout" >&2
+  exit 1
+fi
+
+assert_repo_pushed "$app_repo_dir" "jarvis app"
+assert_repo_pushed "$flake_repo_dir" "nix/home flake"
 
 target="$1"
 
@@ -112,11 +209,23 @@ EOF
     ;;
   mac)
     require_cmd home-manager
+    tailscale_cmd="$(detect_tailscale_cmd)" || {
+      echo "deploy-jarvis: tailscale CLI not found on Mac" >&2
+      exit 1
+    }
     cd ~/code/workspace/nix/home
     git pull --rebase
     home-manager switch --flake .#cdenneen@VNJTECMBCD
     launchctl list | grep -q "jarvis-voice-edge"
+    launchctl list | grep -q "jarvis-mac-runner"
+    mac_tailscale_ip="$("$tailscale_cmd" ip -4 | head -n 1)"
+    if [[ -z "$mac_tailscale_ip" ]]; then
+      echo "deploy-jarvis: unable to determine Mac tailscale IP" >&2
+      exit 1
+    fi
+    wait_for_url "http://${mac_tailscale_ip}:8091/healthz" 20 2
     "${HOME}/.local/bin/jarvis-voice-edge-status" || true
+    "${HOME}/.local/bin/jarvis-mac-runner-status" || true
     ;;
   *)
     echo "deploy-jarvis: unsupported target '$target'" >&2

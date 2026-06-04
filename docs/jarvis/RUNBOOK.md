@@ -14,6 +14,7 @@
   - `tailscaled`
 - local Mac: voice edge
   - `jarvis-voice-edge` launch agent
+  - `jarvis-mac-runner` on `vnjtecmbcd.tail0e55.ts.net:8091`
 
 ## Source Repos
 
@@ -75,8 +76,11 @@ git pull --rebase
 home-manager switch --flake .#cdenneen@VNJTECMBCD
 
 launchctl list | grep jarvis-voice-edge
+launchctl list | grep jarvis-mac-runner
 jarvis-voice-edge-status
+jarvis-mac-runner-status
 tail -n 100 ~/Library/Logs/jarvis-voice-edge.log
+tail -n 100 ~/Library/Logs/jarvis-mac-runner.log
 ```
 
 ## Public Ingress
@@ -90,6 +94,7 @@ tail -n 100 ~/Library/Logs/jarvis-voice-edge.log
 
 - `ghost` calls `http://nyx.tail0e55.ts.net:8090`
 - `nyx` exposes `8090` only on `tailscale0`
+- `ghost` calls `http://vnjtecmbcd.tail0e55.ts.net:8091` for `personal-local` actions
 
 ## Validation Checklist
 
@@ -104,7 +109,10 @@ tail -n 100 ~/Library/Logs/jarvis-voice-edge.log
   - `curl -fsS http://nyx.tail0e55.ts.net:8090/healthz` from `ghost`
 - local Mac
   - `launchctl list | grep jarvis-voice-edge`
+  - `launchctl list | grep jarvis-mac-runner`
   - `jarvis-voice-edge-status`
+  - `jarvis-mac-runner-status`
+  - `curl -fsS http://vnjtecmbcd.tail0e55.ts.net:8091/healthz`
   - confirm `speak_text` messages show in `~/Library/Logs/jarvis-voice-edge.log`
 - public path checks
   - `https://ai.denneen.net/api/healthz`

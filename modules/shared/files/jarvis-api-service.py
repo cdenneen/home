@@ -30,11 +30,70 @@ def summary_text(routed: dict[str, Any], work_result: dict[str, Any] | None) -> 
     return f"Routed to {resolved_agent} on {execution_target}."
 
 
+def infer_local_action_from_text(text: str) -> dict[str, Any] | None:
+    lower = text.lower().strip()
+    if not lower:
+        return None
+
+    app_map = {
+        "slack": "Slack",
+        "safari": "Safari",
+        "chrome": "Google Chrome",
+        "terminal": "Terminal",
+        "finder": "Finder",
+    }
+
+    if lower.startswith("open "):
+        requested = lower.replace("open ", "", 1).strip().strip(".")
+        for keyword, app_name in app_map.items():
+            if keyword in requested:
+                return {
+                    "action": "open_app",
+                    "args": {"app": app_name},
+                }
+
+    if lower.startswith("notify ") or lower.startswith("notify me"):
+        message = text.strip()
+        if message.lower().startswith("notify me"):
+            message = message[9:].strip(" :,-")
+        elif message.lower().startswith("notify"):
+            message = message[6:].strip(" :,-")
+        if message:
+            return {
+                "action": "notify",
+                "args": {"title": "Jarvis", "message": message},
+            }
+
+    if lower.startswith("copy ") and ("clipboard" in lower or "to clipboard" in lower):
+        body = text.strip()[5:]
+        body = body.replace("to clipboard", "").replace("clipboard", "").strip(" :,-")
+        if body:
+            return {
+                "action": "clipboard_write",
+                "args": {"text": body},
+            }
+
+    if "read clipboard" in lower or "clipboard read" in lower:
+        return {"action": "clipboard_read", "args": {}}
+
+    if lower.startswith("say "):
+        speech = text.strip()[4:].strip()
+        if speech:
+            return {
+                "action": "speak",
+                "args": {"text": speech},
+            }
+
+    return None
+
+
 def create_app(
     *,
     harness_url: str,
     work_endpoint: str,
     work_shared_token: str,
+    mac_endpoint: str,
+    mac_shared_token: str,
 ) -> FastAPI:
     app = FastAPI(title="Jarvis API", version="0.1.0")
 
@@ -44,21 +103,23 @@ def create_app(
             response.raise_for_status()
             return response.json()
 
-    async def dispatch_work(payload: dict[str, Any], routed: dict[str, Any]) -> dict[str, Any] | None:
-        if routed.get("requires_approval"):
-            return None
-        if routed.get("execution_target") != "nyx":
-            return None
-        if not work_endpoint:
+    async def _dispatch_to_endpoint(
+        *,
+        endpoint: str,
+        shared_token: str,
+        payload: dict[str, Any],
+        routed: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not endpoint:
             return None
 
         headers: dict[str, str] = {}
-        if work_shared_token:
-            headers["X-Jarvis-Shared-Token"] = work_shared_token
+        if shared_token:
+            headers["X-Jarvis-Shared-Token"] = shared_token
 
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.post(
-                f"{work_endpoint.rstrip('/')}/run",
+                f"{endpoint.rstrip('/')}/run",
                 json={
                     "input_event": payload,
                     "routed_event": routed,
@@ -68,6 +129,69 @@ def create_app(
             response.raise_for_status()
             return response.json()
 
+    async def dispatch_work(payload: dict[str, Any], routed: dict[str, Any]) -> dict[str, Any] | None:
+        if routed.get("requires_approval"):
+            return None
+
+        target = routed.get("execution_target")
+        if target == "nyx":
+            return await _dispatch_to_endpoint(
+                endpoint=work_endpoint,
+                shared_token=work_shared_token,
+                payload=payload,
+                routed=routed,
+            )
+
+        if target == "personal-local":
+            local_action = payload.get("local_action") if isinstance(payload.get("local_action"), dict) else {}
+            action = str(local_action.get("action", "")).strip()
+            args = local_action.get("args") if isinstance(local_action.get("args"), dict) else {}
+
+            if not action:
+                inferred = infer_local_action_from_text(str(payload.get("text", "")))
+                if inferred:
+                    action = str(inferred.get("action", "")).strip()
+                    args = inferred.get("args") if isinstance(inferred.get("args"), dict) else {}
+
+            if not action:
+                return {
+                    "ok": False,
+                    "service": "jarvis-api",
+                    "detail": (
+                        "personal-local route requires payload.local_action.action or recognizable text "
+                        "like 'open Slack', 'open Safari', 'notify me ...', 'copy ... to clipboard', 'say ...'"
+                    ),
+                }
+
+            headers: dict[str, str] = {}
+            if mac_shared_token:
+                headers["X-Jarvis-Shared-Token"] = mac_shared_token
+
+            if not mac_endpoint:
+                return {
+                    "ok": False,
+                    "service": "jarvis-api",
+                    "detail": "mac endpoint is not configured",
+                }
+
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{mac_endpoint.rstrip('/')}/run",
+                    json={"action": action, "args": args},
+                    headers=headers,
+                )
+                response.raise_for_status()
+                return response.json()
+
+        if target in {"ghost", "unknown", None}:
+            return None
+
+        return {
+            "ok": False,
+            "service": "jarvis-api",
+            "detail": f"unsupported execution target: {target}",
+        }
+
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
         return JSONResponse(
@@ -76,6 +200,7 @@ def create_app(
                 "service": "jarvis-api",
                 "harness_url": harness_url,
                 "work_endpoint": work_endpoint,
+                "mac_endpoint": mac_endpoint,
             }
         )
 
@@ -210,6 +335,8 @@ def main() -> None:
     parser.add_argument("--harness-url", required=True)
     parser.add_argument("--work-endpoint", default="")
     parser.add_argument("--work-shared-token", default="")
+    parser.add_argument("--mac-endpoint", default="")
+    parser.add_argument("--mac-shared-token", default="")
     args = parser.parse_args()
 
     import uvicorn
@@ -219,6 +346,8 @@ def main() -> None:
             harness_url=args.harness_url,
             work_endpoint=args.work_endpoint,
             work_shared_token=args.work_shared_token,
+            mac_endpoint=args.mac_endpoint,
+            mac_shared_token=args.mac_shared_token,
         ),
         host=args.host,
         port=args.port,

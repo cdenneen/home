@@ -9,6 +9,7 @@ let
   jarvisSlackPort = 8081;
   jarvisWebPort = 3000;
   jarvisWorkEndpoint = "http://nyx.tail0e55.ts.net:8090";
+  jarvisMacEndpoint = "http://vnjtecmbcd.tail0e55.ts.net:8091";
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       fastapi
@@ -140,6 +141,7 @@ in
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
       write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
+      write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
       write_var JARVIS_VOICE_WS_URL "wss://ai.denneen.net/ws/voice"
       write_var JARVIS_WAKE_PHRASE "Let's get to work Jarvis"
       write_var JARVIS_TTS_MODE "remote_text_local_tts"
@@ -158,6 +160,10 @@ in
 
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
         write_var JARVIS_WORK_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
+      fi
+
+      if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
+        write_var JARVIS_MAC_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
       fi
 
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
@@ -253,7 +259,9 @@ in
         --port ${toString jarvisApiPort} \
         --harness-url "$JARVIS_HARNESS_URL" \
         --work-endpoint "$JARVIS_WORK_ENDPOINT" \
-        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}"
+        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
+        --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
+        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}"
     '';
   };
 

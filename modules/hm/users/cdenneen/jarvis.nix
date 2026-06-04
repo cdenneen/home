@@ -9,11 +9,58 @@ let
   homeDir = config.home.homeDirectory;
   jarvisRuntimeDir = "${homeDir}/Library/Application Support/jarvis";
   jarvisEnvFile = "${jarvisRuntimeDir}/voice-edge.env";
+  jarvisMacRunnerEnvFile = "${jarvisRuntimeDir}/mac-runner.env";
   jarvisStateFile = "${jarvisRuntimeDir}/voice-edge-state.json";
+  jarvisMacRunnerStateFile = "${jarvisRuntimeDir}/mac-runner-state.json";
   jarvisLogFile = "${homeDir}/Library/Logs/jarvis-voice-edge.log";
+  jarvisMacRunnerLogFile = "${homeDir}/Library/Logs/jarvis-mac-runner.log";
+  jarvisMacRunnerScript = pkgs.writeShellScript "jarvis-mac-runner" ''
+    set -euo pipefail
+
+    env_file=${lib.escapeShellArg jarvisMacRunnerEnvFile}
+    runner_path=${lib.escapeShellArg "${homeDir}/code/workspace/personal/jarvis/src/jarvis/mac_runner.py"}
+    state_file_default=${lib.escapeShellArg jarvisMacRunnerStateFile}
+
+    if [ -r "$env_file" ]; then
+      # shellcheck disable=SC1090
+      source "$env_file"
+    fi
+
+    if [ ! -f "$runner_path" ]; then
+      echo "jarvis-mac-runner: missing app repo entrypoint at $runner_path" >&2
+      exit 1
+    fi
+
+    if command -v tailscale >/dev/null 2>&1; then
+      tailscale_cmd="$(command -v tailscale)"
+    elif [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then
+      tailscale_cmd=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+    else
+      echo "jarvis-mac-runner: tailscale CLI not found" >&2
+      exit 1
+    fi
+
+    tailscale_ip="$("$tailscale_cmd" ip -4 | head -n 1)"
+    if [ -z "$tailscale_ip" ]; then
+      echo "jarvis-mac-runner: unable to determine tailscale IPv4 address" >&2
+      exit 1
+    fi
+
+    exec ${jarvisRunnerPython}/bin/python "$runner_path" \
+      --host "$tailscale_ip" \
+      --port "''${JARVIS_MAC_RUNNER_PORT:-8091}" \
+      --shared-token "''${JARVIS_MAC_RUNNER_SHARED_TOKEN:-}" \
+      --state-file "''${JARVIS_MAC_RUNNER_STATE_FILE:-$state_file_default}"
+  '';
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       websockets
+    ]
+  );
+  jarvisRunnerPython = pkgs.python3.withPackages (
+    ps: with ps; [
+      fastapi
+      uvicorn
     ]
   );
 in
@@ -27,6 +74,22 @@ lib.mkIf isDarwin {
       state_file=${lib.escapeShellArg jarvisStateFile}
       if [ ! -r "$state_file" ]; then
         echo "jarvis-voice-edge: no state file at $state_file" >&2
+        exit 1
+      fi
+
+      cat "$state_file"
+    '';
+  };
+
+  home.file.".local/bin/jarvis-mac-runner-status" = {
+    executable = true;
+    text = ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      state_file=${lib.escapeShellArg jarvisMacRunnerStateFile}
+      if [ ! -r "$state_file" ]; then
+        echo "jarvis-mac-runner: no state file at $state_file" >&2
         exit 1
       fi
 
@@ -53,6 +116,16 @@ JARVIS_VOICE_HEARTBEAT_SECONDS=20
 EOF
     chmod 600 "$tmp_env"
     mv -f "$tmp_env" "$env_file"
+
+    runner_env=${lib.escapeShellArg jarvisMacRunnerEnvFile}
+    tmp_runner_env="$runtime_dir/mac-runner.env.tmp"
+    cat > "$tmp_runner_env" <<'EOF'
+JARVIS_MAC_RUNNER_PORT=8091
+JARVIS_MAC_RUNNER_SHARED_TOKEN=
+JARVIS_MAC_RUNNER_STATE_FILE=${jarvisMacRunnerStateFile}
+EOF
+    chmod 600 "$tmp_runner_env"
+    mv -f "$tmp_runner_env" "$runner_env"
   '';
 
   launchd.agents.jarvis-voice-edge = {
@@ -73,6 +146,24 @@ EOF
       ProcessType = "Background";
       StandardOutPath = jarvisLogFile;
       StandardErrorPath = jarvisLogFile;
+    };
+  };
+
+  launchd.agents.jarvis-mac-runner = {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${jarvisMacRunnerScript}"
+      ];
+      EnvironmentVariables = {
+        HOME = homeDir;
+        PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+      };
+      KeepAlive = true;
+      RunAtLoad = true;
+      ProcessType = "Background";
+      StandardOutPath = jarvisMacRunnerLogFile;
+      StandardErrorPath = jarvisMacRunnerLogFile;
     };
   };
 }
