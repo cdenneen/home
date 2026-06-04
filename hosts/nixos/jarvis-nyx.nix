@@ -5,6 +5,8 @@ let
   jarvisDataDir = "${jarvisRuntimeDir}/data";
   jarvisEnvFile = "${jarvisRuntimeDir}/work-runner.env";
   jarvisWorkPort = 8090;
+  jarvisWorkerId = "nyx-worker-1";
+  jarvisWorkerCapabilities = "code,triage,documentation,investigation";
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       fastapi
@@ -63,6 +65,8 @@ in
       write_var JARVIS_REPO_DIR "${jarvisRepoDir}"
       write_var JARVIS_DATA_DIR "${jarvisDataDir}"
       write_var JARVIS_WORK_BIND "0.0.0.0:${toString jarvisWorkPort}"
+      write_var JARVIS_WORKER_ID "${jarvisWorkerId}"
+      write_var JARVIS_WORKER_CAPABILITIES "${jarvisWorkerCapabilities}"
 
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
         write_var JARVIS_WORK_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
@@ -109,6 +113,8 @@ in
         --host 0.0.0.0 \
         --port ${toString jarvisWorkPort} \
         --shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
+        --worker-id "''${JARVIS_WORKER_ID:-${jarvisWorkerId}}" \
+        --capabilities "''${JARVIS_WORKER_CAPABILITIES:-${jarvisWorkerCapabilities}}" \
         --state-file "${jarvisDataDir}/work-runner-state.json" \
         --repo-dir "${jarvisRepoDir}"
     '';

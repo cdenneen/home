@@ -228,11 +228,6 @@ in
     } // lib.optionalAttrs isLinux {
       path = "${linuxSopsSecretsDir}/github-token";
     };
-    gitlab_git_clone_token = {
-      mode = "0400";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/gitlab_git_clone_token";
-    };
     gemini_api_key.mode = "0400";
     supabase_access_token.mode = "0400";
     cloudflare_account_api_token.mode = "0400";

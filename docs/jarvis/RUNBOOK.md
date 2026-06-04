@@ -7,10 +7,11 @@
   - `jarvis-api` on `127.0.0.1:8080`
   - `jarvis-slack-gateway` on `127.0.0.1:8081`
   - `jarvis-web` on `127.0.0.1:3000`
+  - `jarvis-brain-sync` timer/service (20m)
   - `cloudflared`
   - `tailscaled`
 - `nyx`: work execution runner
-  - `jarvis-work-runner` on `0.0.0.0:8090`
+  - `jarvis-work-runner` on `0.0.0.0:8090` (`/workers` worker contract)
   - `tailscaled`
 - local Mac: voice edge
   - `jarvis-voice-edge` launch agent
@@ -18,7 +19,7 @@
 
 ## Source Repos
 
-- App repo: `gitlab.com/cdenneen/my-jarvis`
+- App repo: `git@gitlab.com:cdenneen/my-jarvis.git`
 - Flake repo: `~/src/workspace/nix/home` on Linux, `~/code/workspace/nix/home` on Mac
 
 ## Repo Checkout Layout
@@ -29,12 +30,14 @@
 
 ## Deploy Workflow
 
-1. Commit and push app changes to `gitlab.com/cdenneen/my-jarvis`.
+1. Commit and push app changes to `git@gitlab.com:cdenneen/my-jarvis.git`.
 2. Commit and push flake changes to the `nix/home` repo.
 3. Pull the app repo on the target host.
 4. Pull the flake repo on the target host.
 5. Apply the host profile.
 6. Verify systemd or launchd health and endpoint health.
+
+Hosts use the flake-managed `cdenneen_ed25519_2024` SSH key for GitLab.com app checkout and pull operations.
 
 ## Ghost Deploy
 
@@ -48,6 +51,7 @@ git pull --rebase
 sudo nixos-rebuild switch --flake .#ghost
 
 systemctl status jarvis-harness jarvis-api jarvis-slack-gateway jarvis-web --no-pager
+systemctl status jarvis-brain-sync.timer jarvis-brain-sync.service --no-pager
 curl -fsS http://127.0.0.1:8080/healthz
 curl -fsS http://127.0.0.1:8081/healthz
 curl -fsS http://127.0.0.1:3000 >/dev/null
@@ -66,6 +70,7 @@ sudo nixos-rebuild switch --flake .#nyx
 
 systemctl status jarvis-work-runner --no-pager
 curl -fsS http://127.0.0.1:8090/healthz
+curl -fsS http://127.0.0.1:8090/workers
 ```
 
 ## Local Mac Deploy
@@ -100,12 +105,14 @@ tail -n 100 ~/Library/Logs/jarvis-mac-runner.log
 
 - `ghost`
   - `systemctl is-active jarvis-harness jarvis-api jarvis-slack-gateway jarvis-web`
+  - `systemctl is-active jarvis-brain-sync.timer`
   - `curl -fsS http://127.0.0.1:8080/healthz`
   - `curl -fsS http://127.0.0.1:8081/healthz`
   - `curl -fsS http://127.0.0.1:3000 >/dev/null`
 - `nyx`
   - `systemctl is-active jarvis-work-runner`
   - `curl -fsS http://127.0.0.1:8090/healthz`
+  - `curl -fsS http://127.0.0.1:8090/workers`
   - `curl -fsS http://nyx.tail0e55.ts.net:8090/healthz` from `ghost`
 - local Mac
   - `launchctl list | grep jarvis-voice-edge`

@@ -351,7 +351,9 @@ in
         identityFile = [ config.sops.secrets.github_ed25519.path ];
       };
 
-      "gitlab.com" = identityConfig // {
+      "gitlab.com" = {
+        identitiesOnly = true;
+        identityFile = [ config.sops.secrets.cdenneen_ed25519_2024.path ];
         user = "git";
       };
       "git.ap.org" = identityConfig // {

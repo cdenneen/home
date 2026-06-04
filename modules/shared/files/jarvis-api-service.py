@@ -87,6 +87,17 @@ def infer_local_action_from_text(text: str) -> dict[str, Any] | None:
     return None
 
 
+def capability_for_route(routed: dict[str, Any]) -> str:
+    agent = str(routed.get("resolved_agent", "")).lower()
+    mapping = {
+        "code-agent": "code",
+        "incident-agent": "triage",
+        "platform-agent": "investigation",
+        "research-agent": "documentation",
+    }
+    return mapping.get(agent, "investigation")
+
+
 def create_app(
     *,
     harness_url: str,
@@ -129,18 +140,66 @@ def create_app(
             response.raise_for_status()
             return response.json()
 
+    async def _discover_workers(endpoint: str, shared_token: str) -> list[dict[str, Any]]:
+        headers: dict[str, str] = {}
+        if shared_token:
+            headers["X-Jarvis-Shared-Token"] = shared_token
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{endpoint.rstrip('/')}/workers", headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+
+        workers = payload.get("workers") if isinstance(payload, dict) else []
+        return workers if isinstance(workers, list) else []
+
+    def _pick_worker(workers: list[dict[str, Any]], required_capability: str) -> dict[str, Any] | None:
+        if not workers:
+            return None
+
+        capable = []
+        fallback = []
+        for worker in workers:
+            caps = worker.get("capabilities") if isinstance(worker.get("capabilities"), list) else []
+            queue_depth = int(worker.get("queue_depth", 9999)) if str(worker.get("queue_depth", "")).isdigit() else 9999
+            row = {
+                "worker": worker,
+                "queue_depth": queue_depth,
+                "busy": bool(worker.get("busy", False)),
+            }
+            fallback.append(row)
+            if required_capability in [str(c).lower() for c in caps]:
+                capable.append(row)
+
+        pool = capable if capable else fallback
+        pool.sort(key=lambda x: (x["busy"], x["queue_depth"]))
+        return pool[0]["worker"] if pool else None
+
     async def dispatch_work(payload: dict[str, Any], routed: dict[str, Any]) -> dict[str, Any] | None:
         if routed.get("requires_approval"):
             return None
 
         target = routed.get("execution_target")
         if target == "nyx":
-            return await _dispatch_to_endpoint(
-                endpoint=work_endpoint,
+            endpoint = work_endpoint
+            selected_worker: dict[str, Any] | None = None
+            try:
+                workers = await _discover_workers(work_endpoint, work_shared_token)
+                selected_worker = _pick_worker(workers, capability_for_route(routed))
+                if selected_worker and selected_worker.get("endpoint"):
+                    endpoint = str(selected_worker.get("endpoint"))
+            except Exception:
+                selected_worker = None
+
+            result = await _dispatch_to_endpoint(
+                endpoint=endpoint,
                 shared_token=work_shared_token,
                 payload=payload,
                 routed=routed,
             )
+            if result is not None and selected_worker is not None:
+                result["selected_worker"] = selected_worker
+            return result
 
         if target == "personal-local":
             local_action = payload.get("local_action") if isinstance(payload.get("local_action"), dict) else {}

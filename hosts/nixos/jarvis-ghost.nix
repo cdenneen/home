@@ -137,9 +137,16 @@ in
       write_var JARVIS_REPO_DIR "${jarvisRepoDir}"
       write_var JARVIS_DATA_DIR "${jarvisDataDir}"
       write_var JARVIS_REGISTRY_PATH "${jarvisRepoDir}/config/agent_registry.yaml"
+      write_var JARVIS_DELEGATION_PATH "${jarvisRepoDir}/config/delegation_policy.yaml"
       write_var JARVIS_REALMS_PATH "${jarvisRepoDir}/config/realms.yaml"
       write_var JARVIS_LOCKS_PATH "${jarvisDataDir}/realm_locks.json"
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
+      write_var JARVIS_BRAIN_MANIFEST "${jarvisDataDir}/context_manifest.neuronet.jsonl"
+      write_var JARVIS_BRAIN_CANDIDATES "${jarvisDataDir}/memory_import_candidates.neuronet.jsonl"
+      write_var JARVIS_BRAIN_IMPORT_READY "${jarvisDataDir}/recallium_import_ready.neuronet.jsonl"
+      write_var JARVIS_BRAIN_IMPORT_STATE "${jarvisDataDir}/context_import_state.neuronet.json"
+      write_var JARVIS_BRAIN_STATE_FILE "${jarvisDataDir}/brain_sync_state.json"
+      write_var JARVIS_BRAIN_REMOTE_HOST "nyx"
       write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
       write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
@@ -214,6 +221,7 @@ in
         --port ${toString jarvisHarnessPort} \
         --repo-dir "$JARVIS_REPO_DIR" \
         --registry "$JARVIS_REGISTRY_PATH" \
+        --delegation "$JARVIS_DELEGATION_PATH" \
         --realms "$JARVIS_REALMS_PATH" \
         --locks "$JARVIS_LOCKS_PATH" \
         --routing-output "$JARVIS_ROUTING_OUTPUT"
@@ -312,6 +320,7 @@ in
         --host 127.0.0.1 \
         --port ${toString jarvisSlackPort} \
         --registry "$JARVIS_REGISTRY_PATH" \
+        --delegation "$JARVIS_DELEGATION_PATH" \
         --routing-output "$JARVIS_ROUTING_OUTPUT" \
         --realms "$JARVIS_REALMS_PATH" \
         --locks "$JARVIS_LOCKS_PATH"
@@ -345,5 +354,57 @@ in
         --bind 127.0.0.1 \
         --directory ${jarvisWebRoot}/jarvis-web
     '';
+  };
+
+  systemd.services.jarvis-brain-sync = {
+    description = "Jarvis neuronet brain sync";
+    after = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+    ];
+    requires = [ "jarvis-ghost-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.openssh
+      jarvisPython
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+      export PYTHONPATH="${jarvisRepoDir}/src"
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/src/jarvis/brain_sync.py \
+        --repo-dir "${jarvisRepoDir}" \
+        --remote-host "''${JARVIS_BRAIN_REMOTE_HOST:-nyx}" \
+        --manifest "''${JARVIS_BRAIN_MANIFEST}" \
+        --candidates "''${JARVIS_BRAIN_CANDIDATES}" \
+        --import-ready "''${JARVIS_BRAIN_IMPORT_READY}" \
+        --import-state "''${JARVIS_BRAIN_IMPORT_STATE}" \
+        --state-file "''${JARVIS_BRAIN_STATE_FILE}" \
+        --limit 300
+    '';
+  };
+
+  systemd.timers.jarvis-brain-sync = {
+    description = "Run Jarvis neuronet brain sync every 20 minutes";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "5m";
+      OnUnitActiveSec = "20m";
+      RandomizedDelaySec = "90s";
+      Persistent = true;
+      Unit = "jarvis-brain-sync.service";
+    };
   };
 }
