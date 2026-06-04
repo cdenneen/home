@@ -351,7 +351,9 @@ in
         identityFile = [ config.sops.secrets.github_ed25519.path ];
       };
 
-      "gitlab.com" = identityConfig;
+      "gitlab.com" = identityConfig // {
+        user = "git";
+      };
       "git.ap.org" = identityConfig // {
         identitiesOnly = true;
         identityFile = [ "~/.ssh/id_ed25519" ];
