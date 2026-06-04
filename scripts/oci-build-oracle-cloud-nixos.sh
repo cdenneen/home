@@ -18,6 +18,7 @@ Options:
   --boot-gb <size>               Boot volume size in GB (default: 200)
   --max-a1-instances <count>     Exit if this many A1 instances already exist (default: 1)
   --retry-hours <hours>          Retry on capacity/timeouts for N hours (default: 0)
+  --retry-forever                Retry on capacity/timeouts until the host is ready
   --retry-sleep-sec <seconds>    Sleep between retry attempts (default: 300)
   --launch-timeout-sec <seconds> Max seconds per single launch API call (default: 180)
   --lock-file <path>             Lock path for cron/parallel safety
@@ -27,8 +28,8 @@ Options:
   --help                         Show this help
 
 Notes:
-  - Capacity is attempted with a small bootstrap shape first: 1/4.
-    (Resize after launch once capacity pressure eases.)
+  - Initial provisioning is pinned to a small bootstrap shape: 1/4.
+  - After the instance reaches RUNNING, we attempt a non-fatal resize to 2/24.
   - Fault domain is intentionally NOT specified (OCI can pick best).
 EOF
 }
@@ -43,11 +44,16 @@ flake_ref=".#ghost"
 boot_gb="200"
 max_a1_instances="1"
 retry_hours="0"
+retry_forever="0"
 retry_sleep_sec="300"
 launch_timeout_sec="180"
 lock_file="${XDG_STATE_HOME:-$HOME/.local/state}/oci-ghost-build.lock"
 shuffle_ads="1"
 do_install="1"
+bootstrap_ocpus="1"
+bootstrap_mem_gb="4"
+target_ocpus="2"
+target_mem_gb="24"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -71,6 +77,8 @@ while [ $# -gt 0 ]; do
       max_a1_instances="$2"; shift 2 ;;
     --retry-hours)
       retry_hours="$2"; shift 2 ;;
+    --retry-forever)
+      retry_forever="1"; shift ;;
     --retry-sleep-sec)
       retry_sleep_sec="$2"; shift 2 ;;
     --launch-timeout-sec)
@@ -127,7 +135,24 @@ if [ "$do_install" = "1" ] && [ ! -r "$ssh_key_file" ]; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$lock_file")"
+if [ -z "$lock_file" ]; then
+  echo "Internal error: lock_file resolved to an empty path" >&2
+  exit 1
+fi
+
+lock_parent="$lock_file"
+case "$lock_parent" in
+  */*)
+    lock_parent="${lock_parent%/*}"
+    ;;
+  *)
+    lock_parent="."
+    ;;
+esac
+
+[ -n "$lock_parent" ] || lock_parent="."
+
+mkdir -p "$lock_parent"
 lock_dir="${lock_file}.d"
 lock_pid_file="$lock_dir/pid"
 
@@ -165,6 +190,91 @@ acquire_lock() {
 
   echo "Could not acquire lock (lock: $lock_dir); exiting."
   return 1
+}
+
+shape_below_target() {
+  local current_ocpus="$1"
+  local current_mem_gb="$2"
+
+  awk -v c="$current_ocpus" -v m="$current_mem_gb" -v tc="$target_ocpus" -v tm="$target_mem_gb" \
+    'BEGIN { exit (c+0 < tc+0 || m+0 < tm+0) ? 0 : 1 }'
+}
+
+retry_window_open() {
+  if [ "$retry_forever" = "1" ]; then
+    return 0
+  fi
+
+  [ "$retry_hours" -gt 0 ] && [ "$(date +%s)" -lt "$deadline_epoch" ]
+}
+
+retry_wait_message() {
+  if [ "$retry_forever" = "1" ]; then
+    printf 'retrying in %ss' "$retry_sleep_sec"
+    return 0
+  fi
+
+  local remaining
+  remaining=$((deadline_epoch - $(date +%s)))
+  [ "$remaining" -ge 0 ] || remaining=0
+  printf 'retrying in %ss (remaining %ss)' "$retry_sleep_sec" "$remaining"
+}
+
+refresh_instance_shape() {
+  instance_json=$(oci --profile "$profile" --region "$instance_region" compute instance get \
+    --instance-id "$instance_id" --output json)
+  current_shape=$(printf '%s' "$instance_json" | jq -r '.data.shape // empty')
+  current_ocpus=$(printf '%s' "$instance_json" | jq -r '.data."shape-config".ocpus // .data."shapeConfig".ocpus // 0')
+  current_mem_gb=$(printf '%s' "$instance_json" | jq -r '.data."shape-config"."memory-in-gbs" // .data."shape-config"."memoryInGBs" // .data."shapeConfig"."memoryInGBs" // 0')
+}
+
+maybe_resize_to_target() {
+  local current_shape="$1"
+  local current_ocpus="$2"
+  local current_mem_gb="$3"
+  local out rc message code
+
+  if [ "$current_shape" != "VM.Standard.A1.Flex" ]; then
+    echo "Skipping resize: current shape is ${current_shape:-unknown}"
+    return 0
+  fi
+
+  if ! shape_below_target "$current_ocpus" "$current_mem_gb"; then
+    echo "Instance already meets or exceeds target free-tier size: ${current_ocpus}/${current_mem_gb}"
+    return 0
+  fi
+
+  echo "Attempting post-provision resize to ${target_ocpus} OCPU / ${target_mem_gb} GB..."
+  set +e
+  out=$(
+    oci --profile "$profile" --region "$instance_region" compute instance update \
+      --instance-id "$instance_id" \
+      --shape "VM.Standard.A1.Flex" \
+      --shape-config "{\"ocpus\":$target_ocpus,\"memoryInGBs\":$target_mem_gb}" \
+      --update-operation-constraint ALLOW_DOWNTIME \
+      --wait-for-state RUNNING \
+      --max-wait-seconds 1200 \
+      --wait-interval-seconds 20 \
+      --output json 2>&1
+  )
+  rc=$?
+  set -e
+
+  if [ $rc -eq 0 ]; then
+    echo "Resize succeeded; instance returned to RUNNING at ${target_ocpus}/${target_mem_gb}."
+    echo "GHOST_RESIZE_OK name=$name instance_id=$instance_id region=$instance_region ocpus=$target_ocpus memory_gb=$target_mem_gb"
+    return 0
+  fi
+
+  message=$(printf '%s' "$out" | jq -r '.message // empty' 2>/dev/null || true)
+  code=$(printf '%s' "$out" | jq -r '.code // empty' 2>/dev/null || true)
+  if [ -z "$message" ]; then
+    message=$(printf '%s' "$out" | sed -n '1,40p' | tr '\n' ' ')
+  fi
+
+  echo "Warning: resize to ${target_ocpus}/${target_mem_gb} failed code=${code:-unknown}: $message" >&2
+  echo "Continuing on the bootstrap shape so provisioning can still finish." >&2
+  return 0
 }
 
 if ! acquire_lock; then
@@ -285,7 +395,9 @@ done
 
 if [ -z "$instance_id" ]; then
   deadline_epoch=0
-  if [ "$retry_hours" -gt 0 ]; then
+  if [ "$retry_forever" = "1" ]; then
+    echo "Retry mode enabled forever; sleep=${retry_sleep_sec}s"
+  elif [ "$retry_hours" -gt 0 ]; then
     deadline_epoch=$(( $(date +%s) + (retry_hours * 3600) ))
     echo "Retry mode enabled for ${retry_hours}h; sleep=${retry_sleep_sec}s"
   fi
@@ -303,7 +415,7 @@ if [ -z "$instance_id" ]; then
 
     echo "Launch attempt #$attempt"
 
-    for shape in "1:4"; do
+    for shape in "${bootstrap_ocpus}:${bootstrap_mem_gb}"; do
       ocpus="${shape%%:*}"
       mem_gb="${shape##*:}"
       echo "Trying A1 shape ${ocpus} OCPU / ${mem_gb} GB"
@@ -398,6 +510,7 @@ if [ -z "$instance_id" ]; then
             instance_id=$(printf '%s' "$out" | jq -r '.data.id')
             instance_region="$region"
             echo "Launched instance: $instance_id (region: $instance_region)"
+            echo "GHOST_LAUNCHED name=$name instance_id=$instance_id region=$instance_region"
             break 3
           fi
 
@@ -456,9 +569,8 @@ if [ -z "$instance_id" ]; then
     fi
 
     if [ "$saw_quota_block" = "1" ] || [ "$saw_retryable_limit" = "1" ] || [ "$saw_retryable_transport" = "1" ]; then
-      if [ "$retry_hours" -gt 0 ] && [ "$(date +%s)" -lt "$deadline_epoch" ]; then
-        remaining=$((deadline_epoch - $(date +%s)))
-        echo "A1 quota/capacity/transient errors; retrying in ${retry_sleep_sec}s (remaining ${remaining}s)"
+      if retry_window_open; then
+        echo "A1 quota/capacity/transient errors; $(retry_wait_message)"
         sleep "$retry_sleep_sec"
         attempt=$((attempt + 1))
         continue
@@ -468,9 +580,8 @@ if [ -z "$instance_id" ]; then
       exit 2
     fi
 
-    if [ "$retry_hours" -gt 0 ] && [ "$(date +%s)" -lt "$deadline_epoch" ]; then
-      remaining=$((deadline_epoch - $(date +%s)))
-      echo "Capacity unavailable; retrying in ${retry_sleep_sec}s (remaining ${remaining}s)"
+    if retry_window_open; then
+      echo "Capacity unavailable; $(retry_wait_message)"
       sleep "$retry_sleep_sec"
       attempt=$((attempt + 1))
       continue
@@ -499,6 +610,10 @@ if [ "$running" != "1" ]; then
   echo "Instance did not reach RUNNING in time." >&2
   exit 3
 fi
+
+refresh_instance_shape
+maybe_resize_to_target "$current_shape" "$current_ocpus" "$current_mem_gb"
+refresh_instance_shape
 
 vnic_id=$(oci --profile "$profile" --region "$instance_region" compute vnic-attachment list \
   --compartment-id "$compartment_id" --instance-id "$instance_id" --output json \
@@ -543,4 +658,6 @@ nix run github:nix-community/nixos-anywhere -- \
   --build-on remote \
   -i "$ssh_key_file"
 
-echo "NixOS install requested for $name ($instance_id) at $public_ip in $instance_region"
+refresh_instance_shape
+echo "NixOS install completed for $name ($instance_id) at $public_ip in $instance_region"
+echo "GHOST_READY name=$name instance_id=$instance_id public_ip=$public_ip region=$instance_region shape=$current_shape ocpus=$current_ocpus memory_gb=$current_mem_gb"

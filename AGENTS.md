@@ -55,6 +55,27 @@ sudo darwin-rebuild switch --flake .#<host>
 home-manager switch --flake .#cdenneen@<host>
 ```
 
+### `nyx` deploy workflow
+
+For changes that need to land on `nyx`, use the repo workflow instead of deploying from an uncommitted local tree:
+
+```sh
+# local machine
+git add <files>
+git commit -m "<message>"
+git pull --rebase
+git push
+
+# on nyx
+cd ~/src/workspace/nix/home
+git pull --rebase
+sudo nixos-rebuild switch --flake .#nyx
+# and/or
+home-manager switch --flake .#cdenneen@nyx
+```
+
+Run the NixOS switch, the Home Manager switch, or both depending on which files changed.
+
 ### Lint / format
 
 ```sh

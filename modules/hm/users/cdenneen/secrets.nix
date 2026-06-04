@@ -553,11 +553,27 @@ in
     if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
       export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
     fi
+
+    if [ -r "${config.sops.secrets.gemini_api_key.path}" ]; then
+      gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.gemini_api_key.path}")"
+      if [ -n "$gemini_api_key" ]; then
+        export GEMINI_API_KEY="$gemini_api_key"
+        export GOOGLE_API_KEY="$gemini_api_key"
+      fi
+    fi
   '';
 
   programs.bash.initExtra = lib.mkAfter ''
     if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
       export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
+    fi
+
+    if [ -r "${config.sops.secrets.gemini_api_key.path}" ]; then
+      gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.gemini_api_key.path}")"
+      if [ -n "$gemini_api_key" ]; then
+        export GEMINI_API_KEY="$gemini_api_key"
+        export GOOGLE_API_KEY="$gemini_api_key"
+      fi
     fi
   '';
 }

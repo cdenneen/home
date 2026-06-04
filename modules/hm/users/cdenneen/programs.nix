@@ -9,6 +9,7 @@
 let
   isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
   hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
+  enableOciGhostAutostart = false;
   # Prefer the macOS lemonade server over a local Linux server so SSH
   # remote forwarding to 127.0.0.1:2489 works without port conflicts.
   enableLinuxLemonadeServer = false;
@@ -157,7 +158,7 @@ in
     };
   };
 
-  launchd.agents.oci-ghost-autostart = lib.mkIf pkgs.stdenv.isDarwin {
+  launchd.agents.oci-ghost-autostart = lib.mkIf (pkgs.stdenv.isDarwin && enableOciGhostAutostart) {
     enable = true;
     config = {
       ProgramArguments = [

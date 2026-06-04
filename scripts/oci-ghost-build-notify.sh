@@ -105,6 +105,23 @@ read_secret_file() {
   tr -d '\n\r' < "$file"
 }
 
+marker_field() {
+  local line="$1"
+  local key="$2"
+  local token
+
+  for token in $line; do
+    case "$token" in
+      "$key"=*)
+        printf '%s\n' "${token#*=}"
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
 if [ -z "$telegram_token" ]; then
   telegram_token="$(read_secret_file "$telegram_token_file")"
 fi
@@ -201,7 +218,9 @@ wait_for_log
 processed_lines=0
 notified_launch="0"
 notified_install_start="0"
+notified_resize="0"
 notified_done="0"
+notified_ready="0"
 
 notify "OCI ghost monitor" "Started monitoring $log_file"
 
@@ -211,16 +230,62 @@ while :; do
   if [ "$total_lines" -gt "$processed_lines" ]; then
     while IFS= read -r line; do
       case "$line" in
-        *"Instance launched:"*)
+        *"Launched instance:"*|*"GHOST_LAUNCHED "*)
           if [ "$notified_launch" = "0" ]; then
             notified_launch="1"
-            notify "OCI ghost" "Capacity found and instance launched."
+            region="$(marker_field "$line" region 2>/dev/null || true)"
+            if [ -n "$region" ]; then
+              notify "OCI ghost" "Capacity found and instance launched in $region."
+            else
+              notify "OCI ghost" "Capacity found and instance launched."
+            fi
+          fi
+          ;;
+        *"Resize succeeded;"*|*"GHOST_RESIZE_OK "*)
+          if [ "$notified_resize" = "0" ]; then
+            notified_resize="1"
+            ocpus="$(marker_field "$line" ocpus 2>/dev/null || true)"
+            memory_gb="$(marker_field "$line" memory_gb 2>/dev/null || true)"
+            if [ -n "$ocpus" ] && [ -n "$memory_gb" ]; then
+              notify "OCI ghost" "Post-provision resize succeeded at ${ocpus}/${memory_gb}."
+            else
+              notify "OCI ghost" "Post-provision resize succeeded."
+            fi
           fi
           ;;
         *"Running nixos-anywhere"*)
           if [ "$notified_install_start" = "0" ]; then
             notified_install_start="1"
             notify "OCI ghost" "nixos-anywhere install started."
+          fi
+          ;;
+        *"GHOST_READY "*)
+          if [ "$notified_ready" = "0" ]; then
+            notified_ready="1"
+            notified_done="1"
+            name="$(marker_field "$line" name 2>/dev/null || true)"
+            public_ip="$(marker_field "$line" public_ip 2>/dev/null || true)"
+            region="$(marker_field "$line" region 2>/dev/null || true)"
+            ocpus="$(marker_field "$line" ocpus 2>/dev/null || true)"
+            memory_gb="$(marker_field "$line" memory_gb 2>/dev/null || true)"
+            details=""
+            if [ -n "$public_ip" ]; then
+              details="IP $public_ip"
+            fi
+            if [ -n "$region" ]; then
+              details="${details:+$details, }region $region"
+            fi
+            if [ -n "$ocpus" ] && [ -n "$memory_gb" ]; then
+              details="${details:+$details, }shape ${ocpus}/${memory_gb}"
+            fi
+            if [ -n "$details" ]; then
+              notify "OCI ghost" "${name:-ghost} is ready (${details})."
+            else
+              notify "OCI ghost" "${name:-ghost} is ready."
+            fi
+            if [ "$exit_on_success" = "1" ]; then
+              exit 0
+            fi
           fi
           ;;
         *"installation finished!"*|*"### Done! ###"*)
@@ -245,7 +310,7 @@ while :; do
   fi
 
   if [ -n "$builder_pid" ] && ! kill -0 "$builder_pid" 2>/dev/null; then
-    if [ "$notified_done" = "1" ]; then
+    if [ "$notified_ready" = "1" ] || [ "$notified_done" = "1" ]; then
       notify "OCI ghost monitor" "Builder exited after successful install."
     else
       notify "OCI ghost monitor" "Builder PID $builder_pid exited. Check $log_file."

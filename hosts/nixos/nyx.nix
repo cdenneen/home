@@ -866,7 +866,7 @@ in
       script = pkgs.writeShellScript "cloudflared-credentials-opencode" ''
         set -euo pipefail
 
-        token_file="${config.sops.secrets.cloudflare_tunnel_token.path}"
+        token_file="${config.sops.secrets.nyx_cloudflare_tunnel_token.path}"
         cred_dir="/var/lib/cloudflared"
         cred_file="$cred_dir/opencode.json"
 
@@ -946,7 +946,7 @@ in
   };
 
   # Cloudflare Tunnel for Telegram webhook.
-  sops.secrets.cloudflare_tunnel_token = {
+  sops.secrets.nyx_cloudflare_tunnel_token = {
     owner = "cdenneen";
     group = "users";
     mode = "0400";

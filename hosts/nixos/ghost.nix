@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   pkgs,
   happier,
@@ -73,6 +74,13 @@ in
       port = 3005;
       environmentFile = "/var/lib/happier-server/happier.env";
     };
+  };
+
+  sops.secrets.ghost_cloudflare_tunnel_token = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+    path = pepsCloudflareTokenFile;
   };
 
   systemd.tmpfiles.rules = [

@@ -66,4 +66,4 @@ fi
 
 echo "[$(ts)] starting ghost builder from $repo_dir"
 cd "$repo_dir"
-exec "$repo_dir/scripts/launch-oci-ghost.sh"
+exec "$repo_dir/scripts/launch-oci-ghost.sh" --wait
