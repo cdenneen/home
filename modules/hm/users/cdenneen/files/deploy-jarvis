@@ -266,7 +266,8 @@ NYX_REMOTE_EOF
     home-manager switch --flake .#cdenneen@VNJTECMBCD
     launchctl print "gui/$(id -u)/org.nix-community.home.jarvis-voice-edge" >/dev/null
     launchctl print "gui/$(id -u)/org.nix-community.home.jarvis-mac-runner" >/dev/null
-    mac_tailscale_ip="$("$tailscale_cmd" ip -4 | head -n 1)"
+    mac_tailscale_ip="$("$tailscale_cmd" ip -4)"
+    mac_tailscale_ip="${mac_tailscale_ip%%$'\n'*}"
     if [[ -z "$mac_tailscale_ip" ]]; then
       echo "deploy-jarvis: unable to determine Mac tailscale IP" >&2
       exit 1
