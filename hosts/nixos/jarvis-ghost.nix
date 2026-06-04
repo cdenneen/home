@@ -8,8 +8,8 @@ let
   jarvisApiPort = 8080;
   jarvisSlackPort = 8081;
   jarvisWebPort = 3000;
-  jarvisWorkEndpoint = "http://nyx.tail0e55.ts.net:8090";
-  jarvisMacEndpoint = "http://vnjtecmbcd.tail0e55.ts.net:8091";
+  jarvisWorkEndpoint = "http://100.80.58.4:8090";
+  jarvisMacEndpoint = "http://100.90.97.48:8091";
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       fastapi
