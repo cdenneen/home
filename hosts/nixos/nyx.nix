@@ -752,7 +752,7 @@ in
       fi
 
       if [ ! -x node_modules/.bin/tsx ]; then
-        npm ci --include=dev --no-audit --no-fund
+        npm install --include=dev --no-audit --no-fund
       fi
 
       exec npm run api:start
