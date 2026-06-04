@@ -16,6 +16,7 @@ let
       httpx
       pyyaml
       uvicorn
+      websockets
     ]
   );
   jarvisWebRoot = pkgs.writeTextDir "jarvis-web/index.html" ''
