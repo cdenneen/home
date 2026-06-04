@@ -32,6 +32,7 @@ in
     # Pin glab to the XDG config dir so macOS legacy paths do not cause
     # duplicate-config warnings.
     GLAB_CONFIG_DIR = "$HOME/.config/glab-cli";
+    GH_CONFIG_DIR = "$HOME/.config/gh";
     CACHE_ROOT = cacheRoot;
     WORKSPACE_ROOT = workspaceRoot;
     CACHE_HOME = cacheRoot;

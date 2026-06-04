@@ -223,6 +223,11 @@ in
     };
 
     openai_api_key.mode = "0400";
+    github-token = {
+      mode = "0400";
+    } // lib.optionalAttrs isLinux {
+      path = "${linuxSopsSecretsDir}/github-token";
+    };
     gemini_api_key.mode = "0400";
     supabase_access_token.mode = "0400";
     cloudflare_account_api_token.mode = "0400";
@@ -369,6 +374,7 @@ in
     backup_if_unmanaged "$HOME/.ssh/cdenneen_ed25519_2024.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9.pub" "" "/nix/store/"
+    backup_if_unmanaged "$HOME/.config/gh/hosts.yml"
   '';
 
   home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.isDarwin (
@@ -458,6 +464,66 @@ in
 
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src_cfg" "$dst_dir/config"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src_key" "$dst_dir/private_key.pem"
+      '';
+
+  home.activation.materializeGhHosts =
+    lib.hm.dag.entryAfter
+      (
+        if pkgs.stdenv.isDarwin then
+          [ "materializeDarwinSopsSecrets" ]
+        else
+          [ "materializeLinuxSopsSecrets" ]
+      )
+      ''
+        set -euo pipefail
+
+        export PATH="${pkgs.coreutils}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+
+        token_file=""
+        for candidate in \
+          /run/secrets/github-token \
+          /var/run/secrets/github-token \
+          "$HOME/.local/share/sops-nix/secrets/github-token" \
+          "$HOME/.config/sops-nix/secrets/github-token"
+        do
+          if [ -r "$candidate" ]; then
+            token_file="$candidate"
+            break
+          fi
+        done
+
+        if [ -z "$token_file" ]; then
+          echo "warning: github-token secret is missing; skipping gh hosts materialization" >&2
+          exit 0
+        fi
+
+        github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+        if [ -z "$github_token" ]; then
+          echo "warning: github-token secret is empty; skipping gh hosts materialization" >&2
+          exit 0
+        fi
+
+        gh_dir="$HOME/.config/gh"
+        gh_hosts="$gh_dir/hosts.yml"
+        tmp_file="$(${pkgs.coreutils}/bin/mktemp)"
+
+        cleanup() {
+          rm -f "$tmp_file"
+        }
+        trap cleanup EXIT
+
+        $DRY_RUN_CMD mkdir -p "$gh_dir"
+        cat >"$tmp_file" <<EOF
+github.com:
+    users:
+        ${config.home.username}:
+            oauth_token: $github_token
+    git_protocol: ssh
+    user: ${config.home.username}
+    oauth_token: $github_token
+EOF
+
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp_file" "$gh_hosts"
       '';
 
   home.file = lib.mkMerge [

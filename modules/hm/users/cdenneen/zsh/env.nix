@@ -23,11 +23,16 @@ lib.concatStringsSep "\n" [
     fi
     if [ -r "$HOME/.secrets" ]; then
       source "$HOME/.secrets"
+      unset GITLAB_TOKEN GITLAB_ACCESS_TOKEN GITLAB_PERSONAL_ACCESS_TOKEN OAUTH_TOKEN 2>/dev/null || true
     fi
     if [ -r /run/secrets/github-token ]; then
       export GITHUB_TOKEN="$(tr -d '\n' </run/secrets/github-token)"
     elif [ -r /var/run/secrets/github-token ]; then
       export GITHUB_TOKEN="$(tr -d '\n' </var/run/secrets/github-token)"
+    elif [ -r "$HOME/.local/share/sops-nix/secrets/github-token" ]; then
+      export GITHUB_TOKEN="$(tr -d '\n' <"$HOME/.local/share/sops-nix/secrets/github-token")"
+    elif [ -r "$HOME/.config/sops-nix/secrets/github-token" ]; then
+      export GITHUB_TOKEN="$(tr -d '\n' <"$HOME/.config/sops-nix/secrets/github-token")"
     fi
   ''
 ]
