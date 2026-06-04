@@ -144,7 +144,7 @@ target="$1"
 case "$target" in
   ghost)
     require_cmd ssh
-    remote_script=$(cat <<'EOF'
+    remote_script=$(cat <<'GHOST_REMOTE_EOF'
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
 
@@ -177,14 +177,14 @@ cleanup() {
   rm -f "$askpass"
 }
 trap cleanup EXIT
-cat >"$askpass" <<'EOF'
+cat >"$askpass" <<'GITLAB_ASKPASS_EOF'
 #!/bin/sh
 case "$1" in
   *Username*) printf '%s\n' oauth2 ;;
   *Password*) printf '%s\n' "$GITLAB_TOKEN" ;;
   *) printf '%s\n' "$GITLAB_TOKEN" ;;
 esac
-EOF
+GITLAB_ASKPASS_EOF
 chmod 700 "$askpass"
 
 if [ ! -d "$jarvis_repo_dir/.git" ]; then
@@ -205,13 +205,13 @@ done
 curl -fsS http://127.0.0.1:8080/healthz >/dev/null
 curl -fsS http://127.0.0.1:8081/healthz >/dev/null
 curl -fsS http://127.0.0.1:3000 >/dev/null
-EOF
+GHOST_REMOTE_EOF
 )
     ssh -o ClearAllForwardings=yes ghost "bash -lc $(printf '%q' "$remote_script")"
     ;;
   nyx)
     require_cmd ssh
-    remote_script=$(cat <<'EOF'
+    remote_script=$(cat <<'NYX_REMOTE_EOF'
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
 
@@ -244,14 +244,14 @@ cleanup() {
   rm -f "$askpass"
 }
 trap cleanup EXIT
-cat >"$askpass" <<'EOF'
+cat >"$askpass" <<'GITLAB_ASKPASS_EOF'
 #!/bin/sh
 case "$1" in
   *Username*) printf '%s\n' oauth2 ;;
   *Password*) printf '%s\n' "$GITLAB_TOKEN" ;;
   *) printf '%s\n' "$GITLAB_TOKEN" ;;
 esac
-EOF
+GITLAB_ASKPASS_EOF
 chmod 700 "$askpass"
 
 if [ ! -d "$jarvis_repo_dir/.git" ]; then
@@ -267,7 +267,7 @@ git pull --rebase
 
 "$sudo_cmd" "$systemctl_cmd" is-active --quiet jarvis-work-runner.service
 curl -fsS http://127.0.0.1:8090/healthz >/dev/null
-EOF
+NYX_REMOTE_EOF
 )
     ssh -o ClearAllForwardings=yes nyx "bash -lc $(printf '%q' "$remote_script")"
     ;;
