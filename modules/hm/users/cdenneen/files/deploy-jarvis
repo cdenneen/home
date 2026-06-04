@@ -153,20 +153,25 @@ if [[ ! -x "$sudo_cmd" ]]; then
   sudo_cmd="$(command -v sudo)"
 fi
 git_cmd="$(command -v git)"
-glab_cmd="$(command -v glab || true)"
 nixos_rebuild_cmd="$(command -v nixos-rebuild)"
 systemctl_cmd="$(command -v systemctl)"
+ssh_keygen_cmd="$(command -v ssh-keygen)"
+ssh_keyscan_cmd="$(command -v ssh-keyscan)"
 
 jarvis_repo_dir="/opt/jarvis"
-jarvis_repo_slug="cdenneen/my-jarvis"
+jarvis_repo_url="git@gitlab.com:cdenneen/my-jarvis.git"
+jarvis_known_hosts_file="/home/cdenneen/.ssh/known_hosts"
 
 if [ ! -d "$jarvis_repo_dir/.git" ]; then
-  [[ -n "$glab_cmd" ]] || {
-    echo "deploy-jarvis: glab is required on ghost to clone $jarvis_repo_slug" >&2
-    exit 1
-  }
   "$sudo_cmd" install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
-  "$sudo_cmd" -u cdenneen env GITLAB_HOST=gitlab.com PATH="$PATH" "$glab_cmd" repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
+  "$sudo_cmd" install -d -m 0700 -o cdenneen -g users /home/cdenneen/.ssh
+  "$sudo_cmd" touch "$jarvis_known_hosts_file"
+  "$sudo_cmd" chown cdenneen:users "$jarvis_known_hosts_file"
+  "$sudo_cmd" chmod 0600 "$jarvis_known_hosts_file"
+  if ! "$ssh_keygen_cmd" -F gitlab.com -f "$jarvis_known_hosts_file" >/dev/null 2>&1; then
+    "$ssh_keyscan_cmd" -H gitlab.com >> "$jarvis_known_hosts_file"
+  fi
+  "$sudo_cmd" -u cdenneen "$git_cmd" clone "$jarvis_repo_url" "$jarvis_repo_dir"
 fi
 
 "$sudo_cmd" -u cdenneen "$git_cmd" -C "$jarvis_repo_dir" pull --rebase
@@ -197,20 +202,25 @@ if [[ ! -x "$sudo_cmd" ]]; then
   sudo_cmd="$(command -v sudo)"
 fi
 git_cmd="$(command -v git)"
-glab_cmd="$(command -v glab || true)"
 nixos_rebuild_cmd="$(command -v nixos-rebuild)"
 systemctl_cmd="$(command -v systemctl)"
+ssh_keygen_cmd="$(command -v ssh-keygen)"
+ssh_keyscan_cmd="$(command -v ssh-keyscan)"
 
 jarvis_repo_dir="/opt/jarvis"
-jarvis_repo_slug="cdenneen/my-jarvis"
+jarvis_repo_url="git@gitlab.com:cdenneen/my-jarvis.git"
+jarvis_known_hosts_file="/home/cdenneen/.ssh/known_hosts"
 
 if [ ! -d "$jarvis_repo_dir/.git" ]; then
-  [[ -n "$glab_cmd" ]] || {
-    echo "deploy-jarvis: glab is required on nyx to clone $jarvis_repo_slug" >&2
-    exit 1
-  }
   "$sudo_cmd" install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
-  "$sudo_cmd" -u cdenneen env GITLAB_HOST=gitlab.com PATH="$PATH" "$glab_cmd" repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
+  "$sudo_cmd" install -d -m 0700 -o cdenneen -g users /home/cdenneen/.ssh
+  "$sudo_cmd" touch "$jarvis_known_hosts_file"
+  "$sudo_cmd" chown cdenneen:users "$jarvis_known_hosts_file"
+  "$sudo_cmd" chmod 0600 "$jarvis_known_hosts_file"
+  if ! "$ssh_keygen_cmd" -F gitlab.com -f "$jarvis_known_hosts_file" >/dev/null 2>&1; then
+    "$ssh_keyscan_cmd" -H gitlab.com >> "$jarvis_known_hosts_file"
+  fi
+  "$sudo_cmd" -u cdenneen "$git_cmd" clone "$jarvis_repo_url" "$jarvis_repo_dir"
 fi
 
 "$sudo_cmd" -u cdenneen "$git_cmd" -C "$jarvis_repo_dir" pull --rebase
