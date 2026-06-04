@@ -313,7 +313,7 @@ in
 
       nyx = identityConfig // {
         user = "cdenneen";
-        hostname = "10.224.11.38";
+        hostname = "100.80.58.4";
         remoteForwards = erosRemoteForwards;
       };
 
