@@ -10,6 +10,8 @@ let
   jarvisWebPort = 3000;
   jarvisWorkEndpoint = "http://100.80.58.4:8090";
   jarvisMacEndpoint = "http://100.90.97.48:8091";
+  jarvisUsageDb = "${jarvisDataDir}/usage.db";
+  jarvisWebDir = "${jarvisRepoDir}/web";
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       fastapi
@@ -19,19 +21,6 @@ let
       websockets
     ]
   );
-  jarvisWebRoot = pkgs.writeTextDir "jarvis-web/index.html" ''
-    <!doctype html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8">
-        <title>Jarvis Control Plane</title>
-      </head>
-      <body>
-        <h1>Jarvis control plane</h1>
-        <p>Public ingress is live on ghost.</p>
-      </body>
-    </html>
-  '';
 in
 {
   environment.systemPackages = lib.mkAfter [
@@ -141,6 +130,7 @@ in
       write_var JARVIS_REALMS_PATH "${jarvisRepoDir}/config/realms.yaml"
       write_var JARVIS_LOCKS_PATH "${jarvisDataDir}/realm_locks.json"
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
+      write_var JARVIS_USAGE_DB "${jarvisUsageDb}"
       write_var JARVIS_BRAIN_MANIFEST "${jarvisDataDir}/context_manifest.neuronet.jsonl"
       write_var JARVIS_BRAIN_CANDIDATES "${jarvisDataDir}/memory_import_candidates.neuronet.jsonl"
       write_var JARVIS_BRAIN_IMPORT_READY "${jarvisDataDir}/recallium_import_ready.neuronet.jsonl"
@@ -270,7 +260,8 @@ in
         --work-endpoint "$JARVIS_WORK_ENDPOINT" \
         --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
         --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
-        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}"
+        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}" \
+        --usage-sqlite "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}"
     '';
   };
 
@@ -350,9 +341,14 @@ in
     script = ''
       set -euo pipefail
 
+      if [ ! -f "${jarvisWebDir}/index.html" ]; then
+        echo "jarvis-web: missing portal index at ${jarvisWebDir}/index.html" >&2
+        exit 1
+      fi
+
       exec ${jarvisPython}/bin/python -m http.server ${toString jarvisWebPort} \
         --bind 127.0.0.1 \
-        --directory ${jarvisWebRoot}/jarvis-web
+        --directory ${jarvisWebDir}
     '';
   };
 
