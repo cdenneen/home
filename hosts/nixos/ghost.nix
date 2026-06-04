@@ -252,6 +252,8 @@ in
       fi
 
       cd "${pepsRepoDir}"
+      git reset --hard HEAD
+      git clean -fd
       git remote set-url origin "${pepsGitRemote}"
       git "''${git_auth[@]}" fetch --prune origin "${pepsGitBranch}"
       git checkout -B "${pepsGitBranch}" "origin/${pepsGitBranch}"
