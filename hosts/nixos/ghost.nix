@@ -46,6 +46,8 @@ in
     happier.nixosModules.happier-server
   ];
 
+  profiles.hmIntegrated.enable = lib.mkForce true;
+
   containerPresets = {
     podman.enable = true;
   };
