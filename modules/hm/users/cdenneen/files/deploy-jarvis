@@ -158,7 +158,7 @@ systemctl_cmd="$(command -v systemctl)"
 
 jarvis_repo_dir="/opt/jarvis"
 jarvis_repo_url="https://gitlab.com/cdenneen/my-jarvis.git"
-gitlab_token_file="/home/cdenneen/.config/opnix/gitlab_token"
+gitlab_token_file="/home/cdenneen/.local/share/sops-nix/secrets/gitlab_git_clone_token"
 
 if [ ! -r "$gitlab_token_file" ]; then
   echo "deploy-jarvis: gitlab token file missing at $gitlab_token_file" >&2
@@ -225,7 +225,7 @@ systemctl_cmd="$(command -v systemctl)"
 
 jarvis_repo_dir="/opt/jarvis"
 jarvis_repo_url="https://gitlab.com/cdenneen/my-jarvis.git"
-gitlab_token_file="/home/cdenneen/.config/opnix/gitlab_token"
+gitlab_token_file="/home/cdenneen/.local/share/sops-nix/secrets/gitlab_git_clone_token"
 
 if [ ! -r "$gitlab_token_file" ]; then
   echo "deploy-jarvis: gitlab token file missing at $gitlab_token_file" >&2
