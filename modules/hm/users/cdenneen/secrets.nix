@@ -225,6 +225,7 @@ in
     openai_api_key.mode = "0400";
     gemini_api_key.mode = "0400";
     supabase_access_token.mode = "0400";
+    cloudflare_account_api_token.mode = "0400";
     telegram_bot_token.mode = "0400";
     telegram_chat_id.mode = "0400";
 
@@ -554,6 +555,15 @@ in
       export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
     fi
 
+    if [ -r "${config.sops.secrets.cloudflare_account_api_token.path}" ]; then
+      export CLOUDFLARE_API_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.cloudflare_account_api_token.path}")"
+      export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+    fi
+
+    export CLOUDFLARE_ACCOUNT_ID="19a23ecf9ba79236ab8e64c8c7bf3507"
+    export CF_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
+    export CLOUDFLARE_ZONE_NAME="denneen.net"
+
     if [ -r "${config.sops.secrets.gemini_api_key.path}" ]; then
       gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.gemini_api_key.path}")"
       if [ -n "$gemini_api_key" ]; then
@@ -567,6 +577,15 @@ in
     if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
       export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
     fi
+
+    if [ -r "${config.sops.secrets.cloudflare_account_api_token.path}" ]; then
+      export CLOUDFLARE_API_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.cloudflare_account_api_token.path}")"
+      export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+    fi
+
+    export CLOUDFLARE_ACCOUNT_ID="19a23ecf9ba79236ab8e64c8c7bf3507"
+    export CF_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
+    export CLOUDFLARE_ZONE_NAME="denneen.net"
 
     if [ -r "${config.sops.secrets.gemini_api_key.path}" ]; then
       gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.gemini_api_key.path}")"

@@ -20,7 +20,11 @@ let
   pepsGitRemote = "chris@100.125.246.107:/volume1/Git/peptide_tracker.git";
   pepsGitBranch = "main";
   pepsApiPort = 8787;
+  pepsEnvFile = "${pepsRuntimeDir}/backend.env";
+  pepsEnvLocalFile = "${pepsRuntimeDir}/backend.env.local";
   pepsHealthImportTokenFile = "${pepsRuntimeDir}/health_import_token";
+  pepsStateFilePath = "/home/cdenneen/.local/state/peps-api/web-state.json";
+  pepsAdminEmails = "cdenneen@gmail.com,c.denneen@gmail.com";
   wellnessApiHost = "wellness-api.denneen.net";
   wellnessRuntimeDir = "/var/lib/wellness";
   wellnessRepoDir = "${wellnessRuntimeDir}/repo";
@@ -314,6 +318,121 @@ in
     };
   };
 
+  systemd.services.peps-runtime-env = {
+    description = "Generate peps runtime env";
+    before = [ "peps-api.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    script = ''
+      set -euo pipefail
+
+      env_file="${pepsEnvFile}"
+      legacy_env_file="${pepsRepoDir}/deploy/backend/.env"
+      tmp_env="$(${pkgs.coreutils}/bin/mktemp "${pepsRuntimeDir}/backend.env.XXXXXX")"
+
+      cleanup() {
+        ${pkgs.coreutils}/bin/rm -f "$tmp_env"
+      }
+      trap cleanup EXIT
+
+      write_var() {
+        printf '%s=%s\n' "$1" "$2" >> "$tmp_env"
+      }
+
+      legacy_value() {
+        key="$1"
+        if [ -r "$legacy_env_file" ]; then
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+              "$key="*)
+                printf '%s' "''${line#*=}"
+                return 0
+                ;;
+            esac
+          done < "$legacy_env_file"
+        fi
+        return 1
+      }
+
+      write_var API_PORT "${toString pepsApiPort}"
+      write_var AUTH_REQUIRED "true"
+      write_var AUTH_ADMIN_EMAILS "${pepsAdminEmails}"
+      write_var SUPABASE_URL "${wellnessSupabaseUrl}"
+      write_var NEXT_PUBLIC_SUPABASE_URL "${wellnessSupabaseUrl}"
+      write_var VITE_SUPABASE_URL "${wellnessSupabaseUrl}"
+      write_var PEPS_STATE_PROVIDER "supabase"
+      write_var PEPS_STATE_TABLE "peps_app_state"
+      write_var PEPS_STATE_ROW_ID "global"
+      write_var PEPS_STATE_META_ROW_ID "_meta"
+      write_var PEPS_STATE_FILE_PATH "${pepsStateFilePath}"
+      write_var PEPS_DOSE_TABLE "peps_dose_checkins"
+      write_var PEPS_PROGRESS_PHOTOS_TABLE "peps_progress_photos"
+      write_var PEPS_PROGRESS_PHOTOS_BUCKET "peps-progress-photos"
+
+      if [ -r "${wellnessSupabasePublishableKeyFile}" ]; then
+        supabase_publishable_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabasePublishableKeyFile}")"
+        if [ -n "$supabase_publishable_key" ]; then
+          write_var SUPABASE_PUBLISHABLE_KEY "$supabase_publishable_key"
+          write_var SUPABASE_ANON_KEY "$supabase_publishable_key"
+          write_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$supabase_publishable_key"
+          write_var VITE_SUPABASE_PUBLISHABLE_KEY "$supabase_publishable_key"
+          write_var EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$supabase_publishable_key"
+          write_var EXPO_PUBLIC_SUPABASE_ANON_KEY "$supabase_publishable_key"
+        fi
+      fi
+
+      if [ -r "${wellnessSupabaseSecretKeyFile}" ]; then
+        supabase_secret_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabaseSecretKeyFile}")"
+        if [ -n "$supabase_secret_key" ] && [ "$supabase_secret_key" != "REPLACE_WITH_SB_SECRET_KEY" ]; then
+          write_var SUPABASE_SECRET_KEY "$supabase_secret_key"
+          write_var SUPABASE_SERVICE_ROLE_KEY "$supabase_secret_key"
+        fi
+      fi
+
+      if [ -r "${geminiKeyFile}" ]; then
+        gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${geminiKeyFile}")"
+        if [ -n "$gemini_api_key" ]; then
+          write_var GEMINI_API_KEY "$gemini_api_key"
+          write_var GOOGLE_API_KEY "$gemini_api_key"
+        fi
+      fi
+
+      health_import_token=""
+      if [ -r "${pepsHealthImportTokenFile}" ]; then
+        health_import_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${pepsHealthImportTokenFile}")"
+      else
+        health_import_token="$(legacy_value HEALTH_IMPORT_TOKEN || true)"
+      fi
+      if [ -n "$health_import_token" ]; then
+        write_var HEALTH_IMPORT_TOKEN "$health_import_token"
+      fi
+
+      for key in \
+        GEMINI_MODEL \
+        GEMINI_API_BASE_URL \
+        USDA_FOODDATA_CENTRAL_API_KEY \
+        FOODDATA_CENTRAL_API_KEY \
+        WEB_PUSH_VAPID_SUBJECT \
+        WEB_PUSH_VAPID_PUBLIC_KEY \
+        WEB_PUSH_VAPID_PRIVATE_KEY
+      do
+        value="$(legacy_value "$key" || true)"
+        if [ -n "$value" ]; then
+          write_var "$key" "$value"
+        fi
+      done
+
+      ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_env" "$env_file"
+    '';
+  };
+
   systemd.services.peps-api = {
     description = "Peps API/web runtime";
     wantedBy = [ "multi-user.target" ];
@@ -321,12 +440,16 @@ in
       "network-online.target"
       "tailscaled.service"
       "peps-sync.service"
+      "peps-runtime-env.service"
     ];
     wants = [
       "network-online.target"
       "tailscaled.service"
     ];
-    requires = [ "peps-sync.service" ];
+    requires = [
+      "peps-sync.service"
+      "peps-runtime-env.service"
+    ];
     path = [
       pkgs.bash
       pkgs.coreutils
@@ -340,19 +463,12 @@ in
       Restart = "always";
       RestartSec = "10s";
       TimeoutStartSec = "20min";
-      EnvironmentFile = [ "${pepsRepoDir}/deploy/backend/.env" ];
+      EnvironmentFile = [
+        pepsEnvFile
+        "-${pepsEnvLocalFile}"
+      ];
       Environment = [
         "HOME=/home/cdenneen"
-        "API_PORT=${toString pepsApiPort}"
-        "AUTH_REQUIRED=true"
-        "AUTH_ADMIN_EMAILS=cdenneen@gmail.com,c.denneen@gmail.com"
-        "SUPABASE_URL=${wellnessSupabaseUrl}"
-        "NEXT_PUBLIC_SUPABASE_URL=${wellnessSupabaseUrl}"
-        "VITE_SUPABASE_URL=${wellnessSupabaseUrl}"
-        "PEPS_STATE_PROVIDER=supabase"
-        "PEPS_STATE_TABLE=peps_app_state"
-        "PEPS_STATE_ROW_ID=global"
-        "PEPS_STATE_FILE_PATH=/home/cdenneen/.local/state/peps-api/web-state.json"
       ];
     };
     script = ''
@@ -361,49 +477,6 @@ in
       if [ ! -f package.json ]; then
         echo "peps-api: repository not found at ${pepsRepoDir}" >&2
         exit 1
-      fi
-
-      export SUPABASE_URL="${wellnessSupabaseUrl}"
-
-      if [ -r "${wellnessSupabasePublishableKeyFile}" ]; then
-        supabase_publishable_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabasePublishableKeyFile}")"
-        if [ -n "$supabase_publishable_key" ]; then
-          export SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
-          export SUPABASE_ANON_KEY="$supabase_publishable_key"
-          export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
-          export VITE_SUPABASE_PUBLISHABLE_KEY="$supabase_publishable_key"
-        fi
-      fi
-
-      if [ -r "${geminiKeyFile}" ]; then
-        gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${geminiKeyFile}")"
-        if [ -n "$gemini_api_key" ]; then
-          export GEMINI_API_KEY="$gemini_api_key"
-          export GOOGLE_API_KEY="$gemini_api_key"
-        else
-          echo "peps-api: Gemini key is empty in ${geminiKeyFile}" >&2
-        fi
-      else
-        echo "peps-api: Gemini key file missing at ${geminiKeyFile}" >&2
-      fi
-
-      if [ -r "${wellnessSupabaseSecretKeyFile}" ]; then
-        supabase_secret_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${wellnessSupabaseSecretKeyFile}")"
-        if [ -n "$supabase_secret_key" ] && [ "$supabase_secret_key" != "REPLACE_WITH_SB_SECRET_KEY" ]; then
-          export SUPABASE_SECRET_KEY="$supabase_secret_key"
-          export SUPABASE_SERVICE_ROLE_KEY="$supabase_secret_key"
-        else
-          echo "peps-api: Supabase secret key is unset in ${wellnessSupabaseSecretKeyFile}; using file fallback state store" >&2
-        fi
-      fi
-
-      export PEPS_STATE_PROVIDER="supabase"
-      export PEPS_STATE_TABLE="peps_app_state"
-      export PEPS_STATE_ROW_ID="global"
-      export PEPS_STATE_FILE_PATH="/home/cdenneen/.local/state/peps-api/web-state.json"
-
-      if [ -r "${pepsHealthImportTokenFile}" ]; then
-        export HEALTH_IMPORT_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${pepsHealthImportTokenFile}")"
       fi
 
       if [ ! -x node_modules/.bin/tsx ]; then

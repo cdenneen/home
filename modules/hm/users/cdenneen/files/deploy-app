@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: deploy-app <peps|wellness> [host]
+
+Defaults:
+  peps     -> ghost
+  wellness -> ghost
+
+Examples:
+  deploy-app peps
+  deploy-app peps ghost
+  deploy-app wellness nyx
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
+  usage
+  exit "${1:+0}"
+fi
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "deploy-app: missing required command: $1" >&2
+    exit 1
+  }
+}
+
+require_cmd ssh
+
+app="$1"
+target_host="${2:-}"
+
+case "$app" in
+  peps)
+    target_host="${target_host:-ghost}"
+    remote_script='
+      set -euo pipefail
+      sudo systemctl start peps-sync.service peps-runtime-env.service
+      sudo systemctl restart peps-api.service
+      systemctl is-active --quiet peps-api.service
+      curl -fsS http://127.0.0.1:8787/api/health >/dev/null
+      systemctl --no-pager --full status peps-api.service | sed -n "1,20p"
+      echo "peps: healthy on '"$target_host"'"
+    '
+    ;;
+  wellness)
+    target_host="${target_host:-ghost}"
+    remote_script='
+      set -euo pipefail
+      sudo systemctl start wellness-sync.service
+      sudo systemctl restart wellness-api.service
+      systemctl is-active --quiet wellness-api.service
+      curl -fsS http://127.0.0.1:8797/health >/dev/null
+      systemctl --no-pager --full status wellness-api.service | sed -n "1,20p"
+      echo "wellness: healthy on '"$target_host"'"
+    '
+    ;;
+  *)
+    echo "deploy-app: unsupported app '$app'" >&2
+    exit 1
+    ;;
+esac
+
+current_host="$(hostname -s 2>/dev/null || true)"
+
+if [[ "$target_host" == "$current_host" || "$target_host" == "localhost" || "$target_host" == "127.0.0.1" ]]; then
+  bash -lc "$remote_script"
+else
+  ssh -o ClearAllForwardings=yes "$target_host" "bash -lc $(printf '%q' "$remote_script")"
+fi

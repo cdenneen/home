@@ -347,6 +347,14 @@ in
     source = ./files/ensure-peps-runner;
     executable = true;
   };
+  home.file.".local/bin/deploy-app" = {
+    source = ./files/deploy-app;
+    executable = true;
+  };
+  home.file.".local/bin/cf-move-routes" = {
+    source = ./files/cf-move-routes;
+    executable = true;
+  };
   home.file.".local/bin/nyx-mcp-preflight" = {
     source = ./files/nyx-mcp-preflight;
     executable = true;
