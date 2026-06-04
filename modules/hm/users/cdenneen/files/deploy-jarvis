@@ -197,6 +197,8 @@ fi
 cd ~/src/workspace/nix/home
 git pull --rebase
 "$sudo_cmd" "$nixos_rebuild_cmd" switch --flake .#ghost
+"$sudo_cmd" "$systemctl_cmd" restart jarvis-ghost-env.service
+"$sudo_cmd" "$systemctl_cmd" restart jarvis-harness.service jarvis-api.service jarvis-slack-gateway.service jarvis-web.service
 
 for unit in jarvis-harness.service jarvis-api.service jarvis-slack-gateway.service jarvis-web.service; do
   "$sudo_cmd" "$systemctl_cmd" is-active --quiet "$unit"
@@ -264,6 +266,8 @@ fi
 cd ~/src/workspace/nix/home
 git pull --rebase
 "$sudo_cmd" "$nixos_rebuild_cmd" switch --flake .#nyx
+"$sudo_cmd" "$systemctl_cmd" restart jarvis-work-env.service
+"$sudo_cmd" "$systemctl_cmd" restart jarvis-work-runner.service
 
 "$sudo_cmd" "$systemctl_cmd" is-active --quiet jarvis-work-runner.service
 curl -fsS http://127.0.0.1:8090/healthz >/dev/null
