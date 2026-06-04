@@ -28,35 +28,82 @@ require_cmd() {
   }
 }
 
+find_source_dir() {
+  local app_name="$1"
+  local candidates=()
+
+  case "$app_name" in
+    peps)
+      candidates=(
+        "${DEPLOY_APP_SOURCE:-}"
+        "/Users/cdenneen/code/workspace/personal/peps"
+        "/Users/cdenneen/code/workspace/peps"
+        "/home/cdenneen/src/workspace/personal/peps"
+        "/home/cdenneen/src/workspace/peps"
+      )
+      ;;
+    wellness)
+      candidates=(
+        "${DEPLOY_APP_SOURCE:-}"
+        "/Users/cdenneen/code/workspace/personal/wellness"
+        "/Users/cdenneen/code/workspace/wellness"
+        "/home/cdenneen/src/workspace/personal/wellness"
+        "/home/cdenneen/src/workspace/wellness"
+      )
+      ;;
+  esac
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -n "$candidate" && -f "$candidate/package.json" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 require_cmd ssh
+require_cmd git
 
 app="$1"
 target_host="${2:-}"
+current_host="$(hostname -s 2>/dev/null || true)"
+source_dir=""
+repo_remote=""
+repo_branch="main"
+sync_unit=""
+sync_mode="remote-sync-service"
+sync_prelude=""
+restart_script=""
 
 case "$app" in
   peps)
     target_host="${target_host:-ghost}"
-    remote_script='
-      set -euo pipefail
-      sudo systemctl start peps-sync.service peps-runtime-env.service
-      sudo systemctl restart peps-api.service
-      systemctl is-active --quiet peps-api.service
-      curl -fsS http://127.0.0.1:8787/api/health >/dev/null
-      systemctl --no-pager --full status peps-api.service | sed -n "1,20p"
-      echo "peps: healthy on '"$target_host"'"
-    '
+    repo_remote="https://github.com/cdenneen/peps.git"
+    sync_unit="peps-sync.service"
+    source_dir="$(find_source_dir "$app" || true)"
+    restart_script=$(cat <<'EOF'
+sudo systemctl start peps-runtime-env.service
+sudo systemctl restart peps-api.service
+systemctl is-active --quiet peps-api.service
+curl -fsS http://127.0.0.1:8787/api/health >/dev/null
+systemctl --no-pager --full status peps-api.service | sed -n "1,20p"
+EOF
+)
     ;;
   wellness)
     target_host="${target_host:-ghost}"
-    remote_script='
-      set -euo pipefail
-      sudo systemctl start wellness-sync.service
-      sudo systemctl restart wellness-api.service
-      systemctl is-active --quiet wellness-api.service
-      curl -fsS http://127.0.0.1:8797/health >/dev/null
-      systemctl --no-pager --full status wellness-api.service | sed -n "1,20p"
-      echo "wellness: healthy on '"$target_host"'"
-    '
+    repo_remote="https://github.com/cdenneen/wellness-tracker.git"
+    sync_unit="wellness-sync.service"
+    source_dir="$(find_source_dir "$app" || true)"
+    restart_script=$(cat <<'EOF'
+sudo systemctl restart wellness-api.service
+systemctl is-active --quiet wellness-api.service
+curl -fsS http://127.0.0.1:8797/health >/dev/null
+systemctl --no-pager --full status wellness-api.service | sed -n "1,20p"
+EOF
+)
     ;;
   *)
     echo "deploy-app: unsupported app '$app'" >&2
@@ -64,7 +111,27 @@ case "$app" in
     ;;
 esac
 
-current_host="$(hostname -s 2>/dev/null || true)"
+if [[ -n "$source_dir" ]]; then
+  deploy_ref="$(git -C "$source_dir" rev-parse HEAD)"
+  remote_head="$(git ls-remote "$repo_remote" "refs/heads/$repo_branch" | awk 'NR==1 { print $1 }')"
+  if [[ -z "$remote_head" ]]; then
+    echo "deploy-app: unable to resolve $repo_remote $repo_branch" >&2
+    exit 1
+  fi
+  if [[ "$deploy_ref" != "$remote_head" ]]; then
+    echo "deploy-app: local $app HEAD $deploy_ref is not the pushed $repo_branch tip $remote_head" >&2
+    echo "deploy-app: push the app repo first, then rerun deploy-app" >&2
+    exit 1
+  fi
+  sync_mode="git-remote-tip"
+  echo "deploy-app: deploying pushed $app ref $deploy_ref from $repo_remote to $target_host"
+else
+  echo "deploy-app: no local source tree found for $app; using remote sync service"
+fi
+
+echo "deploy-app: mode=$sync_mode"
+sync_prelude=$'set -euo pipefail\n'"sudo systemctl start $sync_unit"
+remote_script="$sync_prelude"$'\n'"$restart_script"$'\n'"echo \"$app: healthy on $target_host\""
 
 if [[ "$target_host" == "$current_host" || "$target_host" == "localhost" || "$target_host" == "127.0.0.1" ]]; then
   bash -lc "$remote_script"

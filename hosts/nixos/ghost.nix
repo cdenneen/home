@@ -17,7 +17,7 @@ let
   pepsWebHost = "peps.denneen.net";
   pepsRepoDir = "/var/lib/peps/repo";
   pepsRuntimeDir = "/var/lib/peps";
-  pepsGitRemote = "chris@100.125.246.107:/volume1/Git/peptide_tracker.git";
+  pepsGitRemote = "https://github.com/cdenneen/peps.git";
   pepsGitBranch = "main";
   pepsApiPort = 8787;
   pepsEnvFile = "${pepsRuntimeDir}/backend.env";
@@ -32,7 +32,6 @@ let
   wellnessGitBranch = "main";
   wellnessApiPort = 8797;
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
-  gitSshKeyFile = config.sops.secrets.cdenneen_ed25519_2024.path;
   githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
@@ -207,7 +206,7 @@ in
   };
 
   systemd.services.peps-sync = {
-    description = "Sync peps repo from NAS over Tailscale";
+    description = "Sync peps repo from GitHub";
     after = [
       "network-online.target"
       "tailscaled.service"
@@ -230,21 +229,31 @@ in
     script = ''
       set -euo pipefail
 
-      if [ ! -r "${gitSshKeyFile}" ]; then
-        echo "Missing git SSH key at ${gitSshKeyFile} for NAS clone auth" >&2
+      if [ ! -r "${githubTokenFile}" ]; then
+        echo "Missing GitHub token at ${githubTokenFile} for peps clone auth" >&2
         exit 1
       fi
 
-      export GIT_SSH_COMMAND="ssh -i ${gitSshKeyFile} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+      github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${githubTokenFile}")"
+      if [ -z "$github_token" ]; then
+        echo "GitHub token at ${githubTokenFile} is empty" >&2
+        exit 1
+      fi
+
+      auth_header="$(${pkgs.coreutils}/bin/printf 'x-access-token:%s' "$github_token" | ${pkgs.coreutils}/bin/base64 | ${pkgs.coreutils}/bin/tr -d '\n')"
+      git_auth=(
+        -c
+        "http.extraHeader=Authorization: Basic $auth_header"
+      )
 
       if [ ! -d "${pepsRepoDir}/.git" ]; then
         rm -rf "${pepsRepoDir}"
-        git clone --branch "${pepsGitBranch}" "${pepsGitRemote}" "${pepsRepoDir}"
+        git "''${git_auth[@]}" clone --branch "${pepsGitBranch}" "${pepsGitRemote}" "${pepsRepoDir}"
       fi
 
       cd "${pepsRepoDir}"
       git remote set-url origin "${pepsGitRemote}"
-      git fetch --prune origin "${pepsGitBranch}"
+      git "''${git_auth[@]}" fetch --prune origin "${pepsGitBranch}"
       git checkout -B "${pepsGitBranch}" "origin/${pepsGitBranch}"
       git reset --hard "origin/${pepsGitBranch}"
     '';
