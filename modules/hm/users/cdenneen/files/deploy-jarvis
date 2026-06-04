@@ -27,13 +27,13 @@ find_repo_dir() {
   shift
   local candidate
 
-  if [[ -n "$override" && -d "$override/.git" ]]; then
+  if [[ -n "$override" && -e "$override/.git" ]]; then
     printf '%s\n' "$override"
     return 0
   fi
 
   for candidate in "$@"; do
-    if [[ -n "$candidate" && -d "$candidate/.git" ]]; then
+    if [[ -n "$candidate" && -e "$candidate/.git" ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -47,7 +47,7 @@ assert_repo_pushed() {
   local label="$2"
   local remote="${3:-origin}"
 
-  if [[ ! -d "$repo_dir/.git" ]]; then
+  if [[ ! -e "$repo_dir/.git" ]]; then
     echo "deploy-jarvis: $label repo not found at $repo_dir" >&2
     exit 1
   fi
