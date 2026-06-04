@@ -148,6 +148,11 @@ case "$target" in
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
 
+sudo_cmd=/run/wrappers/bin/sudo
+if [[ ! -x "$sudo_cmd" ]]; then
+  sudo_cmd="$(command -v sudo)"
+fi
+
 jarvis_repo_dir="/opt/jarvis"
 jarvis_repo_slug="cdenneen/my-jarvis"
 
@@ -156,18 +161,18 @@ if [ ! -d "$jarvis_repo_dir/.git" ]; then
     echo "deploy-jarvis: glab is required on ghost to clone $jarvis_repo_slug" >&2
     exit 1
   }
-  sudo install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
-  sudo -u cdenneen glab repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
+  "$sudo_cmd" install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
+  "$sudo_cmd" -u cdenneen glab repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
 fi
 
-sudo -u cdenneen git -C "$jarvis_repo_dir" pull --rebase
+"$sudo_cmd" -u cdenneen git -C "$jarvis_repo_dir" pull --rebase
 
 cd ~/src/workspace/nix/home
 git pull --rebase
-sudo nixos-rebuild switch --flake .#ghost
+"$sudo_cmd" nixos-rebuild switch --flake .#ghost
 
 for unit in jarvis-harness.service jarvis-api.service jarvis-slack-gateway.service jarvis-web.service; do
-  sudo systemctl is-active --quiet "$unit"
+  "$sudo_cmd" systemctl is-active --quiet "$unit"
 done
 
 curl -fsS http://127.0.0.1:8080/healthz >/dev/null
@@ -183,6 +188,11 @@ EOF
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
 
+sudo_cmd=/run/wrappers/bin/sudo
+if [[ ! -x "$sudo_cmd" ]]; then
+  sudo_cmd="$(command -v sudo)"
+fi
+
 jarvis_repo_dir="/opt/jarvis"
 jarvis_repo_slug="cdenneen/my-jarvis"
 
@@ -191,17 +201,17 @@ if [ ! -d "$jarvis_repo_dir/.git" ]; then
     echo "deploy-jarvis: glab is required on nyx to clone $jarvis_repo_slug" >&2
     exit 1
   }
-  sudo install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
-  sudo -u cdenneen glab repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
+  "$sudo_cmd" install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
+  "$sudo_cmd" -u cdenneen glab repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
 fi
 
-sudo -u cdenneen git -C "$jarvis_repo_dir" pull --rebase
+"$sudo_cmd" -u cdenneen git -C "$jarvis_repo_dir" pull --rebase
 
 cd ~/src/workspace/nix/home
 git pull --rebase
-sudo nixos-rebuild switch --flake .#nyx
+"$sudo_cmd" nixos-rebuild switch --flake .#nyx
 
-sudo systemctl is-active --quiet jarvis-work-runner.service
+"$sudo_cmd" systemctl is-active --quiet jarvis-work-runner.service
 curl -fsS http://127.0.0.1:8090/healthz >/dev/null
 EOF
 )
