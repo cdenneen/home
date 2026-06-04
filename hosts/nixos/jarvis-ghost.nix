@@ -371,6 +371,7 @@ in
       pkgs.bash
       pkgs.coreutils
       pkgs.openssh
+      pkgs.tmux
       jarvisPython
     ];
     serviceConfig = {

@@ -148,6 +148,23 @@ case "$target" in
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
 
+wait_for_url() {
+  local url="$1"
+  local attempts="${2:-30}"
+  local sleep_seconds="${3:-2}"
+  local attempt
+
+  for attempt in $(seq 1 "$attempts"); do
+    if curl -fsS -o /dev/null --connect-timeout 2 --max-time 5 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+
+  echo "deploy-jarvis: timed out waiting for $url" >&2
+  return 1
+}
+
 sudo_cmd=/run/wrappers/bin/sudo
 if [[ ! -x "$sudo_cmd" ]]; then
   sudo_cmd="$(command -v sudo)"
@@ -177,9 +194,9 @@ for unit in jarvis-harness.service jarvis-api.service jarvis-slack-gateway.servi
   "$sudo_cmd" "$systemctl_cmd" is-active --quiet "$unit"
 done
 
-curl -fsS http://127.0.0.1:8080/healthz >/dev/null
-curl -fsS http://127.0.0.1:8081/healthz >/dev/null
-curl -fsS http://127.0.0.1:3000 >/dev/null
+wait_for_url http://127.0.0.1:8080/healthz 30 2
+wait_for_url http://127.0.0.1:8081/healthz 30 2
+wait_for_url http://127.0.0.1:3000 30 2
 GHOST_REMOTE_EOF
 )
     ssh -o ClearAllForwardings=yes ghost "bash -lc $(printf '%q' "$remote_script")"
@@ -189,6 +206,23 @@ GHOST_REMOTE_EOF
     remote_script=$(cat <<'NYX_REMOTE_EOF'
 set -euo pipefail
 export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
+
+wait_for_url() {
+  local url="$1"
+  local attempts="${2:-30}"
+  local sleep_seconds="${3:-2}"
+  local attempt
+
+  for attempt in $(seq 1 "$attempts"); do
+    if curl -fsS -o /dev/null --connect-timeout 2 --max-time 5 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+
+  echo "deploy-jarvis: timed out waiting for $url" >&2
+  return 1
+}
 
 sudo_cmd=/run/wrappers/bin/sudo
 if [[ ! -x "$sudo_cmd" ]]; then
@@ -216,7 +250,7 @@ git pull --rebase
 "$sudo_cmd" "$systemctl_cmd" restart jarvis-work-runner.service
 
 "$sudo_cmd" "$systemctl_cmd" is-active --quiet jarvis-work-runner.service
-curl -fsS http://127.0.0.1:8090/healthz >/dev/null
+wait_for_url http://127.0.0.1:8090/healthz 30 2
 NYX_REMOTE_EOF
 )
     ssh -o ClearAllForwardings=yes nyx "bash -lc $(printf '%q' "$remote_script")"
@@ -230,8 +264,8 @@ NYX_REMOTE_EOF
     cd ~/code/workspace/nix/home
     git pull --rebase
     home-manager switch --flake .#cdenneen@VNJTECMBCD
-    launchctl list | grep -q "jarvis-voice-edge"
-    launchctl list | grep -q "jarvis-mac-runner"
+    launchctl print "gui/$(id -u)/org.nix-community.home.jarvis-voice-edge" >/dev/null
+    launchctl print "gui/$(id -u)/org.nix-community.home.jarvis-mac-runner" >/dev/null
     mac_tailscale_ip="$("$tailscale_cmd" ip -4 | head -n 1)"
     if [[ -z "$mac_tailscale_ip" ]]; then
       echo "deploy-jarvis: unable to determine Mac tailscale IP" >&2
