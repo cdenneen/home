@@ -49,6 +49,12 @@ let
       tags = [ "qemu-guest" ];
     }
     {
+      name = "ghost-bootstrap";
+      system = "aarch64-linux";
+      modules = [ ./nixos/ghost-bootstrap.nix ];
+      tags = [ "qemu-guest" ];
+    }
+    {
       name = "utm";
       system = "aarch64-linux";
       modules = [ ./nixos/utm.nix ];

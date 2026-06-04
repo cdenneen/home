@@ -16,52 +16,25 @@ let
 in
 {
   imports = [
+    ./ghost-base.nix
     happier.nixosModules.happier-server
   ];
 
-  boot = {
-    loader.systemd-boot.enable = true;
-    loader.efi.canTouchEfiVariables = true;
-    initrd.availableKernelModules = [
-      "xhci_pci"
-      "virtio_scsi"
-    ];
-    binfmt.emulatedSystems = [ "x86_64-linux" ];
-  };
   containerPresets = {
     podman.enable = true;
   };
   networking = {
-    hostName = "ghost";
     firewall.trustedInterfaces = lib.mkAfter [ "tailscale0" ];
-    firewall = {
-      allowedTCPPorts = [ 22 ];
-      allowedUDPPorts = [ ];
-    };
   };
 
-  users.users.cdenneen.openssh.authorizedKeys.keyFiles = [
-    ../../pub/ssh/cdenneen_ed25519_2024.pub
-  ];
+  users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
 
-  profiles.defaults.enable = false;
-  profiles.hmIntegrated.enable = false;
-  environment.systemPackages = lib.mkForce [
-    pkgs.bashInteractive
+  environment.systemPackages = lib.mkAfter [
     pkgs.cloudflared
-    pkgs.curl
-    pkgs.git
     pkgs.nodejs_24
-    pkgs.openssh
-    pkgs.util-linux
   ];
 
   services = {
-    openssh = {
-      enable = true;
-      settings.PasswordAuthentication = false;
-    };
-
     tailscale = {
       enable = true;
       openFirewall = true;
@@ -261,56 +234,5 @@ in
 
       exec cloudflared tunnel --no-autoupdate run --token "$token"
     '';
-  };
-
-  disko.devices.disk.sda = {
-    type = "disk";
-    device = "/dev/sda";
-    content = {
-      type = "gpt";
-      partitions = {
-        ESP = {
-          name = "ESP";
-          size = "500M";
-          type = "EF00";
-          content = {
-            type = "filesystem";
-            format = "vfat";
-            mountpoint = "/boot";
-            extraArgs = [
-              "-n"
-              "BOOT"
-            ];
-          };
-        };
-        root = {
-          size = "100%";
-          content = {
-            type = "btrfs";
-            extraArgs = [
-              "-f"
-              "-L"
-              "NIXOS"
-            ];
-            subvolumes = {
-              "@" = {
-                mountpoint = "/";
-              };
-              "@home" = {
-                mountOptions = [ "compress=zstd" ];
-                mountpoint = "/home";
-              };
-              "@nix" = {
-                mountOptions = [
-                  "compress=zstd"
-                  "noatime"
-                ];
-                mountpoint = "/nix";
-              };
-            };
-          };
-        };
-      };
-    };
   };
 }

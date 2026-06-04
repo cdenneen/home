@@ -319,7 +319,7 @@ in
 
       ghost = identityConfig // {
         user = "cdenneen";
-        hostname = "158.101.105.21";
+        hostname = "150.136.97.147";
       };
 
       "nyx-ssm" = identityConfig // {
