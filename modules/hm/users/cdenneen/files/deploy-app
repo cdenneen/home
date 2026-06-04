@@ -86,6 +86,12 @@ case "$app" in
     restart_script=$(cat <<'EOF'
 sudo systemctl start peps-runtime-env.service
 sudo systemctl restart peps-api.service
+for _ in $(seq 1 30); do
+  if systemctl is-active --quiet peps-api.service && curl -fsS http://127.0.0.1:8787/api/health >/dev/null; then
+    break
+  fi
+  sleep 2
+done
 systemctl is-active --quiet peps-api.service
 curl -fsS http://127.0.0.1:8787/api/health >/dev/null
 systemctl --no-pager --full status peps-api.service | sed -n "1,20p"
@@ -99,6 +105,12 @@ EOF
     source_dir="$(find_source_dir "$app" || true)"
     restart_script=$(cat <<'EOF'
 sudo systemctl restart wellness-api.service
+for _ in $(seq 1 30); do
+  if systemctl is-active --quiet wellness-api.service && curl -fsS http://127.0.0.1:8797/health >/dev/null; then
+    break
+  fi
+  sleep 2
+done
 systemctl is-active --quiet wellness-api.service
 curl -fsS http://127.0.0.1:8797/health >/dev/null
 systemctl --no-pager --full status wellness-api.service | sed -n "1,20p"
