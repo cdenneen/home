@@ -7,3 +7,5 @@ result
 result-*
 requests.http
 .tmp*
+__pycache__/
+*.pyc

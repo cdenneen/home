@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: deploy-jarvis <ghost|nyx|mac>
+
+Deploys the Jarvis flake wiring for the selected target and verifies the
+expected local health endpoints after the switch.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
+  usage
+  exit "${1:+0}"
+fi
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "deploy-jarvis: missing required command: $1" >&2
+    exit 1
+  }
+}
+
+wait_for_url() {
+  local url="$1"
+  local attempts="${2:-30}"
+  local sleep_seconds="${3:-2}"
+  local attempt
+
+  for attempt in $(seq 1 "$attempts"); do
+    if curl -fsS -o /dev/null --connect-timeout 2 --max-time 5 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+
+  echo "deploy-jarvis: timed out waiting for $url" >&2
+  return 1
+}
+
+require_cmd curl
+require_cmd git
+
+target="$1"
+
+case "$target" in
+  ghost)
+    require_cmd ssh
+    remote_script=$(cat <<'EOF'
+set -euo pipefail
+export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
+
+jarvis_repo_dir="/opt/jarvis"
+jarvis_repo_slug="cdenneen/my-jarvis"
+
+if [ ! -d "$jarvis_repo_dir/.git" ]; then
+  command -v glab >/dev/null 2>&1 || {
+    echo "deploy-jarvis: glab is required on ghost to clone $jarvis_repo_slug" >&2
+    exit 1
+  }
+  sudo install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
+  sudo -u cdenneen glab repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
+fi
+
+sudo -u cdenneen git -C "$jarvis_repo_dir" pull --rebase
+
+cd ~/src/workspace/nix/home
+git pull --rebase
+sudo nixos-rebuild switch --flake .#ghost
+
+for unit in jarvis-harness.service jarvis-api.service jarvis-slack-gateway.service jarvis-web.service; do
+  sudo systemctl is-active --quiet "$unit"
+done
+
+curl -fsS http://127.0.0.1:8080/healthz >/dev/null
+curl -fsS http://127.0.0.1:8081/healthz >/dev/null
+curl -fsS http://127.0.0.1:3000 >/dev/null
+EOF
+)
+    ssh -o ClearAllForwardings=yes ghost "bash -lc $(printf '%q' "$remote_script")"
+    ;;
+  nyx)
+    require_cmd ssh
+    remote_script=$(cat <<'EOF'
+set -euo pipefail
+export PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
+
+jarvis_repo_dir="/opt/jarvis"
+jarvis_repo_slug="cdenneen/my-jarvis"
+
+if [ ! -d "$jarvis_repo_dir/.git" ]; then
+  command -v glab >/dev/null 2>&1 || {
+    echo "deploy-jarvis: glab is required on nyx to clone $jarvis_repo_slug" >&2
+    exit 1
+  }
+  sudo install -d -m 0755 -o cdenneen -g users "$jarvis_repo_dir"
+  sudo -u cdenneen glab repo clone "$jarvis_repo_slug" "$jarvis_repo_dir"
+fi
+
+sudo -u cdenneen git -C "$jarvis_repo_dir" pull --rebase
+
+cd ~/src/workspace/nix/home
+git pull --rebase
+sudo nixos-rebuild switch --flake .#nyx
+
+sudo systemctl is-active --quiet jarvis-work-runner.service
+curl -fsS http://127.0.0.1:8090/healthz >/dev/null
+EOF
+)
+    ssh -o ClearAllForwardings=yes nyx "bash -lc $(printf '%q' "$remote_script")"
+    ;;
+  mac)
+    require_cmd home-manager
+    cd ~/code/workspace/nix/home
+    git pull --rebase
+    home-manager switch --flake .#cdenneen@VNJTECMBCD
+    launchctl list | grep -q "jarvis-voice-edge"
+    "${HOME}/.local/bin/jarvis-voice-edge-status" || true
+    ;;
+  *)
+    echo "deploy-jarvis: unsupported target '$target'" >&2
+    exit 1
+    ;;
+esac

@@ -9,6 +9,10 @@
 
 let
   tomlFormat = pkgs.formats.toml { };
+  cloudflareRouteInventory = import ../../../../modules/shared/cloudflare-route-inventory.nix;
+  cloudflareRouteInventoryJson = pkgs.writeText "cloudflare-route-inventory.json" (
+    builtins.toJSON cloudflareRouteInventory
+  );
   homeDir = config.home.homeDirectory;
   hostName =
     if osConfig != null then
@@ -351,6 +355,10 @@ in
     source = ./files/deploy-app;
     executable = true;
   };
+  home.file.".local/bin/deploy-jarvis" = {
+    source = ./files/deploy-jarvis;
+    executable = true;
+  };
   home.file.".local/bin/cf-move-routes" = {
     source = ./files/cf-move-routes;
     executable = true;
@@ -359,6 +367,7 @@ in
     source = ./files/cf-move-published-routes;
     executable = true;
   };
+  home.file.".config/cloudflare/route-inventory.json".source = cloudflareRouteInventoryJson;
   home.file.".local/bin/nyx-mcp-preflight" = {
     source = ./files/nyx-mcp-preflight;
     executable = true;

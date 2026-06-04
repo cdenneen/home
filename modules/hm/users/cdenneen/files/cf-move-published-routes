@@ -5,17 +5,19 @@ usage() {
   cat <<'EOF'
 Usage: cf-move-published-routes [--also-dns] <ghost|nyx|mac> [hostname...]
 
-Moves published Cloudflare tunnel ingress for the default app hostnames:
-  peps.denneen.net
-  peps-api.denneen.net
-  wellness-api.denneen.net
+Moves published Cloudflare tunnel ingress for hostnames defined in the
+flake-generated route inventory at:
+  ~/.config/cloudflare/route-inventory.json
+
+If a hostname has multiple published path routes, like `ai.denneen.net`,
+all of that hostname's inventory entries move together.
 
 By default this updates the tunnel ingress only.
 Pass --also-dns to move the matching CNAME records too.
 
 Requires:
   CLOUDFLARE_API_TOKEN / CF_API_TOKEN
-  CLOUDFLARE_ACCOUNT_ID / CF_ACCOUNT_ID
+  CLOUDFLARE_ACCOUNT_ID / CF_ACCOUNT_ID (falls back to inventory accountId)
 EOF
 }
 
@@ -61,9 +63,30 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
+inventory_path="${CLOUDFLARE_ROUTE_INVENTORY_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/cloudflare/route-inventory.json}"
 token="${CLOUDFLARE_API_TOKEN:-${CF_API_TOKEN:-}}"
-account_id="${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:-}}"
-zone_name="${CLOUDFLARE_ZONE_NAME:-denneen.net}"
+
+if [[ ! -r "$inventory_path" ]]; then
+  echo "cf-move-published-routes: route inventory is not readable at $inventory_path" >&2
+  exit 1
+fi
+
+account_id="$(
+  CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+  CF_ACCOUNT_ID="${CF_ACCOUNT_ID:-}"
+  jq -r --arg envAccountId "${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:-}}" '
+    if $envAccountId != "" then $envAccountId else (.accountId // "") end
+  ' "$inventory_path"
+)"
+zone_name="$(
+  CLOUDFLARE_ZONE_NAME="${CLOUDFLARE_ZONE_NAME:-}"
+  jq -r --arg envZoneName "${CLOUDFLARE_ZONE_NAME:-}" '
+    if $envZoneName != "" then $envZoneName else (.zoneName // "") end
+  ' "$inventory_path"
+)"
+dns_type="$(jq -r '.dnsDefaults.type // "CNAME"' "$inventory_path")"
+dns_ttl="$(jq -r '.dnsDefaults.ttl // 1' "$inventory_path")"
+dns_proxied="$(jq -r '.dnsDefaults.proxied // true' "$inventory_path")"
 
 if [[ -z "$token" ]]; then
   echo "cf-move-published-routes: CLOUDFLARE_API_TOKEN is not set" >&2
@@ -78,18 +101,29 @@ fi
 target="$1"
 shift || true
 
-case "$target" in
-  ghost) target_tunnel_id="1481e71c-a53f-4fe0-8983-468a3e0fffdf" ;;
-  nyx) target_tunnel_id="d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" ;;
-  mac) target_tunnel_id="53b1d5f2-afa2-4269-81d4-b01c1037298b" ;;
-  *)
-    echo "cf-move-published-routes: unsupported target tunnel '$target'" >&2
-    exit 1
-    ;;
-esac
+target_tunnel_id="$(jq -r --arg target "$target" '.tunnels[$target].id // empty' "$inventory_path")"
+if [[ -z "$target_tunnel_id" ]]; then
+  echo "cf-move-published-routes: unsupported target tunnel '$target'" >&2
+  jq -r '.tunnels | keys[]' "$inventory_path" | sed 's/^/  - /' >&2
+  exit 1
+fi
 
 if [[ $# -eq 0 ]]; then
-  set -- peps.denneen.net peps-api.denneen.net wellness-api.denneen.net
+  mapfile -t default_hostnames < <(
+    jq -r --arg target "$target" '
+      [
+        .publishedRoutes[]
+        | select(.serviceByTunnel[$target]? != null)
+        | .hostname
+      ]
+      | unique[]
+    ' "$inventory_path"
+  )
+  if [[ "${#default_hostnames[@]}" -eq 0 ]]; then
+    echo "cf-move-published-routes: inventory has no published routes for target '$target'" >&2
+    exit 1
+  fi
+  set -- "${default_hostnames[@]}"
 fi
 
 api() {
@@ -111,25 +145,48 @@ api() {
   fi
 }
 
-service_for_hostname() {
-  case "$1" in
-    peps.denneen.net|peps-api.denneen.net)
-      printf '%s\n' "http://localhost:8787"
-      ;;
-    wellness-api.denneen.net)
-      printf '%s\n' "http://localhost:8797"
-      ;;
-    *)
-      echo "cf-move-published-routes: unsupported hostname '$1'" >&2
-      exit 1
-      ;;
-  esac
+route_count_for_hostname() {
+  local hostname="$1"
+
+  jq -r --arg hostname "$hostname" --arg target "$target" '
+    [
+      .publishedRoutes[]
+      | select(.hostname == $hostname)
+    ]
+    | length
+  ' "$inventory_path"
 }
 
-known_tunnels=(
-  "ghost:1481e71c-a53f-4fe0-8983-468a3e0fffdf"
-  "nyx:d1d49353-ddca-4c9c-bc8a-3bbb1885aa98"
-  "mac:53b1d5f2-afa2-4269-81d4-b01c1037298b"
+owners_for_hostname() {
+  local hostname="$1"
+
+  jq -r --arg hostname "$hostname" '
+    [
+      .publishedRoutes[]
+      | select(.hostname == $hostname)
+      | .owner
+    ]
+    | unique
+    | join(",")
+  ' "$inventory_path"
+}
+
+routes_for_hostname() {
+  local hostname="$1"
+
+  jq -c --arg hostname "$hostname" --arg target "$target" '
+    .publishedRoutes[]
+    | select(.hostname == $hostname and (.serviceByTunnel[$target]? != null))
+    | (
+        { hostname: .hostname }
+        + (if has("path") then { path: .path } else { } end)
+        + { service: .serviceByTunnel[$target], originRequest: { } }
+      )
+  ' "$inventory_path"
+}
+
+mapfile -t known_tunnels < <(
+  jq -r '.tunnels | to_entries[] | "\(.key):\(.value.id)"' "$inventory_path"
 )
 
 target_url="https://api.cloudflare.com/client/v4/accounts/${account_id}/cfd_tunnel/${target_tunnel_id}/configurations"
@@ -142,23 +199,42 @@ fi
 
 hostnames_file="$(mktemp)"
 routes_file="$(mktemp)"
+routes_lines_file="$(mktemp)"
 empty_routes_file="$(mktemp)"
 cleanup() {
-  rm -f "$hostnames_file" "$routes_file" "$empty_routes_file"
+  rm -f "$hostnames_file" "$routes_file" "$routes_lines_file" "$empty_routes_file"
 }
 trap cleanup EXIT
 
-printf '%s\n' "$@" | jq -R . | jq -s '.' > "$hostnames_file"
+printf '%s\n' "$@" | jq -R . | jq -s 'unique' > "$hostnames_file"
 
-{
-  for hostname in "$@"; do
-    service="$(service_for_hostname "$hostname")"
-    jq -cn \
-      --arg hostname "$hostname" \
-      --arg service "$service" \
-      '{hostname:$hostname, service:$service, originRequest:{}}'
-  done
-} | jq -s '.' > "$routes_file"
+: > "$routes_lines_file"
+for hostname in "$@"; do
+  route_count="$(route_count_for_hostname "$hostname")"
+  if [[ "$route_count" == "0" ]]; then
+    echo "cf-move-published-routes: hostname '$hostname' is not defined in publishedRoutes inventory" >&2
+    exit 1
+  fi
+
+  owners="$(owners_for_hostname "$hostname")"
+  if [[ -n "$owners" && ",$owners," != *",$target,"* ]]; then
+    echo "cf-move-published-routes: warning: inventory owner for $hostname is $owners; moving to $target may drift until modules/shared/cloudflare-route-inventory.nix is updated" >&2
+  fi
+
+  route_lines="$(routes_for_hostname "$hostname")"
+  if [[ -z "$route_lines" ]]; then
+    if [[ -n "$owners" ]]; then
+      echo "cf-move-published-routes: hostname '$hostname' is not configured for target '$target' in inventory (current owner: $owners)" >&2
+    else
+      echo "cf-move-published-routes: hostname '$hostname' is not configured for target '$target' in inventory" >&2
+    fi
+    exit 1
+  fi
+
+  printf '%s\n' "$route_lines" >> "$routes_lines_file"
+done
+
+jq -s '.' "$routes_lines_file" > "$routes_file"
 
 printf '[]\n' > "$empty_routes_file"
 
@@ -251,17 +327,19 @@ if [[ "$move_dns" == "true" ]]; then
       exit 1
     fi
 
-    if [[ "$current_type" != "CNAME" ]]; then
-      echo "cf-move-published-routes: ${hostname} is ${current_type}, expected CNAME" >&2
+    if [[ "$current_type" != "$dns_type" ]]; then
+      echo "cf-move-published-routes: ${hostname} is ${current_type}, expected ${dns_type}" >&2
       exit 1
     fi
 
     body_file="$(mktemp)"
     jq -cn \
-      --arg type "CNAME" \
+      --arg type "$dns_type" \
       --arg name "$hostname" \
       --arg content "$target_content" \
-      '{type:$type,name:$name,content:$content,ttl:1,proxied:true}' > "$body_file"
+      --argjson ttl "$dns_ttl" \
+      --argjson proxied "$dns_proxied" \
+      '{type:$type,name:$name,content:$content,ttl:$ttl,proxied:$proxied}' > "$body_file"
     api PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" "$body_file" >/dev/null
     rm -f "$body_file"
 

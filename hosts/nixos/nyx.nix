@@ -178,6 +178,7 @@ in
 {
   imports = [
     happier.nixosModules.happier-server
+    ./jarvis-nyx.nix
   ];
 
   networking.hostName = "nyx";

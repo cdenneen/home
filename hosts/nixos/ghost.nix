@@ -8,7 +8,7 @@
 let
   aiHost = "ai.denneen.net";
   aiApiPort = 8080;
-  aiWsPort = 8081;
+  aiSlackPort = 8081;
   aiAppPort = 3000;
   aiProxyPort = 18080;
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
@@ -43,6 +43,7 @@ in
 {
   imports = [
     ./ghost-base.nix
+    ./jarvis-ghost.nix
     happier.nixosModules.happier-server
   ];
 
@@ -87,16 +88,16 @@ in
           reverse_proxy 127.0.0.1:${toString aiApiPort}
         }
         handle /ws {
-          reverse_proxy 127.0.0.1:${toString aiWsPort}
+          reverse_proxy 127.0.0.1:${toString aiApiPort}
         }
         handle /ws/* {
-          reverse_proxy 127.0.0.1:${toString aiWsPort}
+          reverse_proxy 127.0.0.1:${toString aiApiPort}
         }
         handle /slack/events {
-          reverse_proxy 127.0.0.1:${toString aiAppPort}
+          reverse_proxy 127.0.0.1:${toString aiSlackPort}
         }
         handle /slack/events/* {
-          reverse_proxy 127.0.0.1:${toString aiAppPort}
+          reverse_proxy 127.0.0.1:${toString aiSlackPort}
         }
         handle {
           reverse_proxy 127.0.0.1:${toString aiAppPort}
