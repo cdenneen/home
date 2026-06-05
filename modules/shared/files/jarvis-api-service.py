@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import time
 import sqlite3
 import uuid
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 try:
@@ -756,6 +757,26 @@ def remediator_choose_action(policy: dict[str, Any], attempts: int, overdue_seco
     return "escalate", reason
 
 
+def lookup_slack_channel_for_thread(routing_path: Path | None, thread_id: str) -> str:
+    if routing_path is None or not routing_path.exists() or not thread_id:
+        return ""
+    try:
+        lines = routing_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if str(row.get("thread_id", "")) != thread_id:
+            continue
+        return str(row.get("slack_channel", "") or "")
+    return ""
+
+
 def create_app(
     *,
     harness_url: str,
@@ -1161,6 +1182,67 @@ def create_app(
             set_approval_preference_db(usage_db_path, reviewer, approved_agent, "always")
 
         return JSONResponse({"ok": True, "task_id": task_id, "decision": decision})
+
+    @app.post("/api/tasks/worker-update")
+    async def api_tasks_worker_update(
+        payload: dict[str, Any],
+        authorization: str = Header(default=""),
+        x_jarvis_shared_token: str = Header(default=""),
+    ) -> JSONResponse:
+        if usage_db_path is None:
+            raise HTTPException(status_code=400, detail="sqlite telemetry is required")
+
+        expected = work_shared_token
+        if expected:
+            token = x_jarvis_shared_token
+            if not token and authorization.startswith("Bearer "):
+                token = authorization[7:]
+            if token != expected:
+                raise HTTPException(status_code=401, detail="invalid worker update token")
+
+        thread_id = str(payload.get("thread_id", "")).strip()
+        task_id = derive_task_id_from_thread(thread_id, fallback=str(payload.get("task_id", "")))
+        status = str(payload.get("status", "running")).strip().lower() or "running"
+        if status not in {"running", "completed", "failed"}:
+            status = "running"
+
+        row = {
+            "timestamp": now_iso(),
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "channel": "slack",
+            "user_name": str(payload.get("user", "nyx-worker")),
+            "agent": str(payload.get("agent", "research-agent")),
+            "execution_target": str(payload.get("execution_target", "nyx")),
+            "stage": "worker",
+            "status": status,
+            "summary": compact_summary(str(payload.get("summary", "Worker update"))),
+            "reviewer_required": True,
+            "reviewed": status == "completed",
+            "detail": {
+                "worker_id": str(payload.get("worker_id", "")),
+                "source": "nyx-worker-callback",
+            },
+        }
+        insert_task_event_db(usage_db_path, row)
+
+        channel = lookup_slack_channel_for_thread(routing_path, thread_id)
+        token = os.getenv("SLACK_BOT_TOKEN", "")
+        if channel and token and thread_id:
+            update_text = (
+                f"Nyx update ({row['detail']['worker_id'] or 'worker'}): `{status}` - {row['summary']}"
+            )
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    await client.post(
+                        "https://slack.com/api/chat.postMessage",
+                        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
+                        json={"channel": channel, "thread_ts": thread_id, "text": update_text},
+                    )
+            except Exception:
+                pass
+
+        return JSONResponse({"ok": True, "task_id": task_id, "status": status})
 
     @app.post("/api/approvals/preference")
     async def api_approvals_preference(payload: dict[str, Any]) -> JSONResponse:

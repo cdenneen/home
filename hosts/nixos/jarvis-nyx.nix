@@ -67,6 +67,7 @@ in
       write_var JARVIS_WORK_BIND "0.0.0.0:${toString jarvisWorkPort}"
       write_var JARVIS_WORKER_ID "${jarvisWorkerId}"
       write_var JARVIS_WORKER_CAPABILITIES "${jarvisWorkerCapabilities}"
+      write_var JARVIS_WORK_STATUS_CALLBACK_URL "https://ai.denneen.net/api/tasks/worker-update"
 
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
         write_var JARVIS_WORK_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
@@ -113,6 +114,8 @@ in
         --host 0.0.0.0 \
         --port ${toString jarvisWorkPort} \
         --shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
+        --callback-url "''${JARVIS_WORK_STATUS_CALLBACK_URL:-}" \
+        --callback-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
         --worker-id "''${JARVIS_WORKER_ID:-${jarvisWorkerId}}" \
         --capabilities "''${JARVIS_WORKER_CAPABILITIES:-${jarvisWorkerCapabilities}}" \
         --state-file "${jarvisDataDir}/work-runner-state.json" \
