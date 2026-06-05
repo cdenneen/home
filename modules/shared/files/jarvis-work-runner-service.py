@@ -103,6 +103,33 @@ async def _run_ingestion(payload: dict[str, Any]) -> dict[str, Any]:
     dirty_total = sum(max(0, int(row.get("dirty_files", 0))) for row in dirty_rows)
     dirty_repos = len([row for row in dirty_rows if int(row.get("dirty_files", 0)) > 0])
 
+    projects: dict[str, dict[str, Any]] = {}
+    for row in dirty_rows:
+        repo_path = Path(str(row.get("path", "")))
+        parts = repo_path.parts
+        project_key = parts[-2] if len(parts) >= 2 else repo_path.name
+        project = projects.setdefault(project_key, {"repos": 0, "dirty_repos": 0, "dirty_files": 0})
+        project["repos"] += 1
+        dirty_files = int(row.get("dirty_files", 0) or 0)
+        if dirty_files > 0:
+            project["dirty_repos"] += 1
+            project["dirty_files"] += dirty_files
+
+    project_rows = [
+        {"project": name, **stats}
+        for name, stats in sorted(projects.items(), key=lambda kv: (kv[1]["dirty_repos"], kv[1]["dirty_files"], kv[1]["repos"]), reverse=True)
+    ]
+
+    next_steps: list[str] = []
+    if dirty_repos > 0:
+        top = [row["repo"] for row in dirty_rows if int(row.get("dirty_files", 0)) > 0][:5]
+        next_steps.append(f"Prioritize dirty repos for triage: {', '.join(top)}")
+    else:
+        next_steps.append("No dirty repos detected in scanned scope; prioritize backlog grooming and TODO extraction")
+    if len(agent_files) > 0:
+        next_steps.append("Extract workspace/repo AGENTS guidance into a shared coding-pattern playbook")
+    next_steps.append("Convert ingestion findings into project-grouped backlog with criticality scoring")
+
     report = {
         "timestamp": now_iso(),
         "mode": "ingestion",
@@ -114,7 +141,9 @@ async def _run_ingestion(payload: dict[str, Any]) -> dict[str, Any]:
         "dirty_repos": dirty_repos,
         "dirty_total_files": dirty_total,
         "repo_status": dirty_rows,
+        "project_groups": project_rows,
         "session_counts": session_counts,
+        "next_steps": next_steps,
     }
 
     report_path = report_dir / f"ingestion-report-{int(time.time())}.json"
@@ -131,7 +160,9 @@ async def _run_ingestion(payload: dict[str, Any]) -> dict[str, Any]:
         "agents_files_count": len(agent_files),
         "repos_scanned": len(dirty_rows),
         "dirty_repos": dirty_repos,
+        "project_groups_count": len(project_rows),
         "session_counts": session_counts,
+        "next_steps": next_steps,
     }
 
 
