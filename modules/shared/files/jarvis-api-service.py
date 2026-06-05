@@ -606,6 +606,7 @@ def create_app(
     usage_sqlite: str,
     routing_events_file: str,
     project_map_file: str,
+    remediator_state_file: str,
     slack_endpoint: str,
     supabase_url: str,
     supabase_key: str,
@@ -615,6 +616,7 @@ def create_app(
     usage_db_path = Path(usage_sqlite) if usage_sqlite else None
     routing_path = Path(routing_events_file) if routing_events_file else None
     project_map_path = Path(project_map_file) if project_map_file else None
+    remediator_state_path = Path(remediator_state_file) if remediator_state_file else None
     write_metrics_ms: list[float] = []
     max_metrics_samples = 200
     if usage_db_path is not None:
@@ -862,6 +864,7 @@ def create_app(
                 "usage_storage": "sqlite" if usage_db_path is not None else "jsonl",
                 "routing_events_file": str(routing_path) if routing_path is not None else "",
                 "project_map_file": str(project_map_path) if project_map_path is not None else "",
+                "remediator_state_file": str(remediator_state_path) if remediator_state_path is not None else "",
                 "slack_endpoint": slack_endpoint,
                 "supabase_adapter": {
                     "mode": "dormant",
@@ -1096,6 +1099,18 @@ def create_app(
             }
         )
 
+    @app.get("/api/system/remediator")
+    async def api_system_remediator() -> JSONResponse:
+        if remediator_state_path is None:
+            return JSONResponse({"ok": True, "enabled": False, "state": {}})
+        if not remediator_state_path.exists():
+            return JSONResponse({"ok": True, "enabled": True, "state": {}, "state_file": str(remediator_state_path)})
+        try:
+            data = json.loads(remediator_state_path.read_text(encoding="utf-8", errors="ignore"))
+        except json.JSONDecodeError:
+            data = {"error": "invalid-state-json"}
+        return JSONResponse({"ok": True, "enabled": True, "state_file": str(remediator_state_path), "state": data})
+
     @app.get("/api/projects/overlap")
     async def api_projects_overlap(limit: int = 20) -> JSONResponse:
         if project_map_path is None:
@@ -1264,6 +1279,7 @@ def main() -> None:
     parser.add_argument("--usage-sqlite", default="/var/lib/jarvis/data/usage.db")
     parser.add_argument("--routing-events-file", default="/var/lib/jarvis/data/routing_events.jsonl")
     parser.add_argument("--project-map-file", default="/opt/jarvis/data/project_overlap_map.neuronet.json")
+    parser.add_argument("--remediator-state-file", default="/var/lib/jarvis/data/autopilot_remediator_state.json")
     parser.add_argument("--slack-endpoint", default="http://127.0.0.1:8081")
     parser.add_argument("--supabase-url", default="")
     parser.add_argument("--supabase-key", default="")
@@ -1282,6 +1298,7 @@ def main() -> None:
             usage_sqlite=args.usage_sqlite,
             routing_events_file=args.routing_events_file,
             project_map_file=args.project_map_file,
+            remediator_state_file=args.remediator_state_file,
             slack_endpoint=args.slack_endpoint,
             supabase_url=args.supabase_url,
             supabase_key=args.supabase_key,

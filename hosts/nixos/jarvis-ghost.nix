@@ -136,8 +136,10 @@ in
       write_var JARVIS_BRAIN_IMPORT_READY "${jarvisDataDir}/recallium_import_ready.neuronet.jsonl"
       write_var JARVIS_BRAIN_IMPORT_STATE "${jarvisDataDir}/context_import_state.neuronet.json"
       write_var JARVIS_BRAIN_STATE_FILE "${jarvisDataDir}/brain_sync_state.json"
+      write_var JARVIS_REMEDIATOR_STATE_FILE "${jarvisDataDir}/autopilot_remediator_state.json"
       write_var JARVIS_BRAIN_REMOTE_HOST "nyx"
       write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
+      write_var JARVIS_API_URL "http://127.0.0.1:${toString jarvisApiPort}"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
       write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
       write_var JARVIS_VOICE_WS_URL "wss://ai.denneen.net/ws/voice"
@@ -264,6 +266,7 @@ in
         --usage-sqlite "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
         --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
         --project-map-file "${jarvisRepoDir}/data/project_overlap_map.neuronet.json" \
+        --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
         --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
         --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
         --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
@@ -399,6 +402,51 @@ in
     '';
   };
 
+  systemd.services.jarvis-autopilot-remediator = {
+    description = "Jarvis autopilot remediator";
+    after = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "jarvis-api.service"
+      "jarvis-slack-gateway.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "jarvis-api.service"
+      "jarvis-slack-gateway.service"
+    ];
+    requires = [
+      "jarvis-ghost-env.service"
+      "jarvis-api.service"
+      "jarvis-slack-gateway.service"
+    ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      jarvisPython
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+      export PYTHONPATH="${jarvisRepoDir}/src"
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/src/jarvis/autopilot_remediator.py \
+        --api-url "''${JARVIS_API_URL}" \
+        --routing-file "''${JARVIS_ROUTING_OUTPUT}" \
+        --state-file "''${JARVIS_REMEDIATOR_STATE_FILE}" \
+        --stale-after-seconds "''${JARVIS_REMEDIATOR_STALE_SECONDS:-900}" \
+        --cooldown-seconds "''${JARVIS_REMEDIATOR_COOLDOWN_SECONDS:-420}" \
+        --max-actions "''${JARVIS_REMEDIATOR_MAX_ACTIONS:-3}"
+    '';
+  };
+
   systemd.timers.jarvis-brain-sync = {
     description = "Run Jarvis neuronet brain sync every 20 minutes";
     wantedBy = [ "timers.target" ];
@@ -408,6 +456,18 @@ in
       RandomizedDelaySec = "90s";
       Persistent = true;
       Unit = "jarvis-brain-sync.service";
+    };
+  };
+
+  systemd.timers.jarvis-autopilot-remediator = {
+    description = "Run Jarvis autopilot remediator every 3 minutes";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "3m";
+      OnUnitActiveSec = "3m";
+      RandomizedDelaySec = "30s";
+      Persistent = true;
+      Unit = "jarvis-autopilot-remediator.service";
     };
   };
 }
