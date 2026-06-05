@@ -743,11 +743,87 @@ def summarize_stuck_tasks(path: Path, stale_after_seconds: int, limit: int) -> d
     return {"stale_after_seconds": stale_after_seconds, "count": len(stuck), "tasks": stuck}
 
 
+def task_scorecard_db(path: Path, hours: int, stale_after_seconds: int) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "hours": hours,
+            "autonomous_completed": 0,
+            "approval_required": 0,
+            "escalations": 0,
+            "stuck_over_sla": 0,
+            "avg_completion_seconds": 0,
+        }
+
+    cutoff = int(datetime.now(UTC).timestamp()) - max(1, hours) * 3600
+    by_task: dict[str, dict[str, Any]] = {}
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            """
+            SELECT task_id, ts_epoch, stage, status
+            FROM task_events
+            WHERE ts_epoch >= ?
+            ORDER BY id ASC
+            """,
+            (cutoff,),
+        ).fetchall()
+        escalate_count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM remediator_actions WHERE ts_epoch >= ? AND action = 'escalate'",
+                (cutoff,),
+            ).fetchone()[0]
+        )
+
+    for task_id, ts_epoch, stage, status in rows:
+        tid = str(task_id)
+        item = by_task.setdefault(
+            tid,
+            {
+                "start": int(ts_epoch),
+                "latest": int(ts_epoch),
+                "stage": str(stage),
+                "status": str(status),
+            },
+        )
+        item["latest"] = int(ts_epoch)
+        item["stage"] = str(stage)
+        item["status"] = str(status)
+
+    completed_durations: list[int] = []
+    autonomous_completed = 0
+    approval_required = 0
+    for item in by_task.values():
+        status = str(item.get("status", "")).lower()
+        stage = str(item.get("stage", "")).lower()
+        if status in {"approval_required", "changes_requested", "rejected"}:
+            approval_required += 1
+        if status == "completed":
+            autonomous_completed += 1
+            if stage in {"worker", "execution", "review"}:
+                duration = max(0, int(item.get("latest", 0)) - int(item.get("start", 0)))
+                completed_durations.append(duration)
+
+    stuck_count = int(summarize_stuck_tasks(path, stale_after_seconds=stale_after_seconds, limit=500).get("count", 0))
+    avg_completion_seconds = int(sum(completed_durations) / len(completed_durations)) if completed_durations else 0
+
+    return {
+        "hours": max(1, hours),
+        "autonomous_completed": autonomous_completed,
+        "approval_required": approval_required,
+        "escalations": escalate_count,
+        "stuck_over_sla": stuck_count,
+        "avg_completion_seconds": avg_completion_seconds,
+    }
+
+
 def default_remediator_policy() -> dict[str, Any]:
     return {
         "stale_after_seconds": 900,
         "cooldown_seconds": 420,
         "max_actions": 3,
+        "completion_sla": {
+            "enabled": True,
+            "escalate_after_attempts": 2,
+        },
         "action_plan": ["kick", "self_repair", "escalate", "nudge"],
         "high_risk": {
             "enabled": True,
@@ -779,7 +855,7 @@ def load_remediator_policy(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if not isinstance(section, dict):
         section = {}
     merged = default.copy()
-    merged.update({k: v for k, v in section.items() if k in {"stale_after_seconds", "cooldown_seconds", "max_actions", "action_plan", "self_repair", "high_risk"}})
+    merged.update({k: v for k, v in section.items() if k in {"stale_after_seconds", "cooldown_seconds", "max_actions", "action_plan", "self_repair", "high_risk", "completion_sla"}})
     if not isinstance(merged.get("action_plan"), list) or not merged.get("action_plan"):
         merged["action_plan"] = default["action_plan"]
     self_repair = default["self_repair"].copy()
@@ -791,6 +867,11 @@ def load_remediator_policy(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if isinstance(merged.get("high_risk"), dict):
         high_risk.update(merged.get("high_risk") or {})
     merged["high_risk"] = high_risk
+
+    completion_sla = default["completion_sla"].copy()
+    if isinstance(merged.get("completion_sla"), dict):
+        completion_sla.update(merged.get("completion_sla") or {})
+    merged["completion_sla"] = completion_sla
 
     return merged, {"source": str(path), "sha256": hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest(), "loaded_at": now_iso()}
 
@@ -814,6 +895,10 @@ def remediator_self_repair_allowed(policy: dict[str, Any], summary: str, executi
 
 
 def remediator_choose_action(policy: dict[str, Any], attempts: int, overdue_seconds: int, summary: str, execution_target: str) -> tuple[str, str]:
+    completion_sla_cfg = policy.get("completion_sla") if isinstance(policy.get("completion_sla"), dict) else {}
+    if bool(completion_sla_cfg.get("enabled", True)) and attempts >= int(completion_sla_cfg.get("escalate_after_attempts", 2) or 2):
+        return "escalate", "completion-sla"
+
     high_risk_cfg = policy.get("high_risk") if isinstance(policy.get("high_risk"), dict) else {}
     if bool(high_risk_cfg.get("enabled", True)):
         keywords = [str(x).lower() for x in (high_risk_cfg.get("keywords") if isinstance(high_risk_cfg.get("keywords"), list) else [])]
@@ -1551,6 +1636,27 @@ def create_app(
         if usage_db_path is None:
             return JSONResponse({"stale_after_seconds": stale_after_seconds, "count": 0, "tasks": []})
         return JSONResponse(summarize_stuck_tasks(usage_db_path, max(60, stale_after_seconds), limit))
+
+    @app.get("/api/tasks/scorecard")
+    async def api_tasks_scorecard(hours: int = 24, stale_after_seconds: int = 900) -> JSONResponse:
+        if usage_db_path is None:
+            return JSONResponse(
+                {
+                    "hours": max(1, hours),
+                    "autonomous_completed": 0,
+                    "approval_required": 0,
+                    "escalations": 0,
+                    "stuck_over_sla": 0,
+                    "avg_completion_seconds": 0,
+                }
+            )
+        return JSONResponse(
+            task_scorecard_db(
+                usage_db_path,
+                hours=max(1, min(hours, 168)),
+                stale_after_seconds=max(60, min(stale_after_seconds, 86400)),
+            )
+        )
 
     @app.get("/api/usage/summary")
     async def api_usage_summary(hours: int = 24) -> JSONResponse:
