@@ -75,6 +75,7 @@ The flake is the operational source of truth for personal infrastructure and dev
   - shell config, SSH config, app helpers, and agent tooling
 - `nyx` shared MCP gateways exposed over localhost/Tailscale via `supergateway`
 - `opencode` local attach/auth helpers that read the live password secret from `/run/secrets/opencode_server_password` on `nyx`
+- `restart-tmux` snapshot/restore logic that detects when an OpenCode session was created with a foreign absolute workspace root and falls back to a host-native restore path
 - Host-specific services such as Jarvis, Cloudflare, Tailscale, happier, and deployment helpers
 
 ## Design Constraints
@@ -84,3 +85,4 @@ The flake is the operational source of truth for personal infrastructure and dev
 - Host deployment workflow is commit/push/pull/switch.
 - Secrets must not be committed in plaintext.
 - Durable project context must live in repo files, not only in chat history.
+- OpenCode session metadata stores absolute working directories, so session IDs are not safely portable across hosts that use different workspace roots (for example `/Users/cdenneen/code/workspace` vs `/home/cdenneen/src/workspace`).

@@ -19,11 +19,14 @@
 - `nyx` `opencode-serve` is active again, the direct API is responding with auth, and the compaction one-shot now exits successfully.
 - `nyx` now isolates Playwright MCP into `nyx-mcp-playwright.service` on `127.0.0.1:18107`, and `opencode-serve` is down to a small process tree again.
 - Fresh `zsh -l` shells on `nyx` export `OPENCODE_SERVER_PASSWORD`, so direct `opencode attach http://127.0.0.1:4097 ...` no longer fails with `401`.
+- `nyx` `restart-tmux` now detects OpenCode sessions whose stored working directory belongs to another host root and skips reattaching those incompatible session IDs.
+- `nyx` `coding:8` was repaired by switching it from Mac-path session `ses_1e88f80d2ffe5gZIW1wrs5QeIJ` to nyx-native session `ses_1af7abd07ffeZXOtNe8WoLiGNB`.
+- `restart-tmux` no longer snapshots the literal OpenCode password into tmux snapshot files.
 
 ## Active Work Stream
 
 - Establish durable repo memory and keep it current.
-- Watch `nyx` `opencode` session count over time now that Playwright is isolated and compaction is bounded.
+- Watch `nyx` `opencode` session count and cross-host attach behavior over time now that Playwright is isolated, stale-session deletion is enabled, and `restart-tmux` guards against foreign session paths.
 
 ## Recent Accomplishments
 
@@ -40,17 +43,23 @@
 - Added `nyx-mcp-playwright.service` and pointed only `nyx` Codex/OpenCode configs at the shared gateway instead of spawning Playwright inside each session.
 - Added `nyx` shell and helper-script auth wiring so direct `opencode attach` and `opencode-attach-latest` both work against the protected local server.
 - Verified post-restart live state on `nyx`: `opencode-serve` at about `7` tasks and about `173M` memory, shared Playwright active separately, direct attach succeeds, and compaction now logs bounded `12`-session runs.
+- Verified stale-session deletion on `nyx`, reducing the historical session count from `91` to `75`.
+- Identified the window-8 permission loop root cause: the live session was created with Mac directory `/Users/cdenneen/code/workspace/k8s`, so local `nyx` reattach tried to request broad `/` access.
+- Patched `restart-tmux` to fall back to a host-native session or `--continue` when the stored OpenCode session directory does not match the local pane path.
+- Removed the OpenCode password from tmux snapshot command lines.
+- Reattached `nyx` `coding:8` to the latest nyx-native `k8s` session and confirmed the permission prompt no longer reappears.
 
 ## Current Blockers
 
 - No critical blocker is open for git signing.
-- No current hard blocker is open for `nyx` `opencode`; the remaining concern is whether long-lived session count keeps growing even with the new bounded compaction.
+- No current hard blocker is open for `nyx` `opencode`; the remaining concerns are whether other helpers besides `restart-tmux` need cross-host session-path guardrails and whether long-lived session count keeps growing.
 
 ## Known Risks
 
 - Future sessions may repeat failed work if `DECISIONS.md` and `HANDOFF.md` are not kept current.
 - Host verification can silently regress if SSH config and materialized key paths drift again.
 - `nyx` may still accumulate a large historical session count; if responsiveness regresses again, the next step is session-prune strategy rather than more Playwright isolation.
+- OpenCode session IDs are not portable across Mac and Linux hosts when the stored session directory uses different absolute workspace roots.
 - The repo spans multiple host types and services; stale summaries become misleading quickly if not refreshed.
 
 ## Important Assumptions
@@ -59,3 +68,4 @@
 - Host changes should be committed and pushed locally before pulling and switching on remote hosts.
 - Secrets remain managed with SOPS/age unless intentionally redesigned.
 - Shared Codex/OpenCode global config continues to source `modules/hm/users/cdenneen/ai/AGENTS.md`.
+- Sessions that should be resumable inside `nyx` tmux should be created or continued from nyx-native workspace paths under `/home/cdenneen/src/workspace`.

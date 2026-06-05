@@ -2,12 +2,12 @@
 
 ## Immediate Next Task
 
-- If `nyx` `opencode` feels stuck again, inspect live session count first and decide whether stale sessions need deletion rather than only compaction.
+- If a resumed `nyx` OpenCode pane loops on permissions again, check whether the session ID was created from a foreign host path before changing the server.
 
 ## Ordered Task List
 
 1. Inspect `nyx` `opencode-serve.service`, `nyx-mcp-playwright.service`, and live session count if responsiveness regresses again.
-2. Decide whether the next change should add true stale-session deletion instead of just bounded compaction.
+2. Decide whether helpers besides `restart-tmux` should explicitly reject or remap foreign-host OpenCode session paths.
 3. Decide whether the remaining old standalone Playwright processes on `nyx` are harmless or need explicit cleanup.
 4. Tackle the next user-requested host or workflow task.
 5. Keep project memory files current as the next substantial task proceeds.
@@ -27,10 +27,12 @@
 - `ssh nyx 'curl -fsS http://127.0.0.1:18107/healthz'`
 - `ssh nyx 'systemctl --user show opencode-serve-compact.service -p ActiveState -p Result -p ExecMainStatus --no-pager'`
 - `ssh nyx 'zsh -lic '\''sid=$(curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4097/session | jq -r ".[0].id"); dir=$(curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4097/session | jq -r ".[0].directory"); timeout 5 opencode attach http://127.0.0.1:4097 --session "$sid" --dir "$dir" >/tmp/opencode-attach.log 2>&1 || true; ! rg -n "401 Unauthorized|401" /tmp/opencode-attach.log'\'''
+- `ssh nyx '~/.local/bin/restart-tmux coding --snapshot >/tmp/coding.snapshot && snapshot=$(cat /tmp/coding.snapshot); awk -F "\t" '\''$1==8 {print $4}'\'' "$snapshot"'`
+- `ssh nyx 'tmux capture-pane -pt coding:8 -S -40 | tail -n 40'`
 - `ssh nyx 'rg -n "Persistent Project Memory Requirements" ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md'`
 - `ssh ghost 'rg -n "Persistent Project Memory Requirements" ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md'`
 
 ## Recommended Next Session Starting Point
 
 - Read `AGENTS.md`, then `HANDOFF.md`, `PROJECT_STATE.md`, `DECISIONS.md`, and this file.
-- Start by checking `nyx` session count and the shared Playwright gateway before changing anything else in the opencode stack.
+- Start by checking `nyx` session count, the shared Playwright gateway, and whether the affected session was created from the same host path before changing anything else in the opencode stack.

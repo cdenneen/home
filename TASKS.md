@@ -19,16 +19,21 @@
 - [x] Export `OPENCODE_SERVER_PASSWORD` in fresh `nyx` login shells so direct local `opencode attach` works again.
 - [x] Patch `opencode-attach-latest` and `restart-tmux` to pass auth to the protected local OpenCode server.
 - [x] Re-verify that direct `opencode attach http://127.0.0.1:4097 ...` on `nyx` no longer returns `401`.
+- [x] Add stale-session deletion to the `nyx` OpenCode compaction flow and verify the historical session count drops.
+- [x] Guard `restart-tmux` against reattaching OpenCode sessions whose stored directory belongs to another host root.
+- [x] Stop persisting the literal OpenCode password in tmux snapshot commands.
+- [x] Repair `nyx` `coding:8` by reattaching it to a nyx-native `k8s` session instead of the incompatible Mac-path session.
 
 ## Active
 
 - [ ] Keep project memory files current as the next substantial work stream proceeds.
-- [ ] Decide whether `nyx` needs true stale-session deletion in addition to bounded compaction.
+- [ ] Decide whether helpers besides `restart-tmux` should explicitly reject or remap foreign-host OpenCode session paths.
 - [ ] Decide whether old standalone Playwright processes still visible on `nyx` should be cleaned up or can be ignored.
 
 ## Deferred
 
 - [ ] Review whether additional repo-specific docs should link to the new project memory files.
+- [ ] Decide whether cross-host OpenCode session portability deserves explicit documentation in user-facing workflow docs.
 - [ ] Clean up deprecation warnings surfaced during `darwin-rebuild` and `nixos-rebuild`.
 
 ## Blocked

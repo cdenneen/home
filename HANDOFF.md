@@ -14,6 +14,8 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - Shared Codex/OpenCode memory guidance is confirmed present on `nyx` and `ghost`.
 - `nyx` opencode is active, the direct API responds with auth via `/run/secrets/opencode_server_password`, the compaction unit now returns successfully, and Playwright is isolated in `nyx-mcp-playwright.service`.
 - Fresh `nyx` login shells can now run direct `opencode attach http://127.0.0.1:4097 ...` without `401`.
+- `nyx` `restart-tmux` now detects foreign-host OpenCode session directories and avoids restoring those incompatible session IDs.
+- `nyx` `coding:8` was repaired by reattaching it to nyx-native session `ses_1af7abd07ffeZXOtNe8WoLiGNB`.
 
 ## What Was Completed
 
@@ -26,6 +28,9 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
   - shared Playwright gateway on `18107`
   - bounded 30-minute compaction runs
   - `nyx` shell/helper auth for direct local attach
+- Added commit `ca182520` to guard `restart-tmux` against foreign OpenCode session directories.
+- Added commit `123d6eff` so tmux snapshots no longer store literal OpenCode passwords.
+- Applied both commits on `nyx` and confirmed `coding:8` no longer loops on the repeated permission prompt.
 - Re-verified on live `nyx` that:
   - `opencode-serve` restarted onto the new config
   - `nyx-mcp-playwright.service` is active
@@ -40,14 +45,15 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## What Remains
 
-- Decide whether `nyx` needs true stale-session deletion in addition to bounded compaction.
+- Decide whether helpers besides `restart-tmux` should explicitly reject or remap foreign-host OpenCode session paths.
 - Decide whether the remaining old standalone Playwright processes on `nyx` are harmless or should be cleaned up.
 - Keep the memory files updated during the next substantial task.
 
 ## Open Issues
 
-- `nyx` opencode is healthy again and much lighter, but the live session count is still high (`91` during the last check).
-- A small number of old standalone Playwright processes are still visible on `nyx`, but they are no longer children of `opencode-serve`.
+- `nyx` opencode is healthy again and much lighter, and stale-session deletion dropped the live session count from `91` to `75`.
+- A small number of old standalone Playwright processes are still visible on `nyx`, but at least one belongs to a still-running user-attached session rather than a dead orphan.
+- OpenCode session IDs created from Mac workspace roots are not safe to reattach inside nyx tmux panes.
 
 ## Important Files
 
@@ -58,6 +64,7 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - `modules/hm/users/cdenneen/git.nix`
 - `modules/hm/users/cdenneen/secrets.nix`
 - `modules/hm/programs/ssh.nix`
+- `modules/hm/users/cdenneen/files/restart-tmux`
 - `PROJECT_STATE.md`
 - `DECISIONS.md`
 - `NEXT_STEPS.md`
@@ -68,4 +75,4 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## Exact Next Action
 
-If `nyx` opencode feels slow again, start by checking live session count, `nyx-mcp-playwright.service`, and whether true stale-session deletion is needed before making more architecture changes.
+If `nyx` OpenCode misbehaves again, first check whether the affected session ID was created from the same host path, then inspect live session count and `nyx-mcp-playwright.service` before changing server architecture.

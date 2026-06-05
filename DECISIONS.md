@@ -55,6 +55,10 @@
   - Rejected because it breaks normal signed commit workflows and hides declarative drift.
 - Accepting broken flake-managed key symlinks that point into deleted temporary secret paths.
   - Rejected because it breaks both SSH access and signed commit workflows at once.
+- Reusing OpenCode session IDs across hosts with different absolute workspace roots.
+  - Rejected because it can degenerate into repeated broad filesystem permission prompts.
+- Persisting the literal OpenCode password inside tmux snapshot files.
+  - Rejected because snapshots are operational state, not secret storage.
 
 ## 2026-06-05 — Git and SSH consumers should use stable `~/.ssh/*` paths
 
@@ -128,3 +132,36 @@
 - Consequences
   - Fresh `nyx` shells and flake-managed helpers can attach directly without 401s.
   - Existing long-lived shells may need `exec zsh -il` or a new pane to pick up the env export.
+
+## 2026-06-05 — `restart-tmux` must not reuse OpenCode session IDs across foreign host paths
+
+- Context
+  - `nyx` `coding:8` was stuck in a permission loop after reattaching session `ses_1e88f80d2ffe5gZIW1wrs5QeIJ`.
+  - That session’s stored OpenCode directory was `/Users/cdenneen/code/workspace/k8s`, but the live nyx pane path was `/home/cdenneen/src/workspace/k8s`.
+  - The mismatched absolute roots caused OpenCode to request broad `/` filesystem access instead of resuming cleanly.
+- Decision
+  - Teach `restart-tmux` to query the stored OpenCode session directory and skip that session ID when it does not match the local pane path.
+- Rationale
+  - Cross-host session IDs are not portable when the server stores absolute working directories from different hosts.
+- Alternatives considered
+  - Keep reusing the captured session ID and accept the permission loop.
+  - Disable permissions or broadly approve `/` access.
+  - Manually repair each stuck pane without fixing the helper.
+- Consequences
+  - `restart-tmux` now falls back to the latest host-native session for the pane path or `--continue`.
+  - Operators should expect Mac-created session IDs and nyx-created session IDs to behave differently when the workspace roots differ.
+
+## 2026-06-05 — tmux snapshots must not store literal OpenCode passwords
+
+- Context
+  - The original `restart-tmux` auth flags embedded the resolved OpenCode password directly into the snapshot command line.
+- Decision
+  - Keep the auth flags dynamic so restored panes read `OPENCODE_SERVER_PASSWORD` or `/run/secrets/opencode_server_password` at runtime instead of persisting the secret value.
+- Rationale
+  - tmux snapshot files should not become plaintext secret material.
+- Alternatives considered
+  - Keep snapshotting the literal password.
+  - Remove auth flags entirely and break protected-local-server restores.
+- Consequences
+  - Restored panes still authenticate cleanly.
+  - Snapshot files no longer expose the actual OpenCode password.
