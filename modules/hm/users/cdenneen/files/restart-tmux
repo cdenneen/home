@@ -66,6 +66,49 @@ opencode_attach_auth_flags() {
   fi
 }
 
+canonical_path() {
+  local path="${1:-}"
+
+  if [[ -z "$path" ]]; then
+    return 0
+  fi
+
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m "$path"
+    return 0
+  fi
+
+  printf '%s\n' "$path"
+}
+
+opencode_session_directory() {
+  local sid="${1:-}"
+  local url pw user session_json
+  local curl_auth_args=()
+
+  if [[ -z "$sid" ]]; then
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+
+  url="$(opencode_attach_url)"
+  pw="$(opencode_attach_password 2>/dev/null || true)"
+  if [[ -n "$pw" ]]; then
+    user="$(opencode_attach_username)"
+    curl_auth_args=(-u "${user}:${pw}")
+  fi
+
+  session_json="$(curl -sf "${curl_auth_args[@]}" "${url}/session/${sid}" 2>/dev/null || true)"
+  if [[ -z "$session_json" ]]; then
+    return 0
+  fi
+
+  jq -r '.directory // empty' <<<"$session_json" 2>/dev/null || true
+}
+
 latest_opencode_session_for_dir() {
   local dir="$1"
   local url sessions sid db pw user
@@ -143,7 +186,8 @@ infer_restore_command() {
   local pane_pid="$2"
   local pane_path="${3:-}"
   local tty_short ps_rows candidate shell_cmd codex_pid session_id candidate_first candidate_base
-  local opencode_session attach_url
+  local opencode_session attach_url attach_auth_flags opencode_session_dir pane_path_real session_dir_real
+  local local_opencode_session opencode_notice opencode_notice_message
 
   tty_short="${pane_tty#/dev/}"
   ps_rows="$(ps -t "$tty_short" -o pid=,ppid=,state=,command= 2>/dev/null || true)"
@@ -266,10 +310,31 @@ infer_restore_command() {
 
     attach_url="$(opencode_attach_url)"
     attach_auth_flags="$(opencode_attach_auth_flags)"
+    opencode_notice=""
+
+    if [[ -n "$opencode_session" && -n "$pane_path" ]]; then
+      opencode_session_dir="$(opencode_session_directory "$opencode_session")"
+      if [[ -n "$opencode_session_dir" ]]; then
+        pane_path_real="$(canonical_path "$pane_path")"
+        session_dir_real="$(canonical_path "$opencode_session_dir")"
+
+        if [[ -n "$pane_path_real" && -n "$session_dir_real" && "$pane_path_real" != "$session_dir_real" ]]; then
+          local_opencode_session="$(latest_opencode_session_for_dir "$pane_path")"
+          if [[ "$local_opencode_session" == "$opencode_session" ]]; then
+            local_opencode_session=""
+          fi
+
+          opencode_notice_message="Skipping incompatible OpenCode session ${opencode_session} (stored dir ${opencode_session_dir}, local dir ${pane_path})."
+          printf -v opencode_notice "printf '%%s\\n' %q; " "$opencode_notice_message"
+          opencode_session="$local_opencode_session"
+        fi
+      fi
+    fi
+
     if [[ -n "$opencode_session" ]]; then
-      candidate="opencode attach $attach_url$attach_auth_flags --session $opencode_session --dir $(printf '%q' "$pane_path")"
+      candidate="${opencode_notice}opencode attach $attach_url$attach_auth_flags --session $opencode_session --dir $(printf '%q' "$pane_path")"
     else
-      candidate="opencode attach $attach_url$attach_auth_flags --continue --dir $(printf '%q' "$pane_path")"
+      candidate="${opencode_notice}opencode attach $attach_url$attach_auth_flags --continue --dir $(printf '%q' "$pane_path")"
     fi
   fi
 
