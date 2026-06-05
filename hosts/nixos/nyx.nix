@@ -1056,7 +1056,7 @@ in
         fi
 
         auth="opencode:$pw"
-        sessions="$(${pkgs.curl}/bin/curl -sS -u "$auth" http://127.0.0.1:4097/session \
+        sessions="$(${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" http://127.0.0.1:4097/session \
           | ${pkgs.jq}/bin/jq -r '.[].id' || true)"
 
         if [ -z "$sessions" ]; then
@@ -1066,7 +1066,7 @@ in
 
         payload='{"command":"compact","arguments":""}'
         for sid in $sessions; do
-          if ! ${pkgs.curl}/bin/curl -sS -u "$auth" \
+          if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
             -H "content-type: application/json" \
             -X POST "http://127.0.0.1:4097/session/$sid/command" \
             -d "$payload" >/dev/null; then
