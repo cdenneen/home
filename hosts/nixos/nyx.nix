@@ -161,6 +161,11 @@ let
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "default.target" ];
+      restartIfChanged = true;
+      restartTriggers = [
+        stdioScript
+        run
+      ];
       serviceConfig = {
         Type = "simple";
         ExecStart = run;
