@@ -22,6 +22,7 @@
 - `nyx` `restart-tmux` now detects OpenCode sessions whose stored working directory belongs to another host root and skips reattaching those incompatible session IDs.
 - `nyx` `coding:8` was repaired by switching it from Mac-path session `ses_1e88f80d2ffe5gZIW1wrs5QeIJ` to nyx-native session `ses_1af7abd07ffeZXOtNe8WoLiGNB`.
 - `restart-tmux` no longer snapshots the literal OpenCode password into tmux snapshot files.
+- The shared DuckDuckGo MCP on `nyx` now runs stateless over Streamable HTTP, so stale client session headers no longer break searches.
 
 ## Active Work Stream
 
@@ -48,11 +49,13 @@
 - Patched `restart-tmux` to fall back to a host-native session or `--continue` when the stored OpenCode session directory does not match the local pane path.
 - Removed the OpenCode password from tmux snapshot command lines.
 - Reattached `nyx` `coding:8` to the latest nyx-native `k8s` session and confirmed the permission prompt no longer reappears.
+- Reproduced the DuckDuckGo MCP failure and confirmed the root cause was stale session IDs against a stateful `supergateway`.
+- Switched only the DuckDuckGo gateway to stateless Streamable HTTP, added restart triggers to the shared MCP units, and verified live searches succeed even when a bogus `mcp-session-id` header is sent from both `nyx` and the Mac.
 
 ## Current Blockers
 
 - No critical blocker is open for git signing.
-- No current hard blocker is open for `nyx` `opencode`; the remaining concerns are whether other helpers besides `restart-tmux` need cross-host session-path guardrails and whether long-lived session count keeps growing.
+- No current hard blocker is open for `nyx` `opencode`; the remaining concerns are whether other helpers besides `restart-tmux` need cross-host session-path guardrails, whether other shared MCP gateways should also become stateless, and whether long-lived session count keeps growing.
 
 ## Known Risks
 
@@ -60,6 +63,7 @@
 - Host verification can silently regress if SSH config and materialized key paths drift again.
 - `nyx` may still accumulate a large historical session count; if responsiveness regresses again, the next step is session-prune strategy rather than more Playwright isolation.
 - OpenCode session IDs are not portable across Mac and Linux hosts when the stored session directory uses different absolute workspace roots.
+- Stateful Streamable HTTP gateways can invalidate long-lived client sessions after a gateway restart unless the client re-initializes cleanly.
 - The repo spans multiple host types and services; stale summaries become misleading quickly if not refreshed.
 
 ## Important Assumptions

@@ -16,6 +16,7 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - Fresh `nyx` login shells can now run direct `opencode attach http://127.0.0.1:4097 ...` without `401`.
 - `nyx` `restart-tmux` now detects foreign-host OpenCode session directories and avoids restoring those incompatible session IDs.
 - `nyx` `coding:8` was repaired by reattaching it to nyx-native session `ses_1af7abd07ffeZXOtNe8WoLiGNB`.
+- The shared DuckDuckGo MCP on `nyx` now runs stateless, so stale client session IDs no longer break searches.
 
 ## What Was Completed
 
@@ -31,6 +32,10 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - Added commit `ca182520` to guard `restart-tmux` against foreign OpenCode session directories.
 - Added commit `123d6eff` so tmux snapshots no longer store literal OpenCode passwords.
 - Applied both commits on `nyx` and confirmed `coding:8` no longer loops on the repeated permission prompt.
+- Added commit `a9b73797` to make DuckDuckGo MCP stateless on `nyx`.
+- Added commit `3d82967b` to add restart triggers for shared `nyx` MCP gateway wrappers.
+- Rebuilt `nyx`, then manually restarted `nyx-mcp-duckduckgo.service` once because the old stateful process was still running from the prior generation.
+- Verified DuckDuckGo searches now succeed with no session ID and with a bogus stale `mcp-session-id` from both `nyx` and the Mac.
 - Re-verified on live `nyx` that:
   - `opencode-serve` restarted onto the new config
   - `nyx-mcp-playwright.service` is active
@@ -45,6 +50,7 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## What Remains
 
+- Decide whether other shared MCP gateways besides DuckDuckGo should become stateless too.
 - Decide whether helpers besides `restart-tmux` should explicitly reject or remap foreign-host OpenCode session paths.
 - Decide whether the remaining old standalone Playwright processes on `nyx` are harmless or should be cleaned up.
 - Keep the memory files updated during the next substantial task.
@@ -54,6 +60,7 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - `nyx` opencode is healthy again and much lighter, and stale-session deletion dropped the live session count from `91` to `75`.
 - A small number of old standalone Playwright processes are still visible on `nyx`, but at least one belongs to a still-running user-attached session rather than a dead orphan.
 - OpenCode session IDs created from Mac workspace roots are not safe to reattach inside nyx tmux panes.
+- `nyx` user MCP services did not automatically replace the already-running DuckDuckGo process during this switch, so one manual restart was needed after the declarative change went live.
 
 ## Important Files
 
@@ -75,4 +82,4 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## Exact Next Action
 
-If `nyx` OpenCode misbehaves again, first check whether the affected session ID was created from the same host path, then inspect live session count and `nyx-mcp-playwright.service` before changing server architecture.
+If shared MCP calls misbehave again, first determine whether the client is reusing a stale session ID after a gateway restart; for DuckDuckGo, the endpoint should now be stateless and recover without client restarts.

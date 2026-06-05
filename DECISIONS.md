@@ -59,6 +59,8 @@
   - Rejected because it can degenerate into repeated broad filesystem permission prompts.
 - Persisting the literal OpenCode password inside tmux snapshot files.
   - Rejected because snapshots are operational state, not secret storage.
+- Keeping the shared DuckDuckGo gateway in stateful Streamable HTTP mode.
+  - Rejected because stale client session IDs produced repeated `No valid session ID provided` failures after gateway restarts.
 
 ## 2026-06-05 — Git and SSH consumers should use stable `~/.ssh/*` paths
 
@@ -165,3 +167,22 @@
 - Consequences
   - Restored panes still authenticate cleanly.
   - Snapshot files no longer expose the actual OpenCode password.
+
+## 2026-06-05 — DuckDuckGo shared MCP should use stateless Streamable HTTP
+
+- Context
+  - DuckDuckGo MCP calls from Codex/OpenCode were failing with `Bad Request: No valid session ID provided`.
+  - A clean direct handshake against the `nyx` DuckDuckGo gateway succeeded, which showed the gateway itself was healthy but stateful and expecting a valid MCP session.
+  - After the gateway had been restarted, long-lived clients could still hold stale session IDs.
+- Decision
+  - Keep the shared DuckDuckGo gateway on `nyx`, but run it in stateless Streamable HTTP mode instead of stateful mode.
+- Rationale
+  - DuckDuckGo search calls are stateless and do not need persistent child-process sessions.
+  - Stateless mode tolerates stale or missing `mcp-session-id` headers and auto-initializes per request.
+- Alternatives considered
+  - Leave DuckDuckGo stateful and require restarting all affected Codex/OpenCode sessions after every gateway restart.
+  - Move DuckDuckGo back to a local per-client stdio command on each host.
+  - Switch all shared MCP gateways to stateless immediately.
+- Consequences
+  - DuckDuckGo searches continue working even for clients that still send an old session header.
+  - Other shared gateways still use their previous stateful behavior and may need similar treatment later if they show the same symptom.

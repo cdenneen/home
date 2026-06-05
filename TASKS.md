@@ -23,10 +23,14 @@
 - [x] Guard `restart-tmux` against reattaching OpenCode sessions whose stored directory belongs to another host root.
 - [x] Stop persisting the literal OpenCode password in tmux snapshot commands.
 - [x] Repair `nyx` `coding:8` by reattaching it to a nyx-native `k8s` session instead of the incompatible Mac-path session.
+- [x] Reproduce the DuckDuckGo MCP `No valid session ID provided` failure against the shared `nyx` gateway.
+- [x] Switch the shared DuckDuckGo gateway on `nyx` to stateless Streamable HTTP.
+- [x] Verify DuckDuckGo MCP calls succeed from both `nyx` and the Mac even with a bogus stale session header.
 
 ## Active
 
 - [ ] Keep project memory files current as the next substantial work stream proceeds.
+- [ ] Decide whether the other shared `nyx` MCP gateways should also move to stateless mode.
 - [ ] Decide whether helpers besides `restart-tmux` should explicitly reject or remap foreign-host OpenCode session paths.
 - [ ] Decide whether old standalone Playwright processes still visible on `nyx` should be cleaned up or can be ignored.
 

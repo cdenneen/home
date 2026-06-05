@@ -76,6 +76,7 @@ The flake is the operational source of truth for personal infrastructure and dev
 - `nyx` shared MCP gateways exposed over localhost/Tailscale via `supergateway`
 - `opencode` local attach/auth helpers that read the live password secret from `/run/secrets/opencode_server_password` on `nyx`
 - `restart-tmux` snapshot/restore logic that detects when an OpenCode session was created with a foreign absolute workspace root and falls back to a host-native restore path
+- shared `nyx` MCP gateways can choose stateful or stateless Streamable HTTP per service; DuckDuckGo now runs stateless on port `18105`
 - Host-specific services such as Jarvis, Cloudflare, Tailscale, happier, and deployment helpers
 
 ## Design Constraints
@@ -86,3 +87,4 @@ The flake is the operational source of truth for personal infrastructure and dev
 - Secrets must not be committed in plaintext.
 - Durable project context must live in repo files, not only in chat history.
 - OpenCode session metadata stores absolute working directories, so session IDs are not safely portable across hosts that use different workspace roots (for example `/Users/cdenneen/code/workspace` vs `/home/cdenneen/src/workspace`).
+- Stateful Streamable HTTP MCP gateways preserve per-client sessions, but stateless mode is a better fit for simple search-style tools that should survive stale or missing session IDs.
