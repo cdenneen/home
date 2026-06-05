@@ -122,7 +122,7 @@ EOF
     cat > "$tmp_runner_env" <<'EOF'
 JARVIS_MAC_RUNNER_PORT=8091
 JARVIS_MAC_RUNNER_SHARED_TOKEN=
-JARVIS_MAC_RUNNER_STATE_FILE=${jarvisMacRunnerStateFile}
+JARVIS_MAC_RUNNER_STATE_FILE="${jarvisMacRunnerStateFile}"
 EOF
     chmod 600 "$tmp_runner_env"
     mv -f "$tmp_runner_env" "$runner_env"
