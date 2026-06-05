@@ -420,6 +420,51 @@ in
     };
   };
 
+  systemd.services.jarvis-objective-cycle = {
+    description = "Jarvis objective planning and execution cycle";
+    after = [
+      "network-online.target"
+      "jarvis-api.service"
+      "jarvis-ghost-env.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-api.service"
+      "jarvis-ghost-env.service"
+    ];
+    requires = [ "jarvis-ghost-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      jarvisPython
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-objective-cycle.py \
+        --api-url "''${JARVIS_API_URL:-http://127.0.0.1:${toString jarvisApiPort}}" \
+        --state-file "${jarvisDataDir}/objective_cycle_state.json"
+    '';
+  };
+
+  systemd.timers.jarvis-objective-cycle = {
+    description = "Periodic Jarvis objective execution cycle";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "3m";
+      OnUnitActiveSec = "30m";
+      Unit = "jarvis-objective-cycle.service";
+      Persistent = true;
+    };
+  };
+
   systemd.services.jarvis-brain-sync = {
     description = "Jarvis neuronet brain sync";
     after = [
