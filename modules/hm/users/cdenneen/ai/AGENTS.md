@@ -2,6 +2,7 @@
 
 - GitLab IaC Pipelines (glab + Terraform/OpenTofu/Terragrunt + AWS OIDC)
 - Workspace Git Workflow (Cache + Worktrees)
+- Persistent Project Memory Requirements
 - Tooling Preferences and Fallbacks
 - MCP and Skills
 - Git Workflow
@@ -319,6 +320,167 @@ git ws-branch feat/my-branch [start-point]
 
 - Always use `setup_repo` or `git clone` (alias) so repos are created as worktrees from the cache.
 - Never run plain `git clone` without the alias; it breaks the cache/worktree workflow.
+
+## Persistent Project Memory Requirements
+
+This repository uses file-based project memory. Conversation history is ephemeral and may be lost due to context limits, compaction, crashes, model changes, or agent restarts.
+
+### Startup Routine
+
+When a new session begins, read in this order:
+
+1. `AGENTS.md`
+2. `HANDOFF.md`
+3. `PROJECT_STATE.md`
+4. `DECISIONS.md`
+5. `NEXT_STEPS.md`
+
+Then summarize understanding before making changes.
+
+### Required Project Memory Files
+
+Maintain these files at all times:
+
+- `PROJECT_STATE.md`
+- `NEXT_STEPS.md`
+- `ARCHITECTURE.md`
+- `TASKS.md`
+- `DECISIONS.md`
+- `HANDOFF.md`
+
+### Update Triggers
+
+The agent MUST update project memory when any of the following occur:
+
+- A feature is completed.
+- A significant implementation decision is made.
+- An architectural change is introduced.
+- A bug is fixed.
+- A new blocker is discovered.
+- A task is abandoned.
+- A task is reprioritized.
+- More than 30 minutes of work has elapsed.
+- More than 10 files have been modified.
+- Before ending a session.
+- Before requesting user review.
+- Before any potentially disruptive refactor.
+- When context usage appears high.
+
+### Context Pressure
+
+- If estimated context usage exceeds 50%, update all memory files before continuing.
+- If estimated context usage exceeds 75%, perform a full handoff refresh before continuing.
+
+### File Responsibilities
+
+#### `PROJECT_STATE.md`
+
+Current project snapshot. Keep it concise and factual. Include:
+
+- Current goals
+- Current status
+- Active work stream
+- Recent accomplishments
+- Current blockers
+- Known risks
+- Important assumptions
+
+#### `NEXT_STEPS.md`
+
+Actionable continuation plan. Include:
+
+- Immediate next task
+- Ordered task list
+- Dependencies
+- Validation steps
+- Recommended next-session starting point
+
+#### `ARCHITECTURE.md`
+
+Long-term technical reference. Include:
+
+- System architecture
+- Key components
+- Data flow
+- Major dependencies
+- Integration points
+- Design constraints
+
+#### `TASKS.md`
+
+Working task tracker. Use checkbox format and keep these sections current:
+
+- Completed tasks
+- Active tasks
+- Deferred tasks
+- Blocked tasks
+
+#### `DECISIONS.md`
+
+Persistent engineering journal. Keep this file forever. Record:
+
+- Date
+- Context
+- Decision
+- Rationale
+- Alternatives considered
+- Consequences
+
+Also record:
+
+- Failed approaches
+- Rejected designs
+- Things that should not be attempted again
+
+#### `HANDOFF.md`
+
+Session recovery document optimized for a fresh agent with no prior context. Keep it small (roughly 1–3 pages) and include:
+
+- Project summary
+- Current status
+- What was completed
+- What remains
+- Open issues
+- Important files
+- Current branch information
+- Exact next action
+
+### Continuation Rule
+
+A new agent should be able to continue the project successfully using only:
+
+- repository contents
+- `AGENTS.md`
+- `HANDOFF.md`
+- `PROJECT_STATE.md`
+- `DECISIONS.md`
+
+without access to prior conversation history.
+
+### Memory Quality Rule
+
+When updating memory files:
+
+- Prefer concise factual summaries.
+- Remove stale information.
+- Avoid duplicate content.
+- Preserve important rationale.
+- Preserve lessons learned.
+- Preserve rejected approaches.
+- Preserve blocker information.
+
+Project memory files are part of the deliverable and must remain current.
+
+### Shutdown Routine
+
+Before ending any substantial work session:
+
+1. Update `TASKS.md`
+2. Update `PROJECT_STATE.md`
+3. Update `DECISIONS.md`
+4. Refresh `NEXT_STEPS.md`
+5. Regenerate `HANDOFF.md`
+6. Verify another agent could continue successfully
 
 ## Tooling Preferences and Fallbacks
 
