@@ -282,6 +282,36 @@ def derive_task_id_from_thread(thread_id: str, fallback: str = "") -> str:
     return fb if fb else f"task-{uuid.uuid4()}"
 
 
+def infer_task_group(summary: str, agent: str, execution_target: str) -> str:
+    hay = f"{summary} {agent} {execution_target}".lower()
+    if any(tok in hay for tok in ("gitlab", "pipeline", "merge request", "ci")):
+        return "GITLAB"
+    if any(tok in hay for tok in ("eks", "k8s", "kubernetes", "helm", "cluster", "terraform", "flux")):
+        return "EKS"
+    if any(tok in hay for tok in ("git", "github", "repo", "code", "pull request", "pr ")):
+        return "GIT"
+    if any(tok in hay for tok in ("aws", "iam", "sts", "oidc", "vpc", "s3")):
+        return "AWS"
+    if any(tok in hay for tok in ("slack", "jarvis", "dashboard", "remediator", "operator")):
+        return "OPS"
+    if str(execution_target).lower() == "personal-local":
+        return "LOCAL"
+    return "TASK"
+
+
+def make_task_ref(task_id: str, summary: str, agent: str, execution_target: str) -> str:
+    prefix = infer_task_group(summary, agent, execution_target)
+    digits = "".join(ch for ch in str(task_id) if ch.isdigit())
+    if digits:
+        number = int(digits[-6:]) % 1000
+    else:
+        digest = hashlib.sha1(str(task_id).encode("utf-8")).hexdigest()
+        number = int(digest[:6], 16) % 1000
+    if number == 0:
+        number = (sum(ord(ch) for ch in str(task_id)) % 999) + 1
+    return f"{prefix}-{number:03d}"
+
+
 def insert_task_event_db(path: Path, row: dict[str, Any]) -> None:
     ts = parse_iso(str(row.get("timestamp", ""))) or datetime.now(UTC)
     with sqlite3.connect(path) as conn:
@@ -370,6 +400,8 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
         {
             "task_id": str(row[0]),
             "thread_id": str(row[1]),
+            "task_ref": make_task_ref(str(row[0]), str(row[6]), str(row[2]), str(row[3])),
+            "task_group": infer_task_group(str(row[6]), str(row[2]), str(row[3])),
             "agent": str(row[2]),
             "execution_target": str(row[3]),
             "stage": str(row[4]),
@@ -385,6 +417,8 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
         {
             "task_id": str(row[0]),
             "thread_id": str(row[1]),
+            "task_ref": make_task_ref(str(row[0]), str(row[8]), str(row[4]), str(row[5])),
+            "task_group": infer_task_group(str(row[8]), str(row[4]), str(row[5])),
             "channel": str(row[2]),
             "user_name": str(row[3]),
             "agent": str(row[4]),
@@ -689,6 +723,12 @@ def summarize_stuck_tasks(path: Path, stale_after_seconds: int, limit: int) -> d
             {
                 "task_id": row.get("task_id"),
                 "thread_id": row.get("thread_id"),
+                "task_ref": row.get("task_ref") or make_task_ref(
+                    str(row.get("task_id", "")),
+                    str(row.get("summary", "")),
+                    str(row.get("agent", "")),
+                    str(row.get("execution_target", "")),
+                ),
                 "agent": row.get("agent"),
                 "execution_target": row.get("execution_target"),
                 "status": row.get("status"),
