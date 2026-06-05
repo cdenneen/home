@@ -263,6 +263,7 @@ in
         --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}" \
         --usage-sqlite "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
         --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
+        --project-map-file "${jarvisRepoDir}/data/project_overlap_map.neuronet.json" \
         --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
         --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
         --supabase-key "''${JARVIS_SUPABASE_KEY:-}"

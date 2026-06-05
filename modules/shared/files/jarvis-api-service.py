@@ -518,6 +518,83 @@ def model_recommendations(summary: dict[str, Any]) -> list[dict[str, str]]:
     return recs
 
 
+def load_project_overlap_map(path: Path, limit: int) -> dict[str, Any]:
+    if not path.exists():
+        return {"projects": [], "overlaps": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+    except json.JSONDecodeError:
+        return {"projects": [], "overlaps": []}
+
+    projects_obj = payload.get("projects") if isinstance(payload, dict) else {}
+    overlaps_obj = payload.get("overlaps") if isinstance(payload, dict) else []
+
+    projects: list[dict[str, Any]] = []
+    if isinstance(projects_obj, dict):
+        for name, data in projects_obj.items():
+            if not isinstance(data, dict):
+                continue
+            projects.append(
+                {
+                    "name": str(name),
+                    "repo_count": int(data.get("repo_count", 0) or 0),
+                    "paths": int(data.get("paths", 0) or 0),
+                    "repos": data.get("repos", []) if isinstance(data.get("repos"), list) else [],
+                }
+            )
+    projects = sorted(projects, key=lambda r: (r.get("repo_count", 0), r.get("paths", 0)), reverse=True)
+
+    overlaps: list[dict[str, Any]] = []
+    if isinstance(overlaps_obj, list):
+        for row in overlaps_obj:
+            if not isinstance(row, dict):
+                continue
+            overlaps.append(
+                {
+                    "left": str(row.get("left", "")),
+                    "right": str(row.get("right", "")),
+                    "count": int(row.get("count", 0) or 0),
+                    "shared_repos": row.get("shared_repos", []) if isinstance(row.get("shared_repos"), list) else [],
+                }
+            )
+    overlaps = sorted(overlaps, key=lambda r: r.get("count", 0), reverse=True)
+
+    max_rows = max(1, min(limit, 200))
+    return {"projects": projects[:max_rows], "overlaps": overlaps[:max_rows]}
+
+
+def summarize_stuck_tasks(path: Path, stale_after_seconds: int, limit: int) -> dict[str, Any]:
+    if not path.exists():
+        return {"stale_after_seconds": stale_after_seconds, "count": 0, "tasks": []}
+
+    active = summarize_tasks_db(path, hours=48, limit=max(1, min(limit, 500))).get("active", [])
+    now = datetime.now(UTC)
+    stuck: list[dict[str, Any]] = []
+    for row in active:
+        timestamp = parse_iso(str(row.get("timestamp", "")))
+        if timestamp is None:
+            continue
+        age_seconds = int((now - timestamp).total_seconds())
+        if age_seconds < stale_after_seconds:
+            continue
+        stuck.append(
+            {
+                "task_id": row.get("task_id"),
+                "thread_id": row.get("thread_id"),
+                "agent": row.get("agent"),
+                "execution_target": row.get("execution_target"),
+                "status": row.get("status"),
+                "summary": row.get("summary"),
+                "age_seconds": age_seconds,
+                "sla_seconds": stale_after_seconds,
+                "overdue_seconds": max(0, age_seconds - stale_after_seconds),
+            }
+        )
+
+    stuck = sorted(stuck, key=lambda r: r.get("overdue_seconds", 0), reverse=True)[: max(1, min(limit, 200))]
+    return {"stale_after_seconds": stale_after_seconds, "count": len(stuck), "tasks": stuck}
+
+
 def create_app(
     *,
     harness_url: str,
@@ -528,6 +605,7 @@ def create_app(
     usage_file: str,
     usage_sqlite: str,
     routing_events_file: str,
+    project_map_file: str,
     slack_endpoint: str,
     supabase_url: str,
     supabase_key: str,
@@ -536,6 +614,7 @@ def create_app(
     usage_path = Path(usage_file)
     usage_db_path = Path(usage_sqlite) if usage_sqlite else None
     routing_path = Path(routing_events_file) if routing_events_file else None
+    project_map_path = Path(project_map_file) if project_map_file else None
     write_metrics_ms: list[float] = []
     max_metrics_samples = 200
     if usage_db_path is not None:
@@ -782,6 +861,7 @@ def create_app(
                 "usage_sqlite": usage_sqlite,
                 "usage_storage": "sqlite" if usage_db_path is not None else "jsonl",
                 "routing_events_file": str(routing_path) if routing_path is not None else "",
+                "project_map_file": str(project_map_path) if project_map_path is not None else "",
                 "slack_endpoint": slack_endpoint,
                 "supabase_adapter": {
                     "mode": "dormant",
@@ -1016,6 +1096,20 @@ def create_app(
             }
         )
 
+    @app.get("/api/projects/overlap")
+    async def api_projects_overlap(limit: int = 20) -> JSONResponse:
+        if project_map_path is None:
+            return JSONResponse({"projects": [], "overlaps": [], "limit": limit})
+        data = load_project_overlap_map(project_map_path, limit)
+        data["limit"] = max(1, min(limit, 200))
+        return JSONResponse(data)
+
+    @app.get("/api/tasks/stuck")
+    async def api_tasks_stuck(stale_after_seconds: int = 900, limit: int = 25) -> JSONResponse:
+        if usage_db_path is None:
+            return JSONResponse({"stale_after_seconds": stale_after_seconds, "count": 0, "tasks": []})
+        return JSONResponse(summarize_stuck_tasks(usage_db_path, max(60, stale_after_seconds), limit))
+
     @app.get("/api/usage/summary")
     async def api_usage_summary(hours: int = 24) -> JSONResponse:
         summary = summarize_usage_db(usage_db_path, hours) if usage_db_path is not None else summarize_usage(usage_path, hours)
@@ -1169,6 +1263,7 @@ def main() -> None:
     parser.add_argument("--usage-file", default="")
     parser.add_argument("--usage-sqlite", default="/var/lib/jarvis/data/usage.db")
     parser.add_argument("--routing-events-file", default="/var/lib/jarvis/data/routing_events.jsonl")
+    parser.add_argument("--project-map-file", default="/opt/jarvis/data/project_overlap_map.neuronet.json")
     parser.add_argument("--slack-endpoint", default="http://127.0.0.1:8081")
     parser.add_argument("--supabase-url", default="")
     parser.add_argument("--supabase-key", default="")
@@ -1186,6 +1281,7 @@ def main() -> None:
             usage_file=args.usage_file,
             usage_sqlite=args.usage_sqlite,
             routing_events_file=args.routing_events_file,
+            project_map_file=args.project_map_file,
             slack_endpoint=args.slack_endpoint,
             supabase_url=args.supabase_url,
             supabase_key=args.supabase_key,
