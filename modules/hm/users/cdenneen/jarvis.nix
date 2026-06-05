@@ -13,6 +13,7 @@ let
   jarvisStateFile = "${jarvisRuntimeDir}/voice-edge-state.json";
   jarvisMacRunnerStateFile = "${jarvisRuntimeDir}/mac-runner-state.json";
   jarvisVoiceUiPath = "${homeDir}/code/workspace/personal/jarvis/jarvis-voice-ui.html";
+  jarvisVoiceUiUrl = "https://ai.denneen.net/api/voice-ui";
   jarvisLogFile = "${homeDir}/Library/Logs/jarvis-voice-edge.log";
   jarvisMacRunnerLogFile = "${homeDir}/Library/Logs/jarvis-mac-runner.log";
   jarvisVoiceUiLogFile = "${homeDir}/Library/Logs/jarvis-voice-ui.log";
@@ -108,21 +109,16 @@ lib.mkIf isDarwin {
       ui_file=${lib.escapeShellArg jarvisVoiceUiPath}
       ui_mode=''${JARVIS_VOICE_UI_MODE:-window}
 
-      if [ ! -f "$ui_file" ]; then
-        echo "jarvis-voice-ui-open: missing ui file at $ui_file" >&2
-        exit 1
-      fi
-
       if [ "$ui_mode" = "menu-bar" ]; then
         # Placeholder mode for future menu-bar app implementation.
-        open "$ui_file"
+        open ${lib.escapeShellArg jarvisVoiceUiUrl}
         exit 0
       fi
 
       if [ -d "/Applications/Google Chrome.app" ]; then
-        open -a "Google Chrome" "$ui_file"
+        open -a "Google Chrome" ${lib.escapeShellArg jarvisVoiceUiUrl}
       else
-        open "$ui_file"
+        open ${lib.escapeShellArg jarvisVoiceUiUrl}
       fi
     '';
   };
