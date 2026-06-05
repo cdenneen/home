@@ -12,8 +12,10 @@ let
   jarvisMacRunnerEnvFile = "${jarvisRuntimeDir}/mac-runner.env";
   jarvisStateFile = "${jarvisRuntimeDir}/voice-edge-state.json";
   jarvisMacRunnerStateFile = "${jarvisRuntimeDir}/mac-runner-state.json";
+  jarvisVoiceUiPath = "${homeDir}/code/workspace/personal/jarvis/jarvis-voice-ui.html";
   jarvisLogFile = "${homeDir}/Library/Logs/jarvis-voice-edge.log";
   jarvisMacRunnerLogFile = "${homeDir}/Library/Logs/jarvis-mac-runner.log";
+  jarvisVoiceUiLogFile = "${homeDir}/Library/Logs/jarvis-voice-ui.log";
   jarvisMacRunnerScript = pkgs.writeShellScript "jarvis-mac-runner" ''
     set -euo pipefail
 
@@ -97,6 +99,34 @@ lib.mkIf isDarwin {
     '';
   };
 
+  home.file.".local/bin/jarvis-voice-ui-open" = {
+    executable = true;
+    text = ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      ui_file=${lib.escapeShellArg jarvisVoiceUiPath}
+      ui_mode=''${JARVIS_VOICE_UI_MODE:-window}
+
+      if [ ! -f "$ui_file" ]; then
+        echo "jarvis-voice-ui-open: missing ui file at $ui_file" >&2
+        exit 1
+      fi
+
+      if [ "$ui_mode" = "menu-bar" ]; then
+        # Placeholder mode for future menu-bar app implementation.
+        open "$ui_file"
+        exit 0
+      fi
+
+      if [ -d "/Applications/Google Chrome.app" ]; then
+        open -a "Google Chrome" "$ui_file"
+      else
+        open "$ui_file"
+      fi
+    '';
+  };
+
   home.activation.jarvisVoiceEdgeEnv = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     set -euo pipefail
 
@@ -164,6 +194,26 @@ EOF
       ProcessType = "Background";
       StandardOutPath = jarvisMacRunnerLogFile;
       StandardErrorPath = jarvisMacRunnerLogFile;
+    };
+  };
+
+  launchd.agents.jarvis-voice-ui-autostart = {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "/bin/bash"
+        "-lc"
+        "sleep 10; ${homeDir}/.local/bin/jarvis-voice-ui-open"
+      ];
+      EnvironmentVariables = {
+        HOME = homeDir;
+        PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+      };
+      KeepAlive = false;
+      RunAtLoad = true;
+      ProcessType = "Interactive";
+      StandardOutPath = jarvisVoiceUiLogFile;
+      StandardErrorPath = jarvisVoiceUiLogFile;
     };
   };
 }
