@@ -148,6 +148,7 @@ in
       write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
       write_var JARVIS_API_URL "http://127.0.0.1:${toString jarvisApiPort}"
       write_var JARVIS_OLLAMA_ENDPOINT "http://127.0.0.1:11434"
+      write_var JARVIS_OLLAMA_SYNC_TIMEOUT "3600"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
       write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
       write_var JARVIS_VOICE_WS_URL "wss://ai.denneen.net/ws/voice"
@@ -403,7 +404,8 @@ in
       exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-ollama-model-sync.py} \
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --models-file "''${JARVIS_OLLAMA_MODELS_FILE:-${jarvisRepoDir}/config/ollama_models.yaml}" \
-        --state-file "${jarvisDataDir}/ollama_model_sync_state.json"
+        --state-file "${jarvisDataDir}/ollama_model_sync_state.json" \
+        --timeout "''${JARVIS_OLLAMA_SYNC_TIMEOUT:-3600}"
     '';
   };
 
