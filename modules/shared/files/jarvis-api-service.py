@@ -1087,7 +1087,7 @@ def create_app(
         if shared_token:
             headers["X-Jarvis-Shared-Token"] = shared_token
 
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{endpoint.rstrip('/')}/run",
                 json={
