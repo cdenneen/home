@@ -38,6 +38,8 @@ The flake is the operational source of truth for personal infrastructure and dev
   - Primary local Mac using nix-darwin plus Home Manager.
 - `nyx`
   - Primary NixOS work/execution host.
+  - Hosts shared MCP gateways for remote tools, including the `recallium` API and the shared Playwright gateway on `127.0.0.1:18107`.
+  - Runs `opencode-serve` on `127.0.0.1:4097` behind the OAuth proxy on `127.0.0.1:4096`.
 - `ghost`
   - Personal NixOS control-plane/deployment host.
 - Additional image/bootstrap/utility hosts exist for EC2, WSL, UTM, and bootstrapping.
@@ -71,6 +73,8 @@ The flake is the operational source of truth for personal infrastructure and dev
   - `~/.codex/AGENTS.md`
   - `~/.config/opencode/AGENTS.md`
   - shell config, SSH config, app helpers, and agent tooling
+- `nyx` shared MCP gateways exposed over localhost/Tailscale via `supergateway`
+- `opencode` local attach/auth helpers that read the live password secret from `/run/secrets/opencode_server_password` on `nyx`
 - Host-specific services such as Jarvis, Cloudflare, Tailscale, happier, and deployment helpers
 
 ## Design Constraints

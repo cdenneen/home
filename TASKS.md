@@ -15,11 +15,16 @@
 - [x] Fix `nyx` opencode password wiring and direct session-compaction API routing.
 - [x] Add bounded timeouts to `nyx` opencode compaction calls so the one-shot unit returns.
 - [x] Re-verify `nyx` opencode auth and direct API health against the live `/run/secrets/opencode_server_password`.
+- [x] Move `nyx` Playwright MCP off the `opencode-serve` process tree into a shared `nyx-mcp-playwright` gateway.
+- [x] Export `OPENCODE_SERVER_PASSWORD` in fresh `nyx` login shells so direct local `opencode attach` works again.
+- [x] Patch `opencode-attach-latest` and `restart-tmux` to pass auth to the protected local OpenCode server.
+- [x] Re-verify that direct `opencode attach http://127.0.0.1:4097 ...` on `nyx` no longer returns `401`.
 
 ## Active
 
 - [ ] Keep project memory files current as the next substantial work stream proceeds.
-- [ ] Revisit whether `nyx` opencode should prune or limit Playwright MCP child processes more aggressively.
+- [ ] Decide whether `nyx` needs true stale-session deletion in addition to bounded compaction.
+- [ ] Decide whether old standalone Playwright processes still visible on `nyx` should be cleaned up or can be ignored.
 
 ## Deferred
 

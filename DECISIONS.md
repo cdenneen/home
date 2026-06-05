@@ -98,3 +98,33 @@
   - Keep probing guessed files under `~/.local/share` or `~/.config`.
 - Consequences
   - Future opencode checks can prove auth and API health directly against the same secret path the unit uses.
+
+## 2026-06-05 — `nyx` should isolate Playwright MCP from `opencode-serve`
+
+- Context
+  - `nyx` `opencode-serve` accumulated many `npm exec @playwright/mcp` child processes and became heavy and sluggish.
+- Decision
+  - Run Playwright as its own shared `nyx-mcp-playwright.service` on `127.0.0.1:18107` via `supergateway`, and point only `nyx` Codex/OpenCode configs at that shared gateway.
+- Rationale
+  - A shared gateway keeps browser automation available on `nyx` without bloating each OpenCode server process.
+- Alternatives considered
+  - Keep Playwright as a per-session local MCP command on `nyx`.
+  - Move Playwright to the shared `nyx` gateway for all hosts, including the Mac.
+- Consequences
+  - `nyx` OpenCode stays smaller and simpler.
+  - The Mac keeps local Playwright, which preserves local-browser behavior there.
+
+## 2026-06-05 — Fresh `nyx` shells should preload OpenCode server auth
+
+- Context
+  - Direct `opencode attach http://127.0.0.1:4097 ...` on `nyx` returned `401 Unauthorized` because the CLI only sends basic auth when `OPENCODE_SERVER_PASSWORD` or `--password` is provided.
+- Decision
+  - Export `OPENCODE_SERVER_PASSWORD` from `/run/secrets/opencode_server_password` in fresh `nyx` login shells and update the local helper scripts to pass auth explicitly.
+- Rationale
+  - The protected local server should remain protected, but normal local attach workflows should still work out of the box.
+- Alternatives considered
+  - Remove password protection from the local server.
+  - Require manual `--password` or manual env export every time.
+- Consequences
+  - Fresh `nyx` shells and flake-managed helpers can attach directly without 401s.
+  - Existing long-lived shells may need `exec zsh -il` or a new pane to pick up the env export.

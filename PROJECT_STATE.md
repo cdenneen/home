@@ -17,11 +17,13 @@
 - Git signing is confirmed working on Mac, `nyx`, and `ghost` with real signed temp commits after the live generations were switched.
 - Shared Codex/OpenCode `AGENTS.md` memory guidance is confirmed present on `nyx` and `ghost`.
 - `nyx` `opencode-serve` is active again, the direct API is responding with auth, and the compaction one-shot now exits successfully.
+- `nyx` now isolates Playwright MCP into `nyx-mcp-playwright.service` on `127.0.0.1:18107`, and `opencode-serve` is down to a small process tree again.
+- Fresh `zsh -l` shells on `nyx` export `OPENCODE_SERVER_PASSWORD`, so direct `opencode attach http://127.0.0.1:4097 ...` no longer fails with `401`.
 
 ## Active Work Stream
 
 - Establish durable repo memory and keep it current.
-- Watch `nyx` `opencode` session and Playwright MCP process growth now that the service is healthy again.
+- Watch `nyx` `opencode` session count over time now that Playwright is isolated and compaction is bounded.
 
 ## Recent Accomplishments
 
@@ -35,17 +37,20 @@
 - Re-verified the shared Codex/OpenCode memory guidance on `nyx` and `ghost`.
 - Fixed `nyx` opencode password wiring and moved session compaction to the direct app API with bounded timeouts.
 - Confirmed `nyx` opencode auth reads from `/run/secrets/opencode_server_password` and the live API responds again.
+- Added `nyx-mcp-playwright.service` and pointed only `nyx` Codex/OpenCode configs at the shared gateway instead of spawning Playwright inside each session.
+- Added `nyx` shell and helper-script auth wiring so direct `opencode attach` and `opencode-attach-latest` both work against the protected local server.
+- Verified post-restart live state on `nyx`: `opencode-serve` at about `7` tasks and about `173M` memory, shared Playwright active separately, direct attach succeeds, and compaction now logs bounded `12`-session runs.
 
 ## Current Blockers
 
 - No critical blocker is open for git signing.
-- No current hard blocker is open for `nyx` `opencode`; the remaining concern is session/process buildup under load.
+- No current hard blocker is open for `nyx` `opencode`; the remaining concern is whether long-lived session count keeps growing even with the new bounded compaction.
 
 ## Known Risks
 
 - Future sessions may repeat failed work if `DECISIONS.md` and `HANDOFF.md` are not kept current.
 - Host verification can silently regress if SSH config and materialized key paths drift again.
-- `nyx` opencode currently spawns many Playwright MCP child processes under load; memory should be watched even though the service is healthy again.
+- `nyx` may still accumulate a large historical session count; if responsiveness regresses again, the next step is session-prune strategy rather than more Playwright isolation.
 - The repo spans multiple host types and services; stale summaries become misleading quickly if not refreshed.
 
 ## Important Assumptions
