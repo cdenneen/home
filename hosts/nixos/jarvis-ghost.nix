@@ -132,6 +132,7 @@ in
       write_var JARVIS_REGISTRY_PATH "${jarvisRepoDir}/config/agent_registry.yaml"
       write_var JARVIS_DELEGATION_PATH "${jarvisRepoDir}/config/delegation_policy.yaml"
       write_var JARVIS_MODEL_PROFILES_PATH "${jarvisRepoDir}/config/model_profiles.yaml"
+      write_var JARVIS_OLLAMA_MODELS_FILE "${jarvisRepoDir}/config/ollama_models.yaml"
       write_var JARVIS_REALMS_PATH "${jarvisRepoDir}/config/realms.yaml"
       write_var JARVIS_LOCKS_PATH "${jarvisDataDir}/realm_locks.json"
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
@@ -369,6 +370,52 @@ in
         --bind 127.0.0.1 \
         --directory ${jarvisWebDir}
     '';
+  };
+
+  systemd.services.jarvis-ollama-model-sync = {
+    description = "Jarvis Ollama tier model sync";
+    after = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "ollama.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "ollama.service"
+    ];
+    requires = [ "jarvis-ghost-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      jarvisPython
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+      exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-ollama-model-sync.py} \
+        --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
+        --models-file "''${JARVIS_OLLAMA_MODELS_FILE:-${jarvisRepoDir}/config/ollama_models.yaml}" \
+        --state-file "${jarvisDataDir}/ollama_model_sync_state.json"
+    '';
+  };
+
+  systemd.timers.jarvis-ollama-model-sync = {
+    description = "Periodic Jarvis Ollama model sync";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "2m";
+      OnUnitActiveSec = "6h";
+      Unit = "jarvis-ollama-model-sync.service";
+      Persistent = true;
+    };
   };
 
   systemd.services.jarvis-brain-sync = {
