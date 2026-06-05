@@ -854,8 +854,9 @@ in
   systemd.user.services.opencode-serve =
     let
       run = pkgs.writeShellScript "opencode-web" ''
-         set -euo pipefail
-         gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
+        set -euo pipefail
+        gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
+        password_file="${config.sops.secrets.opencode_server_password.path}"
         if [ -r "$gitlab_file" ]; then
           gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$gitlab_file")"
           if [ -z "$gitlab_token" ]; then
@@ -866,6 +867,18 @@ in
         else
           echo "opencode-web: gitlab token file not readable" >&2
         fi
+
+        if [ -r "$password_file" ]; then
+          opencode_password="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$password_file")"
+          if [ -z "$opencode_password" ]; then
+            echo "opencode-web: password file empty" >&2
+          else
+            export OPENCODE_SERVER_PASSWORD="$opencode_password"
+          fi
+        else
+          echo "opencode-web: password file not readable" >&2
+        fi
+
         exec /etc/profiles/per-user/cdenneen/bin/opencode serve --hostname 127.0.0.1 --port 4097
       '';
     in
@@ -1043,7 +1056,7 @@ in
         fi
 
         auth="opencode:$pw"
-        sessions="$(${pkgs.curl}/bin/curl -sS -u "$auth" http://127.0.0.1:4096/session \
+        sessions="$(${pkgs.curl}/bin/curl -sS -u "$auth" http://127.0.0.1:4097/session \
           | ${pkgs.jq}/bin/jq -r '.[].id' || true)"
 
         if [ -z "$sessions" ]; then
@@ -1055,7 +1068,7 @@ in
         for sid in $sessions; do
           if ! ${pkgs.curl}/bin/curl -sS -u "$auth" \
             -H "content-type: application/json" \
-            -X POST "http://127.0.0.1:4096/session/$sid/command" \
+            -X POST "http://127.0.0.1:4097/session/$sid/command" \
             -d "$payload" >/dev/null; then
             echo "$timestamp compact failed session=$sid" >> "$log_file"
           fi
