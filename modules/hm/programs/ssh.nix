@@ -28,6 +28,7 @@ in
     '';
     home.file.".ssh/known_hosts.d/internal-hosts".text = ''
       nyx,nyx.tail0e55.ts.net,100.80.58.4 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3PCrjUkoqJkZ1Ibi+s702ub7zrqvh44pxVFii5C/FG
+      ghost,ghost.tail0e55.ts.net,100.114.242.29,150.136.97.147 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIr7jR0S7KbVD7+wYAqgCEiVVyUYhM2K90EiVKz7ofCd
     '';
     programs = {
       # Run late so we can override any earlier SSH_AUTH_SOCK exports.
