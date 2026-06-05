@@ -235,6 +235,14 @@ def derive_task_id(routed: dict[str, Any], payload: dict[str, Any]) -> str:
     return str(routed.get("event_id") or f"task-{uuid.uuid4()}")
 
 
+def derive_task_id_from_thread(thread_id: str, fallback: str = "") -> str:
+    tid = str(thread_id or "").strip()
+    if tid:
+        return f"task-{tid}"
+    fb = str(fallback or "").strip()
+    return fb if fb else f"task-{uuid.uuid4()}"
+
+
 def insert_task_event_db(path: Path, row: dict[str, Any]) -> None:
     ts = parse_iso(str(row.get("timestamp", ""))) or datetime.now(UTC)
     with sqlite3.connect(path) as conn:
@@ -808,6 +816,42 @@ def create_app(
         summary = summarize_tasks_db(usage_db_path, hours=hours, limit=max(1, min(limit, 200)))
         summary["hours"] = hours
         return JSONResponse(summary)
+
+    @app.post("/api/tasks/review-action")
+    async def api_tasks_review_action(payload: dict[str, Any]) -> JSONResponse:
+        if usage_db_path is None:
+            raise HTTPException(status_code=400, detail="task review actions require sqlite telemetry")
+
+        decision = str(payload.get("decision", "")).strip().lower()
+        if decision not in {"approved", "changes_requested", "rejected"}:
+            raise HTTPException(status_code=400, detail="decision must be approved, changes_requested, or rejected")
+
+        thread_id = str(payload.get("thread_id", "")).strip()
+        task_id = derive_task_id_from_thread(thread_id, fallback=str(payload.get("task_id", "")))
+        reviewer = str(payload.get("reviewer", "jarvis-reviewer")).strip() or "jarvis-reviewer"
+        note = compact_summary(str(payload.get("note", "")) or f"Review decision: {decision}")
+
+        row = {
+            "timestamp": now_iso(),
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "channel": str(payload.get("channel", "slack")),
+            "user_name": reviewer,
+            "agent": reviewer,
+            "execution_target": str(payload.get("execution_target", "nyx")),
+            "stage": "review",
+            "status": decision,
+            "summary": note,
+            "reviewer_required": True,
+            "reviewed": decision == "approved",
+            "detail": {
+                "decision": decision,
+                "note": note,
+                "source": "review-action-api",
+            },
+        }
+        insert_task_event_db(usage_db_path, row)
+        return JSONResponse({"ok": True, "task_id": task_id, "decision": decision})
 
     @app.get("/api/system/topology")
     async def api_system_topology() -> JSONResponse:
