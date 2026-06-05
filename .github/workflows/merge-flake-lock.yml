@@ -1,4 +1,4 @@
-name: Merge flake.lock PR
+name: Merge dependency PR
 
 on:
   workflow_run:
@@ -52,8 +52,8 @@ jobs:
           fi
 
           HEAD_BRANCH=$(jq -r '.workflow_run.head_branch // empty' "$GITHUB_EVENT_PATH")
-          if [[ "$HEAD_BRANCH" != update-flake-* ]]; then
-            echo "Run is for branch '$HEAD_BRANCH', not update-flake-*; skipping auto-merge."
+          if [[ "$HEAD_BRANCH" != update-flake-* && "$HEAD_BRANCH" != update-agent-cli-* ]]; then
+            echo "Run is for branch '$HEAD_BRANCH', not an automated dependency branch; skipping auto-merge."
             echo "pr=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
