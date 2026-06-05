@@ -9,15 +9,18 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - Shared global Codex/OpenCode `AGENTS.md` now includes persistent project memory requirements.
 - Repo-root memory files now exist and are initialized.
 - Recent `codex` and `opencode` package updates were merged and applied on Mac, `nyx`, and `ghost`.
-- Local branch is `main` and the worktree was clean when this handoff was written.
-- The Mac-side SSH/git-signing path fix is live locally and verified with a good signed commit.
-- `nyx` and `ghost` both also produce good signed commits.
-- `nyx` opencode has been rebuilt and restarted; the direct app API is healthy and the compaction unit now returns successfully.
+- The stable SSH/git-signing path fix is committed as `a3006aa0`, pushed to `main`, and applied on `nyx` and `ghost`.
+- Mac, `nyx`, and `ghost` all produce good signed commits.
+- Shared Codex/OpenCode memory guidance is confirmed present on `nyx` and `ghost`.
+- `nyx` opencode is active, the direct API responds with auth via `/run/secrets/opencode_server_password`, and the compaction unit now returns successfully.
 
 ## What Was Completed
 
 - Added memory-policy guidance to `modules/hm/users/cdenneen/ai/AGENTS.md`.
 - Applied the updated flake on Mac, `nyx`, and `ghost`.
+- Signed and pushed the stable SSH/git-signing path fix, then switched `nyx` and `ghost` onto it.
+- Re-verified signed temp commits and shared `AGENTS.md` memory guidance on `nyx` and `ghost`.
+- Re-verified `nyx` opencode auth and API health against the live secret path.
 - Added these files:
   - `PROJECT_STATE.md`
   - `NEXT_STEPS.md`
@@ -28,15 +31,12 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## What Remains
 
-- Commit and push the verified signing-path fix.
-- Apply the signing-path fix generation on `nyx` and `ghost`.
-- Re-verify `~/.codex/AGENTS.md` and `~/.config/opencode/AGENTS.md` on `nyx` and `ghost` after that new generation is live.
+- Decide whether `nyx` opencode needs another tuning pass for large session counts and Playwright MCP child buildup.
 - Keep the memory files updated during the next substantial task.
 
 ## Open Issues
 
-- The verified signing-path fix exists locally but is not yet committed and propagated to `nyx` and `ghost`.
-- `nyx` opencode is healthy again, but it still accumulates many Playwright MCP child processes under load and may need future tuning.
+- `nyx` opencode is healthy again, but it currently reports a large session count and many Playwright MCP child processes under load.
 
 ## Important Files
 
@@ -57,4 +57,4 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## Exact Next Action
 
-Create a signed commit for the verified SSH/git-signing path fix, push it to `main`, then apply it on `nyx` and `ghost` and re-verify the shared Codex/OpenCode `AGENTS.md` content there.
+If `nyx` opencode feels stuck again, start by checking its live session count and Playwright MCP child buildup before doing any restart or further flake changes.

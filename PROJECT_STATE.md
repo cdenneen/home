@@ -13,14 +13,15 @@
 - Recent `codex` and `opencode` package bumps were merged and applied on Mac, `nyx`, and `ghost`.
 - `nyx` and `ghost` successfully pulled the latest repo and completed `nixos-rebuild switch`.
 - The local Mac completed `darwin-rebuild switch`.
-- The local git signing and SSH key-path issue is fixed on the Mac and verified with a real signed temp commit.
-- Git signing is confirmed working on `nyx` and `ghost`.
-- `nyx` `opencode-serve` has been rebuilt, restarted, and is responding on the direct API again.
+- The stable SSH/git-signing path fix is committed as `a3006aa0`, pushed to `main`, and applied on `nyx` and `ghost`.
+- Git signing is confirmed working on Mac, `nyx`, and `ghost` with real signed temp commits after the live generations were switched.
+- Shared Codex/OpenCode `AGENTS.md` memory guidance is confirmed present on `nyx` and `ghost`.
+- `nyx` `opencode-serve` is active again, the direct API is responding with auth, and the compaction one-shot now exits successfully.
 
 ## Active Work Stream
 
 - Establish durable repo memory and keep it current.
-- Commit and push the verified SSH/git-signing path fix, then apply it on `nyx` and `ghost`.
+- Watch `nyx` `opencode` session and Playwright MCP process growth now that the service is healthy again.
 
 ## Recent Accomplishments
 
@@ -29,13 +30,16 @@
 - Merged current `codex` and `opencode` update PRs after CI success.
 - Applied the latest flake generation on Mac, `nyx`, and `ghost`.
 - Fixed the Mac-side SSH and git signing config to use stable `~/.ssh/*` key paths again.
-- Verified good signed commits on Mac, `nyx`, and `ghost`.
+- Signed and pushed the stable SSH/signing-path fix, then applied it on `nyx` and `ghost`.
+- Verified good signed commits on Mac, `nyx`, and `ghost` after the live generations were updated.
+- Re-verified the shared Codex/OpenCode memory guidance on `nyx` and `ghost`.
 - Fixed `nyx` opencode password wiring and moved session compaction to the direct app API with bounded timeouts.
+- Confirmed `nyx` opencode auth reads from `/run/secrets/opencode_server_password` and the live API responds again.
 
 ## Current Blockers
 
-- No critical blocker is open for git signing now that the Mac fix is verified.
-- The remaining work is to commit and propagate the verified signing-path fix to `nyx` and `ghost`.
+- No critical blocker is open for git signing.
+- No current hard blocker is open for `nyx` `opencode`; the remaining concern is session/process buildup under load.
 
 ## Known Risks
 

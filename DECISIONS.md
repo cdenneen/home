@@ -84,3 +84,17 @@
   - Leave the server unsecured and skip compaction.
 - Consequences
   - `nyx` opencode is now secure again and the compact one-shot returns instead of wedging indefinitely.
+
+## 2026-06-05 — `nyx` OpenCode health checks should use the live system secret path
+
+- Context
+  - A manual auth check against `nyx` opencode initially used a guessed per-user password file and returned `401`.
+  - The live service actually reads `config.sops.secrets.opencode_server_password.path`, which materializes as `/run/secrets/opencode_server_password`.
+- Decision
+  - Treat `/run/secrets/opencode_server_password` as the canonical runtime auth source for `nyx` opencode diagnostics.
+- Rationale
+  - Debug commands should validate the live deployed path, not an assumed user-local cache file.
+- Alternatives considered
+  - Keep probing guessed files under `~/.local/share` or `~/.config`.
+- Consequences
+  - Future opencode checks can prove auth and API health directly against the same secret path the unit uses.

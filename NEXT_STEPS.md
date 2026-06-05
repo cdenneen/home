@@ -2,19 +2,14 @@
 
 ## Immediate Next Task
 
-- Create a signed commit for the verified SSH/git-signing path fix, push it, and apply it on `nyx` and `ghost`.
+- If `nyx` `opencode` feels stuck again, inspect session count and Playwright MCP child growth before restarting it.
 
 ## Ordered Task List
 
-1. Stage and sign-commit the verified fixes in:
-   - `modules/hm/users/cdenneen/secrets.nix`
-   - `modules/hm/users/cdenneen/git.nix`
-   - `modules/hm/users/cdenneen/programs.nix`
-2. Push the signing-path fix to `main`.
-3. Pull and apply the updated flake on `nyx`.
-4. Pull and apply the updated flake on `ghost`.
-5. Re-verify `ssh nyx`, `ssh ghost`, and signed temp commits on both hosts after the new generation is live.
-6. Keep project memory files current as the next substantial task proceeds.
+1. Inspect `nyx` `opencode-serve.service` task count, memory, and live session count if it appears sluggish again.
+2. Decide whether session compaction behavior or Playwright MCP spawning needs another flake change.
+3. Tackle the next user-requested host or workflow task.
+4. Keep project memory files current as the next substantial task proceeds.
 
 ## Dependencies
 
@@ -24,20 +19,14 @@
 
 ## Validation Steps
 
-- `readlink ~/.ssh/github_ed25519`
-- `readlink ~/.ssh/cdenneen_ed25519_2024`
-- `ssh -G nyx | rg IdentityFile`
-- `ssh -G ghost | rg IdentityFile`
-- `git config --show-origin --get user.signingkey`
-- `ssh nyx true`
-- `ssh ghost true`
-- `git commit --allow-empty -m "signing-path-check"`
+- `git log --show-signature -1 --format=fuller`
+- `ssh nyx 'systemctl --user status opencode-serve.service --no-pager -n 20'`
+- `ssh nyx 'curl -fsS -u "opencode:$(tr -d "\n\r" </run/secrets/opencode_server_password)" http://127.0.0.1:4097/session | jq -r "length"'`
+- `ssh nyx 'systemctl --user show opencode-serve-compact.service -p ActiveState -p Result -p ExecMainStatus --no-pager'`
 - `ssh nyx 'rg -n "Persistent Project Memory Requirements" ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md'`
 - `ssh ghost 'rg -n "Persistent Project Memory Requirements" ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md'`
-- `ssh nyx 'tmpdir=$(mktemp -d /tmp/git-sign-check.XXXXXX) && cd "$tmpdir" && git init -q && git config user.name "Chris Denneen" && git config user.email "cdenneen@gmail.com" && printf "ok\n" > README && git add README && git commit -m "signing-path-check" >/dev/null && git log --show-signature -1 --format=fuller | sed -n "1,8p"'`
-- `ssh ghost 'tmpdir=$(mktemp -d /tmp/git-sign-check.XXXXXX) && cd "$tmpdir" && git init -q && git config user.name "Chris Denneen" && git config user.email "cdenneen@gmail.com" && printf "ok\n" > README && git add README && git commit -m "signing-path-check" >/dev/null && git log --show-signature -1 --format=fuller | sed -n "1,8p"'`
 
 ## Recommended Next Session Starting Point
 
 - Read `AGENTS.md`, then `HANDOFF.md`, `PROJECT_STATE.md`, `DECISIONS.md`, and this file.
-- Start with committing and propagating the already-verified signing-path fix described in `PROJECT_STATE.md` and `HANDOFF.md`.
+- Start by checking whether `nyx` `opencode` still feels stuck to the user; if so, use the validation commands above before restarting anything.
