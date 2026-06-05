@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,104 @@ def write_state(state_file: Path, payload: dict[str, Any]) -> None:
     state_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+async def _git_dirty_count(repo_path: Path) -> tuple[str, int]:
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "-C",
+        str(repo_path),
+        "status",
+        "--short",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return repo_path.name, -1
+    lines = out.decode("utf-8", errors="ignore").splitlines()
+    return repo_path.name, len(lines)
+
+
+def _find_git_repos(workspace_root: Path, limit: int = 60) -> list[Path]:
+    repos: list[Path] = []
+    if not workspace_root.exists():
+        return repos
+    for root, dirs, _ in os.walk(workspace_root):
+        if ".git" in dirs:
+            repos.append(Path(root))
+            dirs[:] = [d for d in dirs if d != ".git"]
+        if len(repos) >= limit:
+            break
+    return repos
+
+
+def _collect_session_counts() -> dict[str, int]:
+    home = Path.home()
+    opencode = home / ".opencode"
+    codex = home / ".codex"
+    return {
+        "opencode_files": len(list(opencode.rglob("*.json"))) + len(list(opencode.rglob("*.jsonl"))) if opencode.exists() else 0,
+        "codex_files": len(list(codex.rglob("*.json"))) + len(list(codex.rglob("*.jsonl"))) if codex.exists() else 0,
+    }
+
+
+async def _run_ingestion(payload: dict[str, Any]) -> dict[str, Any]:
+    routed = payload.get("routed_event") if isinstance(payload.get("routed_event"), dict) else {}
+    input_event = payload.get("input_event") if isinstance(payload.get("input_event"), dict) else {}
+    text = str(routed.get("text") or input_event.get("text") or "")
+
+    workspace_root = Path(os.getenv("JARVIS_WORKSPACE_ROOT", "/home/cdenneen/src/workspace"))
+    report_dir = Path(os.getenv("JARVIS_WORK_REPORT_DIR", "/var/lib/jarvis/data"))
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    agent_files = []
+    if workspace_root.exists():
+        for path in workspace_root.rglob("AGENTS.md"):
+            agent_files.append(str(path))
+            if len(agent_files) >= 200:
+                break
+
+    repos = _find_git_repos(workspace_root, limit=80)
+    dirty_rows: list[dict[str, Any]] = []
+    for repo in repos[:40]:
+        name, dirty = await _git_dirty_count(repo)
+        dirty_rows.append({"repo": name, "path": str(repo), "dirty_files": dirty})
+
+    session_counts = _collect_session_counts()
+    dirty_total = sum(max(0, int(row.get("dirty_files", 0))) for row in dirty_rows)
+    dirty_repos = len([row for row in dirty_rows if int(row.get("dirty_files", 0)) > 0])
+
+    report = {
+        "timestamp": now_iso(),
+        "mode": "ingestion",
+        "workspace_root": str(workspace_root),
+        "input_summary": compact_summary(text, max_len=180),
+        "agents_files_count": len(agent_files),
+        "agents_files": agent_files,
+        "repos_scanned": len(dirty_rows),
+        "dirty_repos": dirty_repos,
+        "dirty_total_files": dirty_total,
+        "repo_status": dirty_rows,
+        "session_counts": session_counts,
+    }
+
+    report_path = report_dir / f"ingestion-report-{int(time.time())}.json"
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    return {
+        "ok": True,
+        "mode": "ingestion",
+        "summary": compact_summary(
+            f"Ingestion complete: repos={len(dirty_rows)}, dirty_repos={dirty_repos}, AGENTS.md={len(agent_files)}, sessions(opencode={session_counts['opencode_files']}, codex={session_counts['codex_files']}). Report: {report_path}",
+            max_len=220,
+        ),
+        "report_path": str(report_path),
+        "agents_files_count": len(agent_files),
+        "repos_scanned": len(dirty_rows),
+        "dirty_repos": dirty_repos,
+        "session_counts": session_counts,
+    }
+
+
 async def execute_work(payload: dict[str, Any]) -> dict[str, Any]:
     started = time.perf_counter()
     routed = payload.get("routed_event") if isinstance(payload.get("routed_event"), dict) else {}
@@ -45,7 +144,17 @@ async def execute_work(payload: dict[str, Any]) -> dict[str, Any]:
     if bool(controls.get("force_fail", False)) or "[force-fail]" in text.lower():
         raise RuntimeError("runner control requested failure")
 
-    result = {
+    lowered = text.lower()
+    if "ingest" in lowered or "workspace" in lowered or "agents.md" in lowered:
+        result = await _run_ingestion(payload)
+        result["duration_ms"] = int((time.perf_counter() - started) * 1000)
+        result["route"] = {
+            "agent": str(routed.get("resolved_agent") or "research-agent"),
+            "target": str(routed.get("execution_target") or "nyx"),
+        }
+        return result
+
+    return {
         "ok": True,
         "mode": "lightweight",
         "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -55,7 +164,6 @@ async def execute_work(payload: dict[str, Any]) -> dict[str, Any]:
             "target": str(routed.get("execution_target") or "nyx"),
         },
     }
-    return result
 
 
 def create_app(
