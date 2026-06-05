@@ -894,8 +894,14 @@ in
     in
     {
       description = "OpenCode web (chat)";
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
+      after = [
+        "network-online.target"
+        "nyx-mcp-playwright.service"
+      ];
+      wants = [
+        "network-online.target"
+        "nyx-mcp-playwright.service"
+      ];
       wantedBy = [ "default.target" ];
       unitConfig = {
         StartLimitIntervalSec = "5min";
