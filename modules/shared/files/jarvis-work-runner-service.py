@@ -161,6 +161,7 @@ async def _run_ingestion(payload: dict[str, Any]) -> dict[str, Any]:
         "repos_scanned": len(dirty_rows),
         "dirty_repos": dirty_repos,
         "project_groups_count": len(project_rows),
+        "project_groups": project_rows[:20],
         "session_counts": session_counts,
         "next_steps": next_steps,
     }
@@ -337,6 +338,10 @@ def create_app(
                         str(execution_result.get("summary") or "Nyx worker completed lightweight execution."),
                         max_len=120,
                     ),
+                    "report_path": str(execution_result.get("report_path", "")),
+                    "project_groups": execution_result.get("project_groups", []),
+                    "next_steps": execution_result.get("next_steps", []),
+                    "project_groups_count": int(execution_result.get("project_groups_count", 0) or 0),
                 }
                 completed_ok, completed_detail = send_callback(completed_payload)
                 row["callback_completed_ok"] = completed_ok

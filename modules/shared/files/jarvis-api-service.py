@@ -792,6 +792,38 @@ def project_portfolio_from_ingestion(report: dict[str, Any], limit: int) -> dict
     }
 
 
+def latest_portfolio_from_worker_events(path: Path, limit: int) -> dict[str, Any]:
+    if not path.exists():
+        return {"report_timestamp": "", "report_path": "", "next_steps": [], "projects": []}
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            """
+            SELECT timestamp, detail_json
+            FROM task_events
+            WHERE stage = 'execution' AND status = 'completed'
+            ORDER BY id DESC
+            LIMIT 200
+            """
+        ).fetchall()
+
+    for ts, detail_json in rows:
+        try:
+            detail = json.loads(detail_json or "{}")
+        except Exception:
+            detail = {}
+        groups = detail.get("project_groups") if isinstance(detail.get("project_groups"), list) else []
+        if not groups:
+            continue
+        faux_report = {
+            "timestamp": ts,
+            "report_path": str(detail.get("report_path", "")),
+            "project_groups": groups,
+            "next_steps": detail.get("next_steps", []) if isinstance(detail.get("next_steps"), list) else [],
+        }
+        return project_portfolio_from_ingestion(faux_report, limit)
+    return {"report_timestamp": "", "report_path": "", "next_steps": [], "projects": []}
+
+
 def evaluate_deliverable_contract(routed: dict[str, Any], work_result: dict[str, Any]) -> tuple[bool, str]:
     if not bool(work_result.get("ok", False)):
         return False, "work_result not ok"
@@ -1579,6 +1611,10 @@ def create_app(
                 "detail": {
                     "worker_id": str(payload.get("worker_id", "")),
                     "source": "nyx-worker-terminal",
+                    "report_path": str(payload.get("report_path", "")),
+                    "project_groups": payload.get("project_groups", []) if isinstance(payload.get("project_groups"), list) else [],
+                    "next_steps": payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else [],
+                    "project_groups_count": int(payload.get("project_groups_count", 0) or 0),
                 },
             }
             insert_task_event_db(usage_db_path, terminal_row)
@@ -1789,9 +1825,11 @@ def create_app(
         if usage_db_path is not None:
             data_dir = usage_db_path.parent
         report = load_latest_ingestion_report(data_dir)
-        if not report:
+        if report:
+            return JSONResponse(project_portfolio_from_ingestion(report, limit=max(1, min(limit, 200))))
+        if usage_db_path is None:
             return JSONResponse({"report_timestamp": "", "report_path": "", "next_steps": [], "projects": []})
-        return JSONResponse(project_portfolio_from_ingestion(report, limit=max(1, min(limit, 200))))
+        return JSONResponse(latest_portfolio_from_worker_events(usage_db_path, limit=max(1, min(limit, 200))))
 
     @app.get("/api/tasks/stuck")
     async def api_tasks_stuck(stale_after_seconds: int = 900, limit: int = 25) -> JSONResponse:
