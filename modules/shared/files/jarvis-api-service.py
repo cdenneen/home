@@ -236,6 +236,26 @@ def init_usage_db(path: Path) -> None:
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_approval_preferences_user ON approval_preferences (user_id)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS remediator_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                ts_epoch INTEGER NOT NULL,
+                thread_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                rationale TEXT NOT NULL,
+                ok INTEGER NOT NULL,
+                detail TEXT NOT NULL,
+                attempts INTEGER NOT NULL,
+                overdue_seconds INTEGER NOT NULL,
+                execution_target TEXT NOT NULL,
+                agent TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_remediator_actions_ts_epoch ON remediator_actions (ts_epoch)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_remediator_actions_thread ON remediator_actions (thread_id)")
         conn.commit()
 
 
@@ -406,6 +426,66 @@ def get_approval_preference_db(path: Path, user_id: str, agent: str) -> str:
         return "none"
     value = str(row[0] or "none")
     return value if value in {"always", "once", "none"} else "none"
+
+
+def insert_remediator_action_db(path: Path, row: dict[str, Any]) -> None:
+    ts = parse_iso(str(row.get("timestamp", ""))) or datetime.now(UTC)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO remediator_actions (
+                timestamp, ts_epoch, thread_id, action, rationale, ok,
+                detail, attempts, overdue_seconds, execution_target, agent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(row.get("timestamp", now_iso())),
+                int(ts.timestamp()),
+                str(row.get("thread_id", "")),
+                str(row.get("action", "")),
+                str(row.get("rationale", "")),
+                1 if bool(row.get("ok", False)) else 0,
+                str(row.get("detail", "")),
+                int(row.get("attempts", 0) or 0),
+                int(row.get("overdue_seconds", 0) or 0),
+                str(row.get("execution_target", "")),
+                str(row.get("agent", "")),
+            ),
+        )
+        conn.commit()
+
+
+def list_remediator_actions_db(path: Path, hours: int, limit: int) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    cutoff = int(datetime.now(UTC).timestamp()) - max(1, hours) * 3600
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            """
+            SELECT timestamp, thread_id, action, rationale, ok, detail,
+                   attempts, overdue_seconds, execution_target, agent
+            FROM remediator_actions
+            WHERE ts_epoch >= ?
+            ORDER BY ts_epoch DESC
+            LIMIT ?
+            """,
+            (cutoff, max(1, min(limit, 500))),
+        ).fetchall()
+    return [
+        {
+            "timestamp": str(row[0]),
+            "thread_id": str(row[1]),
+            "action": str(row[2]),
+            "rationale": str(row[3]),
+            "ok": bool(row[4]),
+            "detail": str(row[5]),
+            "attempts": int(row[6]),
+            "overdue_seconds": int(row[7]),
+            "execution_target": str(row[8]),
+            "agent": str(row[9]),
+        }
+        for row in rows
+    ]
 
 
 def insert_usage_event_db(path: Path, row: dict[str, Any]) -> None:
@@ -1162,10 +1242,12 @@ def create_app(
         size_bytes = usage_db_path.stat().st_size if db_exists else 0
         usage_rows = 0
         task_rows = 0
+        remediator_rows = 0
         if db_exists:
             with sqlite3.connect(usage_db_path) as conn:
                 usage_rows = int(conn.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0])
                 task_rows = int(conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0])
+                remediator_rows = int(conn.execute("SELECT COUNT(*) FROM remediator_actions").fetchone()[0])
 
         return JSONResponse(
             {
@@ -1174,6 +1256,7 @@ def create_app(
                 "size_bytes": size_bytes,
                 "usage_event_rows": usage_rows,
                 "task_event_rows": task_rows,
+                "remediator_action_rows": remediator_rows,
                 "write_metrics": write_metrics_snapshot(),
                 "supabase_adapter": {
                     "mode": "dormant",
@@ -1194,6 +1277,32 @@ def create_app(
         except json.JSONDecodeError:
             data = {"error": "invalid-state-json"}
         return JSONResponse({"ok": True, "enabled": True, "state_file": str(remediator_state_path), "state": data})
+
+    @app.post("/api/system/remediator/action")
+    async def api_system_remediator_action(payload: dict[str, Any]) -> JSONResponse:
+        if usage_db_path is None:
+            raise HTTPException(status_code=400, detail="sqlite telemetry is required")
+        row = {
+            "timestamp": now_iso(),
+            "thread_id": str(payload.get("thread_id", "")),
+            "action": str(payload.get("action", "")),
+            "rationale": str(payload.get("rationale", "")),
+            "ok": bool(payload.get("ok", False)),
+            "detail": str(payload.get("detail", "")),
+            "attempts": int(payload.get("attempts", 0) or 0),
+            "overdue_seconds": int(payload.get("overdue_seconds", 0) or 0),
+            "execution_target": str(payload.get("execution_target", "")),
+            "agent": str(payload.get("agent", "")),
+        }
+        insert_remediator_action_db(usage_db_path, row)
+        return JSONResponse({"ok": True, "recorded": row})
+
+    @app.get("/api/system/remediator/actions")
+    async def api_system_remediator_actions(hours: int = 24, limit: int = 100) -> JSONResponse:
+        if usage_db_path is None:
+            return JSONResponse({"actions": [], "hours": hours})
+        actions = list_remediator_actions_db(usage_db_path, hours=hours, limit=limit)
+        return JSONResponse({"actions": actions, "hours": hours})
 
     @app.get("/api/system/remediator/simulate")
     async def api_system_remediator_simulate(
