@@ -312,6 +312,16 @@ def make_task_ref(task_id: str, summary: str, agent: str, execution_target: str)
     return f"{prefix}-{number:03d}"
 
 
+def is_synthetic_task(thread_id: str, summary: str) -> bool:
+    tid = str(thread_id or "")
+    text = str(summary or "").lower()
+    if tid.startswith(("debug-", "debugcb-", "macsyn-")):
+        return True
+    if "autopilot kick:" in text:
+        return True
+    return False
+
+
 def insert_task_event_db(path: Path, row: dict[str, Any]) -> None:
     ts = parse_iso(str(row.get("timestamp", ""))) or datetime.now(UTC)
     with sqlite3.connect(path) as conn:
@@ -412,6 +422,7 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
             "reviewed": bool(row[9]),
         }
         for row in active_rows
+        if not is_synthetic_task(str(row[1]), str(row[6]))
     ]
     recent = [
         {
@@ -431,6 +442,7 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
             "reviewed": bool(row[11]),
         }
         for row in recent_rows
+        if not is_synthetic_task(str(row[1]), str(row[8]))
     ]
     status_totals = {str(row[0]): int(row[1]) for row in totals_rows}
     return {"active": active, "recent": recent, "status_totals": status_totals}
@@ -713,6 +725,8 @@ def summarize_stuck_tasks(path: Path, stale_after_seconds: int, limit: int) -> d
     now = datetime.now(UTC)
     stuck: list[dict[str, Any]] = []
     for row in active:
+        if is_synthetic_task(str(row.get("thread_id", "")), str(row.get("summary", ""))):
+            continue
         timestamp = parse_iso(str(row.get("timestamp", "")))
         if timestamp is None:
             continue
@@ -1261,7 +1275,10 @@ def create_app(
                 if not work_result.get("ok"):
                     final_status = "failed"
                 elif execution_target == "nyx":
-                    final_status = "running"
+                    if bool(work_result.get("callback_completed_ok")) or bool(work_result.get("execution_result")):
+                        final_status = "completed"
+                    else:
+                        final_status = "running"
                 else:
                     final_status = "review_pending"
                 record_task_event(
@@ -1299,6 +1316,14 @@ def create_app(
                     }
                     if usage_db_path is not None:
                         insert_task_event_db(usage_db_path, mac_worker_row)
+            elif str(routed.get("execution_target") or "") in {"ghost", "unknown"} and not bool(routed.get("requires_approval")):
+                record_task_event(
+                    payload=payload,
+                    routed=routed,
+                    stage="execution",
+                    status="completed",
+                    detail={"service": "jarvis-api", "ok": True, "mode": "ghost-control-plane"},
+                )
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -1430,6 +1455,27 @@ def create_app(
             },
         }
         insert_task_event_db(usage_db_path, row)
+
+        if status in {"completed", "failed"}:
+            terminal_row = {
+                "timestamp": now_iso(),
+                "task_id": task_id,
+                "thread_id": thread_id,
+                "channel": "slack",
+                "user_name": str(payload.get("user", "nyx-worker")),
+                "agent": str(payload.get("agent", "research-agent")),
+                "execution_target": str(payload.get("execution_target", "nyx")),
+                "stage": "execution",
+                "status": status,
+                "summary": compact_summary(str(payload.get("summary", "Worker terminal update"))),
+                "reviewer_required": True,
+                "reviewed": status == "completed",
+                "detail": {
+                    "worker_id": str(payload.get("worker_id", "")),
+                    "source": "nyx-worker-terminal",
+                },
+            }
+            insert_task_event_db(usage_db_path, terminal_row)
 
         channel = lookup_slack_channel_for_thread(routing_path, thread_id)
         token = os.getenv("SLACK_BOT_TOKEN", "")
@@ -1753,7 +1799,10 @@ def create_app(
                         if not work_result.get("ok"):
                             final_status = "failed"
                         elif execution_target == "nyx":
-                            final_status = "running"
+                            if bool(work_result.get("callback_completed_ok")) or bool(work_result.get("execution_result")):
+                                final_status = "completed"
+                            else:
+                                final_status = "running"
                         else:
                             final_status = "review_pending"
                         record_task_event(
