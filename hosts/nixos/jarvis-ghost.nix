@@ -261,7 +261,11 @@ in
         --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
         --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
         --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}" \
-        --usage-sqlite "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}"
+        --usage-sqlite "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
+        --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
+        --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
+        --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
+        --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
     '';
   };
 
@@ -314,7 +318,8 @@ in
         --delegation "$JARVIS_DELEGATION_PATH" \
         --routing-output "$JARVIS_ROUTING_OUTPUT" \
         --realms "$JARVIS_REALMS_PATH" \
-        --locks "$JARVIS_LOCKS_PATH"
+        --locks "$JARVIS_LOCKS_PATH" \
+        --api-url "http://127.0.0.1:${toString jarvisApiPort}"
     '';
   };
 

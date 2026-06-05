@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import sqlite3
 import uuid
 from datetime import UTC, datetime
@@ -193,7 +194,157 @@ def init_usage_db(path: Path) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_events_ts_epoch ON usage_events (ts_epoch)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_events_model ON usage_events (model)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_events_agent ON usage_events (agent)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                ts_epoch INTEGER NOT NULL,
+                task_id TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                user_name TEXT NOT NULL,
+                agent TEXT NOT NULL,
+                execution_target TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                status TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                reviewer_required INTEGER NOT NULL,
+                reviewed INTEGER NOT NULL,
+                detail_json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_ts_epoch ON task_events (ts_epoch)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events (task_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_status ON task_events (status)")
         conn.commit()
+
+
+def compact_summary(text: str, max_len: int = 120) -> str:
+    normalized = " ".join(str(text or "").strip().split())
+    if len(normalized) <= max_len:
+        return normalized
+    return normalized[: max_len - 1] + "..."
+
+
+def derive_task_id(routed: dict[str, Any], payload: dict[str, Any]) -> str:
+    thread_id = str(routed.get("thread_id") or payload.get("thread_id") or "")
+    if thread_id:
+        return f"task-{thread_id}"
+    return str(routed.get("event_id") or f"task-{uuid.uuid4()}")
+
+
+def insert_task_event_db(path: Path, row: dict[str, Any]) -> None:
+    ts = parse_iso(str(row.get("timestamp", ""))) or datetime.now(UTC)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO task_events (
+                timestamp, ts_epoch, task_id, thread_id, channel, user_name,
+                agent, execution_target, stage, status, summary,
+                reviewer_required, reviewed, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(row.get("timestamp", now_iso())),
+                int(ts.timestamp()),
+                str(row.get("task_id", "unknown")),
+                str(row.get("thread_id", "")),
+                str(row.get("channel", "unknown")),
+                str(row.get("user_name", "unknown")),
+                str(row.get("agent", "jarvis")),
+                str(row.get("execution_target", "unknown")),
+                str(row.get("stage", "route")),
+                str(row.get("status", "queued")),
+                str(row.get("summary", "")),
+                1 if bool(row.get("reviewer_required", True)) else 0,
+                1 if bool(row.get("reviewed", False)) else 0,
+                json.dumps(row.get("detail", {}), ensure_ascii=True),
+            ),
+        )
+        conn.commit()
+
+
+def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
+    if not path.exists():
+        return {"active": [], "recent": [], "status_totals": {}}
+
+    cutoff = int(datetime.now(UTC).timestamp()) - max(1, hours) * 3600
+    with sqlite3.connect(path) as conn:
+        active_rows = conn.execute(
+            """
+            SELECT e.task_id, e.thread_id, e.agent, e.execution_target, e.stage, e.status, e.summary, e.timestamp, e.reviewer_required, e.reviewed
+            FROM task_events e
+            JOIN (
+                SELECT task_id, MAX(ts_epoch) AS max_ts
+                FROM task_events
+                WHERE ts_epoch >= ?
+                GROUP BY task_id
+            ) latest ON latest.task_id = e.task_id AND latest.max_ts = e.ts_epoch
+            WHERE e.status IN ('routed', 'dispatched', 'running', 'approval_required', 'review_pending')
+            ORDER BY e.ts_epoch DESC
+            LIMIT ?
+            """,
+            (cutoff, max(1, limit)),
+        ).fetchall()
+
+        recent_rows = conn.execute(
+            """
+            SELECT task_id, thread_id, channel, user_name, agent, execution_target, stage, status, summary, timestamp, reviewer_required, reviewed
+            FROM task_events
+            WHERE ts_epoch >= ?
+            ORDER BY ts_epoch DESC
+            LIMIT ?
+            """,
+            (cutoff, max(1, limit)),
+        ).fetchall()
+
+        totals_rows = conn.execute(
+            """
+            SELECT status, COUNT(*)
+            FROM task_events
+            WHERE ts_epoch >= ?
+            GROUP BY status
+            ORDER BY COUNT(*) DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+    active = [
+        {
+            "task_id": str(row[0]),
+            "thread_id": str(row[1]),
+            "agent": str(row[2]),
+            "execution_target": str(row[3]),
+            "stage": str(row[4]),
+            "status": str(row[5]),
+            "summary": str(row[6]),
+            "timestamp": str(row[7]),
+            "reviewer_required": bool(row[8]),
+            "reviewed": bool(row[9]),
+        }
+        for row in active_rows
+    ]
+    recent = [
+        {
+            "task_id": str(row[0]),
+            "thread_id": str(row[1]),
+            "channel": str(row[2]),
+            "user_name": str(row[3]),
+            "agent": str(row[4]),
+            "execution_target": str(row[5]),
+            "stage": str(row[6]),
+            "status": str(row[7]),
+            "summary": str(row[8]),
+            "timestamp": str(row[9]),
+            "reviewer_required": bool(row[10]),
+            "reviewed": bool(row[11]),
+        }
+        for row in recent_rows
+    ]
+    status_totals = {str(row[0]): int(row[1]) for row in totals_rows}
+    return {"active": active, "recent": recent, "status_totals": status_totals}
 
 
 def insert_usage_event_db(path: Path, row: dict[str, Any]) -> None:
@@ -321,12 +472,102 @@ def create_app(
     mac_shared_token: str,
     usage_file: str,
     usage_sqlite: str,
+    routing_events_file: str,
+    slack_endpoint: str,
+    supabase_url: str,
+    supabase_key: str,
 ) -> FastAPI:
     app = FastAPI(title="Jarvis API", version="0.1.0")
     usage_path = Path(usage_file)
     usage_db_path = Path(usage_sqlite) if usage_sqlite else None
+    routing_path = Path(routing_events_file) if routing_events_file else None
+    write_metrics_ms: list[float] = []
+    max_metrics_samples = 200
     if usage_db_path is not None:
         init_usage_db(usage_db_path)
+
+    def push_write_metric(ms: float) -> None:
+        write_metrics_ms.append(ms)
+        if len(write_metrics_ms) > max_metrics_samples:
+            del write_metrics_ms[:-max_metrics_samples]
+
+    def write_metrics_snapshot() -> dict[str, float | int]:
+        if not write_metrics_ms:
+            return {"samples": 0, "last_ms": 0.0, "avg_ms": 0.0, "p95_ms": 0.0}
+        ordered = sorted(write_metrics_ms)
+        p95_index = max(0, int(len(ordered) * 0.95) - 1)
+        return {
+            "samples": len(write_metrics_ms),
+            "last_ms": round(write_metrics_ms[-1], 3),
+            "avg_ms": round(sum(write_metrics_ms) / len(write_metrics_ms), 3),
+            "p95_ms": round(ordered[p95_index], 3),
+        }
+
+    def record_task_event(
+        *,
+        payload: dict[str, Any],
+        routed: dict[str, Any],
+        stage: str,
+        status: str,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        if usage_db_path is None:
+            return
+        detail_data = detail if isinstance(detail, dict) else {}
+        summary = compact_summary(
+            str(payload.get("task") or payload.get("text") or routed.get("text") or stage)
+        )
+        row = {
+            "timestamp": now_iso(),
+            "task_id": derive_task_id(routed, payload),
+            "thread_id": str(routed.get("thread_id") or payload.get("thread_id") or ""),
+            "channel": str(payload.get("channel") or "api"),
+            "user_name": str(payload.get("user") or "unknown"),
+            "agent": str(routed.get("resolved_agent") or "jarvis"),
+            "execution_target": str(routed.get("execution_target") or "unknown"),
+            "stage": stage,
+            "status": status,
+            "summary": summary,
+            "reviewer_required": True,
+            "reviewed": False,
+            "detail": detail_data,
+        }
+        insert_task_event_db(usage_db_path, row)
+
+    async def probe_endpoint(
+        *,
+        name: str,
+        base_url: str,
+        path: str = "/healthz",
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        if not base_url:
+            return {"node": name, "ok": False, "status": "not-configured", "latency_ms": None}
+
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                response = await client.get(f"{base_url.rstrip('/')}{path}", headers=headers or {})
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+            return {
+                "node": name,
+                "ok": response.is_success,
+                "status": "up" if response.is_success else f"http-{response.status_code}",
+                "latency_ms": latency_ms,
+                "url": f"{base_url.rstrip('/')}{path}",
+                "payload": payload if isinstance(payload, dict) else {},
+            }
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            return {
+                "node": name,
+                "ok": False,
+                "status": "down",
+                "latency_ms": latency_ms,
+                "url": f"{base_url.rstrip('/')}{path}",
+                "error": str(exc),
+            }
 
     async def route_payload(payload: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -419,6 +660,8 @@ def create_app(
             )
             if result is not None and selected_worker is not None:
                 result["selected_worker"] = selected_worker
+            if result is not None and selected_worker is not None and selected_worker.get("worker_id"):
+                result["worker_id"] = selected_worker.get("worker_id")
             return result
 
         if target == "personal-local":
@@ -483,6 +726,12 @@ def create_app(
                 "usage_file": usage_file,
                 "usage_sqlite": usage_sqlite,
                 "usage_storage": "sqlite" if usage_db_path is not None else "jsonl",
+                "routing_events_file": str(routing_path) if routing_path is not None else "",
+                "slack_endpoint": slack_endpoint,
+                "supabase_adapter": {
+                    "mode": "dormant",
+                    "configured": bool(supabase_url and supabase_key),
+                },
             }
         )
 
@@ -494,7 +743,28 @@ def create_app(
     async def api_route(payload: dict[str, Any]) -> JSONResponse:
         try:
             routed = await route_payload(payload)
+            route_status = "approval_required" if routed.get("requires_approval") else "routed"
+            record_task_event(
+                payload=payload,
+                routed=routed,
+                stage="route",
+                status=route_status,
+                detail={"model_tier": routed.get("model_tier"), "delegation_rule": routed.get("delegation_rule")},
+            )
             work_result = await dispatch_work(payload, routed)
+            if work_result is not None:
+                final_status = "review_pending" if work_result.get("ok") else "failed"
+                record_task_event(
+                    payload=payload,
+                    routed=routed,
+                    stage="execution",
+                    status=final_status,
+                    detail={
+                        "worker_id": work_result.get("worker_id") or (work_result.get("selected_worker") or {}).get("worker_id"),
+                        "service": work_result.get("service"),
+                        "ok": work_result.get("ok"),
+                    },
+                )
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -523,10 +793,93 @@ def create_app(
             "metadata": payload.get("metadata", {}),
         }
         if usage_db_path is not None:
+            started = time.perf_counter()
             insert_usage_event_db(usage_db_path, row)
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            push_write_metric(elapsed_ms)
         else:
             append_usage_event(usage_path, row)
         return JSONResponse({"ok": True, "recorded": row})
+
+    @app.get("/api/tasks/summary")
+    async def api_tasks_summary(hours: int = 24, limit: int = 25) -> JSONResponse:
+        if usage_db_path is None:
+            return JSONResponse({"active": [], "recent": [], "status_totals": {}, "hours": hours})
+        summary = summarize_tasks_db(usage_db_path, hours=hours, limit=max(1, min(limit, 200)))
+        summary["hours"] = hours
+        return JSONResponse(summary)
+
+    @app.get("/api/system/topology")
+    async def api_system_topology() -> JSONResponse:
+        work_headers: dict[str, str] = {}
+        if work_shared_token:
+            work_headers["X-Jarvis-Shared-Token"] = work_shared_token
+
+        mac_headers: dict[str, str] = {}
+        if mac_shared_token:
+            mac_headers["X-Jarvis-Shared-Token"] = mac_shared_token
+
+        harness_probe = await probe_endpoint(name="jarvis-harness", base_url=harness_url)
+        api_probe = {
+            "node": "jarvis-api",
+            "ok": True,
+            "status": "up",
+            "latency_ms": 0.0,
+            "url": "/api/system/topology",
+            "payload": {"service": "jarvis-api"},
+        }
+        slack_probe = await probe_endpoint(name="jarvis-slack-gateway", base_url=slack_endpoint)
+        nyx_probe = await probe_endpoint(name="nyx-work-runner", base_url=work_endpoint, headers=work_headers)
+        workers_probe = await probe_endpoint(name="nyx-workers", base_url=work_endpoint, path="/workers", headers=work_headers)
+        mac_probe = await probe_endpoint(name="mac-runner", base_url=mac_endpoint, headers=mac_headers)
+        voice_probe = await probe_endpoint(name="voice-edge", base_url=mac_endpoint, path="/status", headers=mac_headers)
+
+        workers = []
+        if workers_probe.get("ok") and isinstance(workers_probe.get("payload"), dict):
+            payload = workers_probe.get("payload")
+            workers = payload.get("workers") if isinstance(payload, dict) and isinstance(payload.get("workers"), list) else []
+
+        nodes = [api_probe, harness_probe, slack_probe, nyx_probe, mac_probe, voice_probe]
+        connected = len([n for n in nodes if n.get("ok")])
+        return JSONResponse(
+            {
+                "ok": True,
+                "connected_nodes": connected,
+                "total_nodes": len(nodes),
+                "nodes": nodes,
+                "workers": workers,
+            }
+        )
+
+    @app.get("/api/system/db-metrics")
+    async def api_system_db_metrics() -> JSONResponse:
+        if usage_db_path is None:
+            return JSONResponse({"storage": "jsonl", "path": usage_file, "write_metrics": write_metrics_snapshot()})
+
+        db_exists = usage_db_path.exists()
+        size_bytes = usage_db_path.stat().st_size if db_exists else 0
+        usage_rows = 0
+        task_rows = 0
+        if db_exists:
+            with sqlite3.connect(usage_db_path) as conn:
+                usage_rows = int(conn.execute("SELECT COUNT(*) FROM usage_events").fetchone()[0])
+                task_rows = int(conn.execute("SELECT COUNT(*) FROM task_events").fetchone()[0])
+
+        return JSONResponse(
+            {
+                "storage": "sqlite",
+                "path": str(usage_db_path),
+                "size_bytes": size_bytes,
+                "usage_event_rows": usage_rows,
+                "task_event_rows": task_rows,
+                "write_metrics": write_metrics_snapshot(),
+                "supabase_adapter": {
+                    "mode": "dormant",
+                    "configured": bool(supabase_url and supabase_key),
+                    "url_present": bool(supabase_url),
+                },
+            }
+        )
 
     @app.get("/api/usage/summary")
     async def api_usage_summary(hours: int = 24) -> JSONResponse:
@@ -609,7 +962,28 @@ def create_app(
 
                 try:
                     routed = await route_payload(interaction)
+                    route_status = "approval_required" if routed.get("requires_approval") else "routed"
+                    record_task_event(
+                        payload=interaction,
+                        routed=routed,
+                        stage="route",
+                        status=route_status,
+                        detail={"source": "voice", "model_tier": routed.get("model_tier")},
+                    )
                     work_result = await dispatch_work(interaction, routed)
+                    if work_result is not None:
+                        final_status = "review_pending" if work_result.get("ok") else "failed"
+                        record_task_event(
+                            payload=interaction,
+                            routed=routed,
+                            stage="execution",
+                            status=final_status,
+                            detail={
+                                "source": "voice",
+                                "worker_id": work_result.get("worker_id") or (work_result.get("selected_worker") or {}).get("worker_id"),
+                                "ok": work_result.get("ok"),
+                            },
+                        )
                 except httpx.HTTPError as exc:
                     await websocket.send_json(
                         {
@@ -653,6 +1027,10 @@ def main() -> None:
     parser.add_argument("--mac-shared-token", default="")
     parser.add_argument("--usage-file", default="")
     parser.add_argument("--usage-sqlite", default="/var/lib/jarvis/data/usage.db")
+    parser.add_argument("--routing-events-file", default="/var/lib/jarvis/data/routing_events.jsonl")
+    parser.add_argument("--slack-endpoint", default="http://127.0.0.1:8081")
+    parser.add_argument("--supabase-url", default="")
+    parser.add_argument("--supabase-key", default="")
     args = parser.parse_args()
 
     import uvicorn
@@ -666,6 +1044,10 @@ def main() -> None:
             mac_shared_token=args.mac_shared_token,
             usage_file=args.usage_file,
             usage_sqlite=args.usage_sqlite,
+            routing_events_file=args.routing_events_file,
+            slack_endpoint=args.slack_endpoint,
+            supabase_url=args.supabase_url,
+            supabase_key=args.supabase_key,
         ),
         host=args.host,
         port=args.port,
