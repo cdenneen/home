@@ -2,16 +2,19 @@
 
 ## Immediate Next Task
 
-- Fix the generated SSH identity paths so `ssh nyx` and `ssh ghost` use valid materialized key locations again.
+- Create a signed commit for the verified SSH/git-signing path fix, push it, and apply it on `nyx` and `ghost`.
 
 ## Ordered Task List
 
-1. Inspect the SSH config generation in `modules/hm/users/cdenneen/programs.nix` and related SSH modules.
-2. Change host entries to use the actual materialized key paths under `~/.ssh/*` or another stable declarative location.
-3. Apply the updated flake on the Mac with `sudo darwin-rebuild switch --flake .#VNJTECMBCD`.
-4. Re-test `ssh nyx` and `ssh ghost`.
-5. Verify `~/.codex/AGENTS.md` and `~/.config/opencode/AGENTS.md` on `nyx` and `ghost` contain the persistent memory section.
-6. Keep these memory files current as the next substantial task proceeds.
+1. Stage and sign-commit the verified fixes in:
+   - `modules/hm/users/cdenneen/secrets.nix`
+   - `modules/hm/users/cdenneen/git.nix`
+   - `modules/hm/users/cdenneen/programs.nix`
+2. Push the signing-path fix to `main`.
+3. Pull and apply the updated flake on `nyx`.
+4. Pull and apply the updated flake on `ghost`.
+5. Re-verify `ssh nyx`, `ssh ghost`, and signed temp commits on both hosts after the new generation is live.
+6. Keep project memory files current as the next substantial task proceeds.
 
 ## Dependencies
 
@@ -21,14 +24,20 @@
 
 ## Validation Steps
 
+- `readlink ~/.ssh/github_ed25519`
+- `readlink ~/.ssh/cdenneen_ed25519_2024`
 - `ssh -G nyx | rg IdentityFile`
 - `ssh -G ghost | rg IdentityFile`
+- `git config --show-origin --get user.signingkey`
 - `ssh nyx true`
 - `ssh ghost true`
+- `git commit --allow-empty -m "signing-path-check"`
 - `ssh nyx 'rg -n "Persistent Project Memory Requirements" ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md'`
 - `ssh ghost 'rg -n "Persistent Project Memory Requirements" ~/.codex/AGENTS.md ~/.config/opencode/AGENTS.md'`
+- `ssh nyx 'tmpdir=$(mktemp -d /tmp/git-sign-check.XXXXXX) && cd "$tmpdir" && git init -q && git config user.name "Chris Denneen" && git config user.email "cdenneen@gmail.com" && printf "ok\n" > README && git add README && git commit -m "signing-path-check" >/dev/null && git log --show-signature -1 --format=fuller | sed -n "1,8p"'`
+- `ssh ghost 'tmpdir=$(mktemp -d /tmp/git-sign-check.XXXXXX) && cd "$tmpdir" && git init -q && git config user.name "Chris Denneen" && git config user.email "cdenneen@gmail.com" && printf "ok\n" > README && git add README && git commit -m "signing-path-check" >/dev/null && git log --show-signature -1 --format=fuller | sed -n "1,8p"'`
 
 ## Recommended Next Session Starting Point
 
 - Read `AGENTS.md`, then `HANDOFF.md`, `PROJECT_STATE.md`, `DECISIONS.md`, and this file.
-- Start with the SSH identity path drift described in `PROJECT_STATE.md` and `HANDOFF.md`.
+- Start with committing and propagating the already-verified signing-path fix described in `PROJECT_STATE.md` and `HANDOFF.md`.

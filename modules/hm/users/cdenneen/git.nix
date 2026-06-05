@@ -4,6 +4,9 @@
   ...
 }:
 
+let
+  sshDir = "${config.home.homeDirectory}/.ssh";
+in
 {
   # Git identity and conditional configuration for cdenneen
   programs.git = {
@@ -15,7 +18,7 @@
     };
     settings.gpg.ssh.allowedSignersFile = "~/.config/git/allowed_signers";
     signing = {
-      key = config.sops.secrets.github_ed25519.path;
+      key = "${sshDir}/github_ed25519";
       signByDefault = true;
     };
 
@@ -31,7 +34,7 @@
           user = {
             name = "Christopher Denneen";
             email = "cdenneen@ap.org";
-            signingkey = config.sops.secrets.cdenneen_ed25519_2024.path;
+            signingkey = "${sshDir}/cdenneen_ed25519_2024";
           };
           gpg.format = "ssh";
           commit.gpgsign = true;
@@ -43,7 +46,7 @@
           user = {
             name = "Christopher Denneen";
             email = "cdenneen@ap.org";
-            signingkey = config.sops.secrets.cdenneen_ed25519_2024.path;
+            signingkey = "${sshDir}/cdenneen_ed25519_2024";
           };
           gpg.format = "ssh";
           commit.gpgsign = true;
@@ -55,7 +58,7 @@
           user = {
             name = "Christopher Denneen";
             email = "cdenneen@ap.org";
-            signingkey = config.sops.secrets.cdenneen_ed25519_2024.path;
+            signingkey = "${sshDir}/cdenneen_ed25519_2024";
           };
           gpg.format = "ssh";
           commit.gpgsign = true;

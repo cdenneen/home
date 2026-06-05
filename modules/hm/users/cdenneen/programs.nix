@@ -10,6 +10,7 @@ let
   isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
   hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
   enableOciGhostAutostart = false;
+  sshDir = "${config.home.homeDirectory}/.ssh";
   # Prefer the macOS lemonade server over a local Linux server so SSH
   # remote forwarding to 127.0.0.1:2489 works without port conflicts.
   enableLinuxLemonadeServer = false;
@@ -42,11 +43,11 @@ let
   identityConfig = {
     identitiesOnly = true;
     identityFile = [
-      config.sops.secrets.fortress_rsa.path
-      config.sops.secrets.cdenneen_ed25519_2024.path
-      config.sops.secrets.codecommit_rsa.path
-      config.sops.secrets.id_rsa_cloud9.path
-      config.sops.secrets.github_ed25519.path
+      "${sshDir}/fortress_rsa"
+      "${sshDir}/cdenneen_ed25519_2024"
+      "${sshDir}/codecommit_rsa"
+      "${sshDir}/id_rsa_cloud9"
+      "${sshDir}/github_ed25519"
     ];
   };
 
@@ -349,12 +350,12 @@ in
       "github.com" = {
         user = "git";
         identitiesOnly = true;
-        identityFile = [ config.sops.secrets.github_ed25519.path ];
+        identityFile = [ "${sshDir}/github_ed25519" ];
       };
 
       "gitlab.com" = {
         identitiesOnly = true;
-        identityFile = [ config.sops.secrets.cdenneen_ed25519_2024.path ];
+        identityFile = [ "${sshDir}/cdenneen_ed25519_2024" ];
         user = "git";
       };
       "git.ap.org" = identityConfig // {

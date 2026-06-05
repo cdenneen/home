@@ -51,3 +51,36 @@
   - Rejected because context can be lost between sessions.
 - Accepting stale SSH identity paths after host switches.
   - Rejected because it breaks normal verification and operational workflows.
+- Accepting stale git signing key paths after host switches.
+  - Rejected because it breaks normal signed commit workflows and hides declarative drift.
+- Accepting broken flake-managed key symlinks that point into deleted temporary secret paths.
+  - Rejected because it breaks both SSH access and signed commit workflows at once.
+
+## 2026-06-05 — Git and SSH consumers should use stable `~/.ssh/*` paths
+
+- Context
+  - Mac git signing and SSH aliases broke after a flake switch because consumers referenced secret-materialization paths directly.
+- Decision
+  - Point git signing and SSH `IdentityFile` consumers at stable `~/.ssh/*` paths, and ensure SOPS secrets materialize to stable per-OS secret directories.
+- Rationale
+  - User-facing tools should not depend on transient secret directory layouts.
+- Alternatives considered
+  - Keep using `config.sops.secrets.*.path` directly in git and SSH consumer config.
+  - Keep relying on fallback saved keys outside flake control.
+- Consequences
+  - The flake now treats `~/.ssh/*` as the stable consumer interface while SOPS remains the secret source of truth.
+
+## 2026-06-05 — `nyx` OpenCode compaction must talk to the direct app API
+
+- Context
+  - `opencode-serve-compact` was querying `127.0.0.1:4096`, which is the OAuth proxy, and received sign-in HTML instead of JSON.
+  - The main `opencode-serve` unit also was not exporting `OPENCODE_SERVER_PASSWORD`.
+- Decision
+  - Export `OPENCODE_SERVER_PASSWORD` in `opencode-serve`, use the direct app API on `127.0.0.1:4097` for compaction, and bound `curl` calls with timeouts.
+- Rationale
+  - The compaction helper is a machine-to-machine client and should bypass the human OAuth layer.
+- Alternatives considered
+  - Keep calling the OAuth proxy.
+  - Leave the server unsecured and skip compaction.
+- Consequences
+  - `nyx` opencode is now secure again and the compact one-shot returns instead of wedging indefinitely.

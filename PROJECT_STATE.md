@@ -13,11 +13,14 @@
 - Recent `codex` and `opencode` package bumps were merged and applied on Mac, `nyx`, and `ghost`.
 - `nyx` and `ghost` successfully pulled the latest repo and completed `nixos-rebuild switch`.
 - The local Mac completed `darwin-rebuild switch`.
+- The local git signing and SSH key-path issue is fixed on the Mac and verified with a real signed temp commit.
+- Git signing is confirmed working on `nyx` and `ghost`.
+- `nyx` `opencode-serve` has been rebuilt, restarted, and is responding on the direct API again.
 
 ## Active Work Stream
 
 - Establish durable repo memory and keep it current.
-- Clean up local SSH config drift that is preventing reliable post-switch verification of `nyx` and `ghost` via the usual aliases.
+- Commit and push the verified SSH/git-signing path fix, then apply it on `nyx` and `ghost`.
 
 ## Recent Accomplishments
 
@@ -25,16 +28,20 @@
 - Added automation for custom-pinned `codex` and `opencode` package updates.
 - Merged current `codex` and `opencode` update PRs after CI success.
 - Applied the latest flake generation on Mac, `nyx`, and `ghost`.
+- Fixed the Mac-side SSH and git signing config to use stable `~/.ssh/*` key paths again.
+- Verified good signed commits on Mac, `nyx`, and `ghost`.
+- Fixed `nyx` opencode password wiring and moved session compaction to the direct app API with bounded timeouts.
 
 ## Current Blockers
 
-- Local SSH host aliases for `nyx` and `ghost` currently reference stale `IdentityFile` paths under `~/.config/sops-nix/secrets/*`.
-- The actual materialized keys are present under `~/.ssh/*`, so alias-based remote verification is currently unreliable until the SSH config is corrected.
+- No critical blocker is open for git signing now that the Mac fix is verified.
+- The remaining work is to commit and propagate the verified signing-path fix to `nyx` and `ghost`.
 
 ## Known Risks
 
 - Future sessions may repeat failed work if `DECISIONS.md` and `HANDOFF.md` are not kept current.
 - Host verification can silently regress if SSH config and materialized key paths drift again.
+- `nyx` opencode currently spawns many Playwright MCP child processes under load; memory should be watched even though the service is healthy again.
 - The repo spans multiple host types and services; stale summaries become misleading quickly if not refreshed.
 
 ## Important Assumptions

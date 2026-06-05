@@ -20,6 +20,8 @@ let
   # Avoid runtime-dir secret paths on Linux (e.g. /run/user/$UID) which may be
   # missing when the user session is not active (notably on headless hosts).
   linuxSopsSecretsDir = "${config.home.homeDirectory}/.local/share/sops-nix/secrets";
+  darwinSopsSecretsDir = "${config.home.homeDirectory}/.config/sops-nix/secrets";
+  sopsSecretsDir = if isDarwin then darwinSopsSecretsDir else linuxSopsSecretsDir;
   useNyxRemoteMcp = isDarwin && !isNyx;
   useSharedNyxMcp = useNyxRemoteMcp || isNyx;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
@@ -198,35 +200,29 @@ in
   sops.secrets = {
     fortress_rsa = {
       mode = "0600";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/fortress_rsa";
+      path = "${sopsSecretsDir}/fortress_rsa";
     };
     cdenneen_ed25519_2024 = {
       mode = "0600";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/cdenneen_ed25519_2024";
+      path = "${sopsSecretsDir}/cdenneen_ed25519_2024";
     };
     github_ed25519 = {
       mode = "0600";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/github_ed25519";
+      path = "${sopsSecretsDir}/github_ed25519";
     };
     codecommit_rsa = {
       mode = "0600";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/codecommit_rsa";
+      path = "${sopsSecretsDir}/codecommit_rsa";
     };
     id_rsa_cloud9 = {
       mode = "0600";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/id_rsa_cloud9";
+      path = "${sopsSecretsDir}/id_rsa_cloud9";
     };
 
     openai_api_key.mode = "0400";
     github-token = {
       mode = "0400";
-    } // lib.optionalAttrs isLinux {
-      path = "${linuxSopsSecretsDir}/github-token";
+      path = "${sopsSecretsDir}/github-token";
     };
     gemini_api_key.mode = "0400";
     supabase_access_token.mode = "0400";
