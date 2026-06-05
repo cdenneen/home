@@ -315,7 +315,7 @@ def make_task_ref(task_id: str, summary: str, agent: str, execution_target: str)
 def is_synthetic_task(thread_id: str, summary: str) -> bool:
     tid = str(thread_id or "")
     text = str(summary or "").lower()
-    if tid.startswith(("debug-", "debugcb-", "macsyn-")):
+    if tid.startswith(("debug-", "debugcb-", "dbg-", "macsyn-")):
         return True
     if "autopilot kick:" in text:
         return True
@@ -402,6 +402,7 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
             ) latest
             WHERE latest.thread_id NOT LIKE 'debug-%'
               AND latest.thread_id NOT LIKE 'debugcb-%'
+              AND latest.thread_id NOT LIKE 'dbg-%'
               AND latest.thread_id NOT LIKE 'macsyn-%'
               AND LOWER(COALESCE(latest.summary, '')) NOT LIKE 'autopilot kick:%'
             GROUP BY status
