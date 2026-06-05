@@ -748,7 +748,11 @@ def default_remediator_policy() -> dict[str, Any]:
         "stale_after_seconds": 900,
         "cooldown_seconds": 420,
         "max_actions": 3,
-        "action_plan": ["nudge", "kick", "self_repair", "escalate"],
+        "action_plan": ["kick", "self_repair", "escalate", "nudge"],
+        "high_risk": {
+            "enabled": True,
+            "keywords": ["production", "billing", "iam", "security", "payroll", "finance", "destroy", "delete", "root", "credential", "secret"],
+        },
         "self_repair": {
             "enabled": True,
             "min_overdue_seconds": 1200,
@@ -775,13 +779,18 @@ def load_remediator_policy(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if not isinstance(section, dict):
         section = {}
     merged = default.copy()
-    merged.update({k: v for k, v in section.items() if k in {"stale_after_seconds", "cooldown_seconds", "max_actions", "action_plan", "self_repair"}})
+    merged.update({k: v for k, v in section.items() if k in {"stale_after_seconds", "cooldown_seconds", "max_actions", "action_plan", "self_repair", "high_risk"}})
     if not isinstance(merged.get("action_plan"), list) or not merged.get("action_plan"):
         merged["action_plan"] = default["action_plan"]
     self_repair = default["self_repair"].copy()
     if isinstance(merged.get("self_repair"), dict):
         self_repair.update(merged.get("self_repair") or {})
     merged["self_repair"] = self_repair
+
+    high_risk = default["high_risk"].copy()
+    if isinstance(merged.get("high_risk"), dict):
+        high_risk.update(merged.get("high_risk") or {})
+    merged["high_risk"] = high_risk
 
     return merged, {"source": str(path), "sha256": hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest(), "loaded_at": now_iso()}
 
@@ -805,9 +814,17 @@ def remediator_self_repair_allowed(policy: dict[str, Any], summary: str, executi
 
 
 def remediator_choose_action(policy: dict[str, Any], attempts: int, overdue_seconds: int, summary: str, execution_target: str) -> tuple[str, str]:
-    plan = [str(x) for x in (policy.get("action_plan") if isinstance(policy.get("action_plan"), list) else ["nudge", "kick", "self_repair", "escalate"]) if str(x)]
+    high_risk_cfg = policy.get("high_risk") if isinstance(policy.get("high_risk"), dict) else {}
+    if bool(high_risk_cfg.get("enabled", True)):
+        keywords = [str(x).lower() for x in (high_risk_cfg.get("keywords") if isinstance(high_risk_cfg.get("keywords"), list) else [])]
+        lowered = str(summary or "").lower()
+        for token in keywords:
+            if token and token in lowered:
+                return "escalate", f"high-risk:{token}"
+
+    plan = [str(x) for x in (policy.get("action_plan") if isinstance(policy.get("action_plan"), list) else ["kick", "self_repair", "escalate", "nudge"]) if str(x)]
     if not plan:
-        plan = ["nudge", "kick", "self_repair", "escalate"]
+        plan = ["kick", "self_repair", "escalate", "nudge"]
     index = min(max(attempts, 0), len(plan) - 1)
     action = plan[index]
     if action != "self_repair":
