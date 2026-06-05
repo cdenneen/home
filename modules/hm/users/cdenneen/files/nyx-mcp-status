@@ -31,6 +31,7 @@ check_http "aws" "18103" "/healthz"
 check_http "terraform" "18104" "/healthz"
 check_http "duckduckgo" "18105" "/healthz"
 check_http "context7" "18106" "/healthz"
+check_http "playwright" "18107" "/healthz"
 
 printf "\nnyx host status\n"
 ssh \

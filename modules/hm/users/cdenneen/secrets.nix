@@ -54,6 +54,17 @@ let
         enabled = true;
       };
 
+  mkNyxOnlyOpencodeMcp =
+    port: script:
+    if isNyx then
+      mkSharedOpencodeMcp port
+    else
+      {
+        type = "local";
+        command = mkOpencodeMcpCommand script;
+        enabled = true;
+      };
+
   mkLocalOpencodeMcpCommand = script: [
     "bash"
     "-lc"
@@ -155,10 +166,9 @@ let
             CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
           };
         };
-      playwright = {
-        type = "local";
-        command = mkLocalOpencodeMcpCommand mcpPlaywrightScript;
+      playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
         enabled = true;
+        timeout = 120000;
       };
     };
     permission = {

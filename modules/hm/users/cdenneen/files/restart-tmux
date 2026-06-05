@@ -39,15 +39,48 @@ opencode_attach_url() {
   printf '%s\n' "${OPENCODE_ATTACH_URL:-http://127.0.0.1:4097}"
 }
 
+opencode_attach_username() {
+  printf '%s\n' "${OPENCODE_SERVER_USERNAME:-opencode}"
+}
+
+opencode_attach_password() {
+  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    printf '%s\n' "${OPENCODE_SERVER_PASSWORD}"
+    return 0
+  fi
+
+  if [[ -r /run/secrets/opencode_server_password ]]; then
+    tr -d '\n\r' </run/secrets/opencode_server_password
+    return 0
+  fi
+
+  return 1
+}
+
+opencode_attach_auth_flags() {
+  local pw
+
+  pw="$(opencode_attach_password 2>/dev/null || true)"
+  if [[ -n "$pw" ]]; then
+    printf ' --username %q --password %q' "$(opencode_attach_username)" "$pw"
+  fi
+}
+
 latest_opencode_session_for_dir() {
   local dir="$1"
-  local url sessions sid db
+  local url sessions sid db pw user
+  local curl_auth_args=()
 
   sid=""
 
   if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     url="$(opencode_attach_url)"
-    sessions="$(curl -sf "${url}/session" 2>/dev/null || true)"
+    pw="$(opencode_attach_password 2>/dev/null || true)"
+    if [[ -n "$pw" ]]; then
+      user="$(opencode_attach_username)"
+      curl_auth_args=(-u "${user}:${pw}")
+    fi
+    sessions="$(curl -sf "${curl_auth_args[@]}" "${url}/session" 2>/dev/null || true)"
     if [[ -n "$sessions" ]]; then
       sid="$(jq -r --arg d "$dir" '
         [ .[] | select(.directory == $d) ]
@@ -232,10 +265,11 @@ infer_restore_command() {
     fi
 
     attach_url="$(opencode_attach_url)"
+    attach_auth_flags="$(opencode_attach_auth_flags)"
     if [[ -n "$opencode_session" ]]; then
-      candidate="opencode attach $attach_url --session $opencode_session --dir $(printf '%q' "$pane_path")"
+      candidate="opencode attach $attach_url$attach_auth_flags --session $opencode_session --dir $(printf '%q' "$pane_path")"
     else
-      candidate="opencode attach $attach_url --continue --dir $(printf '%q' "$pane_path")"
+      candidate="opencode attach $attach_url$attach_auth_flags --continue --dir $(printf '%q' "$pane_path")"
     fi
   fi
 

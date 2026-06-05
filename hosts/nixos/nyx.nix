@@ -109,6 +109,15 @@ let
         exec ${pkgs.nodejs_24}/bin/npx -y @upstash/context7-mcp
       '';
     };
+    playwright = {
+      port = 18107;
+      memoryHigh = "1536M";
+      memoryMax = "2G";
+      script = ''
+        set -euo pipefail
+        exec ${pkgs.nodejs_24}/bin/npx -y @playwright/mcp
+      '';
+    };
   };
   mkNyxMcpGatewayService =
     name: spec:
@@ -150,8 +159,8 @@ let
         Restart = "always";
         RestartSec = 10;
         MemoryAccounting = true;
-        MemoryHigh = "768M";
-        MemoryMax = "1G";
+        MemoryHigh = spec.memoryHigh or "768M";
+        MemoryMax = spec.memoryMax or "1G";
       };
     };
   pepsApiHost = "peps-api.denneen.net";
@@ -838,6 +847,7 @@ in
   systemd.user.services.nyx-mcp-terraform = mkNyxMcpGatewayService "terraform" nyxSharedMcpServers.terraform;
   systemd.user.services.nyx-mcp-duckduckgo = mkNyxMcpGatewayService "duckduckgo" nyxSharedMcpServers.duckduckgo;
   systemd.user.services.nyx-mcp-context7 = mkNyxMcpGatewayService "context7" nyxSharedMcpServers.context7;
+  systemd.user.services.nyx-mcp-playwright = mkNyxMcpGatewayService "playwright" nyxSharedMcpServers.playwright;
 
   systemd.user.timers.nyx-mcp-warm-cache = {
     description = "Run nyx MCP cache warmup after boot";
@@ -1041,6 +1051,9 @@ in
         pw_file="${config.sops.secrets.opencode_server_password.path}"
         log_dir="${config.users.users.cdenneen.home}/.local/state"
         log_file="$log_dir/opencode-serve-compact.log"
+        stale_age_ms=$((90 * 60 * 1000))
+        max_compactions=12
+        overflow_limit=48
         ${pkgs.coreutils}/bin/mkdir -p "$log_dir"
 
         timestamp="$(${pkgs.coreutils}/bin/date -Is)"
@@ -1056,26 +1069,51 @@ in
         fi
 
         auth="opencode:$pw"
-        sessions="$(${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" http://127.0.0.1:4097/session \
-          | ${pkgs.jq}/bin/jq -r '.[].id' || true)"
+        sessions_json="$(${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" http://127.0.0.1:4097/session || printf '[]')"
+        total_sessions="$(${pkgs.jq}/bin/jq -r 'length' <<<"$sessions_json" 2>/dev/null || printf '0')"
+
+        if [ "$total_sessions" = "0" ]; then
+          echo "$timestamp no sessions to compact total_sessions=0" >> "$log_file"
+          exit 0
+        fi
+
+        now_ms="$(${pkgs.coreutils}/bin/date +%s%3N)"
+        sessions="$(${pkgs.jq}/bin/jq -r \
+          --argjson now "$now_ms" \
+          --argjson stale "$stale_age_ms" \
+          --argjson overflow "$overflow_limit" \
+          --argjson max "$max_compactions" '
+            (sort_by(.time.updated // 0)) as $sorted
+            | [ $sorted[] | select(($now - (.time.updated // 0)) >= $stale) | .id ] as $stale_ids
+            | if ($stale_ids | length) > 0 then
+                $stale_ids[:$max]
+              elif ($sorted | length) > $overflow then
+                [ $sorted[] | .id ][:$max]
+              else
+                []
+              end
+            | .[]
+          ' <<<"$sessions_json" 2>/dev/null || true)"
 
         if [ -z "$sessions" ]; then
-          echo "$timestamp no sessions to compact" >> "$log_file"
+          echo "$timestamp no compaction candidates total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
           exit 0
         fi
 
         payload='{"command":"compact","arguments":""}'
+        compacted=0
         for sid in $sessions; do
           if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
             -H "content-type: application/json" \
             -X POST "http://127.0.0.1:4097/session/$sid/command" \
             -d "$payload" >/dev/null; then
             echo "$timestamp compact failed session=$sid" >> "$log_file"
+          else
+            compacted=$((compacted + 1))
           fi
         done
 
-        count="$(${pkgs.coreutils}/bin/printf "%s" "$sessions" | ${pkgs.coreutils}/bin/wc -w | ${pkgs.coreutils}/bin/tr -d ' ')"
-        echo "$timestamp compacted sessions=$count" >> "$log_file"
+        echo "$timestamp compacted sessions=$compacted total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
       '';
     in
     {
@@ -1083,6 +1121,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         ExecStart = run;
+        TimeoutStartSec = "3min";
       };
     };
 
@@ -1090,8 +1129,8 @@ in
     description = "Periodic OpenCode session compaction";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      OnBootSec = "5m";
-      OnUnitActiveSec = "6h";
+      OnBootSec = "4m";
+      OnUnitActiveSec = "30min";
       Persistent = true;
       Unit = "opencode-serve-compact.service";
     };

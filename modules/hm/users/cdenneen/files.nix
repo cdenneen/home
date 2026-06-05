@@ -68,6 +68,15 @@ let
     ];
   };
 
+  mkNyxOnlySharedMcpCommand =
+    port: script:
+    if isNyx then
+      {
+        url = nyxSharedMcpUrl port;
+      }
+    else
+      mkLocalMcpCommand script;
+
   mcpGitlabScript = ''
     set -euo pipefail
 
@@ -271,7 +280,7 @@ let
           startup_timeout_sec = 12;
           tool_timeout_sec = 60;
         };
-        playwright = (mkLocalMcpCommand mcpPlaywrightScript) // {
+        playwright = (mkNyxOnlySharedMcpCommand 18107 mcpPlaywrightScript) // {
           required = false;
           startup_timeout_sec = 15;
           tool_timeout_sec = 120;

@@ -12,6 +12,18 @@ in
 
   programs.starship.settings.palette = lib.mkForce "nyx";
 
+  programs.zsh.initExtra = lib.mkAfter ''
+    if [ -z "''${OPENCODE_SERVER_PASSWORD:-}" ] && [ -r /run/secrets/opencode_server_password ]; then
+      export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/tr -d '\n\r' </run/secrets/opencode_server_password)"
+    fi
+  '';
+
+  programs.bash.initExtra = lib.mkAfter ''
+    if [ -z "''${OPENCODE_SERVER_PASSWORD:-}" ] && [ -r /run/secrets/opencode_server_password ]; then
+      export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/tr -d '\n\r' </run/secrets/opencode_server_password)"
+    fi
+  '';
+
   home.activation.happierNyxCleanupLegacyService = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     legacy_default="$HOME/.config/systemd/user/happier-daemon.service"
     legacy_unit="$HOME/.config/systemd/user/happier-daemon.nyx.service"
