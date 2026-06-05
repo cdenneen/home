@@ -391,7 +391,7 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
             """
             SELECT latest.status, COUNT(*)
             FROM (
-                SELECT e.task_id, e.status
+                SELECT e.task_id, e.status, e.thread_id, e.summary
                 FROM task_events e
                 JOIN (
                     SELECT task_id, MAX(id) AS max_id
@@ -400,6 +400,10 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
                     GROUP BY task_id
                 ) grouped ON grouped.task_id = e.task_id AND grouped.max_id = e.id
             ) latest
+            WHERE latest.thread_id NOT LIKE 'debug-%'
+              AND latest.thread_id NOT LIKE 'debugcb-%'
+              AND latest.thread_id NOT LIKE 'macsyn-%'
+              AND LOWER(COALESCE(latest.summary, '')) NOT LIKE 'autopilot kick:%'
             GROUP BY status
             ORDER BY COUNT(*) DESC
             """,
