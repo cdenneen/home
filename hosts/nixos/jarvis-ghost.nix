@@ -137,6 +137,7 @@ in
       write_var JARVIS_BRAIN_IMPORT_STATE "${jarvisDataDir}/context_import_state.neuronet.json"
       write_var JARVIS_BRAIN_STATE_FILE "${jarvisDataDir}/brain_sync_state.json"
       write_var JARVIS_REMEDIATOR_STATE_FILE "${jarvisDataDir}/autopilot_remediator_state.json"
+      write_var JARVIS_REMEDIATOR_POLICY_FILE "${jarvisRepoDir}/config/autopilot_policy.yaml"
       write_var JARVIS_BRAIN_REMOTE_HOST "nyx"
       write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
       write_var JARVIS_API_URL "http://127.0.0.1:${toString jarvisApiPort}"
@@ -441,6 +442,7 @@ in
         --api-url "''${JARVIS_API_URL}" \
         --routing-file "''${JARVIS_ROUTING_OUTPUT}" \
         --state-file "''${JARVIS_REMEDIATOR_STATE_FILE}" \
+        --policy-file "''${JARVIS_REMEDIATOR_POLICY_FILE}" \
         --stale-after-seconds "''${JARVIS_REMEDIATOR_STALE_SECONDS:-900}" \
         --cooldown-seconds "''${JARVIS_REMEDIATOR_COOLDOWN_SECONDS:-420}" \
         --max-actions "''${JARVIS_REMEDIATOR_MAX_ACTIONS:-3}"
