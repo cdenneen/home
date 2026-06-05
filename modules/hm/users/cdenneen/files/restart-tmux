@@ -58,11 +58,13 @@ opencode_attach_password() {
 }
 
 opencode_attach_auth_flags() {
-  local pw
+  if [[ -n "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    printf ' --username %q --password "${OPENCODE_SERVER_PASSWORD:?}"' "$(opencode_attach_username)"
+    return 0
+  fi
 
-  pw="$(opencode_attach_password 2>/dev/null || true)"
-  if [[ -n "$pw" ]]; then
-    printf ' --username %q --password %q' "$(opencode_attach_username)" "$pw"
+  if [[ -r /run/secrets/opencode_server_password ]]; then
+    printf ' --username %q --password "$(tr -d '\''\\n\\r'\'' </run/secrets/opencode_server_password)"' "$(opencode_attach_username)"
   fi
 }
 
