@@ -355,10 +355,6 @@ in
     source = ./files/deploy-app;
     executable = true;
   };
-  home.file.".local/bin/deploy-jarvis" = {
-    source = ./files/deploy-jarvis;
-    executable = true;
-  };
   home.file.".local/bin/cf-move-routes" = {
     source = ./files/cf-move-routes;
     executable = true;
