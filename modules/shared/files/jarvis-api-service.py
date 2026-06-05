@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 import sqlite3
@@ -12,6 +13,11 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover
+    yaml = None
 
 
 def now_iso() -> str:
@@ -595,6 +601,81 @@ def summarize_stuck_tasks(path: Path, stale_after_seconds: int, limit: int) -> d
     return {"stale_after_seconds": stale_after_seconds, "count": len(stuck), "tasks": stuck}
 
 
+def default_remediator_policy() -> dict[str, Any]:
+    return {
+        "stale_after_seconds": 900,
+        "cooldown_seconds": 420,
+        "max_actions": 3,
+        "action_plan": ["nudge", "kick", "self_repair", "escalate"],
+        "self_repair": {
+            "enabled": True,
+            "min_overdue_seconds": 1200,
+            "allowed_targets": ["nyx", "ghost"],
+            "blocked_keywords": ["production", "billing", "iam", "security", "payroll", "finance", "destroy", "delete"],
+        },
+    }
+
+
+def load_remediator_policy(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    default = default_remediator_policy()
+    if yaml is None or not path.exists():
+        payload = json.dumps(default, sort_keys=True)
+        return default, {"source": "default", "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(), "loaded_at": now_iso()}
+
+    try:
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        parsed = yaml.safe_load(raw)
+    except Exception:
+        payload = json.dumps(default, sort_keys=True)
+        return default, {"source": "default", "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(), "loaded_at": now_iso()}
+
+    section = parsed.get("autopilot") if isinstance(parsed, dict) and isinstance(parsed.get("autopilot"), dict) else {}
+    if not isinstance(section, dict):
+        section = {}
+    merged = default.copy()
+    merged.update({k: v for k, v in section.items() if k in {"stale_after_seconds", "cooldown_seconds", "max_actions", "action_plan", "self_repair"}})
+    if not isinstance(merged.get("action_plan"), list) or not merged.get("action_plan"):
+        merged["action_plan"] = default["action_plan"]
+    self_repair = default["self_repair"].copy()
+    if isinstance(merged.get("self_repair"), dict):
+        self_repair.update(merged.get("self_repair") or {})
+    merged["self_repair"] = self_repair
+
+    return merged, {"source": str(path), "sha256": hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest(), "loaded_at": now_iso()}
+
+
+def remediator_self_repair_allowed(policy: dict[str, Any], summary: str, execution_target: str, overdue_seconds: int) -> tuple[bool, str]:
+    cfg = policy.get("self_repair") if isinstance(policy.get("self_repair"), dict) else {}
+    if not bool(cfg.get("enabled", True)):
+        return False, "self-repair disabled"
+    min_overdue = int(cfg.get("min_overdue_seconds", 1200) or 1200)
+    if overdue_seconds < min_overdue:
+        return False, "self-repair threshold not reached"
+    allowed_targets = cfg.get("allowed_targets") if isinstance(cfg.get("allowed_targets"), list) else ["nyx", "ghost"]
+    if str(execution_target) not in {str(x) for x in allowed_targets}:
+        return False, "target not allowed for self-repair"
+    blocked = [str(x).lower() for x in (cfg.get("blocked_keywords") if isinstance(cfg.get("blocked_keywords"), list) else [])]
+    lowered = str(summary or "").lower()
+    for token in blocked:
+        if token and token in lowered:
+            return False, f"blocked keyword: {token}"
+    return True, "allowed"
+
+
+def remediator_choose_action(policy: dict[str, Any], attempts: int, overdue_seconds: int, summary: str, execution_target: str) -> tuple[str, str]:
+    plan = [str(x) for x in (policy.get("action_plan") if isinstance(policy.get("action_plan"), list) else ["nudge", "kick", "self_repair", "escalate"]) if str(x)]
+    if not plan:
+        plan = ["nudge", "kick", "self_repair", "escalate"]
+    index = min(max(attempts, 0), len(plan) - 1)
+    action = plan[index]
+    if action != "self_repair":
+        return action, "plan"
+    allowed, reason = remediator_self_repair_allowed(policy, summary, execution_target, overdue_seconds)
+    if allowed:
+        return "self_repair", "policy-allowed"
+    return "escalate", reason
+
+
 def create_app(
     *,
     harness_url: str,
@@ -607,6 +688,7 @@ def create_app(
     routing_events_file: str,
     project_map_file: str,
     remediator_state_file: str,
+    remediator_policy_file: str,
     slack_endpoint: str,
     supabase_url: str,
     supabase_key: str,
@@ -617,6 +699,7 @@ def create_app(
     routing_path = Path(routing_events_file) if routing_events_file else None
     project_map_path = Path(project_map_file) if project_map_file else None
     remediator_state_path = Path(remediator_state_file) if remediator_state_file else None
+    remediator_policy_path = Path(remediator_policy_file) if remediator_policy_file else None
     write_metrics_ms: list[float] = []
     max_metrics_samples = 200
     if usage_db_path is not None:
@@ -865,6 +948,7 @@ def create_app(
                 "routing_events_file": str(routing_path) if routing_path is not None else "",
                 "project_map_file": str(project_map_path) if project_map_path is not None else "",
                 "remediator_state_file": str(remediator_state_path) if remediator_state_path is not None else "",
+                "remediator_policy_file": str(remediator_policy_path) if remediator_policy_path is not None else "",
                 "slack_endpoint": slack_endpoint,
                 "supabase_adapter": {
                     "mode": "dormant",
@@ -1111,6 +1195,37 @@ def create_app(
             data = {"error": "invalid-state-json"}
         return JSONResponse({"ok": True, "enabled": True, "state_file": str(remediator_state_path), "state": data})
 
+    @app.get("/api/system/remediator/simulate")
+    async def api_system_remediator_simulate(
+        attempts: int = 0,
+        overdue_seconds: int = 1200,
+        summary: str = "",
+        execution_target: str = "nyx",
+    ) -> JSONResponse:
+        policy, policy_meta = load_remediator_policy(remediator_policy_path or Path(""))
+        chosen_action, rationale = remediator_choose_action(
+            policy=policy,
+            attempts=max(0, attempts),
+            overdue_seconds=max(0, overdue_seconds),
+            summary=summary,
+            execution_target=execution_target,
+        )
+        return JSONResponse(
+            {
+                "ok": True,
+                "simulation": {
+                    "attempts": max(0, attempts),
+                    "overdue_seconds": max(0, overdue_seconds),
+                    "summary": summary,
+                    "execution_target": execution_target,
+                    "action": chosen_action,
+                    "rationale": rationale,
+                },
+                "policy": policy,
+                "policy_meta": policy_meta,
+            }
+        )
+
     @app.get("/api/projects/overlap")
     async def api_projects_overlap(limit: int = 20) -> JSONResponse:
         if project_map_path is None:
@@ -1280,6 +1395,7 @@ def main() -> None:
     parser.add_argument("--routing-events-file", default="/var/lib/jarvis/data/routing_events.jsonl")
     parser.add_argument("--project-map-file", default="/opt/jarvis/data/project_overlap_map.neuronet.json")
     parser.add_argument("--remediator-state-file", default="/var/lib/jarvis/data/autopilot_remediator_state.json")
+    parser.add_argument("--remediator-policy-file", default="/opt/jarvis/config/autopilot_policy.yaml")
     parser.add_argument("--slack-endpoint", default="http://127.0.0.1:8081")
     parser.add_argument("--supabase-url", default="")
     parser.add_argument("--supabase-key", default="")
@@ -1299,6 +1415,7 @@ def main() -> None:
             routing_events_file=args.routing_events_file,
             project_map_file=args.project_map_file,
             remediator_state_file=args.remediator_state_file,
+            remediator_policy_file=args.remediator_policy_file,
             slack_endpoint=args.slack_endpoint,
             supabase_url=args.supabase_url,
             supabase_key=args.supabase_key,
