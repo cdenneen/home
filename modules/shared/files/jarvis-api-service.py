@@ -218,6 +218,18 @@ def init_usage_db(path: Path) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_ts_epoch ON task_events (ts_epoch)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events (task_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_task_events_status ON task_events (status)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS approval_preferences (
+                user_id TEXT NOT NULL,
+                agent TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, agent)
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_approval_preferences_user ON approval_preferences (user_id)")
         conn.commit()
 
 
@@ -361,6 +373,33 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
     ]
     status_totals = {str(row[0]): int(row[1]) for row in totals_rows}
     return {"active": active, "recent": recent, "status_totals": status_totals}
+
+
+def set_approval_preference_db(path: Path, user_id: str, agent: str, scope: str) -> None:
+    clean_scope = scope if scope in {"always", "once", "none"} else "once"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO approval_preferences (user_id, agent, scope, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, agent)
+            DO UPDATE SET scope=excluded.scope, updated_at=excluded.updated_at
+            """,
+            (user_id, agent, clean_scope, now_iso()),
+        )
+        conn.commit()
+
+
+def get_approval_preference_db(path: Path, user_id: str, agent: str) -> str:
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT scope FROM approval_preferences WHERE user_id = ? AND agent = ?",
+            (user_id, agent),
+        ).fetchone()
+    if not row:
+        return "none"
+    value = str(row[0] or "none")
+    return value if value in {"always", "once", "none"} else "none"
 
 
 def insert_usage_event_db(path: Path, row: dict[str, Any]) -> None:
@@ -847,6 +886,7 @@ def create_app(
         scope = str(payload.get("scope", "once")).strip().lower()
         if scope not in {"once", "always"}:
             scope = "once"
+        approved_agent = str(payload.get("agent", "")).strip()
 
         row = {
             "timestamp": now_iso(),
@@ -869,7 +909,32 @@ def create_app(
             },
         }
         insert_task_event_db(usage_db_path, row)
+
+        if decision == "approved" and scope == "always" and approved_agent:
+            set_approval_preference_db(usage_db_path, reviewer, approved_agent, "always")
+
         return JSONResponse({"ok": True, "task_id": task_id, "decision": decision})
+
+    @app.post("/api/approvals/preference")
+    async def api_approvals_preference(payload: dict[str, Any]) -> JSONResponse:
+        if usage_db_path is None:
+            raise HTTPException(status_code=400, detail="approval preferences require sqlite telemetry")
+        user_id = str(payload.get("user_id", "")).strip()
+        agent = str(payload.get("agent", "")).strip()
+        scope = str(payload.get("scope", "none")).strip().lower()
+        if not user_id or not agent:
+            raise HTTPException(status_code=400, detail="user_id and agent are required")
+        if scope not in {"always", "once", "none"}:
+            raise HTTPException(status_code=400, detail="scope must be always, once, or none")
+        set_approval_preference_db(usage_db_path, user_id, agent, scope)
+        return JSONResponse({"ok": True, "user_id": user_id, "agent": agent, "scope": scope})
+
+    @app.get("/api/approvals/preference")
+    async def api_approvals_preference_get(user_id: str, agent: str) -> JSONResponse:
+        if usage_db_path is None:
+            return JSONResponse({"ok": True, "user_id": user_id, "agent": agent, "scope": "none"})
+        scope = get_approval_preference_db(usage_db_path, user_id, agent)
+        return JSONResponse({"ok": True, "user_id": user_id, "agent": agent, "scope": scope})
 
     @app.get("/api/system/topology")
     async def api_system_topology() -> JSONResponse:
