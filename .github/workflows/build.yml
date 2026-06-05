@@ -17,7 +17,7 @@ permissions:
   pull-requests: write
 jobs:
   Update-flake-inputs:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: update-flake-${{ matrix.input }}
@@ -30,7 +30,6 @@ jobs:
           - nixpkgs-unstable
           - home-manager
           - nix-darwin
-          - opencode
           - happier
           - nixos-hardware
           - nix-index-database
