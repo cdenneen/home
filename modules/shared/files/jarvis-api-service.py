@@ -7,6 +7,7 @@ import os
 import time
 import sqlite3
 import uuid
+from glob import glob
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -722,6 +723,100 @@ def load_project_overlap_map(path: Path, limit: int) -> dict[str, Any]:
     return {"projects": projects[:max_rows], "overlaps": overlaps[:max_rows]}
 
 
+def load_latest_ingestion_report(data_dir: Path) -> dict[str, Any]:
+    pattern = str(data_dir / "ingestion-report-*.json")
+    matches = sorted(glob(pattern), key=lambda p: Path(p).stat().st_mtime if Path(p).exists() else 0, reverse=True)
+    if not matches:
+        return {}
+    latest = Path(matches[0])
+    try:
+        payload = json.loads(latest.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    payload["report_path"] = str(latest)
+    return payload
+
+
+def project_portfolio_from_ingestion(report: dict[str, Any], limit: int) -> dict[str, Any]:
+    rows = report.get("project_groups") if isinstance(report.get("project_groups"), list) else []
+    portfolio: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("project", "unknown"))
+        repos = int(row.get("repos", 0) or 0)
+        dirty_repos = int(row.get("dirty_repos", 0) or 0)
+        dirty_files = int(row.get("dirty_files", 0) or 0)
+
+        criticality = max(1, min(5, 1 + repos // 8))
+        business_need = 4 if any(tok in name.lower() for tok in ("work", "platform", "prod", "infra")) else 3
+        tech_debt = max(1, min(5, 1 + dirty_repos + (dirty_files // 5)))
+        low_hanging = 5 if dirty_repos == 0 else max(1, 5 - min(4, dirty_repos))
+        new_feature = 4 if repos >= 6 and dirty_repos == 0 else 3
+
+        priority_score = round(
+            (criticality * 0.30 + business_need * 0.25 + tech_debt * 0.25 + (6 - low_hanging) * 0.10 + new_feature * 0.10)
+            * 20,
+            1,
+        )
+        recommended_focus = (
+            "triage and close dirty items"
+            if dirty_repos > 0
+            else "backlog definition and feature planning"
+        )
+
+        portfolio.append(
+            {
+                "project": name,
+                "repos": repos,
+                "dirty_repos": dirty_repos,
+                "dirty_files": dirty_files,
+                "criticality": criticality,
+                "business_need": business_need,
+                "low_hanging": low_hanging,
+                "tech_debt": tech_debt,
+                "new_feature": new_feature,
+                "priority_score": priority_score,
+                "recommended_focus": recommended_focus,
+            }
+        )
+
+    portfolio.sort(key=lambda r: (r.get("priority_score", 0), r.get("criticality", 0), r.get("repos", 0)), reverse=True)
+    return {
+        "report_timestamp": str(report.get("timestamp", "")),
+        "report_path": str(report.get("report_path", "")),
+        "next_steps": report.get("next_steps", []) if isinstance(report.get("next_steps"), list) else [],
+        "projects": portfolio[: max(1, min(limit, 200))],
+    }
+
+
+def evaluate_deliverable_contract(routed: dict[str, Any], work_result: dict[str, Any]) -> tuple[bool, str]:
+    if not bool(work_result.get("ok", False)):
+        return False, "work_result not ok"
+
+    text = str(routed.get("text", "")).lower()
+    execution_result = work_result.get("execution_result") if isinstance(work_result.get("execution_result"), dict) else {}
+
+    ingestion_like = any(tok in text for tok in ("ingest", "workspace", "agents.md", "codex", "opencode"))
+    if ingestion_like:
+        if str(execution_result.get("mode", "")) != "ingestion":
+            return False, "expected ingestion execution mode"
+        if not str(execution_result.get("report_path", "")).strip():
+            return False, "missing report_path"
+        if not isinstance(execution_result.get("next_steps"), list) or not execution_result.get("next_steps"):
+            return False, "missing next_steps"
+        return True, "ingestion contract satisfied"
+
+    if str(routed.get("execution_target", "")) == "nyx":
+        if execution_result or bool(work_result.get("callback_completed_ok", False)):
+            return True, "nyx terminal evidence present"
+        return False, "missing nyx terminal evidence"
+
+    return True, "generic contract satisfied"
+
+
 def summarize_stuck_tasks(path: Path, stale_after_seconds: int, limit: int) -> dict[str, Any]:
     if not path.exists():
         return {"stale_after_seconds": stale_after_seconds, "count": 0, "tasks": []}
@@ -1276,6 +1371,11 @@ def create_app(
             )
             work_result = await dispatch_work(payload, routed)
             if work_result is not None:
+                contract_ok, contract_detail = evaluate_deliverable_contract(routed, work_result)
+                if bool(work_result.get("ok", False)) and not contract_ok:
+                    work_result["ok"] = False
+                    work_result["detail"] = f"deliverable contract failed: {contract_detail}"
+
                 execution_target = str(routed.get("execution_target") or "")
                 if not work_result.get("ok"):
                     final_status = "failed"
@@ -1295,6 +1395,7 @@ def create_app(
                         "worker_id": work_result.get("worker_id") or (work_result.get("selected_worker") or {}).get("worker_id"),
                         "service": work_result.get("service"),
                         "ok": work_result.get("ok"),
+                        "contract_detail": contract_detail,
                     },
                 )
                 if execution_target == "personal-local":
@@ -1681,6 +1782,16 @@ def create_app(
         data = load_project_overlap_map(project_map_path, limit)
         data["limit"] = max(1, min(limit, 200))
         return JSONResponse(data)
+
+    @app.get("/api/projects/portfolio")
+    async def api_projects_portfolio(limit: int = 50) -> JSONResponse:
+        data_dir = Path("/var/lib/jarvis/data")
+        if usage_db_path is not None:
+            data_dir = usage_db_path.parent
+        report = load_latest_ingestion_report(data_dir)
+        if not report:
+            return JSONResponse({"report_timestamp": "", "report_path": "", "next_steps": [], "projects": []})
+        return JSONResponse(project_portfolio_from_ingestion(report, limit=max(1, min(limit, 200))))
 
     @app.get("/api/tasks/stuck")
     async def api_tasks_stuck(stale_after_seconds: int = 900, limit: int = 25) -> JSONResponse:
