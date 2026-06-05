@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,15 +33,20 @@ def write_state(state_file: Path, payload: dict[str, Any]) -> None:
 
 
 async def _git_dirty_count(repo_path: Path) -> tuple[str, int]:
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "-C",
-        str(repo_path),
-        "status",
-        "--short",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
+    git_bin = os.getenv("JARVIS_GIT_BIN", "") or shutil.which("git") or "/run/current-system/sw/bin/git"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            git_bin,
+            "-C",
+            str(repo_path),
+            "status",
+            "--short",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        return repo_path.name, -2
+
     out, _ = await proc.communicate()
     if proc.returncode != 0:
         return repo_path.name, -1
