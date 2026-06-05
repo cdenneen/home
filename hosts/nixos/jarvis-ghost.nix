@@ -217,7 +217,7 @@ in
 
       export PYTHONPATH="${jarvisRepoDir}/src"
 
-      exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-harness-service.py} \
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-harness-service.py \
         --host 127.0.0.1 \
         --port ${toString jarvisHarnessPort} \
         --repo-dir "$JARVIS_REPO_DIR" \
@@ -265,7 +265,7 @@ in
     script = ''
       set -euo pipefail
 
-      exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-api-service.py} \
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-api-service.py \
         --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
         --harness-url "$JARVIS_HARNESS_URL" \
@@ -401,7 +401,7 @@ in
     };
     script = ''
       set -euo pipefail
-      exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-ollama-model-sync.py} \
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-ollama-model-sync.py \
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --models-file "''${JARVIS_OLLAMA_MODELS_FILE:-${jarvisRepoDir}/config/ollama_models.yaml}" \
         --state-file "${jarvisDataDir}/ollama_model_sync_state.json" \

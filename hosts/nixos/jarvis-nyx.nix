@@ -111,7 +111,7 @@ in
     script = ''
       set -euo pipefail
 
-      exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-work-runner-service.py} \
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-work-runner-service.py \
         --host 0.0.0.0 \
         --port ${toString jarvisWorkPort} \
         --shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
