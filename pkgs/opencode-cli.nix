@@ -6,24 +6,24 @@
 }:
 
 let
-  version = "1.14.41";
+  version = "1.16.0";
 
   sources = {
     aarch64-darwin = {
       asset = "opencode-darwin-arm64.zip";
-      hash = "sha256-eVYKWj8c+WU4s37HiuP5IybKU2p7taL26MHn6aK2/tI=";
+      hash = "sha256-N7xrybVN59/K70DxnfgiJ23fFCrzijpzIl7stXZ+nyY=";
     };
     x86_64-darwin = {
       asset = "opencode-darwin-x64.zip";
-      hash = "sha256-/kfhKM5yDWlEH1iw1UX9lsUJKDFyBWIueofZYe5tHco=";
+      hash = "sha256-/1NZlkW60UEE4IPkS23Ug0XERawGvi55qPwKzYFP7qk=";
     };
     x86_64-linux = {
       asset = "opencode-linux-x64.tar.gz";
-      hash = "sha256-0n08hRg6e9LfRQZISi9QjRiXliBjt8zIRmcFtJOWPcU=";
+      hash = "sha256-p0HEPnN7IDP15+4VGxYjQeRBA01qZLFyJyo/Ojcp6H0=";
     };
     aarch64-linux = {
       asset = "opencode-linux-arm64.tar.gz";
-      hash = "sha256-L/pju2EV16oZPLH2+nZut54bOZd2hxpiSTWnUuRGEQU=";
+      hash = "sha256-Bu9gK5vIpiT9yOknZz59qky3Dx5XxVhAI8qTYxxKR24=";
     };
   };
 
