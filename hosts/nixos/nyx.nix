@@ -115,7 +115,7 @@ let
       memoryMax = "2G";
       script = ''
         set -euo pipefail
-        exec ${pkgs.nodejs_24}/bin/npx -y @playwright/mcp
+        exec ${pkgs.nodejs_24}/bin/npx -y @playwright/mcp --headless
       '';
     };
   };
@@ -1060,6 +1060,9 @@ in
         stale_age_ms=$((90 * 60 * 1000))
         max_compactions=12
         overflow_limit=48
+        delete_age_ms=$((7 * 24 * 60 * 60 * 1000))
+        delete_limit=16
+        keep_per_directory=2
         ${pkgs.coreutils}/bin/mkdir -p "$log_dir"
 
         timestamp="$(${pkgs.coreutils}/bin/date -Is)"
@@ -1103,23 +1106,60 @@ in
 
         if [ -z "$sessions" ]; then
           echo "$timestamp no compaction candidates total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
+        else
+          payload='{"command":"compact","arguments":""}'
+          compacted=0
+          for sid in $sessions; do
+            if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
+              -H "content-type: application/json" \
+              -X POST "http://127.0.0.1:4097/session/$sid/command" \
+              -d "$payload" >/dev/null; then
+              echo "$timestamp compact failed session=$sid" >> "$log_file"
+            else
+              compacted=$((compacted + 1))
+            fi
+          done
+
+          echo "$timestamp compacted sessions=$compacted total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
+        fi
+
+        delete_candidates="$(${pkgs.jq}/bin/jq -r \
+          --argjson now "$now_ms" \
+          --argjson stale "$delete_age_ms" \
+          --argjson keep_per_dir "$keep_per_directory" \
+          --argjson max "$delete_limit" '
+            [
+              (
+                sort_by([(.directory // "__global__"), (.time.updated // 0)])
+                | group_by(.directory // "__global__")[]
+                | sort_by(.time.updated // 0)
+                | reverse
+                | .[$keep_per_dir:][]
+                | select(($now - (.time.updated // 0)) > $stale)
+              )
+            ]
+            | sort_by(.time.updated // 0)
+            | .[:$max]
+            | .[]
+            | .id
+          ' <<<"$sessions_json" 2>/dev/null || true)"
+
+        if [ -z "$delete_candidates" ]; then
+          echo "$timestamp no stale deletions total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
           exit 0
         fi
 
-        payload='{"command":"compact","arguments":""}'
-        compacted=0
-        for sid in $sessions; do
+        deleted=0
+        for sid in $delete_candidates; do
           if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
-            -H "content-type: application/json" \
-            -X POST "http://127.0.0.1:4097/session/$sid/command" \
-            -d "$payload" >/dev/null; then
-            echo "$timestamp compact failed session=$sid" >> "$log_file"
+            -X DELETE "http://127.0.0.1:4097/session/$sid" >/dev/null; then
+            echo "$timestamp delete failed session=$sid" >> "$log_file"
           else
-            compacted=$((compacted + 1))
+            deleted=$((deleted + 1))
           fi
         done
 
-        echo "$timestamp compacted sessions=$compacted total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
+        echo "$timestamp deleted stale_sessions=$deleted total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
       '';
     in
     {
