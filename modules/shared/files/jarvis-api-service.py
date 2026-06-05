@@ -285,12 +285,12 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
             SELECT e.task_id, e.thread_id, e.agent, e.execution_target, e.stage, e.status, e.summary, e.timestamp, e.reviewer_required, e.reviewed
             FROM task_events e
             JOIN (
-                SELECT task_id, MAX(ts_epoch) AS max_ts
+                SELECT task_id, MAX(id) AS max_id
                 FROM task_events
                 WHERE ts_epoch >= ?
                 GROUP BY task_id
-            ) latest ON latest.task_id = e.task_id AND latest.max_ts = e.ts_epoch
-            WHERE e.status IN ('routed', 'dispatched', 'running', 'approval_required', 'review_pending')
+            ) latest ON latest.task_id = e.task_id AND latest.max_id = e.id
+            WHERE e.status IN ('routed', 'dispatched', 'running', 'approval_required', 'review_pending', 'changes_requested')
             ORDER BY e.ts_epoch DESC
             LIMIT ?
             """,
@@ -310,9 +310,17 @@ def summarize_tasks_db(path: Path, hours: int, limit: int) -> dict[str, Any]:
 
         totals_rows = conn.execute(
             """
-            SELECT status, COUNT(*)
-            FROM task_events
-            WHERE ts_epoch >= ?
+            SELECT latest.status, COUNT(*)
+            FROM (
+                SELECT e.task_id, e.status
+                FROM task_events e
+                JOIN (
+                    SELECT task_id, MAX(id) AS max_id
+                    FROM task_events
+                    WHERE ts_epoch >= ?
+                    GROUP BY task_id
+                ) grouped ON grouped.task_id = e.task_id AND grouped.max_id = e.id
+            ) latest
             GROUP BY status
             ORDER BY COUNT(*) DESC
             """,
@@ -761,7 +769,13 @@ def create_app(
             )
             work_result = await dispatch_work(payload, routed)
             if work_result is not None:
-                final_status = "review_pending" if work_result.get("ok") else "failed"
+                execution_target = str(routed.get("execution_target") or "")
+                if not work_result.get("ok"):
+                    final_status = "failed"
+                elif execution_target == "nyx":
+                    final_status = "running"
+                else:
+                    final_status = "review_pending"
                 record_task_event(
                     payload=payload,
                     routed=routed,
@@ -830,6 +844,9 @@ def create_app(
         task_id = derive_task_id_from_thread(thread_id, fallback=str(payload.get("task_id", "")))
         reviewer = str(payload.get("reviewer", "jarvis-reviewer")).strip() or "jarvis-reviewer"
         note = compact_summary(str(payload.get("note", "")) or f"Review decision: {decision}")
+        scope = str(payload.get("scope", "once")).strip().lower()
+        if scope not in {"once", "always"}:
+            scope = "once"
 
         row = {
             "timestamp": now_iso(),
@@ -848,6 +865,7 @@ def create_app(
                 "decision": decision,
                 "note": note,
                 "source": "review-action-api",
+                "scope": scope,
             },
         }
         insert_task_event_db(usage_db_path, row)
@@ -882,6 +900,14 @@ def create_app(
         if workers_probe.get("ok") and isinstance(workers_probe.get("payload"), dict):
             payload = workers_probe.get("payload")
             workers = payload.get("workers") if isinstance(payload, dict) and isinstance(payload.get("workers"), list) else []
+
+        active_summary = summarize_tasks_db(usage_db_path, hours=24, limit=200) if usage_db_path is not None else {"active": []}
+        active_nyx = [row for row in active_summary.get("active", []) if str(row.get("execution_target", "")) == "nyx"]
+        logical_busy = len(active_nyx) > 0
+        if workers:
+            for worker in workers:
+                if logical_busy:
+                    worker["logical_busy"] = True
 
         nodes = [api_probe, harness_probe, slack_probe, nyx_probe, mac_probe, voice_probe]
         connected = len([n for n in nodes if n.get("ok")])
@@ -1016,7 +1042,13 @@ def create_app(
                     )
                     work_result = await dispatch_work(interaction, routed)
                     if work_result is not None:
-                        final_status = "review_pending" if work_result.get("ok") else "failed"
+                        execution_target = str(routed.get("execution_target") or "")
+                        if not work_result.get("ok"):
+                            final_status = "failed"
+                        elif execution_target == "nyx":
+                            final_status = "running"
+                        else:
+                            final_status = "review_pending"
                         record_task_event(
                             payload=interaction,
                             routed=routed,
