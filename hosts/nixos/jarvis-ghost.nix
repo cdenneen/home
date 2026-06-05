@@ -23,6 +23,10 @@ let
   );
 in
 {
+  services.ollama.enable = true;
+
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ jarvisApiPort ];
+
   environment.systemPackages = lib.mkAfter [
     jarvisPython
   ];
@@ -127,6 +131,7 @@ in
       write_var JARVIS_DATA_DIR "${jarvisDataDir}"
       write_var JARVIS_REGISTRY_PATH "${jarvisRepoDir}/config/agent_registry.yaml"
       write_var JARVIS_DELEGATION_PATH "${jarvisRepoDir}/config/delegation_policy.yaml"
+      write_var JARVIS_MODEL_PROFILES_PATH "${jarvisRepoDir}/config/model_profiles.yaml"
       write_var JARVIS_REALMS_PATH "${jarvisRepoDir}/config/realms.yaml"
       write_var JARVIS_LOCKS_PATH "${jarvisDataDir}/realm_locks.json"
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
@@ -141,6 +146,7 @@ in
       write_var JARVIS_BRAIN_REMOTE_HOST "nyx"
       write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
       write_var JARVIS_API_URL "http://127.0.0.1:${toString jarvisApiPort}"
+      write_var JARVIS_OLLAMA_ENDPOINT "http://127.0.0.1:11434"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
       write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
       write_var JARVIS_VOICE_WS_URL "wss://ai.denneen.net/ws/voice"
@@ -215,6 +221,7 @@ in
         --repo-dir "$JARVIS_REPO_DIR" \
         --registry "$JARVIS_REGISTRY_PATH" \
         --delegation "$JARVIS_DELEGATION_PATH" \
+        --model-profiles "$JARVIS_MODEL_PROFILES_PATH" \
         --realms "$JARVIS_REALMS_PATH" \
         --locks "$JARVIS_LOCKS_PATH" \
         --routing-output "$JARVIS_ROUTING_OUTPUT"
@@ -257,7 +264,7 @@ in
       set -euo pipefail
 
       exec ${jarvisPython}/bin/python ${../../modules/shared/files/jarvis-api-service.py} \
-        --host 127.0.0.1 \
+        --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
         --harness-url "$JARVIS_HARNESS_URL" \
         --work-endpoint "$JARVIS_WORK_ENDPOINT" \
@@ -270,6 +277,7 @@ in
         --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
         --remediator-policy-file "''${JARVIS_REMEDIATOR_POLICY_FILE:-${jarvisRepoDir}/config/autopilot_policy.yaml}" \
         --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
+        --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
         --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
     '';

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,34 @@ def compact_summary(text: str, max_len: int = 120) -> str:
 def write_state(state_file: Path, payload: dict[str, Any]) -> None:
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+async def execute_work(payload: dict[str, Any]) -> dict[str, Any]:
+    started = time.perf_counter()
+    routed = payload.get("routed_event") if isinstance(payload.get("routed_event"), dict) else {}
+    input_event = payload.get("input_event") if isinstance(payload.get("input_event"), dict) else {}
+
+    controls = payload.get("runner_control") if isinstance(payload.get("runner_control"), dict) else {}
+    delay_ms = int(controls.get("delay_ms", payload.get("simulate_delay_ms", 0)) or 0)
+    delay_ms = max(0, min(delay_ms, 30000))
+    if delay_ms:
+        await asyncio.sleep(delay_ms / 1000)
+
+    text = str(routed.get("text") or input_event.get("text") or "")
+    if bool(controls.get("force_fail", False)) or "[force-fail]" in text.lower():
+        raise RuntimeError("runner control requested failure")
+
+    result = {
+        "ok": True,
+        "mode": "lightweight",
+        "duration_ms": int((time.perf_counter() - started) * 1000),
+        "summary": compact_summary(text or "Nyx worker executed lightweight job", max_len=120),
+        "route": {
+            "agent": str(routed.get("resolved_agent") or "research-agent"),
+            "target": str(routed.get("execution_target") or "nyx"),
+        },
+    }
+    return result
 
 
 def create_app(
@@ -113,36 +142,76 @@ def create_app(
     ) -> JSONResponse:
         nonlocal queue_depth
         validate_token(authorization, x_jarvis_shared_token)
+        routed = payload.get("routed_event") if isinstance(payload.get("routed_event"), dict) else {}
+        input_event = payload.get("input_event") if isinstance(payload.get("input_event"), dict) else {}
+
+        callback_base = {
+            "thread_id": str(routed.get("thread_id") or input_event.get("thread_id") or ""),
+            "task_id": str(routed.get("event_id") or ""),
+            "user": str(routed.get("user") or input_event.get("user") or "nyx-worker"),
+            "agent": str(routed.get("resolved_agent") or "research-agent"),
+            "execution_target": "nyx",
+            "worker_id": worker_id,
+        }
+
         queue_depth += 1
         async with run_lock:
             queue_depth = max(0, queue_depth - 1)
+            execution_started_at = now_iso()
+            running_payload = {
+                **callback_base,
+                "status": "running",
+                "summary": compact_summary(
+                    str(routed.get("text") or input_event.get("text") or "work accepted by nyx worker"),
+                    max_len=120,
+                ),
+            }
+            running_ok, running_detail = send_callback(running_payload)
+
             row = {
                 "ok": True,
                 "service": "jarvis-work-runner",
                 "worker_id": worker_id,
                 "capabilities": capabilities,
                 "accepted_at": now_iso(),
+                "execution_started_at": execution_started_at,
                 "payload": payload,
+                "callback_running_ok": running_ok,
+                "callback_running_detail": running_detail,
             }
 
-            routed = payload.get("routed_event") if isinstance(payload.get("routed_event"), dict) else {}
-            input_event = payload.get("input_event") if isinstance(payload.get("input_event"), dict) else {}
-            callback_payload = {
-                "thread_id": str(routed.get("thread_id") or input_event.get("thread_id") or ""),
-                "task_id": str(routed.get("event_id") or ""),
-                "user": str(routed.get("user") or input_event.get("user") or "nyx-worker"),
-                "agent": str(routed.get("resolved_agent") or "research-agent"),
-                "execution_target": "nyx",
-                "worker_id": worker_id,
-                "status": "running",
-                "summary": compact_summary(str(routed.get("text") or input_event.get("text") or "work accepted by nyx worker"), max_len=120),
-            }
-            callback_ok, callback_detail = send_callback(callback_payload)
-            row["callback_ok"] = callback_ok
-            row["callback_detail"] = callback_detail
-
-            write_state(state_path, row)
-            return JSONResponse(row)
+            try:
+                execution_result = await execute_work(payload)
+                row["execution_result"] = execution_result
+                row["execution_completed_at"] = now_iso()
+                write_state(state_path, row)
+                completed_payload = {
+                    **callback_base,
+                    "status": "completed",
+                    "summary": compact_summary(
+                        str(execution_result.get("summary") or "Nyx worker completed lightweight execution."),
+                        max_len=120,
+                    ),
+                }
+                completed_ok, completed_detail = send_callback(completed_payload)
+                row["callback_completed_ok"] = completed_ok
+                row["callback_completed_detail"] = completed_detail
+                write_state(state_path, row)
+                return JSONResponse(row)
+            except Exception as exc:
+                failed_payload = {
+                    **callback_base,
+                    "status": "failed",
+                    "summary": compact_summary(f"Worker run failed: {exc}", max_len=120),
+                }
+                failed_ok, failed_detail = send_callback(failed_payload)
+                row["ok"] = False
+                row["execution_completed_at"] = now_iso()
+                row["error"] = str(exc)
+                row["callback_failed_ok"] = failed_ok
+                row["callback_failed_detail"] = failed_detail
+                write_state(state_path, row)
+                raise HTTPException(status_code=500, detail=f"worker execution failed: {exc}") from exc
 
     return app
 

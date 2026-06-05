@@ -32,12 +32,14 @@ def create_app(
     locks_path: str,
     routing_output: str,
     delegation_path: str,
+    model_profiles_path: str,
 ) -> FastAPI:
     append_route, load_yaml, route, DelegationPolicy, RealmLockStore, RealmPolicy = load_router_modules(repo_dir)
     registry = load_yaml(Path(registry_path))
     realm_policy = RealmPolicy.from_file(Path(realms_path))
     lock_store = RealmLockStore(Path(locks_path))
     delegation_policy = DelegationPolicy.from_file(Path(delegation_path)) if Path(delegation_path).exists() else None
+    model_profiles = load_yaml(Path(model_profiles_path)) if Path(model_profiles_path).exists() else {}
     output = Path(routing_output)
 
     app = FastAPI(title="Jarvis Harness", version="0.1.0")
@@ -62,6 +64,7 @@ def create_app(
                 realm_policy=realm_policy,
                 lock_store=lock_store,
                 delegation_policy=delegation_policy,
+                model_profiles=model_profiles,
             )
             append_route(output, routed)
         except Exception as exc:  # pragma: no cover - surfaced in service logs
@@ -82,6 +85,7 @@ def main() -> None:
     parser.add_argument("--locks", required=True)
     parser.add_argument("--routing-output", required=True)
     parser.add_argument("--delegation", required=True)
+    parser.add_argument("--model-profiles", required=True)
     args = parser.parse_args()
 
     import uvicorn
@@ -94,6 +98,7 @@ def main() -> None:
             locks_path=args.locks,
             routing_output=args.routing_output,
             delegation_path=args.delegation,
+            model_profiles_path=args.model_profiles,
         ),
         host=args.host,
         port=args.port,

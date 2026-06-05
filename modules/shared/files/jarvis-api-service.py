@@ -429,6 +429,27 @@ def get_approval_preference_db(path: Path, user_id: str, agent: str) -> str:
     return value if value in {"always", "once", "none"} else "none"
 
 
+def latest_review_decision_db(path: Path, thread_id: str) -> str:
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return "none"
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            """
+            SELECT status
+            FROM task_events
+            WHERE thread_id = ? AND stage = 'review'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (tid,),
+        ).fetchone()
+    if not row:
+        return "none"
+    decision = str(row[0] or "none").strip().lower()
+    return decision if decision in {"approved", "changes_requested", "rejected"} else "none"
+
+
 def insert_remediator_action_db(path: Path, row: dict[str, Any]) -> None:
     ts = parse_iso(str(row.get("timestamp", ""))) or datetime.now(UTC)
     with sqlite3.connect(path) as conn:
@@ -791,6 +812,7 @@ def create_app(
     remediator_state_file: str,
     remediator_policy_file: str,
     slack_endpoint: str,
+    ollama_endpoint: str,
     supabase_url: str,
     supabase_key: str,
 ) -> FastAPI:
@@ -1023,7 +1045,10 @@ def create_app(
                     headers=headers,
                 )
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                if isinstance(result, dict):
+                    result.setdefault("worker_id", "mac-worker-1")
+                return result
 
         if target in {"ghost", "unknown", None}:
             return None
@@ -1051,6 +1076,7 @@ def create_app(
                 "remediator_state_file": str(remediator_state_path) if remediator_state_path is not None else "",
                 "remediator_policy_file": str(remediator_policy_path) if remediator_policy_path is not None else "",
                 "slack_endpoint": slack_endpoint,
+                "ollama_endpoint": ollama_endpoint,
                 "supabase_adapter": {
                     "mode": "dormant",
                     "configured": bool(supabase_url and supabase_key),
@@ -1066,13 +1092,26 @@ def create_app(
     async def api_route(payload: dict[str, Any]) -> JSONResponse:
         try:
             routed = await route_payload(payload)
+            thread_id = str(routed.get("thread_id") or payload.get("thread_id") or "").strip()
+            review_override = False
+            if bool(routed.get("requires_approval")) and usage_db_path is not None and thread_id:
+                latest_review = latest_review_decision_db(usage_db_path, thread_id)
+                if latest_review == "approved":
+                    routed["requires_approval"] = False
+                    routed["approval_override"] = "latest_review_approved"
+                    review_override = True
+
             route_status = "approval_required" if routed.get("requires_approval") else "routed"
             record_task_event(
                 payload=payload,
                 routed=routed,
                 stage="route",
                 status=route_status,
-                detail={"model_tier": routed.get("model_tier"), "delegation_rule": routed.get("delegation_rule")},
+                detail={
+                    "model_tier": routed.get("model_tier"),
+                    "delegation_rule": routed.get("delegation_rule"),
+                    "approval_override": review_override,
+                },
             )
             work_result = await dispatch_work(payload, routed)
             if work_result is not None:
@@ -1094,6 +1133,30 @@ def create_app(
                         "ok": work_result.get("ok"),
                     },
                 )
+                if execution_target == "personal-local":
+                    worker_status = "completed" if bool(work_result.get("ok")) else "failed"
+                    mac_worker_row = {
+                        "timestamp": now_iso(),
+                        "task_id": derive_task_id(routed, payload),
+                        "thread_id": thread_id,
+                        "channel": str(payload.get("channel", "slack")),
+                        "user_name": str(payload.get("user", "mac-worker")),
+                        "agent": str(routed.get("resolved_agent", "code-agent")),
+                        "execution_target": "personal-local",
+                        "stage": "worker",
+                        "status": worker_status,
+                        "summary": compact_summary(
+                            str(work_result.get("detail") or summary_text(routed, work_result) or "Mac worker update")
+                        ),
+                        "reviewer_required": True,
+                        "reviewed": worker_status == "completed",
+                        "detail": {
+                            "worker_id": str(work_result.get("worker_id", "mac-worker-1")),
+                            "source": "api-synthetic-mac-worker",
+                        },
+                    }
+                    if usage_db_path is not None:
+                        insert_task_event_db(usage_db_path, mac_worker_row)
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -1289,6 +1352,7 @@ def create_app(
         workers_probe = await probe_endpoint(name="nyx-workers", base_url=work_endpoint, path="/workers", headers=work_headers)
         mac_probe = await probe_endpoint(name="mac-runner", base_url=mac_endpoint, headers=mac_headers)
         voice_probe = await probe_endpoint(name="voice-edge", base_url=mac_endpoint, path="/status", headers=mac_headers)
+        ollama_probe = await probe_endpoint(name="ollama-local", base_url=ollama_endpoint, path="/api/tags")
 
         workers = []
         if workers_probe.get("ok") and isinstance(workers_probe.get("payload"), dict):
@@ -1303,7 +1367,7 @@ def create_app(
                 if logical_busy:
                     worker["logical_busy"] = True
 
-        nodes = [api_probe, harness_probe, slack_probe, nyx_probe, mac_probe, voice_probe]
+        nodes = [api_probe, harness_probe, slack_probe, nyx_probe, mac_probe, voice_probe, ollama_probe]
         connected = len([n for n in nodes if n.get("ok")])
         return JSONResponse(
             {
@@ -1588,6 +1652,7 @@ def main() -> None:
     parser.add_argument("--remediator-state-file", default="/var/lib/jarvis/data/autopilot_remediator_state.json")
     parser.add_argument("--remediator-policy-file", default="/opt/jarvis/config/autopilot_policy.yaml")
     parser.add_argument("--slack-endpoint", default="http://127.0.0.1:8081")
+    parser.add_argument("--ollama-endpoint", default="http://127.0.0.1:11434")
     parser.add_argument("--supabase-url", default="")
     parser.add_argument("--supabase-key", default="")
     args = parser.parse_args()
@@ -1608,6 +1673,7 @@ def main() -> None:
             remediator_state_file=args.remediator_state_file,
             remediator_policy_file=args.remediator_policy_file,
             slack_endpoint=args.slack_endpoint,
+            ollama_endpoint=args.ollama_endpoint,
             supabase_url=args.supabase_url,
             supabase_key=args.supabase_key,
         ),

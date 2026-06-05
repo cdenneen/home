@@ -5,6 +5,7 @@ let
   jarvisDataDir = "${jarvisRuntimeDir}/data";
   jarvisEnvFile = "${jarvisRuntimeDir}/work-runner.env";
   jarvisWorkPort = 8090;
+  jarvisGhostApiEndpoint = "http://100.114.242.29:8080";
   jarvisWorkerId = "nyx-worker-1";
   jarvisWorkerCapabilities = "code,triage,documentation,investigation";
   jarvisPython = pkgs.python3.withPackages (
@@ -67,7 +68,7 @@ in
       write_var JARVIS_WORK_BIND "0.0.0.0:${toString jarvisWorkPort}"
       write_var JARVIS_WORKER_ID "${jarvisWorkerId}"
       write_var JARVIS_WORKER_CAPABILITIES "${jarvisWorkerCapabilities}"
-      write_var JARVIS_WORK_STATUS_CALLBACK_URL "https://ai.denneen.net/api/tasks/worker-update"
+      write_var JARVIS_WORK_STATUS_CALLBACK_URL "${jarvisGhostApiEndpoint}/api/tasks/worker-update"
 
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
         write_var JARVIS_WORK_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
