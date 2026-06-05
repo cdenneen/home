@@ -81,6 +81,9 @@ def main() -> None:
 
             for tier, raw in tiers.items():
                 item = raw if isinstance(raw, dict) else {}
+                if not bool(item.get("enabled", True)):
+                    state["results"].append({"tier": tier, "ok": True, "detail": "disabled"})
+                    continue
                 alias = str(item.get("name", "")).strip()
                 source = str(item.get("source", "")).strip() or alias
                 if not alias:
