@@ -58,6 +58,7 @@ in
     };
 
     systemd.tmpfiles.rules = [
+      "z ${persistenceRoot} 0755 root root -"
       "d ${persistenceRoot}/postgres 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/qdrant 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/neo4j 0750 ${jarvisUser} ${jarvisUser} -"
