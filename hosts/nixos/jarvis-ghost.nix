@@ -203,6 +203,7 @@ in
 
       tmp_jarvis_secrets="$(${pkgs.coreutils}/bin/mktemp "${jarvisSecretsDir}/jarvis.yaml.XXXXXX")"
       printf 'JARVIS_DASHBOARD_PASSWORD: %s\n' "$(read_secret "${config.sops.secrets.jarvis_dashboard_password.path}")" > "$tmp_jarvis_secrets"
+      ${pkgs.coreutils}/bin/chown cdenneen:users "$tmp_jarvis_secrets"
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_jarvis_secrets"
       ${pkgs.coreutils}/bin/mv -f "$tmp_jarvis_secrets" "${jarvisSecretsFile}"
 
