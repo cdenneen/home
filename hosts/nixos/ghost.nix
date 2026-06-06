@@ -65,6 +65,12 @@ in
   ];
 
   services = {
+    jarvisSubstrate = {
+      enable = true;
+      enableStorageContainers = true;
+      enableAppContainers = false;
+    };
+
     tailscale = {
       enable = true;
       openFirewall = true;
