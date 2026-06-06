@@ -77,14 +77,14 @@ in
           };
           volumes = [ "${persistenceRoot}/postgres:/var/lib/postgresql/data" ];
           ports = [ "127.0.0.1:5432:5432" ];
-          extraOptions = [ "--slice=jarvis-system.slice" "--health-cmd=pg_isready -U jarvis" ];
+          extraOptions = [ "--health-cmd=pg_isready -U jarvis" ];
         };
 
         jarvis-qdrant = {
           image = "docker.io/qdrant/qdrant:latest";
           volumes = [ "${persistenceRoot}/qdrant:/qdrant/storage" ];
           ports = [ "127.0.0.1:6333:6333" ];
-          extraOptions = [ "--slice=jarvis-system.slice" ];
+          extraOptions = [ ];
         };
 
         jarvis-neo4j = {
@@ -97,7 +97,7 @@ in
             "${persistenceRoot}/neo4j/import:/var/lib/neo4j/import"
           ];
           ports = [ "127.0.0.1:7474:7474" "127.0.0.1:7687:7687" ];
-          extraOptions = [ "--slice=jarvis-system.slice" ];
+          extraOptions = [ ];
         };
       })
 
@@ -105,17 +105,25 @@ in
         assistant-gateway = {
           image = "jarvis-assistant-gateway:local";
           ports = [ "127.0.0.1:4000:4000" ];
-          extraOptions = [ "--slice=jarvis-ai.slice" ];
+          extraOptions = [ ];
           dependsOn = [ "jarvis-postgres" "jarvis-qdrant" "jarvis-neo4j" ];
         };
 
         slack-gateway = {
           image = "jarvis-slack-gateway:local";
-          extraOptions = [ "--slice=jarvis-system.slice" ];
+          extraOptions = [ ];
           dependsOn = [ "assistant-gateway" ];
         };
       })
     ];
+
+    systemd.services = {
+      podman-jarvis-postgres.serviceConfig.Slice = "jarvis-system.slice";
+      podman-jarvis-qdrant.serviceConfig.Slice = "jarvis-system.slice";
+      podman-jarvis-neo4j.serviceConfig.Slice = "jarvis-system.slice";
+      podman-assistant-gateway.serviceConfig.Slice = "jarvis-ai.slice";
+      podman-slack-gateway.serviceConfig.Slice = "jarvis-system.slice";
+    };
 
     systemd.services.jarvis-model-warmup = {
       description = "Download and cache local AI models inside Ollama";
