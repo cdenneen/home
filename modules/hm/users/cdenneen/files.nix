@@ -148,7 +148,6 @@ let
       ];
     })
     // {
-      profile = "safe-relaxed";
       model = "gpt-5.3-codex";
       model_reasoning_effort = "xhigh";
       model_reasoning_summary = "detailed";
@@ -200,30 +199,6 @@ let
             mode = "full";
             allow_local_binding = true;
           };
-        };
-      };
-      profiles = {
-        "fast-triage" = {
-          approval_policy = "on-request";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "medium";
-          model_reasoning_summary = "concise";
-        };
-        "safe-relaxed" = {
-          approval_policy = "on-request";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "xhigh";
-        };
-        "ci-runner" = {
-          approval_policy = "on-request";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "high";
-          model_reasoning_summary = "detailed";
-        };
-        strict = {
-          approval_policy = "untrusted";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "high";
         };
       };
       features = {
@@ -297,6 +272,32 @@ let
         ignore_default_excludes = true;
       };
     };
+
+  codexProfileAttrs = {
+    "fast-triage" = {
+      approval_policy = "on-request";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "medium";
+      model_reasoning_summary = "concise";
+    };
+    "safe-relaxed" = {
+      approval_policy = "on-request";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "xhigh";
+      model_reasoning_summary = "detailed";
+    };
+    "ci-runner" = {
+      approval_policy = "on-request";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "high";
+      model_reasoning_summary = "detailed";
+    };
+    strict = {
+      approval_policy = "untrusted";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "high";
+    };
+  };
 in
 {
   # User-scoped config files for cdenneen.
@@ -387,6 +388,17 @@ in
   };
   home.file.".codex/config.toml.source".source =
     tomlFormat.generate "codex-config.toml" codexConfigAttrs;
+  home.file.".codex/fast-triage.config.toml".source =
+    tomlFormat.generate "codex-fast-triage.config.toml"
+      codexProfileAttrs."fast-triage";
+  home.file.".codex/safe-relaxed.config.toml".source =
+    tomlFormat.generate "codex-safe-relaxed.config.toml"
+      codexProfileAttrs."safe-relaxed";
+  home.file.".codex/ci-runner.config.toml".source =
+    tomlFormat.generate "codex-ci-runner.config.toml"
+      codexProfileAttrs."ci-runner";
+  home.file.".codex/strict.config.toml".source =
+    tomlFormat.generate "codex-strict.config.toml" codexProfileAttrs.strict;
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail

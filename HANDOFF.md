@@ -17,6 +17,8 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - `nyx` `restart-tmux` now detects foreign-host OpenCode session directories and avoids restoring those incompatible session IDs.
 - `nyx` `coding:8` was repaired by reattaching it to nyx-native session `ses_1af7abd07ffeZXOtNe8WoLiGNB`.
 - The shared DuckDuckGo MCP on `nyx` now runs stateless, so stale client session IDs no longer break searches.
+- Codex config generation now targets the new profile model: no legacy `profile`/`[profiles.*]` in base `~/.codex/config.toml`, with dedicated `~/.codex/<name>.config.toml` files for `safe-relaxed`, `ci-runner`, `fast-triage`, and `strict`.
+- `ghost` Home Manager package composition now separates core vs heavy tools and excludes heavy extras on `ghost` to reduce store usage.
 
 ## What Was Completed
 
@@ -40,6 +42,8 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
   - `opencode-serve` restarted onto the new config
   - `nyx-mcp-playwright.service` is active
   - direct `opencode attach http://127.0.0.1:4097 ...` no longer returns `401`
+- Updated Codex flake config to remove legacy embedded profile keys/tables and generate standalone profile-layer files compatible with Codex 0.134+.
+- Refactored `modules/hm/users/cdenneen/programs.nix` so `ghost` keeps a lean core package set while non-ghost hosts keep the heavier Kubernetes/GitOps/browser/runtime extras.
 - Added these files:
   - `PROJECT_STATE.md`
   - `NEXT_STEPS.md`
@@ -53,6 +57,8 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 - Decide whether other shared MCP gateways besides DuckDuckGo should become stateless too.
 - Decide whether helpers besides `restart-tmux` should explicitly reject or remap foreign-host OpenCode session paths.
 - Decide whether the remaining old standalone Playwright processes on `nyx` are harmless or should be cleaned up.
+- Apply the new Home Manager generation on affected hosts to materialize the new Codex profile-layer files under `~/.codex`.
+- Apply `ghost` and confirm no required day-to-day remote workflow tool was trimmed; re-add any missing tool to the HM core group if needed.
 - Keep the memory files updated during the next substantial task.
 
 ## Open Issues
@@ -82,4 +88,4 @@ This repo is the flake monorepo for personal NixOS, nix-darwin, and Home Manager
 
 ## Exact Next Action
 
-If shared MCP calls misbehave again, first determine whether the client is reusing a stale session ID after a gateway restart; for DuckDuckGo, the endpoint should now be stateless and recover without client restarts.
+Build/apply `ghost`, validate the lean HM package list still supports expected remote workflows, then re-test Codex profile resume on the target host.

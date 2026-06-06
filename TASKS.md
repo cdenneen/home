@@ -26,6 +26,8 @@
 - [x] Reproduce the DuckDuckGo MCP `No valid session ID provided` failure against the shared `nyx` gateway.
 - [x] Switch the shared DuckDuckGo gateway on `nyx` to stateless Streamable HTTP.
 - [x] Verify DuckDuckGo MCP calls succeed from both `nyx` and the Mac even with a bogus stale session header.
+- [x] Migrate Codex flake-managed profile config from legacy `profile`/`[profiles.*]` in `config.toml` to `~/.codex/<name>.config.toml` files.
+- [x] Split Home Manager package set into core vs heavy groups and trim heavy remote-dev extras on `ghost`.
 
 ## Active
 

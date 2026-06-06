@@ -186,3 +186,33 @@
 - Consequences
   - DuckDuckGo searches continue working even for clients that still send an old session header.
   - Other shared gateways still use their previous stateful behavior and may need similar treatment later if they show the same symptom.
+
+## 2026-06-06 — Codex profiles must be file-layered, not embedded in `config.toml`
+
+- Context
+  - After the Codex update, `codex resume ...` failed because the generated `~/.codex/config.toml` still contained legacy `profile = "safe-relaxed"` and `[profiles.*]` settings.
+- Decision
+  - Remove legacy profile selector/tables from the base generated config and generate standalone profile files: `~/.codex/safe-relaxed.config.toml`, `~/.codex/ci-runner.config.toml`, `~/.codex/fast-triage.config.toml`, and `~/.codex/strict.config.toml`.
+- Rationale
+  - Codex 0.134+ only supports `--profile <name>` with `~/.codex/<name>.config.toml`; legacy in-file profile definitions are explicitly rejected.
+- Alternatives considered
+  - Keep legacy profile settings in `config.toml` and try to continue using `--profile`.
+  - Drop profiles entirely and rely only on one-off `--config` flags.
+- Consequences
+  - Flake-generated config now matches current Codex expectations.
+  - Existing profile-oriented workflows continue to work with `--profile` once the new Home Manager generation is applied.
+
+## 2026-06-06 — `ghost` should use a lean Home Manager package set
+
+- Context
+  - `ghost` is primarily a remote services and remote development host, and store usage should prioritize essential CLI workflows over optional local heavy tooling.
+- Decision
+  - Split Home Manager packages into core and heavy groups and exclude the heavy group when `hostName == "ghost"`.
+- Rationale
+  - This keeps common remote workflows available (`git`, secrets, SSM/OCI access, workspace tooling) while reducing package closure size on `ghost`.
+- Alternatives considered
+  - Disable Home Manager integration entirely on `ghost`.
+  - Keep the same full package set across all hosts.
+- Consequences
+  - `ghost` no longer gets heavy extras like Kubernetes/GitOps helper bundle, browser/runtime extras, and clipboard bridge tooling from the HM package list.
+  - Re-adding any removed tool later is straightforward by moving it back into core or adding a ghost override.

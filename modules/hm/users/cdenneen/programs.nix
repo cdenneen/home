@@ -9,6 +9,7 @@
 let
   isWsl = osConfig != null && ((osConfig.wsl.enable or false) == true);
   hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
+  isGhost = hostName == "ghost";
   enableOciGhostAutostart = false;
   sshDir = "${config.home.homeDirectory}/.ssh";
   # Prefer the macOS lemonade server over a local Linux server so SSH
@@ -52,62 +53,72 @@ let
   };
 
   ssmProxyCommand = "${pkgs.dash}/bin/dash -c \"PATH=${pkgs.ssm-session-manager-plugin}/bin:${pkgs.awscli2}/bin:$PATH ${pkgs.awscli2}/bin/aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'\"";
+
+  hmCorePackages = with pkgs; [
+    # Shell / UX
+    atuin
+    bat
+    jq
+    ripgrep
+    fzf
+    zoxide
+    eza
+    direnv
+    starship
+    tmux
+
+    # Git + auth
+    glab
+    gh
+    _1password-cli
+
+    # Remote access
+    awscli2
+    ssm-session-manager-plugin
+    oci-cli
+
+    # Workspace / repo flow
+    (pkgs.callPackage ../../../../pkgs/rtk.nix { })
+    (pkgs.callPackage ../../../../pkgs/update-workspace-agents.nix { })
+    (pkgs.callPackage ../../../../pkgs/workspace-init.nix { })
+    (pkgs.callPackage ../../../../pkgs/setup-repo.nix { })
+    (pkgs.callPackage ../../../../pkgs/update-workspace.nix { })
+    (pkgs.callPackage ../../../../pkgs/deploy-jarvis.nix { })
+  ];
+
+  hmHeavyPackages = with pkgs; [
+    # Kubernetes / GitOps
+    kubectl
+    kubernetes-helm
+    kubeswitch
+    eks-node-viewer
+    fluxcd
+    pkgs."fluxcd-operator"
+    yq-go
+    kustomize
+    kubeconform
+
+    # Extra runtime and local bridge tools
+    nodejs_24
+    yarn
+    oauth2-proxy
+    lemonade
+  ];
 in
 
 {
   home.packages =
-    with pkgs;
-    [
-      # Shell / UX
-      atuin
-      bat
-      jq
-      ripgrep
-      fzf
-      zoxide
-      eza
-      direnv
-      starship
-      tmux
-
-      # Kubernetes / cloud CLI
-      kubectl
-      kubernetes-helm
-      kubeswitch
-      eks-node-viewer
-      fluxcd
-      pkgs."fluxcd-operator"
-      yq-go
-      kustomize
-      kubeconform
-      glab
-      gh
-
-      # Runtimes / cloud
-      nodejs_24 # LTS
-      yarn
-      _1password-cli
-      awscli2
-      oci-cli
-      (pkgs.callPackage ../../../../pkgs/rtk.nix { })
-      ssm-session-manager-plugin
-      oauth2-proxy
-      (pkgs.callPackage ../../../../pkgs/update-workspace-agents.nix { })
-      (pkgs.callPackage ../../../../pkgs/workspace-init.nix { })
-      (pkgs.callPackage ../../../../pkgs/setup-repo.nix { })
-      (pkgs.callPackage ../../../../pkgs/update-workspace.nix { })
-      (pkgs.callPackage ../../../../pkgs/deploy-jarvis.nix { })
-
-      # Clipboard
-      lemonade
-    ]
+    hmCorePackages
+    ++ lib.optionals (!isGhost) hmHeavyPackages
     ++ lib.optionals pkgs.stdenv.isLinux [
-      netcat-openbsd
-      xsel
+      pkgs.netcat-openbsd
+    ]
+    ++ lib.optionals (pkgs.stdenv.isLinux && !isGhost) [
+      pkgs.xsel
     ]
     ++ lib.optionals (pkgs.stdenv.isLinux && hostName == "nyx") [
-      chromium
-      firefox
+      pkgs.chromium
+      pkgs.firefox
     ];
 
   programs.nh = {

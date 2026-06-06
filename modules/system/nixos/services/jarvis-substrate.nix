@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   cfg = config.services.jarvisSubstrate;
   jarvisUser = "jarvis";
@@ -103,7 +108,10 @@ in
             "${persistenceRoot}/neo4j/data:/data"
             "${persistenceRoot}/neo4j/import:/var/lib/neo4j/import"
           ];
-          ports = [ "127.0.0.1:7474:7474" "127.0.0.1:7687:7687" ];
+          ports = [
+            "127.0.0.1:7474:7474"
+            "127.0.0.1:7687:7687"
+          ];
           extraOptions = [ ];
         };
       })
@@ -113,7 +121,11 @@ in
           image = "jarvis-assistant-gateway:local";
           ports = [ "127.0.0.1:4000:4000" ];
           extraOptions = [ ];
-          dependsOn = [ "jarvis-postgres" "jarvis-qdrant" "jarvis-neo4j" ];
+          dependsOn = [
+            "jarvis-postgres"
+            "jarvis-qdrant"
+            "jarvis-neo4j"
+          ];
         };
 
         slack-gateway = {
@@ -134,10 +146,20 @@ in
 
     systemd.services.jarvis-model-warmup = {
       description = "Download and cache local AI models inside Ollama";
-      after = [ "ollama.service" "network-online.target" ];
-      wants = [ "ollama.service" "network-online.target" ];
+      after = [
+        "ollama.service"
+        "network-online.target"
+      ];
+      wants = [
+        "ollama.service"
+        "network-online.target"
+      ];
       wantedBy = [ "multi-user.target" ];
-      path = [ pkgs.curl pkgs.coreutils pkgs.bash ];
+      path = [
+        pkgs.curl
+        pkgs.coreutils
+        pkgs.bash
+      ];
       script = ''
         set -euo pipefail
         export OLLAMA_HOST="127.0.0.1:11434"

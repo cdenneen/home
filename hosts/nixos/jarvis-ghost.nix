@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   jarvisRepoDir = "/opt/jarvis";
   jarvisRuntimeDir = "/var/lib/jarvis";

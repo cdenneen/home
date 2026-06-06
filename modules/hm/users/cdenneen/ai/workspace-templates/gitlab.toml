@@ -1,4 +1,3 @@
-profile = "ci-runner"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 default_permissions = "ci-runner"

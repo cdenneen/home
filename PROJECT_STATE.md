@@ -23,6 +23,8 @@
 - `nyx` `coding:8` was repaired by switching it from Mac-path session `ses_1e88f80d2ffe5gZIW1wrs5QeIJ` to nyx-native session `ses_1af7abd07ffeZXOtNe8WoLiGNB`.
 - `restart-tmux` no longer snapshots the literal OpenCode password into tmux snapshot files.
 - The shared DuckDuckGo MCP on `nyx` now runs stateless over Streamable HTTP, so stale client session headers no longer break searches.
+- Codex flake-managed config now follows the 0.134+ profile model by removing legacy `profile`/`[profiles.*]` from the base config and generating per-profile `~/.codex/<name>.config.toml` layers.
+- `ghost` Home Manager packages are now split into core and heavy groups, with heavy remote-dev extras excluded on `ghost` to reduce store footprint while keeping core CLI workflows.
 
 ## Active Work Stream
 
@@ -51,6 +53,8 @@
 - Reattached `nyx` `coding:8` to the latest nyx-native `k8s` session and confirmed the permission prompt no longer reappears.
 - Reproduced the DuckDuckGo MCP failure and confirmed the root cause was stale session IDs against a stateful `supergateway`.
 - Switched only the DuckDuckGo gateway to stateless Streamable HTTP, added restart triggers to the shared MCP units, and verified live searches succeed even when a bogus `mcp-session-id` header is sent from both `nyx` and the Mac.
+- Removed legacy profile keys from generated Codex base config and started generating explicit profile-layer files (`safe-relaxed`, `ci-runner`, `fast-triage`, `strict`) to match current Codex behavior.
+- Refactored Home Manager package composition to keep `ghost` on a lean core toolset while leaving the heavier Kubernetes/GitOps/browser/runtime extras enabled on non-ghost hosts.
 
 ## Current Blockers
 

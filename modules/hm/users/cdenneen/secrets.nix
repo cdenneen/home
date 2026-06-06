@@ -481,55 +481,55 @@ in
           [ "materializeLinuxSopsSecrets" ]
       )
       ''
-        set -euo pipefail
+                set -euo pipefail
 
-        export PATH="${pkgs.coreutils}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+                export PATH="${pkgs.coreutils}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
 
-        token_file=""
-        for candidate in \
-          /run/secrets/github-token \
-          /var/run/secrets/github-token \
-          "$HOME/.local/share/sops-nix/secrets/github-token" \
-          "$HOME/.config/sops-nix/secrets/github-token"
-        do
-          if [ -r "$candidate" ]; then
-            token_file="$candidate"
-            break
-          fi
-        done
+                token_file=""
+                for candidate in \
+                  /run/secrets/github-token \
+                  /var/run/secrets/github-token \
+                  "$HOME/.local/share/sops-nix/secrets/github-token" \
+                  "$HOME/.config/sops-nix/secrets/github-token"
+                do
+                  if [ -r "$candidate" ]; then
+                    token_file="$candidate"
+                    break
+                  fi
+                done
 
-        if [ -z "$token_file" ]; then
-          echo "warning: github-token secret is missing; skipping gh hosts materialization" >&2
-          exit 0
-        fi
+                if [ -z "$token_file" ]; then
+                  echo "warning: github-token secret is missing; skipping gh hosts materialization" >&2
+                  exit 0
+                fi
 
-        github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
-        if [ -z "$github_token" ]; then
-          echo "warning: github-token secret is empty; skipping gh hosts materialization" >&2
-          exit 0
-        fi
+                github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+                if [ -z "$github_token" ]; then
+                  echo "warning: github-token secret is empty; skipping gh hosts materialization" >&2
+                  exit 0
+                fi
 
-        gh_dir="$HOME/.config/gh"
-        gh_hosts="$gh_dir/hosts.yml"
-        tmp_file="$(${pkgs.coreutils}/bin/mktemp)"
+                gh_dir="$HOME/.config/gh"
+                gh_hosts="$gh_dir/hosts.yml"
+                tmp_file="$(${pkgs.coreutils}/bin/mktemp)"
 
-        cleanup() {
-          rm -f "$tmp_file"
-        }
-        trap cleanup EXIT
+                cleanup() {
+                  rm -f "$tmp_file"
+                }
+                trap cleanup EXIT
 
-        $DRY_RUN_CMD mkdir -p "$gh_dir"
-        cat >"$tmp_file" <<EOF
-github.com:
-    users:
-        ${config.home.username}:
+                $DRY_RUN_CMD mkdir -p "$gh_dir"
+                cat >"$tmp_file" <<EOF
+        github.com:
+            users:
+                ${config.home.username}:
+                    oauth_token: $github_token
+            git_protocol: ssh
+            user: ${config.home.username}
             oauth_token: $github_token
-    git_protocol: ssh
-    user: ${config.home.username}
-    oauth_token: $github_token
-EOF
+        EOF
 
-        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp_file" "$gh_hosts"
+                $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp_file" "$gh_hosts"
       '';
 
   home.file = lib.mkMerge [

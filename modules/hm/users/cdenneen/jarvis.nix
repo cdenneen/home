@@ -124,34 +124,34 @@ lib.mkIf isDarwin {
   };
 
   home.activation.jarvisVoiceEdgeEnv = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    set -euo pipefail
+        set -euo pipefail
 
-    runtime_dir=${lib.escapeShellArg jarvisRuntimeDir}
-    env_file=${lib.escapeShellArg jarvisEnvFile}
-    tmp_env="$runtime_dir/voice-edge.env.tmp"
+        runtime_dir=${lib.escapeShellArg jarvisRuntimeDir}
+        env_file=${lib.escapeShellArg jarvisEnvFile}
+        tmp_env="$runtime_dir/voice-edge.env.tmp"
 
-    mkdir -p "$runtime_dir"
-    cat > "$tmp_env" <<'EOF'
-JARVIS_VOICE_WS_URL=wss://ai.denneen.net/ws/voice
-JARVIS_WAKE_PHRASE=Let's get to work Jarvis
-JARVIS_TTS_MODE=remote_text_local_tts
-JARVIS_TTS_VOICE_PROFILE=british-ai-assistant
-JARVIS_VOICE_EDGE_STATE_FILE=${jarvisStateFile}
-JARVIS_VOICE_RECONNECT_SECONDS=5
-JARVIS_VOICE_HEARTBEAT_SECONDS=20
-EOF
-    chmod 600 "$tmp_env"
-    mv -f "$tmp_env" "$env_file"
+        mkdir -p "$runtime_dir"
+        cat > "$tmp_env" <<'EOF'
+    JARVIS_VOICE_WS_URL=wss://ai.denneen.net/ws/voice
+    JARVIS_WAKE_PHRASE=Let's get to work Jarvis
+    JARVIS_TTS_MODE=remote_text_local_tts
+    JARVIS_TTS_VOICE_PROFILE=british-ai-assistant
+    JARVIS_VOICE_EDGE_STATE_FILE=${jarvisStateFile}
+    JARVIS_VOICE_RECONNECT_SECONDS=5
+    JARVIS_VOICE_HEARTBEAT_SECONDS=20
+    EOF
+        chmod 600 "$tmp_env"
+        mv -f "$tmp_env" "$env_file"
 
-    runner_env=${lib.escapeShellArg jarvisMacRunnerEnvFile}
-    tmp_runner_env="$runtime_dir/mac-runner.env.tmp"
-    cat > "$tmp_runner_env" <<'EOF'
-JARVIS_MAC_RUNNER_PORT=8091
-JARVIS_MAC_RUNNER_SHARED_TOKEN=
-JARVIS_MAC_RUNNER_STATE_FILE="${jarvisMacRunnerStateFile}"
-EOF
-    chmod 600 "$tmp_runner_env"
-    mv -f "$tmp_runner_env" "$runner_env"
+        runner_env=${lib.escapeShellArg jarvisMacRunnerEnvFile}
+        tmp_runner_env="$runtime_dir/mac-runner.env.tmp"
+        cat > "$tmp_runner_env" <<'EOF'
+    JARVIS_MAC_RUNNER_PORT=8091
+    JARVIS_MAC_RUNNER_SHARED_TOKEN=
+    JARVIS_MAC_RUNNER_STATE_FILE="${jarvisMacRunnerStateFile}"
+    EOF
+        chmod 600 "$tmp_runner_env"
+        mv -f "$tmp_runner_env" "$runner_env"
   '';
 
   launchd.agents.jarvis-voice-edge = {
