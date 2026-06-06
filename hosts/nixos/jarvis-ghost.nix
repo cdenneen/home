@@ -8,7 +8,9 @@ let
   jarvisRepoDir = "/opt/jarvis";
   jarvisRuntimeDir = "/var/lib/jarvis";
   jarvisDataDir = "${jarvisRuntimeDir}/data";
-  jarvisEnvFile = "${jarvisRuntimeDir}/ghost.env";
+  jarvisSecretsDir = "${jarvisDataDir}/secrets";
+  jarvisSecretsFile = "${jarvisSecretsDir}/jarvis.yaml";
+  jarvisEnvFile = "${jarvisRuntimeDir}/jarvis.env";
   jarvisHarnessPort = 8079;
   jarvisApiPort = 8080;
   jarvisSlackPort = 8081;
@@ -37,56 +39,73 @@ in
   ];
 
   sops.secrets.jarvis_slack_bot_token = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_signing_secret = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_app_id = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_client_id = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_client_secret = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_channel_ops = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_channel_approvals = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_channel_audit = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_channel_dev = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_slack_channel_incidents = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
   };
   sops.secrets.jarvis_work_shared_token = {
+    sopsFile = ../../secrets/jarvis.yaml;
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.jarvis_dashboard_password = {
+    sopsFile = ../../secrets/jarvis.yaml;
     owner = "cdenneen";
     group = "users";
     mode = "0400";
@@ -96,6 +115,7 @@ in
     "d ${jarvisRepoDir} 0755 cdenneen users -"
     "d ${jarvisRuntimeDir} 0750 cdenneen users -"
     "d ${jarvisDataDir} 0750 cdenneen users -"
+    "d ${jarvisSecretsDir} 0750 cdenneen users -"
   ];
 
   systemd.services.jarvis-ghost-env = {
@@ -117,7 +137,7 @@ in
     script = ''
       set -euo pipefail
 
-      tmp_env="$(${pkgs.coreutils}/bin/mktemp "${jarvisRuntimeDir}/ghost.env.XXXXXX")"
+      tmp_env="$(${pkgs.coreutils}/bin/mktemp "${jarvisRuntimeDir}/jarvis.env.XXXXXX")"
 
       cleanup() {
         ${pkgs.coreutils}/bin/rm -f "$tmp_env"
@@ -134,6 +154,7 @@ in
 
       write_var JARVIS_REPO_DIR "${jarvisRepoDir}"
       write_var JARVIS_DATA_DIR "${jarvisDataDir}"
+      write_var JARVIS_SECRETS_FILE "${jarvisSecretsFile}"
       write_var JARVIS_REGISTRY_PATH "${jarvisRepoDir}/config/agent_registry.yaml"
       write_var JARVIS_DELEGATION_PATH "${jarvisRepoDir}/config/delegation_policy.yaml"
       write_var JARVIS_MODEL_PROFILES_PATH "${jarvisRepoDir}/config/model_profiles.yaml"
@@ -179,6 +200,11 @@ in
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
         write_var JARVIS_MAC_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
       fi
+
+      tmp_jarvis_secrets="$(${pkgs.coreutils}/bin/mktemp "${jarvisSecretsDir}/jarvis.yaml.XXXXXX")"
+      printf 'JARVIS_DASHBOARD_PASSWORD: %s\n' "$(read_secret "${config.sops.secrets.jarvis_dashboard_password.path}")" > "$tmp_jarvis_secrets"
+      ${pkgs.coreutils}/bin/chmod 0400 "$tmp_jarvis_secrets"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_jarvis_secrets" "${jarvisSecretsFile}"
 
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${jarvisEnvFile}"

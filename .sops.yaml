@@ -21,3 +21,9 @@ creation_rules:
           - *server_nyx
           - *server_ghost
           - *server_macbookpronix
+  - path_regex: secrets/jarvis\.ya?ml$
+    key_groups:
+      - age:
+          - *personal_current
+          - *personal_old
+          - *server_ghost
