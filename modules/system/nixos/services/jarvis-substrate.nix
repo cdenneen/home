@@ -2,6 +2,7 @@
 let
   cfg = config.services.jarvisSubstrate;
   jarvisUser = "jarvis";
+  apiUser = "cdenneen";
   persistenceRoot = "/var/lib/jarvis";
 in
 {
@@ -27,6 +28,7 @@ in
       group = jarvisUser;
       extraGroups = [ "podman" ];
       home = persistenceRoot;
+      homeMode = "0755";
       createHome = true;
     };
     users.groups.${jarvisUser} = { };
@@ -61,6 +63,7 @@ in
       "d ${persistenceRoot}/neo4j 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/neo4j/data 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/neo4j/import 0750 ${jarvisUser} ${jarvisUser} -"
+      "d ${persistenceRoot}/data 0775 ${apiUser} users -"
       "d ${persistenceRoot}/ollama 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/logs 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/backups 0750 ${jarvisUser} ${jarvisUser} -"
