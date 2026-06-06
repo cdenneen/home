@@ -59,7 +59,7 @@ in
 
     systemd.tmpfiles.rules = [
       "z ${persistenceRoot} 0755 root root -"
-      "d ${persistenceRoot}/postgres 0750 ${jarvisUser} ${jarvisUser} -"
+      "d ${persistenceRoot}/postgres 0700 70 70 -"
       "d ${persistenceRoot}/qdrant 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/neo4j 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/neo4j/data 0750 ${jarvisUser} ${jarvisUser} -"
