@@ -59,6 +59,8 @@ in
       "d ${persistenceRoot}/postgres 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/qdrant 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/neo4j 0750 ${jarvisUser} ${jarvisUser} -"
+      "d ${persistenceRoot}/neo4j/data 0750 ${jarvisUser} ${jarvisUser} -"
+      "d ${persistenceRoot}/neo4j/import 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/ollama 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/logs 0750 ${jarvisUser} ${jarvisUser} -"
       "d ${persistenceRoot}/backups 0750 ${jarvisUser} ${jarvisUser} -"
@@ -74,6 +76,7 @@ in
           environment = {
             POSTGRES_DB = "jarvis";
             POSTGRES_USER = "jarvis";
+            POSTGRES_HOST_AUTH_METHOD = "trust";
           };
           volumes = [ "${persistenceRoot}/postgres:/var/lib/postgresql/data" ];
           ports = [ "127.0.0.1:5432:5432" ];
