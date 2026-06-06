@@ -86,7 +86,7 @@ Run the NixOS switch, the Home Manager switch, or both depending on which files 
 - Host split:
   - `ghost`: `jarvis-harness`, `jarvis-api`, `jarvis-slack-gateway`, `jarvis-web`
   - `nyx`: `jarvis-work-runner`
-  - local Mac: `jarvis-voice-edge`
+  - local Mac: `jarvis-mac-runner` (voice UI consumed via web/PWA)
 
 ### Lint / format
 
