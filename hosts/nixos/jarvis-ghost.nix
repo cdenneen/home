@@ -467,7 +467,6 @@ in
       ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
-        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         --env-file "${jarvisEnvFile}" \
         "$image" \
@@ -483,9 +482,9 @@ in
         --usage-cost-db "''${JARVIS_USAGE_COST_DB:-${jarvisDataDir}/usage_cost.db}" \
         --factory-db "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
         --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --project-map-file "${jarvisRepoDir}/data/project_overlap_map.neuronet.json" \
+        --project-map-file "/app/data/project_overlap_map.neuronet.json" \
         --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
-        --remediator-policy-file "''${JARVIS_REMEDIATOR_POLICY_FILE:-${jarvisRepoDir}/config/autopilot_policy.yaml}" \
+        --remediator-policy-file "/app/config/autopilot_policy.yaml" \
         --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
@@ -527,18 +526,17 @@ in
       ${pkgs.podman}/bin/podman rm -f jarvis-harness >/dev/null 2>&1 || true
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-harness --network host \
-        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         --env-file "${jarvisEnvFile}" \
         --env PYTHONPATH=/app/src \
         "$image" \
         --host 127.0.0.1 \
         --port ${toString jarvisHarnessPort} \
-        --repo-dir "''${JARVIS_REPO_DIR:-${jarvisRepoDir}}" \
-        --registry "''${JARVIS_REGISTRY_PATH:-${jarvisRepoDir}/config/agent_registry.yaml}" \
-        --delegation "''${JARVIS_DELEGATION_PATH:-${jarvisRepoDir}/config/delegation_policy.yaml}" \
-        --model-profiles "''${JARVIS_MODEL_PROFILES_PATH:-${jarvisRepoDir}/config/model_profiles.yaml}" \
-        --realms "''${JARVIS_REALMS_PATH:-${jarvisRepoDir}/config/realm_policy.yaml}" \
+        --repo-dir "/app" \
+        --registry "/app/config/agent_registry.yaml" \
+        --delegation "/app/config/delegation_policy.yaml" \
+        --model-profiles "/app/config/model_profiles.yaml" \
+        --realms "/app/config/realm_policy.yaml" \
         --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}"
     '';
@@ -582,17 +580,16 @@ in
       ${pkgs.podman}/bin/podman rm -f jarvis-slack-gateway >/dev/null 2>&1 || true
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-slack-gateway --network host \
-        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         --env-file "${jarvisEnvFile}" \
         --env PYTHONPATH=/app/src \
         "$image" \
         --host 127.0.0.1 \
         --port ${toString jarvisSlackPort} \
-        --registry "''${JARVIS_REGISTRY_PATH:-${jarvisRepoDir}/config/agent_registry.yaml}" \
-        --delegation "''${JARVIS_DELEGATION_PATH:-${jarvisRepoDir}/config/delegation_policy.yaml}" \
+        --registry "/app/config/agent_registry.yaml" \
+        --delegation "/app/config/delegation_policy.yaml" \
         --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --realms "''${JARVIS_REALMS_PATH:-${jarvisRepoDir}/config/realm_policy.yaml}" \
+        --realms "/app/config/realm_policy.yaml" \
         --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --api-url "http://127.0.0.1:${toString jarvisApiPort}"
     '';
@@ -625,7 +622,6 @@ in
       ${pkgs.podman}/bin/podman rm -f jarvis-web >/dev/null 2>&1 || true
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-web --network host \
-        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         "$image"
     '';
   };
