@@ -524,6 +524,66 @@ in
     };
   };
 
+  systemd.services.jarvis-api-image-prune = {
+    description = "Prune unused jarvis-api images older than 4h";
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.podman
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+
+      cutoff_epoch="$(${pkgs.coreutils}/bin/date -u -d '4 hours ago' +%s)"
+      ids="$(${pkgs.podman}/bin/podman image ls --filter reference='*jarvis-api*' -q | ${pkgs.coreutils}/bin/sort -u)"
+      if [ -z "$ids" ]; then
+        exit 0
+      fi
+
+      for id in $ids; do
+        if [ -z "$id" ]; then
+          continue
+        fi
+
+        in_use="$(${pkgs.podman}/bin/podman ps -a --filter ancestor="$id" -q | ${pkgs.coreutils}/bin/wc -l | ${pkgs.coreutils}/bin/tr -d '[:space:]')"
+        if [ "$in_use" != "0" ]; then
+          continue
+        fi
+
+        created="$(${pkgs.podman}/bin/podman image inspect "$id" --format '{{.Created}}' 2>/dev/null || true)"
+        if [ -z "$created" ]; then
+          continue
+        fi
+        created_epoch="$(${pkgs.coreutils}/bin/date -u -d "$created" +%s 2>/dev/null || echo 0)"
+        if [ "$created_epoch" -eq 0 ]; then
+          continue
+        fi
+
+        if [ "$created_epoch" -lt "$cutoff_epoch" ]; then
+          ${pkgs.podman}/bin/podman image rm "$id" >/dev/null 2>&1 || true
+        fi
+      done
+    '';
+  };
+
+  systemd.timers.jarvis-api-image-prune = {
+    description = "Run jarvis-api image prune every hour";
+    wantedBy = [ "timers.target" ];
+    partOf = [ "jarvis-api-image-prune.service" ];
+    timerConfig = {
+      OnBootSec = "10m";
+      OnUnitActiveSec = "1h";
+      RandomizedDelaySec = "5m";
+      Unit = "jarvis-api-image-prune.service";
+    };
+  };
+
   systemd.services.jarvis-web = {
     description = "Jarvis web placeholder";
     wantedBy = [ "multi-user.target" ];
