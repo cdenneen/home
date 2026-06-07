@@ -536,7 +536,7 @@ in
         --registry "/app/config/agent_registry.yaml" \
         --delegation "/app/config/delegation_policy.yaml" \
         --model-profiles "/app/config/model_profiles.yaml" \
-        --realms "/app/config/realm_policy.yaml" \
+        --realms "/app/config/realms.yaml" \
         --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}"
     '';
@@ -589,7 +589,7 @@ in
         --registry "/app/config/agent_registry.yaml" \
         --delegation "/app/config/delegation_policy.yaml" \
         --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --realms "/app/config/realm_policy.yaml" \
+        --realms "/app/config/realms.yaml" \
         --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --api-url "http://127.0.0.1:${toString jarvisApiPort}"
     '';
