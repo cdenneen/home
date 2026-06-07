@@ -460,14 +460,12 @@ in
 
       env_args=()
       while IFS='=' read -r key _; do
-        if [ -z "$key" ]; then
-          continue
-        fi
         case "$key" in
-          \#*) continue ;;
+          JARVIS_*|SLACK_*|OPENAI_API_KEY|OPENROUTER_API_KEY|GEMINI_API_KEY|GOOGLE_API_KEY)
+            env_args+=(--env "$key")
+            ;;
         esac
-        env_args+=(--env "$key")
-      done < "${jarvisEnvFile}"
+      done < <(${pkgs.coreutils}/bin/env)
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
