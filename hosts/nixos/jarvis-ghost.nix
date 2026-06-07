@@ -509,9 +509,11 @@ in
         exit 0
       fi
 
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/scripts/factory-sync \
+      if ! ${jarvisPython}/bin/python ${jarvisRepoDir}/scripts/factory-sync \
         --source-dsn "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
-        --target-dsn "$sync_dsn"
+        --target-dsn "$sync_dsn"; then
+        echo "jarvis-factory-sync: warning: sync failed (best effort mode)" >&2
+      fi
     '';
   };
 
