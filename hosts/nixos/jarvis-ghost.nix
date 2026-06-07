@@ -23,6 +23,9 @@ let
   jarvisLiteLLMConfig = "${jarvisRepoDir}/config/litellm-proxy.yaml";
   jarvisSupabaseHost = "db.ysxipmxwfupqzywhevji.supabase.co";
   jarvisSupabaseUser = "postgres";
+  jarvisSupabasePoolerHost = "aws-1-us-east-2.pooler.supabase.com";
+  jarvisSupabasePoolerPort = 6543;
+  jarvisSupabasePoolerUser = "postgres.ysxipmxwfupqzywhevji";
   jarvisUsageDb = "${jarvisDataDir}/usage.db";
   jarvisWebDir = "${jarvisRepoDir}/web";
   openAiSecretPath = lib.attrByPath [ "sops" "secrets" "openai_api_key" "path" ] "" config;
@@ -240,8 +243,8 @@ in
         if [ -n "$jarvis_supabase_db_password" ]; then
           write_var JARVIS_SUPABASE_URL "https://${jarvisSupabaseHost}"
           write_var JARVIS_SUPABASE_DB_URL "postgresql://${jarvisSupabaseUser}:$jarvis_supabase_db_password@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
-          write_var JARVIS_FACTORY_SYNC_DSN "postgresql://${jarvisSupabaseUser}:$jarvis_supabase_db_password@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
-          factory_sync_target="postgresql://${jarvisSupabaseUser}@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
+          write_var JARVIS_FACTORY_SYNC_DSN "postgresql://${jarvisSupabasePoolerUser}:$jarvis_supabase_db_password@${jarvisSupabasePoolerHost}:${toString jarvisSupabasePoolerPort}/postgres?sslmode=require"
+          factory_sync_target="postgresql://${jarvisSupabasePoolerUser}@${jarvisSupabasePoolerHost}:${toString jarvisSupabasePoolerPort}/postgres?sslmode=require"
         fi
       fi
 
