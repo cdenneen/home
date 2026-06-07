@@ -533,11 +533,11 @@ in
         --host 127.0.0.1 \
         --port ${toString jarvisHarnessPort} \
         --repo-dir "''${JARVIS_REPO_DIR:-${jarvisRepoDir}}" \
-        --registry "''${JARVIS_REGISTRY_PATH:-}" \
-        --delegation "''${JARVIS_DELEGATION_PATH:-}" \
-        --model-profiles "''${JARVIS_MODEL_PROFILES_PATH:-}" \
-        --realms "''${JARVIS_REALMS_PATH:-}" \
-        --locks "''${JARVIS_LOCKS_PATH:-}" \
+        --registry "''${JARVIS_REGISTRY_PATH:-${jarvisRepoDir}/config/agent_registry.yaml}" \
+        --delegation "''${JARVIS_DELEGATION_PATH:-${jarvisRepoDir}/config/delegation_policy.yaml}" \
+        --model-profiles "''${JARVIS_MODEL_PROFILES_PATH:-${jarvisRepoDir}/config/model_profiles.yaml}" \
+        --realms "''${JARVIS_REALMS_PATH:-${jarvisRepoDir}/config/realm_policy.yaml}" \
+        --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}"
     '';
   };
@@ -586,11 +586,11 @@ in
         "$image" \
         --host 127.0.0.1 \
         --port ${toString jarvisSlackPort} \
-        --registry "''${JARVIS_REGISTRY_PATH:-}" \
-        --delegation "''${JARVIS_DELEGATION_PATH:-}" \
+        --registry "''${JARVIS_REGISTRY_PATH:-${jarvisRepoDir}/config/agent_registry.yaml}" \
+        --delegation "''${JARVIS_DELEGATION_PATH:-${jarvisRepoDir}/config/delegation_policy.yaml}" \
         --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --realms "''${JARVIS_REALMS_PATH:-}" \
-        --locks "''${JARVIS_LOCKS_PATH:-}" \
+        --realms "''${JARVIS_REALMS_PATH:-${jarvisRepoDir}/config/realm_policy.yaml}" \
+        --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --api-url "http://127.0.0.1:${toString jarvisApiPort}"
     '';
   };
