@@ -219,11 +219,7 @@ in
       write_var SLACK_CHANNEL_INCIDENTS "$(read_secret "${config.sops.secrets.jarvis_slack_channel_incidents.path}")"
 
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
-        write_var JARVIS_WORK_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
-      fi
-
-      if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
-        write_var JARVIS_MAC_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
+        write_var JARVIS_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
       fi
 
       if [ -n "${openAiSecretPath}" ] && [ -r "${openAiSecretPath}" ]; then
@@ -243,7 +239,6 @@ in
         if [ -n "$jarvis_supabase_db_password" ]; then
           write_var JARVIS_SUPABASE_URL "https://${jarvisSupabaseApiHost}"
           write_var JARVIS_SUPABASE_DB_URL "postgresql://${jarvisSupabasePoolerUser}:$jarvis_supabase_db_password@${jarvisSupabasePoolerHost}:${toString jarvisSupabasePoolerPort}/postgres?sslmode=require"
-          write_var JARVIS_FACTORY_SYNC_DSN "postgresql://${jarvisSupabasePoolerUser}:$jarvis_supabase_db_password@${jarvisSupabasePoolerHost}:${toString jarvisSupabasePoolerPort}/postgres?sslmode=require"
           factory_sync_target="postgresql://${jarvisSupabasePoolerUser}@${jarvisSupabasePoolerHost}:${toString jarvisSupabasePoolerPort}/postgres?sslmode=require"
         fi
       fi
@@ -353,10 +348,10 @@ in
         --port ${toString jarvisApiPort} \
         --harness-url "$JARVIS_HARNESS_URL" \
         --work-endpoint "$JARVIS_WORK_ENDPOINT" \
-        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
+        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
         --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
         --voice-edge-endpoint "''${JARVIS_VOICE_EDGE_ENDPOINT:-}" \
-        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}" \
+        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
         --usage-db "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
         --usage-cost-db "''${JARVIS_USAGE_COST_DB:-${jarvisDataDir}/usage_cost.db}" \
         --factory-db "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
@@ -504,10 +499,7 @@ in
       set -euo pipefail
 
       sync_target="''${JARVIS_FACTORY_SYNC_TARGET:-none}"
-      sync_dsn="''${JARVIS_FACTORY_SYNC_DSN:-}"
-      if [ -z "$sync_dsn" ] && [ -n "''${JARVIS_SUPABASE_DB_URL:-}" ]; then
-        sync_dsn="''${JARVIS_SUPABASE_DB_URL:-}"
-      fi
+      sync_dsn="''${JARVIS_SUPABASE_DB_URL:-}"
       if [ "$sync_target" = "none" ] || [ -z "$sync_dsn" ]; then
         exit 0
       fi
