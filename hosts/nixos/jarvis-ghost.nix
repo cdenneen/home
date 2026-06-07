@@ -259,6 +259,7 @@ in
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_jarvis_secrets"
       ${pkgs.coreutils}/bin/mv -f "$tmp_jarvis_secrets" "${jarvisSecretsFile}"
 
+      ${pkgs.coreutils}/bin/chown cdenneen:users "$tmp_env"
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${jarvisEnvFile}"
     '';
@@ -464,19 +465,10 @@ in
       image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
       ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
 
-      env_args=()
-      while IFS='=' read -r key _; do
-        case "$key" in
-          JARVIS_*|SLACK_*|OPENAI_API_KEY|OPENROUTER_API_KEY|GEMINI_API_KEY|GOOGLE_API_KEY)
-            env_args+=(--env "$key")
-            ;;
-        esac
-      done < <(${pkgs.coreutils}/bin/env)
-
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
         -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        "''${env_args[@]}" \
+        --env-file "${jarvisEnvFile}" \
         "$image" \
         --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
@@ -532,20 +524,11 @@ in
       image="''${JARVIS_HARNESS_CONTAINER_IMAGE:-${jarvisHarnessContainerImage}}"
       ${pkgs.podman}/bin/podman rm -f jarvis-harness >/dev/null 2>&1 || true
 
-      env_args=()
-      while IFS='=' read -r key _; do
-        case "$key" in
-          JARVIS_*|SLACK_*|OPENAI_API_KEY|OPENROUTER_API_KEY|GEMINI_API_KEY|GOOGLE_API_KEY)
-            env_args+=(--env "$key")
-            ;;
-        esac
-      done < <(${pkgs.coreutils}/bin/env)
-      env_args+=(--env PYTHONPATH=/app/src)
-
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-harness --network host \
         -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        "''${env_args[@]}" \
+        --env-file "${jarvisEnvFile}" \
+        --env PYTHONPATH=/app/src \
         "$image" \
         --host 127.0.0.1 \
         --port ${toString jarvisHarnessPort} \
@@ -595,20 +578,11 @@ in
       image="''${JARVIS_SLACK_CONTAINER_IMAGE:-${jarvisSlackContainerImage}}"
       ${pkgs.podman}/bin/podman rm -f jarvis-slack-gateway >/dev/null 2>&1 || true
 
-      env_args=()
-      while IFS='=' read -r key _; do
-        case "$key" in
-          JARVIS_*|SLACK_*|OPENAI_API_KEY|OPENROUTER_API_KEY|GEMINI_API_KEY|GOOGLE_API_KEY)
-            env_args+=(--env "$key")
-            ;;
-        esac
-      done < <(${pkgs.coreutils}/bin/env)
-      env_args+=(--env PYTHONPATH=/app/src)
-
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-slack-gateway --network host \
         -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        "''${env_args[@]}" \
+        --env-file "${jarvisEnvFile}" \
+        --env PYTHONPATH=/app/src \
         "$image" \
         --host 127.0.0.1 \
         --port ${toString jarvisSlackPort} \
