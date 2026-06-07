@@ -474,6 +474,7 @@ in
       done < <(${pkgs.coreutils}/bin/env)
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
+        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         "$image" \
@@ -542,6 +543,7 @@ in
       env_args+=(--env PYTHONPATH=/app/src)
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-harness --network host \
+        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         "$image" \
@@ -604,6 +606,7 @@ in
       env_args+=(--env PYTHONPATH=/app/src)
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-slack-gateway --network host \
+        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         "$image" \
@@ -643,7 +646,9 @@ in
       image="''${JARVIS_WEB_CONTAINER_IMAGE:-${jarvisWebContainerImage}}"
       ${pkgs.podman}/bin/podman rm -f jarvis-web >/dev/null 2>&1 || true
 
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-web --network host "$image"
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-web --network host \
+        -v "${jarvisRepoDir}:${jarvisRepoDir}:ro" \
+        "$image"
     '';
   };
 
