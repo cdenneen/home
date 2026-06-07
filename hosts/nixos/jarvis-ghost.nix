@@ -321,18 +321,15 @@ in
     after = [
       "network-online.target"
       "jarvis-ghost-env.service"
-      "jarvis-harness.service"
       "jarvis-litellm.service"
     ];
     wants = [
       "network-online.target"
       "jarvis-ghost-env.service"
-      "jarvis-harness.service"
       "jarvis-litellm.service"
     ];
     requires = [
       "jarvis-ghost-env.service"
-      "jarvis-harness.service"
     ];
     path = [
       pkgs.bash
