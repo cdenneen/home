@@ -458,9 +458,20 @@ in
       image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
       ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
 
+      env_args=()
+      while IFS='=' read -r key _; do
+        if [ -z "$key" ]; then
+          continue
+        fi
+        case "$key" in
+          \#*) continue ;;
+        esac
+        env_args+=(--env "$key")
+      done < "${jarvisEnvFile}"
+
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        --env-host \
+        "''${env_args[@]}" \
         "$image" \
         --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
