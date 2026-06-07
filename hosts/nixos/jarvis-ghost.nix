@@ -428,6 +428,7 @@ in
   # Intentionally not enabled by default while python-based jarvis-api.service remains primary.
   systemd.services.jarvis-api-container = {
     description = "Jarvis API container (staged)";
+    conflicts = [ "jarvis-api.service" ];
     after = [
       "network-online.target"
       "jarvis-ghost-env.service"
@@ -494,6 +495,7 @@ in
 
   systemd.services.jarvis-harness-container = {
     description = "Jarvis harness container (staged)";
+    conflicts = [ "jarvis-harness.service" ];
     after = [
       "network-online.target"
       "jarvis-ghost-env.service"
@@ -544,6 +546,7 @@ in
 
   systemd.services.jarvis-slack-gateway-container = {
     description = "Jarvis Slack gateway container (staged)";
+    conflicts = [ "jarvis-slack-gateway.service" ];
     after = [
       "network-online.target"
       "jarvis-ghost-env.service"
@@ -597,6 +600,7 @@ in
 
   systemd.services.jarvis-web-container = {
     description = "Jarvis web container (staged)";
+    conflicts = [ "jarvis-web.service" ];
     after = [ "jarvis-ghost-env.service" ];
     wants = [ "jarvis-ghost-env.service" ];
     requires = [ "jarvis-ghost-env.service" ];
