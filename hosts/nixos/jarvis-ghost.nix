@@ -15,14 +15,24 @@ let
   jarvisApiPort = 8080;
   jarvisSlackPort = 8081;
   jarvisWebPort = 3000;
+  jarvisLiteLLMPort = 4000;
   jarvisWorkEndpoint = "http://100.80.58.4:8090";
   jarvisMacEndpoint = "http://100.90.97.48:8091";
+  jarvisVoiceEdgeEndpoint = "http://127.0.0.1:8091";
+  jarvisLiteLLMEndpoint = "http://127.0.0.1:${toString jarvisLiteLLMPort}/v1";
+  jarvisLiteLLMConfig = "${jarvisRepoDir}/config/litellm-proxy.yaml";
+  jarvisSupabaseHost = "db.ysxipmxwfupqzywhevji.supabase.co";
+  jarvisSupabaseUser = "postgres";
   jarvisUsageDb = "${jarvisDataDir}/usage.db";
   jarvisWebDir = "${jarvisRepoDir}/web";
+  openAiSecretPath = lib.attrByPath [ "sops" "secrets" "openai_api_key" "path" ] "" config;
+  geminiSecretPath = lib.attrByPath [ "sops" "secrets" "gemini_api_key" "path" ] "" config;
+  openRouterSecretPath = lib.attrByPath [ "sops" "secrets" "openrouter_api_key" "path" ] "" config;
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       fastapi
       httpx
+      psycopg
       pyyaml
       uvicorn
       websockets
@@ -110,6 +120,12 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.jarvis_supbabase_db_password = {
+    sopsFile = ../../secrets/jarvis.yaml;
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
 
   systemd.tmpfiles.rules = [
     "d ${jarvisRepoDir} 0755 cdenneen users -"
@@ -163,6 +179,7 @@ in
       write_var JARVIS_LOCKS_PATH "${jarvisDataDir}/realm_locks.json"
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
       write_var JARVIS_USAGE_DB "${jarvisUsageDb}"
+      write_var JARVIS_POSTGRES_DB_URL "postgresql://jarvis@127.0.0.1:5432/jarvis?sslmode=disable"
       write_var JARVIS_BRAIN_MANIFEST "${jarvisDataDir}/context_manifest.neuronet.jsonl"
       write_var JARVIS_BRAIN_CANDIDATES "${jarvisDataDir}/memory_import_candidates.neuronet.jsonl"
       write_var JARVIS_BRAIN_IMPORT_READY "${jarvisDataDir}/recallium_import_ready.neuronet.jsonl"
@@ -177,6 +194,10 @@ in
       write_var JARVIS_OLLAMA_SYNC_TIMEOUT "3600"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
       write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
+      write_var JARVIS_VOICE_EDGE_ENDPOINT "${jarvisVoiceEdgeEndpoint}"
+      write_var JARVIS_LLM_GATEWAY_URL "${jarvisLiteLLMEndpoint}"
+      write_var JARVIS_LLM_GATEWAY_API_KEY "jarvis-local-gateway"
+      write_var JARVIS_LLM_GATEWAY_CHAIN "jarvis-openrouter,jarvis-gemini,jarvis-openai"
       write_var JARVIS_VOICE_WS_URL "wss://ai.denneen.net/ws/voice"
       write_var JARVIS_WAKE_PHRASE "Let's get to work Jarvis"
       write_var JARVIS_TTS_MODE "remote_text_local_tts"
@@ -199,6 +220,26 @@ in
 
       if [ -r "${config.sops.secrets.jarvis_work_shared_token.path}" ]; then
         write_var JARVIS_MAC_SHARED_TOKEN "$(read_secret "${config.sops.secrets.jarvis_work_shared_token.path}")"
+      fi
+
+      if [ -n "${openAiSecretPath}" ] && [ -r "${openAiSecretPath}" ]; then
+        write_var OPENAI_API_KEY "$(read_secret "${openAiSecretPath}")"
+      fi
+
+      if [ -n "${geminiSecretPath}" ] && [ -r "${geminiSecretPath}" ]; then
+        write_var GEMINI_API_KEY "$(read_secret "${geminiSecretPath}")"
+      fi
+
+      if [ -n "${openRouterSecretPath}" ] && [ -r "${openRouterSecretPath}" ]; then
+        write_var OPENROUTER_API_KEY "$(read_secret "${openRouterSecretPath}")"
+      fi
+
+      if [ -r "${config.sops.secrets.jarvis_supbabase_db_password.path}" ]; then
+        jarvis_supabase_db_password="$(read_secret "${config.sops.secrets.jarvis_supbabase_db_password.path}")"
+        if [ -n "$jarvis_supabase_db_password" ]; then
+          write_var JARVIS_SUPABASE_URL "https://${jarvisSupabaseHost}"
+          write_var JARVIS_SUPABASE_DB_URL "postgresql://${jarvisSupabaseUser}:$jarvis_supabase_db_password@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
+        fi
       fi
 
       tmp_jarvis_secrets="$(${pkgs.coreutils}/bin/mktemp "${jarvisSecretsDir}/jarvis.yaml.XXXXXX")"
@@ -269,11 +310,13 @@ in
       "network-online.target"
       "jarvis-ghost-env.service"
       "jarvis-harness.service"
+      "jarvis-litellm.service"
     ];
     wants = [
       "network-online.target"
       "jarvis-ghost-env.service"
       "jarvis-harness.service"
+      "jarvis-litellm.service"
     ];
     requires = [
       "jarvis-ghost-env.service"
@@ -304,8 +347,11 @@ in
         --work-endpoint "$JARVIS_WORK_ENDPOINT" \
         --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-}" \
         --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
+        --voice-edge-endpoint "''${JARVIS_VOICE_EDGE_ENDPOINT:-}" \
         --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-}" \
-        --usage-sqlite "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
+        --usage-db "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
+        --usage-cost-db "''${JARVIS_USAGE_COST_DB:-${jarvisDataDir}/usage_cost.db}" \
+        --factory-db "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
         --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
         --project-map-file "${jarvisRepoDir}/data/project_overlap_map.neuronet.json" \
         --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
@@ -314,6 +360,55 @@ in
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
         --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
+    '';
+  };
+
+  systemd.services.jarvis-litellm = {
+    description = "Jarvis LiteLLM gateway";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "ollama.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "ollama.service"
+    ];
+    requires = [ "jarvis-ghost-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.podman
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      Restart = "always";
+      RestartSec = "10s";
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+
+      if [ ! -f "${jarvisLiteLLMConfig}" ]; then
+        echo "jarvis-litellm: missing config at ${jarvisLiteLLMConfig}" >&2
+        exit 1
+      fi
+
+      ${pkgs.podman}/bin/podman rm -f jarvis-litellm >/dev/null 2>&1 || true
+
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-litellm -p 127.0.0.1:${toString jarvisLiteLLMPort}:${toString jarvisLiteLLMPort} \
+        -v "${jarvisLiteLLMConfig}:/app/config.yaml:ro" \
+        --env OPENROUTER_API_KEY \
+        --env OPENAI_API_KEY \
+        --env GEMINI_API_KEY \
+        docker.litellm.ai/berriai/litellm:main-latest \
+        --config /app/config.yaml --port ${toString jarvisLiteLLMPort}
     '';
   };
 
