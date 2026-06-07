@@ -180,7 +180,7 @@ in
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
       write_var JARVIS_USAGE_DB "${jarvisUsageDb}"
       write_var JARVIS_POSTGRES_DB_URL "postgresql://jarvis@127.0.0.1:5432/jarvis?sslmode=disable"
-      write_var JARVIS_FACTORY_SYNC_TARGET "none"
+      factory_sync_target="none"
       write_var JARVIS_BRAIN_MANIFEST "${jarvisDataDir}/context_manifest.neuronet.jsonl"
       write_var JARVIS_BRAIN_CANDIDATES "${jarvisDataDir}/memory_import_candidates.neuronet.jsonl"
       write_var JARVIS_BRAIN_IMPORT_READY "${jarvisDataDir}/recallium_import_ready.neuronet.jsonl"
@@ -240,9 +240,11 @@ in
         if [ -n "$jarvis_supabase_db_password" ]; then
           write_var JARVIS_SUPABASE_URL "https://${jarvisSupabaseHost}"
           write_var JARVIS_SUPABASE_DB_URL "postgresql://${jarvisSupabaseUser}:$jarvis_supabase_db_password@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
-          write_var JARVIS_FACTORY_SYNC_TARGET "postgresql://${jarvisSupabaseUser}@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
+          factory_sync_target="postgresql://${jarvisSupabaseUser}@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
         fi
       fi
+
+      write_var JARVIS_FACTORY_SYNC_TARGET "$factory_sync_target"
 
       tmp_jarvis_secrets="$(${pkgs.coreutils}/bin/mktemp "${jarvisSecretsDir}/jarvis.yaml.XXXXXX")"
       printf 'JARVIS_DASHBOARD_PASSWORD: %s\n' "$(read_secret "${config.sops.secrets.jarvis_dashboard_password.path}")" > "$tmp_jarvis_secrets"
