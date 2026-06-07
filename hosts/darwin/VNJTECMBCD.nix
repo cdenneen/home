@@ -1,4 +1,8 @@
 { lib, pkgs, ... }:
+let
+  jarvisWorkerRuntime = "podman";
+  useAppleContainerRuntime = jarvisWorkerRuntime == "apple-container";
+in
 {
   networking.hostName = "VNJTECMBCD";
 
@@ -45,4 +49,25 @@
     '';
 
   };
+
+  environment.systemPackages =
+    lib.optionals useAppleContainerRuntime [ pkgs.container ];
+
+  launchd.user.agents.apple-container-daemon = lib.mkIf useAppleContainerRuntime {
+    command = "${pkgs.container}/bin/container system start";
+    serviceConfig = {
+      KeepAlive = true;
+      RunAtLoad = true;
+      StandardOutPath = "/var/log/apple-container-daemon.log";
+      StandardErrorPath = "/var/log/apple-container-daemon.err.log";
+    };
+  };
+
+  system.activationScripts.postActivation.text =
+    lib.mkIf useAppleContainerRuntime ''
+      if [ ! -f /etc/resolver/container-dns ]; then
+        ${pkgs.container}/bin/container system dns create container-dns || true
+        ${pkgs.container}/bin/container system dns default set container-dns || true
+      fi
+    '';
 }
