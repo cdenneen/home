@@ -21,6 +21,7 @@ let
   jarvisVoiceEdgeEndpoint = "http://127.0.0.1:8091";
   jarvisLiteLLMEndpoint = "http://127.0.0.1:${toString jarvisLiteLLMPort}/v1";
   jarvisLiteLLMConfig = "${jarvisRepoDir}/config/litellm-proxy.yaml";
+  jarvisApiContainerImage = "localhost/jarvis-api:latest";
   jarvisSupabaseProjectRef = "ysxipmxwfupqzywhevji";
   jarvisSupabaseApiHost = "${jarvisSupabaseProjectRef}.supabase.co";
   jarvisSupabasePoolerHost = "aws-1-us-east-2.pooler.supabase.com";
@@ -202,6 +203,7 @@ in
       write_var JARVIS_LLM_GATEWAY_URL "${jarvisLiteLLMEndpoint}"
       write_var JARVIS_LLM_GATEWAY_API_KEY "jarvis-local-gateway"
       write_var JARVIS_LLM_GATEWAY_CHAIN "jarvis-openrouter,jarvis-gemini,jarvis-openai"
+      write_var JARVIS_API_CONTAINER_IMAGE "${jarvisApiContainerImage}"
       write_var JARVIS_VOICE_WS_URL "wss://ai.denneen.net/ws/voice"
       write_var JARVIS_WAKE_PHRASE "Let's get to work Jarvis"
       write_var JARVIS_TTS_MODE "remote_text_local_tts"
@@ -412,6 +414,73 @@ in
         --env GEMINI_API_KEY \
         docker.litellm.ai/berriai/litellm:main-latest \
         --config /app/config.yaml --port ${toString jarvisLiteLLMPort}
+    '';
+  };
+
+  # Staging scaffold for future containerized API rollout.
+  # Intentionally not enabled by default while python-based jarvis-api.service remains primary.
+  systemd.services.jarvis-api-container = {
+    description = "Jarvis API container (staged)";
+    after = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "jarvis-harness.service"
+      "jarvis-litellm.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "jarvis-harness.service"
+      "jarvis-litellm.service"
+    ];
+    requires = [
+      "jarvis-ghost-env.service"
+      "jarvis-harness.service"
+    ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.podman
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      Restart = "always";
+      RestartSec = "10s";
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
+
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        --env-file "${jarvisEnvFile}" \
+        "$image" \
+        --host 0.0.0.0 \
+        --port ${toString jarvisApiPort} \
+        --harness-url "''${JARVIS_HARNESS_URL:-http://127.0.0.1:${toString jarvisHarnessPort}}" \
+        --work-endpoint "''${JARVIS_WORK_ENDPOINT:-}" \
+        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
+        --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
+        --voice-edge-endpoint "''${JARVIS_VOICE_EDGE_ENDPOINT:-}" \
+        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
+        --usage-db "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
+        --usage-cost-db "''${JARVIS_USAGE_COST_DB:-${jarvisDataDir}/usage_cost.db}" \
+        --factory-db "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
+        --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
+        --project-map-file "${jarvisRepoDir}/data/project_overlap_map.neuronet.json" \
+        --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
+        --remediator-policy-file "''${JARVIS_REMEDIATOR_POLICY_FILE:-${jarvisRepoDir}/config/autopilot_policy.yaml}" \
+        --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
+        --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
+        --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
+        --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
     '';
   };
 
