@@ -460,7 +460,7 @@ in
 
       exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        --env-file "${jarvisEnvFile}" \
+        --env-host \
         "$image" \
         --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
