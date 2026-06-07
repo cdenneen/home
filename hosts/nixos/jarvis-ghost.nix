@@ -240,6 +240,7 @@ in
         if [ -n "$jarvis_supabase_db_password" ]; then
           write_var JARVIS_SUPABASE_URL "https://${jarvisSupabaseHost}"
           write_var JARVIS_SUPABASE_DB_URL "postgresql://${jarvisSupabaseUser}:$jarvis_supabase_db_password@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
+          write_var JARVIS_FACTORY_SYNC_DSN "postgresql://${jarvisSupabaseUser}:$jarvis_supabase_db_password@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
           factory_sync_target="postgresql://${jarvisSupabaseUser}@${jarvisSupabaseHost}:5432/postgres?sslmode=require"
         fi
       fi
@@ -468,6 +469,62 @@ in
         --locks "$JARVIS_LOCKS_PATH" \
         --api-url "http://127.0.0.1:${toString jarvisApiPort}"
     '';
+  };
+
+  systemd.services.jarvis-factory-sync = {
+    description = "Jarvis Factory sync to remote target";
+    after = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "jarvis-api.service"
+    ];
+    wants = [
+      "network-online.target"
+      "jarvis-ghost-env.service"
+      "jarvis-api.service"
+    ];
+    requires = [ "jarvis-ghost-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      jarvisPython
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = jarvisRepoDir;
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/home/cdenneen" ];
+    };
+    script = ''
+      set -euo pipefail
+
+      sync_target="''${JARVIS_FACTORY_SYNC_TARGET:-none}"
+      sync_dsn="''${JARVIS_FACTORY_SYNC_DSN:-}"
+      if [ -z "$sync_dsn" ] && [ -n "''${JARVIS_SUPABASE_DB_URL:-}" ]; then
+        sync_dsn="''${JARVIS_SUPABASE_DB_URL:-}"
+      fi
+      if [ "$sync_target" = "none" ] || [ -z "$sync_dsn" ]; then
+        exit 0
+      fi
+
+      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/scripts/factory-sync \
+        --source-dsn "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
+        --target-dsn "$sync_dsn"
+    '';
+  };
+
+  systemd.timers.jarvis-factory-sync = {
+    description = "Run Jarvis Factory sync every 5 minutes";
+    wantedBy = [ "timers.target" ];
+    partOf = [ "jarvis-factory-sync.service" ];
+    timerConfig = {
+      OnBootSec = "2m";
+      OnUnitActiveSec = "5m";
+      RandomizedDelaySec = "20s";
+      Unit = "jarvis-factory-sync.service";
+    };
   };
 
   systemd.services.jarvis-web = {
