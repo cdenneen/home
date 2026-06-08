@@ -75,6 +75,10 @@ in
       set -euo pipefail
 
       home_repo="/home/cdenneen/src/workspace/nix/home"
+      sudo_cmd="/run/wrappers/bin/sudo"
+      if [ ! -x "$sudo_cmd" ]; then
+        sudo_cmd="$(command -v sudo)"
+      fi
       check_only=false
       if [ "''${1:-}" = "--check" ]; then
         check_only=true
@@ -99,7 +103,7 @@ in
       jarvis_uid="$(${pkgs.coreutils}/bin/id -u jarvis)"
       ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "/run/user/$jarvis_uid"
       podman_as_jarvis() {
-        ${pkgs.sudo}/bin/sudo -n -u jarvis env HOME="/var/lib/jarvis" XDG_RUNTIME_DIR="/run/user/$jarvis_uid" ${pkgs.podman}/bin/podman "$@"
+        "$sudo_cmd" -n -u jarvis env HOME="/var/lib/jarvis" XDG_RUNTIME_DIR="/run/user/$jarvis_uid" ${pkgs.podman}/bin/podman "$@"
       }
 
       required_images=(
@@ -126,7 +130,7 @@ in
       fi
 
       ${pkgs.git}/bin/git -C "$home_repo" pull --rebase origin main
-      ${pkgs.sudo}/bin/sudo -n ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "$home_repo#ghost"
+      "$sudo_cmd" -n ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "$home_repo#ghost"
     '')
   ];
 
