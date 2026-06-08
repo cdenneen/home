@@ -11,14 +11,16 @@ let
   jarvisSecretsDir = "${jarvisDataDir}/secrets";
   jarvisSecretsFile = "${jarvisSecretsDir}/jarvis.yaml";
   jarvisEnvFile = "${jarvisRuntimeDir}/jarvis.env";
+  jarvisDevEnvFile = "${jarvisRuntimeDir}/dev.env";
   jarvisHarnessPort = 8079;
   jarvisApiPort = 8080;
   jarvisSlackPort = 8081;
   jarvisWebPort = 3000;
   jarvisLiteLLMPort = 4000;
-  jarvisWorkEndpoint = "http://100.80.58.4:8090";
+  jarvisContainerNetwork = "jarvis-net";
+  jarvisWorkEndpoint = "http://100.80.58.4:8091";
   jarvisMacEndpoint = "http://100.90.97.48:8091";
-  jarvisVoiceEdgeEndpoint = "http://127.0.0.1:8091";
+  jarvisVoiceEdgeEndpoint = "http://127.0.0.1:8092";
   jarvisLiteLLMEndpoint = "http://127.0.0.1:${toString jarvisLiteLLMPort}/v1";
   jarvisLiteLLMConfig = "${jarvisRepoDir}/config/litellm-proxy.yaml";
   jarvisApiContainerImage = "localhost/jarvis-api:latest";
@@ -47,9 +49,23 @@ let
   );
 in
 {
+  users.groups.jarvis = { };
+  users.users.jarvis = {
+    isSystemUser = true;
+    group = "jarvis";
+    home = "/var/lib/jarvis";
+    createHome = true;
+    extraGroups = [ "podman" ];
+    subUidRanges = [ { startUid = 200000; count = 65536; } ];
+    subGidRanges = [ { startGid = 200000; count = 65536; } ];
+  };
+
   services.ollama.enable = true;
 
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ jarvisApiPort ];
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [
+    jarvisApiPort
+    jarvisHarnessPort
+  ];
 
   environment.systemPackages = lib.mkAfter [
     jarvisPython
@@ -187,6 +203,7 @@ in
       write_var JARVIS_ROUTING_OUTPUT "${jarvisDataDir}/routing_events.jsonl"
       write_var JARVIS_USAGE_DB "${jarvisUsageDb}"
       write_var JARVIS_POSTGRES_DB_URL "postgresql://jarvis@127.0.0.1:5432/jarvis?sslmode=disable"
+      write_var JARVIS_FACTORY_DB_URL "postgresql://jarvis@127.0.0.1:5432/jarvis?sslmode=disable"
       factory_sync_target="none"
       write_var JARVIS_BRAIN_MANIFEST "${jarvisDataDir}/context_manifest.neuronet.jsonl"
       write_var JARVIS_BRAIN_CANDIDATES "${jarvisDataDir}/memory_import_candidates.neuronet.jsonl"
@@ -196,14 +213,14 @@ in
       write_var JARVIS_REMEDIATOR_STATE_FILE "${jarvisDataDir}/autopilot_remediator_state.json"
       write_var JARVIS_REMEDIATOR_POLICY_FILE "${jarvisRepoDir}/config/autopilot_policy.yaml"
       write_var JARVIS_BRAIN_REMOTE_HOST "nyx"
-      write_var JARVIS_HARNESS_URL "http://127.0.0.1:${toString jarvisHarnessPort}"
-      write_var JARVIS_API_URL "http://127.0.0.1:${toString jarvisApiPort}"
+      write_var JARVIS_HARNESS_URL "http://jarvis-harness:${toString jarvisHarnessPort}"
+      write_var JARVIS_API_URL "http://jarvis-api:${toString jarvisApiPort}"
       write_var JARVIS_OLLAMA_ENDPOINT "http://127.0.0.1:11434"
       write_var JARVIS_OLLAMA_SYNC_TIMEOUT "3600"
       write_var JARVIS_WORK_ENDPOINT "${jarvisWorkEndpoint}"
       write_var JARVIS_MAC_ENDPOINT "${jarvisMacEndpoint}"
-      write_var JARVIS_VOICE_EDGE_ENDPOINT "${jarvisVoiceEdgeEndpoint}"
-      write_var JARVIS_LLM_GATEWAY_URL "${jarvisLiteLLMEndpoint}"
+      write_var JARVIS_VOICE_EDGE_ENDPOINT "http://127.0.0.1:8080/voice-edge"
+      write_var JARVIS_LLM_GATEWAY_URL "http://jarvis-litellm:${toString jarvisLiteLLMPort}/v1"
       write_var JARVIS_LLM_GATEWAY_API_KEY "jarvis-local-gateway"
       write_var JARVIS_LLM_GATEWAY_CHAIN "jarvis-openrouter,jarvis-gemini,jarvis-openai"
       write_var JARVIS_API_CONTAINER_IMAGE "${jarvisApiContainerImage}"
@@ -280,7 +297,7 @@ in
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "simple";
@@ -290,28 +307,45 @@ in
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
     };
     script = ''
       set -euo pipefail
 
-      if [ ! -d "${jarvisRepoDir}/src/jarvis" ]; then
-        echo "jarvis-harness: repo checkout missing at ${jarvisRepoDir}" >&2
-        exit 1
+      image="''${JARVIS_HARNESS_CONTAINER_IMAGE:-${jarvisHarnessContainerImage}}"
+      ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
+        ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
+      ${pkgs.podman}/bin/podman rm -f jarvis-harness >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
       fi
 
-      export PYTHONPATH="${jarvisRepoDir}/src"
-
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-harness-service.py \
-        --host 127.0.0.1 \
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-harness \
+        --network host \
+        --add-host jarvis-harness:127.0.0.1 \
+        --add-host jarvis-api:127.0.0.1 \
+        --add-host jarvis-slack-gateway:127.0.0.1 \
+        --add-host jarvis-litellm:127.0.0.1 \
+        -p 127.0.0.1:${toString jarvisHarnessPort}:${toString jarvisHarnessPort} \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        --env PYTHONPATH=/app/src \
+        "$image" \
+        --host 0.0.0.0 \
         --port ${toString jarvisHarnessPort} \
-        --repo-dir "$JARVIS_REPO_DIR" \
-        --registry "$JARVIS_REGISTRY_PATH" \
-        --delegation "$JARVIS_DELEGATION_PATH" \
-        --model-profiles "$JARVIS_MODEL_PROFILES_PATH" \
-        --realms "$JARVIS_REALMS_PATH" \
-        --locks "$JARVIS_LOCKS_PATH" \
-        --routing-output "$JARVIS_ROUTING_OUTPUT"
+        --repo-dir "/app" \
+        --registry "/app/config/agent_registry.yaml" \
+        --delegation "/app/config/delegation_policy.yaml" \
+        --model-profiles "/app/config/model_profiles.yaml" \
+        --realms "/app/config/realms.yaml" \
+        --admin-token "''${JARVIS_SHARED_TOKEN:-}" \
+        --worker-token-store "${jarvisDataDir}/worker-registration-tokens.json" \
+        --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
+        --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}"
     '';
   };
 
@@ -334,7 +368,7 @@ in
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "simple";
@@ -344,28 +378,49 @@ in
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
     };
     script = ''
       set -euo pipefail
 
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-api-service.py \
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
+        ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
+      ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
+      fi
+
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api \
+        --network host \
+        --add-host jarvis-harness:127.0.0.1 \
+        --add-host jarvis-api:127.0.0.1 \
+        --add-host jarvis-slack-gateway:127.0.0.1 \
+        --add-host jarvis-litellm:127.0.0.1 \
+        -p 127.0.0.1:${toString jarvisApiPort}:${toString jarvisApiPort} \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        "$image" \
         --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
-        --harness-url "$JARVIS_HARNESS_URL" \
-        --work-endpoint "$JARVIS_WORK_ENDPOINT" \
-        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
+        --harness-url "''${JARVIS_HARNESS_URL:-http://127.0.0.1:${toString jarvisHarnessPort}}" \
+        --work-endpoint "''${JARVIS_WORK_ENDPOINT:-}" \
+        --work-shared-token "''${JARVIS_SHARED_TOKEN:-}" \
         --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
         --voice-edge-endpoint "''${JARVIS_VOICE_EDGE_ENDPOINT:-}" \
-        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
+        --mac-shared-token "''${JARVIS_SHARED_TOKEN:-}" \
         --usage-db "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
         --usage-cost-db "''${JARVIS_USAGE_COST_DB:-${jarvisDataDir}/usage_cost.db}" \
         --factory-db "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
         --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --project-map-file "${jarvisRepoDir}/data/project_overlap_map.neuronet.json" \
+        --project-map-file "/app/data/project_overlap_map.neuronet.json" \
         --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
-        --remediator-policy-file "''${JARVIS_REMEDIATOR_POLICY_FILE:-${jarvisRepoDir}/config/autopilot_policy.yaml}" \
-        --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
+        --remediator-policy-file "/app/config/autopilot_policy.yaml" \
+        --slack-endpoint "http://jarvis-slack-gateway:${toString jarvisSlackPort}" \
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
         --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
@@ -399,7 +454,9 @@ in
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
     };
     script = ''
       set -euo pipefail
@@ -409,217 +466,18 @@ in
         exit 1
       fi
 
+      ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
+        ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
       ${pkgs.podman}/bin/podman rm -f jarvis-litellm >/dev/null 2>&1 || true
 
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-litellm -p 127.0.0.1:${toString jarvisLiteLLMPort}:${toString jarvisLiteLLMPort} \
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-litellm \
+        --network host \
         -v "${jarvisLiteLLMConfig}:/app/config.yaml:ro" \
         --env OPENROUTER_API_KEY \
         --env OPENAI_API_KEY \
         --env GEMINI_API_KEY \
         docker.litellm.ai/berriai/litellm:main-latest \
         --config /app/config.yaml --port ${toString jarvisLiteLLMPort}
-    '';
-  };
-
-  # Staging scaffold for future containerized API rollout.
-  # Intentionally not enabled by default while python-based jarvis-api.service remains primary.
-  systemd.services.jarvis-api-container = {
-    description = "Jarvis API container (staged)";
-    conflicts = [ "jarvis-api.service" ];
-    after = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-      "jarvis-harness.service"
-      "jarvis-litellm.service"
-    ];
-    wants = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-      "jarvis-harness.service"
-      "jarvis-litellm.service"
-    ];
-    requires = [
-      "jarvis-ghost-env.service"
-      "jarvis-harness.service"
-    ];
-    path = [
-      pkgs.bash
-      pkgs.coreutils
-      pkgs.podman
-    ];
-    serviceConfig = {
-      Type = "simple";
-      User = "cdenneen";
-      Group = "users";
-      WorkingDirectory = jarvisRepoDir;
-      Restart = "always";
-      RestartSec = "10s";
-      EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
-    };
-    script = ''
-      set -euo pipefail
-
-      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
-      ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
-
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-api --network host \
-        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        --env-file "${jarvisEnvFile}" \
-        "$image" \
-        --host 0.0.0.0 \
-        --port ${toString jarvisApiPort} \
-        --harness-url "''${JARVIS_HARNESS_URL:-http://127.0.0.1:${toString jarvisHarnessPort}}" \
-        --work-endpoint "''${JARVIS_WORK_ENDPOINT:-}" \
-        --work-shared-token "''${JARVIS_WORK_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
-        --mac-endpoint "''${JARVIS_MAC_ENDPOINT:-}" \
-        --voice-edge-endpoint "''${JARVIS_VOICE_EDGE_ENDPOINT:-}" \
-        --mac-shared-token "''${JARVIS_MAC_SHARED_TOKEN:-''${JARVIS_SHARED_TOKEN:-}}" \
-        --usage-db "''${JARVIS_USAGE_DB:-${jarvisUsageDb}}" \
-        --usage-cost-db "''${JARVIS_USAGE_COST_DB:-${jarvisDataDir}/usage_cost.db}" \
-        --factory-db "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
-        --routing-events-file "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --project-map-file "/app/data/project_overlap_map.neuronet.json" \
-        --remediator-state-file "''${JARVIS_REMEDIATOR_STATE_FILE:-${jarvisDataDir}/autopilot_remediator_state.json}" \
-        --remediator-policy-file "/app/config/autopilot_policy.yaml" \
-        --slack-endpoint "http://127.0.0.1:${toString jarvisSlackPort}" \
-        --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
-        --supabase-url "''${JARVIS_SUPABASE_URL:-}" \
-        --supabase-key "''${JARVIS_SUPABASE_KEY:-}"
-    '';
-  };
-
-  systemd.services.jarvis-harness-container = {
-    description = "Jarvis harness container (staged)";
-    conflicts = [ "jarvis-harness.service" ];
-    after = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-    ];
-    wants = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-    ];
-    requires = [ "jarvis-ghost-env.service" ];
-    path = [
-      pkgs.bash
-      pkgs.coreutils
-      pkgs.podman
-    ];
-    serviceConfig = {
-      Type = "simple";
-      User = "cdenneen";
-      Group = "users";
-      WorkingDirectory = jarvisRepoDir;
-      Restart = "always";
-      RestartSec = "10s";
-      EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
-    };
-    script = ''
-      set -euo pipefail
-
-      image="''${JARVIS_HARNESS_CONTAINER_IMAGE:-${jarvisHarnessContainerImage}}"
-      ${pkgs.podman}/bin/podman rm -f jarvis-harness >/dev/null 2>&1 || true
-
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-harness --network host \
-        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        --env-file "${jarvisEnvFile}" \
-        --env PYTHONPATH=/app/src \
-        "$image" \
-        --host 127.0.0.1 \
-        --port ${toString jarvisHarnessPort} \
-        --repo-dir "/app" \
-        --registry "/app/config/agent_registry.yaml" \
-        --delegation "/app/config/delegation_policy.yaml" \
-        --model-profiles "/app/config/model_profiles.yaml" \
-        --realms "/app/config/realms.yaml" \
-        --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
-        --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}"
-    '';
-  };
-
-  systemd.services.jarvis-slack-gateway-container = {
-    description = "Jarvis Slack gateway container (staged)";
-    conflicts = [ "jarvis-slack-gateway.service" ];
-    after = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-      "jarvis-harness-container.service"
-      "jarvis-api-container.service"
-    ];
-    wants = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-      "jarvis-harness-container.service"
-      "jarvis-api-container.service"
-    ];
-    requires = [ "jarvis-ghost-env.service" ];
-    path = [
-      pkgs.bash
-      pkgs.coreutils
-      pkgs.podman
-    ];
-    serviceConfig = {
-      Type = "simple";
-      User = "cdenneen";
-      Group = "users";
-      WorkingDirectory = jarvisRepoDir;
-      Restart = "always";
-      RestartSec = "10s";
-      EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
-    };
-    script = ''
-      set -euo pipefail
-
-      image="''${JARVIS_SLACK_CONTAINER_IMAGE:-${jarvisSlackContainerImage}}"
-      ${pkgs.podman}/bin/podman rm -f jarvis-slack-gateway >/dev/null 2>&1 || true
-
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-slack-gateway --network host \
-        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
-        --env-file "${jarvisEnvFile}" \
-        --env PYTHONPATH=/app/src \
-        "$image" \
-        --host 127.0.0.1 \
-        --port ${toString jarvisSlackPort} \
-        --registry "/app/config/agent_registry.yaml" \
-        --delegation "/app/config/delegation_policy.yaml" \
-        --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
-        --realms "/app/config/realms.yaml" \
-        --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
-        --api-url "http://127.0.0.1:${toString jarvisApiPort}"
-    '';
-  };
-
-  systemd.services.jarvis-web-container = {
-    description = "Jarvis web container (staged)";
-    conflicts = [ "jarvis-web.service" ];
-    after = [ "jarvis-ghost-env.service" ];
-    wants = [ "jarvis-ghost-env.service" ];
-    requires = [ "jarvis-ghost-env.service" ];
-    path = [
-      pkgs.bash
-      pkgs.coreutils
-      pkgs.podman
-    ];
-    serviceConfig = {
-      Type = "simple";
-      User = "cdenneen";
-      Group = "users";
-      Restart = "always";
-      RestartSec = "10s";
-      EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
-    };
-    script = ''
-      set -euo pipefail
-
-      image="''${JARVIS_WEB_CONTAINER_IMAGE:-${jarvisWebContainerImage}}"
-      ${pkgs.podman}/bin/podman rm -f jarvis-web >/dev/null 2>&1 || true
-
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-web --network host \
-        "$image"
     '';
   };
 
@@ -630,20 +488,23 @@ in
       "network-online.target"
       "jarvis-ghost-env.service"
       "jarvis-harness.service"
+      "jarvis-api.service"
     ];
     wants = [
       "network-online.target"
       "jarvis-ghost-env.service"
       "jarvis-harness.service"
+      "jarvis-api.service"
     ];
     requires = [
       "jarvis-ghost-env.service"
       "jarvis-harness.service"
+      "jarvis-api.service"
     ];
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "simple";
@@ -653,27 +514,42 @@ in
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
     };
     script = ''
       set -euo pipefail
 
-      if [ ! -f "${jarvisRepoDir}/src/jarvis/slack_gateway.py" ]; then
-        echo "jarvis-slack-gateway: slack gateway entrypoint missing at ${jarvisRepoDir}" >&2
-        exit 1
+      image="''${JARVIS_SLACK_CONTAINER_IMAGE:-${jarvisSlackContainerImage}}"
+      ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
+        ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
+      ${pkgs.podman}/bin/podman rm -f jarvis-slack-gateway >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
       fi
 
-      export PYTHONPATH="${jarvisRepoDir}/src"
-
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/src/jarvis/slack_gateway.py \
-        --host 127.0.0.1 \
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-slack-gateway \
+        --network host \
+        --add-host jarvis-harness:127.0.0.1 \
+        --add-host jarvis-api:127.0.0.1 \
+        --add-host jarvis-slack-gateway:127.0.0.1 \
+        --add-host jarvis-litellm:127.0.0.1 \
+        -p 127.0.0.1:${toString jarvisSlackPort}:${toString jarvisSlackPort} \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        --env PYTHONPATH=/app/src \
+        "$image" \
+        --host 0.0.0.0 \
         --port ${toString jarvisSlackPort} \
-        --registry "$JARVIS_REGISTRY_PATH" \
-        --delegation "$JARVIS_DELEGATION_PATH" \
-        --routing-output "$JARVIS_ROUTING_OUTPUT" \
-        --realms "$JARVIS_REALMS_PATH" \
-        --locks "$JARVIS_LOCKS_PATH" \
-        --api-url "http://127.0.0.1:${toString jarvisApiPort}"
+        --registry "/app/config/agent_registry.yaml" \
+        --delegation "/app/config/delegation_policy.yaml" \
+        --routing-output "''${JARVIS_ROUTING_OUTPUT:-${jarvisDataDir}/routing_events.jsonl}" \
+        --realms "/app/config/realms.yaml" \
+        --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
+        --api-url "http://jarvis-api:${toString jarvisApiPort}"
     '';
   };
 
@@ -793,7 +669,7 @@ in
   };
 
   systemd.services.jarvis-web = {
-    description = "Jarvis web placeholder";
+    description = "Jarvis web service";
     wantedBy = [ "multi-user.target" ];
     after = [ "jarvis-ghost-env.service" ];
     wants = [ "jarvis-ghost-env.service" ];
@@ -801,7 +677,7 @@ in
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "simple";
@@ -810,19 +686,32 @@ in
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
     };
     script = ''
       set -euo pipefail
 
-      if [ ! -f "${jarvisWebDir}/index.html" ]; then
-        echo "jarvis-web: missing portal index at ${jarvisWebDir}/index.html" >&2
-        exit 1
+      image="''${JARVIS_WEB_CONTAINER_IMAGE:-${jarvisWebContainerImage}}"
+      ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
+        ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
+      ${pkgs.podman}/bin/podman rm -f jarvis-web >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
       fi
 
-      exec ${jarvisPython}/bin/python -m http.server ${toString jarvisWebPort} \
-        --bind 127.0.0.1 \
-        --directory ${jarvisWebDir}
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-web \
+        --network host \
+        --add-host jarvis-harness:127.0.0.1 \
+        --add-host jarvis-api:127.0.0.1 \
+        --add-host jarvis-slack-gateway:127.0.0.1 \
+        --add-host jarvis-litellm:127.0.0.1 \
+        -p 127.0.0.1:${toString jarvisWebPort}:${toString jarvisWebPort} \
+        "''${env_args[@]}" \
+        "$image"
     '';
   };
 
