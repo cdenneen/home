@@ -75,7 +75,10 @@ in
       set -euo pipefail
 
       home_repo="/home/cdenneen/src/workspace/nix/home"
-      app_repo="/opt/jarvis"
+      check_only=false
+      if [ "''${1:-}" = "--check" ]; then
+        check_only=true
+      fi
 
       check_clean() {
         local repo="$1"
@@ -92,7 +95,35 @@ in
       }
 
       check_clean "$home_repo" "home"
-      check_clean "$app_repo" "app"
+
+      jarvis_uid="$(${pkgs.coreutils}/bin/id -u jarvis)"
+      ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "/run/user/$jarvis_uid"
+      podman_as_jarvis() {
+        ${pkgs.sudo}/bin/sudo -n -u jarvis env HOME="/var/lib/jarvis" XDG_RUNTIME_DIR="/run/user/$jarvis_uid" ${pkgs.podman}/bin/podman "$@"
+      }
+
+      required_images=(
+        "${jarvisApiContainerImage}"
+        "${jarvisHarnessContainerImage}"
+        "${jarvisSlackContainerImage}"
+        "${jarvisWebContainerImage}"
+        "${jarvisLiteLLMImage}"
+      )
+      missing=0
+      for image in "''${required_images[@]}"; do
+        if ! podman_as_jarvis image exists "$image"; then
+          echo "missing required image: $image" >&2
+          missing=1
+        fi
+      done
+      if [ "$missing" -ne 0 ]; then
+        exit 1
+      fi
+
+      if [ "$check_only" = true ]; then
+        echo "jarvis-ghost-deploy check passed"
+        exit 0
+      fi
 
       ${pkgs.git}/bin/git -C "$home_repo" pull --rebase origin main
       ${pkgs.sudo}/bin/sudo -n ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "$home_repo#ghost"
