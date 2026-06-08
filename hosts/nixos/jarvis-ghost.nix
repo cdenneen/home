@@ -202,7 +202,7 @@ in
         "${jarvisRepoDir}/config/litellm-proxy.yaml"
       )
       missing=0
-      for file in "${required_files[@]}"; do
+      for file in "''${required_files[@]}"; do
         if [ ! -f "$file" ]; then
           ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: missing required file: $file" >&2
           missing=1
