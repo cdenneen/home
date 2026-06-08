@@ -103,7 +103,13 @@ in
       jarvis_uid="$(${pkgs.coreutils}/bin/id -u jarvis)"
       ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "/run/user/$jarvis_uid"
       podman_as_jarvis() {
-        "$sudo_cmd" -n -u jarvis env HOME="/var/lib/jarvis" XDG_RUNTIME_DIR="/run/user/$jarvis_uid" ${pkgs.podman}/bin/podman "$@"
+        "$sudo_cmd" -n -u jarvis ${pkgs.bash}/bin/bash -lc '
+          set -euo pipefail
+          cd /var/lib/jarvis
+          export HOME=/var/lib/jarvis
+          export XDG_RUNTIME_DIR=/run/user/'"$jarvis_uid"'
+          exec '"${pkgs.podman}/bin/podman"' "$@"
+        ' -- "$@"
       }
 
       required_images=(
