@@ -5,7 +5,8 @@
   ...
 }:
 let
-  jarvisRepoDir = "/opt/jarvis";
+  jarvisRepoDir = "/var/lib/jarvis/repo";
+  jarvisLegacyRepoDir = "/opt/jarvis";
   jarvisRuntimeDir = "/var/lib/jarvis";
   jarvisDataDir = "${jarvisRuntimeDir}/data";
   jarvisSecretsDir = "${jarvisDataDir}/secrets";
@@ -151,7 +152,8 @@ in
   };
 
   systemd.tmpfiles.rules = [
-    "d ${jarvisRepoDir} 0755 cdenneen users -"
+    "L+ ${jarvisRepoDir} - - - - ${jarvisLegacyRepoDir}"
+    "d ${jarvisLegacyRepoDir} 0755 cdenneen users -"
     "d ${jarvisRuntimeDir} 0750 jarvis jarvis -"
     "d ${jarvisDataDir} 0750 jarvis jarvis -"
     "d ${jarvisSecretsDir} 0750 jarvis jarvis -"
@@ -186,6 +188,29 @@ in
         ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "$dir"
         ${pkgs.coreutils}/bin/chown -R jarvis:jarvis "$dir"
       done
+
+      if [ ! -d "${jarvisLegacyRepoDir}" ]; then
+        ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: missing legacy repo dir ${jarvisLegacyRepoDir}" >&2
+        exit 1
+      fi
+
+      required_files=(
+        "${jarvisRepoDir}/config/agent_registry.yaml"
+        "${jarvisRepoDir}/config/delegation_policy.yaml"
+        "${jarvisRepoDir}/config/model_profiles.yaml"
+        "${jarvisRepoDir}/config/realms.yaml"
+        "${jarvisRepoDir}/config/litellm-proxy.yaml"
+      )
+      missing=0
+      for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: missing required file: $file" >&2
+          missing=1
+        fi
+      done
+      if [ "$missing" -ne 0 ]; then
+        exit 1
+      fi
 
       for port in ${toString jarvisWebPort}; do
         pids="$(${pkgs.lsof}/bin/lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null || true)"
