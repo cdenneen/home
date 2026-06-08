@@ -192,6 +192,12 @@ in
         ${pkgs.coreutils}/bin/chown -R jarvis:jarvis "$dir"
       done
 
+      home_repo="/home/cdenneen/src/workspace/nix/home"
+      if [ -d "$home_repo" ] && [ -n "$(${pkgs.git}/bin/git -C "$home_repo" status --porcelain)" ]; then
+        ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: refusing to continue with dirty home repo at $home_repo" >&2
+        exit 1
+      fi
+
       jarvis_uid="$(${pkgs.coreutils}/bin/id -u jarvis)"
       ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "/run/user/$jarvis_uid"
       podman_as_jarvis() {
@@ -671,13 +677,12 @@ LITELLMCFG
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "oneshot";
       User = "jarvis";
       Group = "jarvis";
-      WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [ "HOME=/var/lib/jarvis" ];
     };
@@ -690,7 +695,21 @@ LITELLMCFG
         exit 0
       fi
 
-      if ! ${jarvisPython}/bin/python ${jarvisRepoDir}/scripts/factory-sync \
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      ${pkgs.podman}/bin/podman rm -f jarvis-factory-sync >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
+      fi
+
+      if ! ${pkgs.podman}/bin/podman run --rm --name jarvis-factory-sync \
+        --network host \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        --env PYTHONPATH=/app/src \
+        "$image" \
+        python /app/scripts/factory-sync \
         --source-dsn "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
         --target-dsn "$sync_dsn"; then
         echo "jarvis-factory-sync: warning: sync failed (best effort mode)" >&2
@@ -833,21 +852,35 @@ LITELLMCFG
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "oneshot";
       User = "jarvis";
       Group = "jarvis";
-      WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-ollama-model-sync.py \
+
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      ${pkgs.podman}/bin/podman rm -f jarvis-ollama-model-sync >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
+      fi
+
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-ollama-model-sync \
+        --network host \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        --env PYTHONPATH=/app/src \
+        "$image" \
+        python /app/services/jarvis-ollama-model-sync.py \
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
-        --models-file "''${JARVIS_OLLAMA_MODELS_FILE:-${jarvisRepoDir}/config/ollama_models.yaml}" \
+        --models-file "/app/config/ollama_models.yaml" \
         --state-file "${jarvisDataDir}/ollama_model_sync_state.json" \
         --timeout "''${JARVIS_OLLAMA_SYNC_TIMEOUT:-3600}"
     '';
@@ -880,19 +913,33 @@ LITELLMCFG
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "oneshot";
       User = "jarvis";
       Group = "jarvis";
-      WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/services/jarvis-objective-cycle.py \
+
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      ${pkgs.podman}/bin/podman rm -f jarvis-objective-cycle >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
+      fi
+
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-objective-cycle \
+        --network host \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        --env PYTHONPATH=/app/src \
+        "$image" \
+        python /app/services/jarvis-objective-cycle.py \
         --api-url "''${JARVIS_API_URL:-http://127.0.0.1:${toString jarvisApiPort}}" \
         --state-file "${jarvisDataDir}/objective_cycle_state.json"
     '';
@@ -972,24 +1019,37 @@ LITELLMCFG
     path = [
       pkgs.bash
       pkgs.coreutils
-      jarvisPython
+      pkgs.podman
     ];
     serviceConfig = {
       Type = "oneshot";
       User = "jarvis";
       Group = "jarvis";
-      WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
-      export PYTHONPATH="${jarvisRepoDir}/src"
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/src/jarvis/autopilot_remediator.py \
+
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      ${pkgs.podman}/bin/podman rm -f jarvis-autopilot-remediator >/dev/null 2>&1 || true
+
+      env_args=(--env-file "${jarvisEnvFile}")
+      if [ -r "${jarvisDevEnvFile}" ]; then
+        env_args+=(--env-file "${jarvisDevEnvFile}")
+      fi
+
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-autopilot-remediator \
+        --network host \
+        -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
+        "''${env_args[@]}" \
+        --env PYTHONPATH=/app/src \
+        "$image" \
+        python /app/src/jarvis/autopilot_remediator.py \
         --api-url "''${JARVIS_API_URL}" \
         --routing-file "''${JARVIS_ROUTING_OUTPUT}" \
         --state-file "''${JARVIS_REMEDIATOR_STATE_FILE}" \
-        --policy-file "''${JARVIS_REMEDIATOR_POLICY_FILE}" \
+        --policy-file "/app/config/autopilot_policy.yaml" \
         --stale-after-seconds "''${JARVIS_REMEDIATOR_STALE_SECONDS:-900}" \
         --cooldown-seconds "''${JARVIS_REMEDIATOR_COOLDOWN_SECONDS:-420}" \
         --max-actions "''${JARVIS_REMEDIATOR_MAX_ACTIONS:-3}"
