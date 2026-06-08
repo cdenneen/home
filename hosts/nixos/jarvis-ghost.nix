@@ -152,10 +152,50 @@ in
 
   systemd.tmpfiles.rules = [
     "d ${jarvisRepoDir} 0755 cdenneen users -"
-    "d ${jarvisRuntimeDir} 0750 cdenneen users -"
-    "d ${jarvisDataDir} 0750 cdenneen users -"
-    "d ${jarvisSecretsDir} 0750 cdenneen users -"
+    "d ${jarvisRuntimeDir} 0750 jarvis jarvis -"
+    "d ${jarvisDataDir} 0750 jarvis jarvis -"
+    "d ${jarvisSecretsDir} 0750 jarvis jarvis -"
   ];
+
+  systemd.services.jarvis-runtime-sanitize = {
+    description = "Normalize Jarvis runtime ownership and clear stale listeners";
+    wantedBy = [ "multi-user.target" ];
+    before = [
+      "jarvis-ghost-env.service"
+      "jarvis-harness.service"
+      "jarvis-api.service"
+      "jarvis-slack-gateway.service"
+      "jarvis-web.service"
+    ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.lsof
+      pkgs.procps
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+      Group = "root";
+    };
+    script = ''
+      set -euo pipefail
+
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o jarvis -g jarvis "${jarvisRuntimeDir}" "${jarvisDataDir}" "${jarvisSecretsDir}"
+      for dir in "${jarvisRuntimeDir}/.config" "${jarvisRuntimeDir}/.cache" "${jarvisRuntimeDir}/.local"; do
+        ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "$dir"
+        ${pkgs.coreutils}/bin/chown -R jarvis:jarvis "$dir"
+      done
+
+      for port in ${toString jarvisWebPort}; do
+        pids="$(${pkgs.lsof}/bin/lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null || true)"
+        if [ -n "$pids" ]; then
+          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: killing stale listener(s) on :$port -> $pids"
+          ${pkgs.procps}/bin/kill -9 $pids || true
+        fi
+      done
+    '';
+  };
 
   systemd.services.jarvis-ghost-env = {
     description = "Generate Jarvis ghost runtime env";
@@ -165,6 +205,9 @@ in
       "jarvis-slack-gateway.service"
       "jarvis-web.service"
     ];
+    after = [ "jarvis-runtime-sanitize.service" ];
+    wants = [ "jarvis-runtime-sanitize.service" ];
+    requires = [ "jarvis-runtime-sanitize.service" ];
     path = [
       pkgs.bash
       pkgs.coreutils
@@ -272,11 +315,11 @@ in
 
       tmp_jarvis_secrets="$(${pkgs.coreutils}/bin/mktemp "${jarvisSecretsDir}/jarvis.yaml.XXXXXX")"
       printf 'JARVIS_DASHBOARD_PASSWORD: %s\n' "$(read_secret "${config.sops.secrets.jarvis_dashboard_password.path}")" > "$tmp_jarvis_secrets"
-      ${pkgs.coreutils}/bin/chown cdenneen:users "$tmp_jarvis_secrets"
+      ${pkgs.coreutils}/bin/chown jarvis:jarvis "$tmp_jarvis_secrets"
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_jarvis_secrets"
       ${pkgs.coreutils}/bin/mv -f "$tmp_jarvis_secrets" "${jarvisSecretsFile}"
 
-      ${pkgs.coreutils}/bin/chown cdenneen:users "$tmp_env"
+      ${pkgs.coreutils}/bin/chown jarvis:jarvis "$tmp_env"
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${jarvisEnvFile}"
     '';
@@ -301,14 +344,14 @@ in
     ];
     serviceConfig = {
       Type = "simple";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [
-        "HOME=/home/cdenneen"
+        "HOME=/var/lib/jarvis"
       ];
     };
     script = ''
@@ -372,14 +415,14 @@ in
     ];
     serviceConfig = {
       Type = "simple";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [
-        "HOME=/home/cdenneen"
+        "HOME=/var/lib/jarvis"
       ];
     };
     script = ''
@@ -448,14 +491,14 @@ in
     ];
     serviceConfig = {
       Type = "simple";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [
-        "HOME=/home/cdenneen"
+        "HOME=/var/lib/jarvis"
       ];
     };
     script = ''
@@ -508,14 +551,14 @@ in
     ];
     serviceConfig = {
       Type = "simple";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [
-        "HOME=/home/cdenneen"
+        "HOME=/var/lib/jarvis"
       ];
     };
     script = ''
@@ -573,11 +616,11 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
@@ -617,9 +660,9 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      User = "cdenneen";
-      Group = "users";
-      Environment = [ "HOME=/home/cdenneen" ];
+      User = "jarvis";
+      Group = "jarvis";
+      Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
@@ -681,13 +724,13 @@ in
     ];
     serviceConfig = {
       Type = "simple";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       Restart = "always";
       RestartSec = "10s";
       EnvironmentFile = [ jarvisEnvFile ];
       Environment = [
-        "HOME=/home/cdenneen"
+        "HOME=/var/lib/jarvis"
       ];
     };
     script = ''
@@ -735,11 +778,11 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
@@ -782,11 +825,11 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
@@ -827,11 +870,11 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
@@ -874,11 +917,11 @@ in
     ];
     serviceConfig = {
       Type = "oneshot";
-      User = "cdenneen";
-      Group = "users";
+      User = "jarvis";
+      Group = "jarvis";
       WorkingDirectory = jarvisRepoDir;
       EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/home/cdenneen" ];
+      Environment = [ "HOME=/var/lib/jarvis" ];
     };
     script = ''
       set -euo pipefail
