@@ -23,7 +23,8 @@ let
   jarvisMacEndpoint = "http://100.90.97.48:8091";
   jarvisVoiceEdgeEndpoint = "http://127.0.0.1:8092";
   jarvisLiteLLMEndpoint = "http://127.0.0.1:${toString jarvisLiteLLMPort}/v1";
-  jarvisLiteLLMConfig = "${jarvisRepoDir}/config/litellm-proxy.yaml";
+  jarvisLiteLLMConfig = "${jarvisRuntimeDir}/litellm-proxy.yaml";
+  jarvisLiteLLMImage = "docker.litellm.ai/berriai/litellm:main-latest";
   jarvisApiContainerImage = "localhost/jarvis-api:latest";
   jarvisHarnessContainerImage = "localhost/jarvis-harness:latest";
   jarvisSlackContainerImage = "localhost/jarvis-slack-gateway:latest";
@@ -174,6 +175,8 @@ in
       pkgs.coreutils
       pkgs.lsof
       pkgs.procps
+      pkgs.podman
+      pkgs.sudo
     ];
     serviceConfig = {
       Type = "oneshot";
@@ -189,22 +192,23 @@ in
         ${pkgs.coreutils}/bin/chown -R jarvis:jarvis "$dir"
       done
 
-      if [ ! -d "${jarvisLegacyRepoDir}" ]; then
-        ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: missing legacy repo dir ${jarvisLegacyRepoDir}" >&2
-        exit 1
-      fi
+      jarvis_uid="$(${pkgs.coreutils}/bin/id -u jarvis)"
+      ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "/run/user/$jarvis_uid"
+      podman_as_jarvis() {
+        ${pkgs.sudo}/bin/sudo -n -u jarvis env HOME="${jarvisRuntimeDir}" XDG_RUNTIME_DIR="/run/user/$jarvis_uid" ${pkgs.podman}/bin/podman "$@"
+      }
 
-      required_files=(
-        "${jarvisRepoDir}/config/agent_registry.yaml"
-        "${jarvisRepoDir}/config/delegation_policy.yaml"
-        "${jarvisRepoDir}/config/model_profiles.yaml"
-        "${jarvisRepoDir}/config/realms.yaml"
-        "${jarvisRepoDir}/config/litellm-proxy.yaml"
+      required_images=(
+        "${jarvisApiContainerImage}"
+        "${jarvisHarnessContainerImage}"
+        "${jarvisSlackContainerImage}"
+        "${jarvisWebContainerImage}"
+        "${jarvisLiteLLMImage}"
       )
       missing=0
-      for file in "''${required_files[@]}"; do
-        if [ ! -f "$file" ]; then
-          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: missing required file: $file" >&2
+      for image in "''${required_images[@]}"; do
+        if ! podman_as_jarvis image exists "$image"; then
+          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: missing required image: $image" >&2
           missing=1
         fi
       done
@@ -337,6 +341,36 @@ in
       fi
 
       write_var JARVIS_FACTORY_SYNC_TARGET "$factory_sync_target"
+
+      tmp_litellm="$(${pkgs.coreutils}/bin/mktemp "${jarvisRuntimeDir}/litellm-proxy.yaml.XXXXXX")"
+      ${pkgs.coreutils}/bin/cat > "$tmp_litellm" <<'LITELLMCFG'
+model_list:
+  - model_name: jarvis-ollama
+    litellm_params:
+      model: ollama/jarvis:fast
+      api_base: http://127.0.0.1:11434
+
+  - model_name: jarvis-openrouter
+    litellm_params:
+      model: openrouter/google/gemma-3-27b-it:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: jarvis-gemini
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: jarvis-openai
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+general_settings:
+  master_key: "jarvis-local-gateway"
+LITELLMCFG
+      ${pkgs.coreutils}/bin/chown jarvis:jarvis "$tmp_litellm"
+      ${pkgs.coreutils}/bin/chmod 0440 "$tmp_litellm"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_litellm" "${jarvisLiteLLMConfig}"
 
       tmp_jarvis_secrets="$(${pkgs.coreutils}/bin/mktemp "${jarvisSecretsDir}/jarvis.yaml.XXXXXX")"
       printf 'JARVIS_DASHBOARD_PASSWORD: %s\n' "$(read_secret "${config.sops.secrets.jarvis_dashboard_password.path}")" > "$tmp_jarvis_secrets"
@@ -544,7 +578,7 @@ in
         --env OPENROUTER_API_KEY \
         --env OPENAI_API_KEY \
         --env GEMINI_API_KEY \
-        docker.litellm.ai/berriai/litellm:main-latest \
+        ${jarvisLiteLLMImage} \
         --config /app/config.yaml --port ${toString jarvisLiteLLMPort}
     '';
   };
