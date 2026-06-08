@@ -80,9 +80,38 @@ in
         sudo_cmd="$(command -v sudo)"
       fi
       check_only=false
-      if [ "''${1:-}" = "--check" ]; then
-        check_only=true
-      fi
+      verbose=false
+      wait_seconds=45
+
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --check)
+            check_only=true
+            ;;
+          --verbose)
+            verbose=true
+            ;;
+          --wait-seconds)
+            shift
+            if [ "$#" -eq 0 ]; then
+              echo "missing value for --wait-seconds" >&2
+              exit 2
+            fi
+            wait_seconds="$1"
+            ;;
+          *)
+            echo "usage: jarvis-ghost-deploy [--check] [--verbose] [--wait-seconds N]" >&2
+            exit 2
+            ;;
+        esac
+        shift
+      done
+
+      log() {
+        if [ "$verbose" = true ]; then
+          echo "$*"
+        fi
+      }
 
       check_clean() {
         local repo="$1"
@@ -96,6 +125,7 @@ in
           echo "$out" >&2
           exit 1
         fi
+        log "ok: ''${label} repo clean ($repo)"
       }
 
       check_clean "$home_repo" "home"
@@ -124,6 +154,8 @@ in
         if ! podman_as_jarvis image exists "$image"; then
           echo "missing required image: $image" >&2
           missing=1
+        else
+          log "ok: image present $image"
         fi
       done
       if [ "$missing" -ne 0 ]; then
@@ -137,6 +169,24 @@ in
 
       ${pkgs.git}/bin/git -C "$home_repo" pull --rebase origin main
       "$sudo_cmd" -n ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "$home_repo#ghost"
+
+      log "waiting for jarvis-web to settle (timeout: ''${wait_seconds}s)"
+      start="$(${pkgs.coreutils}/bin/date +%s)"
+      while true; do
+        now="$(${pkgs.coreutils}/bin/date +%s)"
+        elapsed=$((now - start))
+        if [ "$elapsed" -ge "$wait_seconds" ]; then
+          echo "jarvis-web did not become healthy within ''${wait_seconds}s" >&2
+          exit 1
+        fi
+
+        if "$sudo_cmd" -n systemctl is-active jarvis-web.service >/dev/null 2>&1 && \
+          ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisWebPort}/ >/dev/null 2>&1; then
+          echo "jarvis-ghost-deploy deploy passed"
+          exit 0
+        fi
+        ${pkgs.coreutils}/bin/sleep 2
+      done
     '')
   ];
 
