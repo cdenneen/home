@@ -71,6 +71,32 @@ in
 
   environment.systemPackages = lib.mkAfter [
     jarvisPython
+    (pkgs.writeShellScriptBin "jarvis-ghost-deploy" ''
+      set -euo pipefail
+
+      home_repo="/home/cdenneen/src/workspace/nix/home"
+      app_repo="/opt/jarvis"
+
+      check_clean() {
+        local repo="$1"
+        local label="$2"
+        if [ ! -d "$repo" ]; then
+          return
+        fi
+        out="$(${pkgs.git}/bin/git -c safe.directory="$repo" -C "$repo" status --porcelain 2>&1 || true)"
+        if [ -n "$out" ]; then
+          echo "${label} repo is dirty or unreadable: $repo" >&2
+          echo "$out" >&2
+          exit 1
+        fi
+      }
+
+      check_clean "$home_repo" "home"
+      check_clean "$app_repo" "app"
+
+      ${pkgs.git}/bin/git -C "$home_repo" pull --rebase origin main
+      ${pkgs.sudo}/bin/sudo -n ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "$home_repo#ghost"
+    '')
   ];
 
   sops.secrets.jarvis_slack_bot_token = {
@@ -964,46 +990,7 @@ LITELLMCFG
     };
   };
 
-  systemd.services.jarvis-brain-sync = {
-    description = "Jarvis neuronet brain sync";
-    after = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-    ];
-    wants = [
-      "network-online.target"
-      "jarvis-ghost-env.service"
-    ];
-    requires = [ "jarvis-ghost-env.service" ];
-    path = [
-      pkgs.bash
-      pkgs.coreutils
-      pkgs.openssh
-      pkgs.tmux
-      jarvisPython
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      User = "jarvis";
-      Group = "jarvis";
-      WorkingDirectory = jarvisRepoDir;
-      EnvironmentFile = [ jarvisEnvFile ];
-      Environment = [ "HOME=/var/lib/jarvis" ];
-    };
-    script = ''
-      set -euo pipefail
-      export PYTHONPATH="${jarvisRepoDir}/src"
-      exec ${jarvisPython}/bin/python ${jarvisRepoDir}/src/jarvis/brain_sync.py \
-        --repo-dir "${jarvisRepoDir}" \
-        --remote-host "''${JARVIS_BRAIN_REMOTE_HOST:-nyx}" \
-        --manifest "''${JARVIS_BRAIN_MANIFEST}" \
-        --candidates "''${JARVIS_BRAIN_CANDIDATES}" \
-        --import-ready "''${JARVIS_BRAIN_IMPORT_READY}" \
-        --import-state "''${JARVIS_BRAIN_IMPORT_STATE}" \
-        --state-file "''${JARVIS_BRAIN_STATE_FILE}" \
-        --limit 300
-    '';
-  };
+  systemd.services.jarvis-brain-sync.enable = false;
 
   systemd.services.jarvis-autopilot-remediator = {
     description = "Jarvis autopilot remediator";
@@ -1065,17 +1052,7 @@ LITELLMCFG
     '';
   };
 
-  systemd.timers.jarvis-brain-sync = {
-    description = "Run Jarvis neuronet brain sync every 20 minutes";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnBootSec = "5m";
-      OnUnitActiveSec = "20m";
-      RandomizedDelaySec = "90s";
-      Persistent = true;
-      Unit = "jarvis-brain-sync.service";
-    };
-  };
+  systemd.timers.jarvis-brain-sync.enable = false;
 
   systemd.timers.jarvis-autopilot-remediator = {
     description = "Run Jarvis autopilot remediator every 3 minutes";
