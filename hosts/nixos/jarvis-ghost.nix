@@ -187,6 +187,7 @@ in
       set -euo pipefail
 
       ${pkgs.coreutils}/bin/install -d -m 0750 -o jarvis -g jarvis "${jarvisRuntimeDir}" "${jarvisDataDir}" "${jarvisSecretsDir}"
+      ${pkgs.coreutils}/bin/chown -R jarvis:jarvis "${jarvisDataDir}"
       for dir in "${jarvisRuntimeDir}/.config" "${jarvisRuntimeDir}/.cache" "${jarvisRuntimeDir}/.local"; do
         ${pkgs.coreutils}/bin/install -d -m 0700 -o jarvis -g jarvis "$dir"
         ${pkgs.coreutils}/bin/chown -R jarvis:jarvis "$dir"
