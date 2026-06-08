@@ -708,8 +708,9 @@ LITELLMCFG
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
+        --entrypoint python \
         "$image" \
-        python /app/scripts/factory-sync \
+        /app/scripts/factory-sync \
         --source-dsn "''${JARVIS_FACTORY_DB_URL:-''${JARVIS_POSTGRES_DB_URL:-}}" \
         --target-dsn "$sync_dsn"; then
         echo "jarvis-factory-sync: warning: sync failed (best effort mode)" >&2
@@ -877,8 +878,9 @@ LITELLMCFG
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
+        --entrypoint python \
         "$image" \
-        python /app/services/jarvis-ollama-model-sync.py \
+        /app/services/jarvis-ollama-model-sync.py \
         --ollama-endpoint "''${JARVIS_OLLAMA_ENDPOINT:-http://127.0.0.1:11434}" \
         --models-file "/app/config/ollama_models.yaml" \
         --state-file "${jarvisDataDir}/ollama_model_sync_state.json" \
@@ -938,8 +940,9 @@ LITELLMCFG
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
+        --entrypoint python \
         "$image" \
-        python /app/services/jarvis-objective-cycle.py \
+        /app/services/jarvis-objective-cycle.py \
         --api-url "''${JARVIS_API_URL:-http://127.0.0.1:${toString jarvisApiPort}}" \
         --state-file "${jarvisDataDir}/objective_cycle_state.json"
     '';
@@ -1044,8 +1047,9 @@ LITELLMCFG
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
+        --entrypoint python \
         "$image" \
-        python /app/src/jarvis/autopilot_remediator.py \
+        /app/src/jarvis/autopilot_remediator.py \
         --api-url "''${JARVIS_API_URL}" \
         --routing-file "''${JARVIS_ROUTING_OUTPUT}" \
         --state-file "''${JARVIS_REMEDIATOR_STATE_FILE}" \
