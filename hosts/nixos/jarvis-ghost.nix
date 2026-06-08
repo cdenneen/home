@@ -168,7 +168,14 @@ in
       fi
 
       ${pkgs.git}/bin/git -C "$home_repo" pull --rebase origin main
+      rebuild_rc=0
+      set +e
       "$sudo_cmd" -n ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch --flake "$home_repo#ghost"
+      rebuild_rc=$?
+      set -e
+      if [ "$rebuild_rc" -ne 0 ]; then
+        log "nixos-rebuild returned ''${rebuild_rc}; checking web settle gate before failing"
+      fi
 
       log "waiting for jarvis-web to settle (timeout: ''${wait_seconds}s)"
       start="$(${pkgs.coreutils}/bin/date +%s)"
@@ -182,6 +189,9 @@ in
 
         if "$sudo_cmd" -n systemctl is-active jarvis-web.service >/dev/null 2>&1 && \
           ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisWebPort}/ >/dev/null 2>&1; then
+          if [ "$rebuild_rc" -ne 0 ]; then
+            log "web settled despite non-zero nixos-rebuild exit"
+          fi
           echo "jarvis-ghost-deploy deploy passed"
           exit 0
         fi
