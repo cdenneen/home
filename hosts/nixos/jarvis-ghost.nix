@@ -194,9 +194,13 @@ in
       done
 
       home_repo="/home/cdenneen/src/workspace/nix/home"
-      if [ -d "$home_repo" ] && [ -n "$(${pkgs.git}/bin/git -C "$home_repo" status --porcelain)" ]; then
-        ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: refusing to continue with dirty home repo at $home_repo" >&2
-        exit 1
+      if [ -d "$home_repo" ]; then
+        status_out="$(${pkgs.git}/bin/git -c safe.directory="$home_repo" -C "$home_repo" status --porcelain 2>&1 || true)"
+        if [ -n "$status_out" ]; then
+          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: refusing to continue with dirty or unreadable home repo at $home_repo" >&2
+          ${pkgs.coreutils}/bin/echo "$status_out" >&2
+          exit 1
+        fi
       fi
 
       jarvis_uid="$(${pkgs.coreutils}/bin/id -u jarvis)"
