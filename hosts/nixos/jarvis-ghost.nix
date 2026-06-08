@@ -85,7 +85,7 @@ in
         fi
         out="$(${pkgs.git}/bin/git -c safe.directory="$repo" -C "$repo" status --porcelain 2>&1 || true)"
         if [ -n "$out" ]; then
-          echo "${label} repo is dirty or unreadable: $repo" >&2
+          echo "''${label} repo is dirty or unreadable: $repo" >&2
           echo "$out" >&2
           exit 1
         fi
