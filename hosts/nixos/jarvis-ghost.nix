@@ -335,7 +335,7 @@ in
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
         "$image" \
-        --host 0.0.0.0 \
+        --host 127.0.0.1 \
         --port ${toString jarvisHarnessPort} \
         --repo-dir "/app" \
         --registry "/app/config/agent_registry.yaml" \
