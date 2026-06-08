@@ -177,18 +177,24 @@ in
         log "nixos-rebuild returned ''${rebuild_rc}; checking web settle gate before failing"
       fi
 
-      log "waiting for jarvis-web to settle (timeout: ''${wait_seconds}s)"
+      log "waiting for jarvis services to settle (timeout: ''${wait_seconds}s)"
       start="$(${pkgs.coreutils}/bin/date +%s)"
       while true; do
         now="$(${pkgs.coreutils}/bin/date +%s)"
         elapsed=$((now - start))
         if [ "$elapsed" -ge "$wait_seconds" ]; then
-          echo "jarvis-web did not become healthy within ''${wait_seconds}s" >&2
+          echo "jarvis services did not become healthy within ''${wait_seconds}s" >&2
           exit 1
         fi
 
         if "$sudo_cmd" -n systemctl is-active jarvis-web.service >/dev/null 2>&1 && \
-          ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisWebPort}/ >/dev/null 2>&1; then
+          "$sudo_cmd" -n systemctl is-active jarvis-harness.service >/dev/null 2>&1 && \
+          "$sudo_cmd" -n systemctl is-active jarvis-api.service >/dev/null 2>&1 && \
+          "$sudo_cmd" -n systemctl is-active jarvis-slack-gateway.service >/dev/null 2>&1 && \
+          ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisWebPort}/ >/dev/null 2>&1 && \
+          ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisHarnessPort}/healthz >/dev/null 2>&1 && \
+          ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisApiPort}/healthz >/dev/null 2>&1 && \
+          ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:${toString jarvisSlackPort}/healthz >/dev/null 2>&1; then
           if [ "$rebuild_rc" -ne 0 ]; then
             log "web settled despite non-zero nixos-rebuild exit"
           fi
