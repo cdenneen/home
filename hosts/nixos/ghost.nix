@@ -43,7 +43,6 @@ in
 {
   imports = [
     ./ghost-base.nix
-    ./jarvis-ghost.nix
     happier.nixosModules.happier-server
   ];
 
@@ -65,6 +64,10 @@ in
   ];
 
   services = {
+    jarvis = {
+      enable = true;
+      role = "core";
+    };
     jarvisSubstrate = {
       enable = true;
       enableStorageContainers = true;

@@ -5,8 +5,8 @@
   ...
 }:
 let
-  jarvisRepoDir = "/var/lib/jarvis/repo";
-  jarvisLegacyRepoDir = "/opt/jarvis";
+  cfg = config.services.jarvis;
+  jarvisRepoDir = "/opt/jarvis";
   jarvisRuntimeDir = "/var/lib/jarvis";
   jarvisDataDir = "${jarvisRuntimeDir}/data";
   jarvisSecretsDir = "${jarvisDataDir}/secrets";
@@ -25,10 +25,7 @@ let
   jarvisLiteLLMEndpoint = "http://127.0.0.1:${toString jarvisLiteLLMPort}/v1";
   jarvisLiteLLMConfig = "${jarvisRuntimeDir}/litellm-proxy.yaml";
   jarvisLiteLLMImage = "docker.litellm.ai/berriai/litellm:main-latest";
-  jarvisApiContainerImage = "localhost/jarvis-api:latest";
-  jarvisHarnessContainerImage = "localhost/jarvis-harness:latest";
-  jarvisSlackContainerImage = "localhost/jarvis-slack-gateway:latest";
-  jarvisWebContainerImage = "localhost/jarvis-web:latest";
+  jarvisContainerImage = "registry.gitlab.com/cdenneen/my-jarvis/jarvis:latest";
   jarvisSupabaseProjectRef = "ysxipmxwfupqzywhevji";
   jarvisSupabaseApiHost = "${jarvisSupabaseProjectRef}.supabase.co";
   jarvisSupabasePoolerHost = "aws-1-us-east-2.pooler.supabase.com";
@@ -50,7 +47,7 @@ let
     ]
   );
 in
-{
+lib.mkIf (cfg.enable && cfg.role == "core") {
   users.groups.jarvis = { };
   users.users.jarvis = {
     isSystemUser = true;
@@ -284,10 +281,15 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.openrouter_api_key = {
+    sopsFile = ../../secrets/jarvis.yaml;
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
 
   systemd.tmpfiles.rules = [
-    "L+ ${jarvisRepoDir} - - - - ${jarvisLegacyRepoDir}"
-    "d ${jarvisLegacyRepoDir} 0755 cdenneen users -"
+    "d ${jarvisRepoDir} 0755 cdenneen users -"
     "d ${jarvisRuntimeDir} 0750 jarvis jarvis -"
     "d ${jarvisDataDir} 0750 jarvis jarvis -"
     "d ${jarvisSecretsDir} 0750 jarvis jarvis -"
@@ -310,6 +312,7 @@ in
       pkgs.procps
       pkgs.podman
       pkgs.sudo
+      pkgs.systemd
     ];
     serviceConfig = {
       Type = "oneshot";
@@ -330,9 +333,8 @@ in
       if [ -d "$home_repo" ]; then
         status_out="$(${pkgs.git}/bin/git -c safe.directory="$home_repo" -C "$home_repo" status --porcelain 2>&1 || true)"
         if [ -n "$status_out" ]; then
-          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: refusing to continue with dirty or unreadable home repo at $home_repo" >&2
+          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: home repo dirty/unreadable at $home_repo (continuing)" >&2
           ${pkgs.coreutils}/bin/echo "$status_out" >&2
-          exit 1
         fi
       fi
 
@@ -360,13 +362,17 @@ in
         exit 1
       fi
 
-      for port in ${toString jarvisWebPort}; do
-        pids="$(${pkgs.lsof}/bin/lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null || true)"
-        if [ -n "$pids" ]; then
-          ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: killing stale listener(s) on :$port -> $pids"
-          ${pkgs.procps}/bin/kill -9 $pids || true
-        fi
-      done
+      if ${pkgs.systemd}/bin/systemctl is-active --quiet jarvis-web.service; then
+        ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: jarvis-web active, skipping listener cleanup on :${toString jarvisWebPort}"
+      else
+        for port in ${toString jarvisWebPort}; do
+          pids="$(${pkgs.lsof}/bin/lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null || true)"
+          if [ -n "$pids" ]; then
+            ${pkgs.coreutils}/bin/echo "jarvis-runtime-sanitize: killing stale listener(s) on :$port -> $pids"
+            ${pkgs.procps}/bin/kill -9 $pids || true
+          fi
+        done
+      fi
     '';
   };
 
@@ -438,7 +444,13 @@ in
       write_var JARVIS_VOICE_EDGE_ENDPOINT "http://127.0.0.1:8080/voice-edge"
       write_var JARVIS_LLM_GATEWAY_URL "http://jarvis-litellm:${toString jarvisLiteLLMPort}/v1"
       write_var JARVIS_LLM_GATEWAY_API_KEY "jarvis-local-gateway"
-      write_var JARVIS_LLM_GATEWAY_CHAIN "jarvis-openrouter,jarvis-gemini,jarvis-openai"
+      write_var JARVIS_DEPLOYMENT_MODE "lite"
+      write_var JARVIS_TEMPORAL_REQUIRED "false"
+      write_var JARVIS_LLM_GATEWAY_CHAIN "jarvis-openrouter-general,jarvis-gemini,jarvis-openai"
+      write_var JARVIS_LLM_CHAIN_GENERAL "jarvis-openrouter-general,jarvis-gemini,jarvis-openai"
+      write_var JARVIS_LLM_CHAIN_CODE "jarvis-openrouter-code,jarvis-openrouter-general,jarvis-gemini,jarvis-openai"
+      write_var JARVIS_LLM_CHAIN_FINANCE "jarvis-openrouter-finance,jarvis-openrouter-general,jarvis-openai"
+      write_var JARVIS_LLM_CHAIN_ROLEPLAY "jarvis-openrouter-roleplay,jarvis-openrouter-general,jarvis-gemini"
       write_var JARVIS_API_CONTAINER_IMAGE "${jarvisApiContainerImage}"
       write_var JARVIS_HARNESS_CONTAINER_IMAGE "${jarvisHarnessContainerImage}"
       write_var JARVIS_SLACK_CONTAINER_IMAGE "${jarvisSlackContainerImage}"
@@ -496,7 +508,27 @@ model_list:
 
   - model_name: jarvis-openrouter
     litellm_params:
-      model: openrouter/google/gemma-3-27b-it:free
+      model: openrouter/google/gemma-4-31b-it
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: jarvis-openrouter-general
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: jarvis-openrouter-code
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: jarvis-openrouter-finance
+    litellm_params:
+      model: openrouter/openrouter/owl-alpha
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: jarvis-openrouter-roleplay
+    litellm_params:
+      model: openrouter/openrouter/owl-alpha
       api_key: os.environ/OPENROUTER_API_KEY
 
   - model_name: jarvis-gemini
@@ -560,7 +592,7 @@ LITELLMCFG
     script = ''
       set -euo pipefail
 
-      image="''${JARVIS_HARNESS_CONTAINER_IMAGE:-${jarvisHarnessContainerImage}}"
+      image="''${JARVIS_HARNESS_CONTAINER_IMAGE:-${jarvisContainerImage}}"
       ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
         ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
       ${pkgs.podman}/bin/podman rm -f jarvis-harness >/dev/null 2>&1 || true
@@ -581,6 +613,7 @@ LITELLMCFG
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
         "$image" \
+        /app/services/jarvis-harness-service.py \
         --host 127.0.0.1 \
         --port ${toString jarvisHarnessPort} \
         --repo-dir "/app" \
@@ -631,7 +664,7 @@ LITELLMCFG
     script = ''
       set -euo pipefail
 
-      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisContainerImage}}"
       ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
         ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
       ${pkgs.podman}/bin/podman rm -f jarvis-api >/dev/null 2>&1 || true
@@ -651,6 +684,7 @@ LITELLMCFG
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         "$image" \
+        /app/services/jarvis-api-service.py \
         --host 0.0.0.0 \
         --port ${toString jarvisApiPort} \
         --harness-url "''${JARVIS_HARNESS_URL:-http://127.0.0.1:${toString jarvisHarnessPort}}" \
@@ -767,7 +801,7 @@ LITELLMCFG
     script = ''
       set -euo pipefail
 
-      image="''${JARVIS_SLACK_CONTAINER_IMAGE:-${jarvisSlackContainerImage}}"
+      image="''${JARVIS_SLACK_CONTAINER_IMAGE:-${jarvisContainerImage}}"
       ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
         ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
       ${pkgs.podman}/bin/podman rm -f jarvis-slack-gateway >/dev/null 2>&1 || true
@@ -788,6 +822,7 @@ LITELLMCFG
         "''${env_args[@]}" \
         --env PYTHONPATH=/app/src \
         "$image" \
+        /app/services/jarvis-slack-gateway.py \
         --host 0.0.0.0 \
         --port ${toString jarvisSlackPort} \
         --registry "/app/config/agent_registry.yaml" \
@@ -797,6 +832,47 @@ LITELLMCFG
         --locks "''${JARVIS_LOCKS_PATH:-${jarvisDataDir}/realm_locks.json}" \
         --api-url "http://jarvis-api:${toString jarvisApiPort}"
     '';
+  };
+
+  systemd.services.jarvis-openrouter-model-sync = {
+    description = "Jarvis OpenRouter free-model sync and LiteLLM refresh";
+    after = [ "network-online.target" "jarvis-ghost-env.service" ];
+    wants = [ "network-online.target" "jarvis-ghost-env.service" ];
+    requires = [ "jarvis-ghost-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      jarvisPython
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+      Group = "root";
+      EnvironmentFile = [ jarvisEnvFile ];
+      Environment = [ "HOME=/var/lib/jarvis" ];
+    };
+    script = ''
+      set -euo pipefail
+
+      ${jarvisPython}/bin/python ${jarvisRepoDir}/scripts/sync_openrouter_models.py \
+        --policy-out "${jarvisDataDir}/openrouter_model_policy.json" \
+        --litellm-config "${jarvisLiteLLMConfig}" \
+        --sqlite-db "${jarvisUsageDb}"
+
+      ${pkgs.coreutils}/bin/chown jarvis:jarvis "${jarvisDataDir}/openrouter_model_policy.json" "${jarvisLiteLLMConfig}"
+      systemctl restart jarvis-litellm.service
+    '';
+  };
+
+  systemd.timers.jarvis-openrouter-model-sync = {
+    description = "Nightly OpenRouter model sync";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "*-*-* 03:15:00";
+      Persistent = true;
+      RandomizedDelaySec = "20m";
+      Unit = "jarvis-openrouter-model-sync.service";
+    };
   };
 
   systemd.services.jarvis-factory-sync = {
@@ -953,7 +1029,7 @@ LITELLMCFG
     script = ''
       set -euo pipefail
 
-      image="''${JARVIS_WEB_CONTAINER_IMAGE:-${jarvisWebContainerImage}}"
+      image="''${JARVIS_WEB_CONTAINER_IMAGE:-${jarvisContainerImage}}"
       ${pkgs.podman}/bin/podman network exists "${jarvisContainerNetwork}" >/dev/null 2>&1 || \
         ${pkgs.podman}/bin/podman network create "${jarvisContainerNetwork}" >/dev/null
       ${pkgs.podman}/bin/podman rm -f jarvis-web >/dev/null 2>&1 || true
@@ -971,7 +1047,8 @@ LITELLMCFG
         --add-host jarvis-litellm:127.0.0.1 \
         -p 127.0.0.1:${toString jarvisWebPort}:${toString jarvisWebPort} \
         "''${env_args[@]}" \
-        "$image"
+        "$image" \
+        -m http.server ${toString jarvisWebPort} --bind 0.0.0.0 --directory /app/web
     '';
   };
 
@@ -1003,7 +1080,7 @@ LITELLMCFG
     script = ''
       set -euo pipefail
 
-      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisApiContainerImage}}"
+      image="''${JARVIS_API_CONTAINER_IMAGE:-${jarvisContainerImage}}"
       ${pkgs.podman}/bin/podman rm -f jarvis-ollama-model-sync >/dev/null 2>&1 || true
 
       env_args=(--env-file "${jarvisEnvFile}")

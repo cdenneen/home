@@ -200,7 +200,6 @@ in
 {
   imports = [
     happier.nixosModules.happier-server
-    ./jarvis-nyx.nix
   ];
 
   networking.hostName = "nyx";
@@ -212,6 +211,11 @@ in
   services.tailscale = {
     enable = true;
     openFirewall = true;
+  };
+
+  services.jarvis = {
+    enable = true;
+    role = "node";
   };
 
   services.amazon-cloudwatch-agent = {

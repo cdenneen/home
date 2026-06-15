@@ -5,18 +5,19 @@
   ...
 }:
 let
+  cfg = config.services.jarvis;
   jarvisRepoDir = "/opt/jarvis";
   jarvisRuntimeDir = "/var/lib/jarvis";
   jarvisDataDir = "${jarvisRuntimeDir}/data";
-  jarvisEnvFile = "${jarvisRuntimeDir}/work-runner.env";
+  jarvisEnvFile = "${jarvisRuntimeDir}/jarvis-node.env";
   jarvisDevEnvFile = "${jarvisRuntimeDir}/dev.env";
-  jarvisWorkContainerImage = "localhost/jarvis-work-runner:latest";
-  jarvisWorkPort = 8091;
+  jarvisNodeContainerImage = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-node:latest";
+  jarvisNodePort = 8091;
   jarvisGhostApiEndpoint = "http://100.114.242.29:8080";
   jarvisGhostHarnessEndpoint = "http://100.114.242.29:8079";
   jarvisNyxPublicEndpoint = "http://100.80.58.4:8091";
-  jarvisWorkerId = "nyx-worker-1";
-  jarvisWorkerCapabilities = "code,triage,documentation,investigation";
+  jarvisNodeId = "nyx-node-1";
+  jarvisNodeCapabilities = "code,triage,documentation,investigation";
   jarvisPython = pkgs.python3.withPackages (
     ps: with ps; [
       fastapi
@@ -24,8 +25,8 @@ let
     ]
   );
 in
-{
-  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ jarvisWorkPort ];
+lib.mkIf (cfg.enable && cfg.role == "node") {
+  networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ jarvisNodePort ];
 
   environment.systemPackages = lib.mkAfter [
     jarvisPython
@@ -44,11 +45,10 @@ in
     "d ${jarvisDataDir} 0750 cdenneen users -"
   ];
 
-  systemd.services.jarvis-work-env = {
-    description = "Generate Jarvis work runner env";
+  systemd.services.jarvis-node-env = {
+    description = "Generate Jarvis node env";
     before = [
-      "jarvis-work-runner.service"
-      "jarvis-work-runner-container.service"
+      "jarvis-node.service"
     ];
     path = [
       pkgs.bash
@@ -61,7 +61,7 @@ in
     script = ''
       set -euo pipefail
 
-      tmp_env="$(${pkgs.coreutils}/bin/mktemp "${jarvisRuntimeDir}/work-runner.env.XXXXXX")"
+      tmp_env="$(${pkgs.coreutils}/bin/mktemp "${jarvisRuntimeDir}/jarvis-node.env.XXXXXX")"
 
       cleanup() {
         ${pkgs.coreutils}/bin/rm -f "$tmp_env"
@@ -78,9 +78,9 @@ in
 
       write_var JARVIS_REPO_DIR "${jarvisRepoDir}"
       write_var JARVIS_DATA_DIR "${jarvisDataDir}"
-      write_var JARVIS_WORK_BIND "0.0.0.0:${toString jarvisWorkPort}"
-      write_var JARVIS_WORKER_ID "${jarvisWorkerId}"
-      write_var JARVIS_WORKER_CAPABILITIES "${jarvisWorkerCapabilities}"
+      write_var JARVIS_WORK_BIND "0.0.0.0:${toString jarvisNodePort}"
+      write_var JARVIS_WORKER_ID "${jarvisNodeId}"
+      write_var JARVIS_WORKER_CAPABILITIES "${jarvisNodeCapabilities}"
       write_var JARVIS_WORK_STATUS_CALLBACK_URL "${jarvisGhostApiEndpoint}/api/tasks/worker-update"
       write_var JARVIS_HARNESS_URL "${jarvisGhostHarnessEndpoint}"
       write_var JARVIS_WORKER_PUBLIC_ENDPOINT "${jarvisNyxPublicEndpoint}"
@@ -98,20 +98,20 @@ in
     '';
   };
 
-  systemd.services.jarvis-work-runner = {
-    description = "Jarvis work runner";
+  systemd.services.jarvis-node = {
+    description = "Jarvis node";
     wantedBy = [ "multi-user.target" ];
     after = [
       "network-online.target"
       "tailscaled.service"
-      "jarvis-work-env.service"
+      "jarvis-node-env.service"
     ];
     wants = [
       "network-online.target"
       "tailscaled.service"
-      "jarvis-work-env.service"
+      "jarvis-node-env.service"
     ];
-    requires = [ "jarvis-work-env.service" ];
+    requires = [ "jarvis-node-env.service" ];
     path = [
       pkgs.bash
       pkgs.coreutils
@@ -130,30 +130,30 @@ in
     script = ''
       set -euo pipefail
 
-      image="''${JARVIS_WORK_RUNNER_CONTAINER_IMAGE:-${jarvisWorkContainerImage}}"
-      ${pkgs.podman}/bin/podman rm -f jarvis-work-runner >/dev/null 2>&1 || true
+      image="''${JARVIS_NODE_CONTAINER_IMAGE:-${jarvisNodeContainerImage}}"
+      ${pkgs.podman}/bin/podman rm -f jarvis-node >/dev/null 2>&1 || true
 
       env_args=(--env-file "${jarvisEnvFile}")
       if [ -r "${jarvisDevEnvFile}" ]; then
         env_args+=(--env-file "${jarvisDevEnvFile}")
       fi
 
-      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-work-runner --network host \
+      exec ${pkgs.podman}/bin/podman run --rm --name jarvis-node --network host \
         -v "${jarvisRuntimeDir}:${jarvisRuntimeDir}" \
         "''${env_args[@]}" \
         "$image" \
         --host 0.0.0.0 \
-        --port ${toString jarvisWorkPort} \
+        --port ${toString jarvisNodePort} \
         --shared-token "''${JARVIS_SHARED_TOKEN:-}" \
         --callback-url "''${JARVIS_WORK_STATUS_CALLBACK_URL:-}" \
         --callback-token "''${JARVIS_SHARED_TOKEN:-}" \
-        --worker-id "''${JARVIS_WORKER_ID:-${jarvisWorkerId}}" \
-        --capabilities "''${JARVIS_WORKER_CAPABILITIES:-${jarvisWorkerCapabilities}}" \
+        --worker-id "''${JARVIS_WORKER_ID:-${jarvisNodeId}}" \
+        --capabilities "''${JARVIS_WORKER_CAPABILITIES:-${jarvisNodeCapabilities}}" \
         --harness-url "''${JARVIS_HARNESS_URL:-}" \
         --registration-token "''${JARVIS_WORKER_REGISTRATION_TOKEN:-}" \
         --public-endpoint "''${JARVIS_WORKER_PUBLIC_ENDPOINT:-}" \
         --worker-realm "''${JARVIS_WORKER_REALM:-work}" \
-        --state-file "${jarvisDataDir}/work-runner-state.json" \
+        --state-file "${jarvisDataDir}/jarvis-node-state.json" \
         --repo-dir "${jarvisRepoDir}"
     '';
   };

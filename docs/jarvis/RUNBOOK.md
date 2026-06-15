@@ -11,11 +11,10 @@
   - `cloudflared`
   - `tailscaled`
 - `nyx`: work execution runner
-  - `jarvis-work-runner` on `0.0.0.0:8090` (`/workers` worker contract)
+  - `jarvis-node` on `0.0.0.0:8091` (`/workers` worker contract)
   - `tailscaled`
-- local Mac: voice edge
-  - `jarvis-voice-edge` launch agent
-  - `jarvis-mac-runner` on `vnjtecmbcd.tail0e55.ts.net:8091`
+- local Mac: node runner
+  - `jarvis-node` on `vnjtecmbcd.tail0e55.ts.net:8091`
 
 ## Source Repos
 
@@ -68,9 +67,9 @@ cd ~/src/workspace/nix/home
 git pull --rebase
 sudo nixos-rebuild switch --flake .#nyx
 
-systemctl status jarvis-work-runner --no-pager
-curl -fsS http://127.0.0.1:8090/healthz
-curl -fsS http://127.0.0.1:8090/workers
+systemctl status jarvis-node --no-pager
+curl -fsS http://127.0.0.1:8091/healthz
+curl -fsS http://127.0.0.1:8091/workers
 ```
 
 ## Local Mac Deploy
@@ -80,12 +79,8 @@ cd ~/code/workspace/nix/home
 git pull --rebase
 home-manager switch --flake .#cdenneen@VNJTECMBCD
 
-launchctl list | grep jarvis-voice-edge
-launchctl list | grep jarvis-mac-runner
-jarvis-voice-edge-status
-jarvis-mac-runner-status
-tail -n 100 ~/Library/Logs/jarvis-voice-edge.log
-tail -n 100 ~/Library/Logs/jarvis-mac-runner.log
+launchctl list | grep jarvis-node
+tail -n 100 ~/Library/Logs/jarvis-node.log
 ```
 
 ## Public Ingress
@@ -97,8 +92,8 @@ tail -n 100 ~/Library/Logs/jarvis-mac-runner.log
 
 ## Internal Work Runner Path
 
-- `ghost` calls `http://nyx.tail0e55.ts.net:8090`
-- `nyx` exposes `8090` only on `tailscale0`
+- `ghost` calls `http://nyx.tail0e55.ts.net:8091`
+- `nyx` exposes `8091` only on `tailscale0`
 - `ghost` calls `http://vnjtecmbcd.tail0e55.ts.net:8091` for `personal-local` actions
 
 ## Validation Checklist
@@ -110,17 +105,13 @@ tail -n 100 ~/Library/Logs/jarvis-mac-runner.log
   - `curl -fsS http://127.0.0.1:8081/healthz`
   - `curl -fsS http://127.0.0.1:3000 >/dev/null`
 - `nyx`
-  - `systemctl is-active jarvis-work-runner`
-  - `curl -fsS http://127.0.0.1:8090/healthz`
-  - `curl -fsS http://127.0.0.1:8090/workers`
-  - `curl -fsS http://nyx.tail0e55.ts.net:8090/healthz` from `ghost`
+  - `systemctl is-active jarvis-node`
+  - `curl -fsS http://127.0.0.1:8091/healthz`
+  - `curl -fsS http://127.0.0.1:8091/workers`
+  - `curl -fsS http://nyx.tail0e55.ts.net:8091/healthz` from `ghost`
 - local Mac
-  - `launchctl list | grep jarvis-voice-edge`
-  - `launchctl list | grep jarvis-mac-runner`
-  - `jarvis-voice-edge-status`
-  - `jarvis-mac-runner-status`
+  - `launchctl list | grep jarvis-node`
   - `curl -fsS http://vnjtecmbcd.tail0e55.ts.net:8091/healthz`
-  - confirm `speak_text` messages show in `~/Library/Logs/jarvis-voice-edge.log`
 - public path checks
   - `https://ai.denneen.net/api/healthz`
   - websocket connect to `wss://ai.denneen.net/ws/voice`

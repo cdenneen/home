@@ -246,11 +246,11 @@ fi
 cd ~/src/workspace/nix/home
 git pull --rebase
 "$sudo_cmd" "$nixos_rebuild_cmd" switch --flake .#nyx
-"$sudo_cmd" "$systemctl_cmd" restart jarvis-work-env.service
-"$sudo_cmd" "$systemctl_cmd" restart jarvis-work-runner.service
+    "$sudo_cmd" "$systemctl_cmd" restart jarvis-node-env.service
+    "$sudo_cmd" "$systemctl_cmd" restart jarvis-node.service
 
-"$sudo_cmd" "$systemctl_cmd" is-active --quiet jarvis-work-runner.service
-wait_for_url http://127.0.0.1:8090/healthz 30 2
+    "$sudo_cmd" "$systemctl_cmd" is-active --quiet jarvis-node.service
+    wait_for_url http://127.0.0.1:8091/healthz 30 2
 NYX_REMOTE_EOF
 )
     ssh -o ClearAllForwardings=yes nyx "bash -lc $(printf '%q' "$remote_script")"

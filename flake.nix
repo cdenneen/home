@@ -59,6 +59,10 @@
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    jarvis = {
+      url = "git+ssh://git@gitlab.com/cdenneen/my-jarvis.git";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
     nur.url = "github:nix-community/nur";
     vimnix = {
       url = "github:cdenneen/vimnix";
