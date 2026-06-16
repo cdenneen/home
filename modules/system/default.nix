@@ -158,7 +158,7 @@ in
           sops_file="${config.sops.defaultSopsFile}"
           age_key="${config.sops.age.keyFile}"
           if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
-            token="$(${pkgs.sops}/bin/sops --extract '["gitlab_com_nix_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+            token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_nix_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
           fi
         fi
         ''}
