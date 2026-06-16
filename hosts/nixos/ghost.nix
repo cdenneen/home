@@ -150,23 +150,23 @@ in
   virtualisation.oci-containers.backend = "podman";
   virtualisation.oci-containers.containers.jarvis-api.login = {
     registry = "registry.gitlab.com";
-    username = "jarvis-runtime-pull";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
   };
   virtualisation.oci-containers.containers.jarvis-harness.login = {
     registry = "registry.gitlab.com";
-    username = "jarvis-runtime-pull";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
   };
   virtualisation.oci-containers.containers.jarvis-slack-gateway.login = {
     registry = "registry.gitlab.com";
-    username = "jarvis-runtime-pull";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
   };
   virtualisation.oci-containers.containers.jarvis-web.login = {
     registry = "registry.gitlab.com";
-    username = "jarvis-runtime-pull";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
   };
   virtualisation.oci-containers.containers = {
     ollama = {
@@ -260,13 +260,6 @@ in
   sops.secrets.openai_api_key = {
     owner = "cdenneen";
     group = "users";
-    mode = "0400";
-  };
-  sops.secrets.jarvis_registry_password = {
-    sopsFile = ../../secrets/jarvis.yaml;
-    key = "jarvis_registry_password";
-    owner = "root";
-    group = "root";
     mode = "0400";
   };
   sops.secrets.local_qdrant_api_key = {
