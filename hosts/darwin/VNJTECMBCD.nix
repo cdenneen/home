@@ -1,11 +1,51 @@
 {
+  config,
   jarvis,
   lib,
   pkgs,
   ...
 }:
+let
+  jarvisVersion = "0.1.0a3";
+  primaryUser = config.system.primaryUser;
+  homeDir = "/Users/${primaryUser}";
+  jarvisBaseDir = "${homeDir}/.local/share/jarvis";
+  jarvisDataDir = "${jarvisBaseDir}/data";
+  jarvisRepoDir = "${jarvisBaseDir}/repos";
+  jarvisVenvDir = "${jarvisBaseDir}/venv";
+  jarvisPort = 8091;
+  jarvisResourcePackage = pkgs.runCommand "jarvis-resources" { } ''
+    mkdir -p "$out"
+    cp -R ${jarvis.outPath}/config "$out/config"
+    cp -R ${jarvis.outPath}/context "$out/context"
+    cp -R ${jarvis.outPath}/web "$out/web"
+    cp -R ${jarvis.outPath}/schemas "$out/schemas"
+    cp -R ${jarvis.outPath}/scripts "$out/scripts"
+  '';
+  jarvisBootstrap = pkgs.writeShellScript "jarvis-node-bootstrap" ''
+    set -euo pipefail
+    venv="${jarvisVenvDir}"
+    if [ ! -x "$venv/bin/python" ]; then
+      ${pkgs.python3}/bin/python3 -m venv "$venv"
+    fi
+    if [ ! -x "$venv/bin/jarvis-node-service" ]; then
+      "$venv/bin/python" -m pip install --upgrade pip
+      "$venv/bin/python" -m pip install "jarvis==${jarvisVersion}"
+    fi
+  '';
+  jarvisScript = pkgs.writeShellScript "jarvis-node-launchd" ''
+    set -euo pipefail
+    ${pkgs.coreutils}/bin/mkdir -p "${jarvisDataDir}" "${jarvisRepoDir}"
+    ${jarvisBootstrap}
+    export JARVIS_RESOURCE_ROOT="${jarvisResourcePackage}"
+    export JARVIS_DATA_DIR="${jarvisDataDir}"
+    exec "${jarvisVenvDir}/bin/jarvis-node-service" \
+      --host 0.0.0.0 \
+      --port ${toString jarvisPort} \
+      --repo-dir "${jarvisRepoDir}"
+  '';
+in
 {
-  imports = [ jarvis.darwinModules.jarvis-node ];
 
   networking.hostName = "VNJTECMBCD";
 
@@ -52,6 +92,21 @@
       quit-after-last-window-closed = true
     '';
 
+    launchd.agents.jarvis-node = {
+      enable = true;
+      config = {
+        ProgramArguments = [ "${jarvisScript}" ];
+        EnvironmentVariables = {
+          HOME = homeDir;
+        };
+        KeepAlive = true;
+        RunAtLoad = true;
+        ProcessType = "Background";
+        StandardOutPath = "${homeDir}/Library/Logs/jarvis-node.log";
+        StandardErrorPath = "${homeDir}/Library/Logs/jarvis-node.log";
+      };
+    };
+
   };
 
   environment.systemPackages = [
@@ -61,11 +116,5 @@
     pkgs.podman
     pkgs.uv
   ];
-
-  services.jarvis-node = {
-    enable = true;
-    mode = "python";
-    python.package = "jarvis==0.1.0a3";
-  };
 
 }

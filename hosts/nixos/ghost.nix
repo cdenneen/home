@@ -70,6 +70,7 @@ in
     ./ghost-base.nix
     happier.nixosModules.happier-server
     jarvis.nixosModules.jarvis
+    jarvis.nixosModules.jarvis-web
   ];
 
   profiles.hmIntegrated.enable = lib.mkForce true;
@@ -108,6 +109,16 @@ in
       mode = "oci";
       image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis";
       imageTag = "0.1.0a3";
+    };
+
+    jarvis-web = {
+      enable = true;
+      mode = "oci";
+      image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-web";
+      imageTag = "0.1.0a3";
+      port = 3000;
+      resourceDir = config.services.jarvis.resourceDir;
+      resourcePackage = config.services.jarvis.resourcePackage;
     };
 
     cloudflared = {
