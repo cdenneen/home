@@ -34,6 +34,21 @@ let
   wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
   wellnessSupabaseDbUrlFile = config.sops.secrets.wellness_supabase_db_url.path;
   supabaseAccessTokenFile = config.sops.secrets.supabase_access_token.path;
+  ollamaPort = 11434;
+  qdrantHttpPort = 6333;
+  qdrantGrpcPort = 6334;
+  litellmPort = 4000;
+  postgresPort = 5432;
+  neo4jHttpPort = 7474;
+  neo4jBoltPort = 7687;
+  redisPort = 6379;
+  ollamaDataDir = "/var/lib/ollama";
+  qdrantDataDir = "/var/lib/qdrant";
+  litellmConfigFile = "/etc/litellm/config.yaml";
+  postgresDataDir = "/var/lib/postgres";
+  neo4jDataDir = "/var/lib/neo4j/data";
+  neo4jLogsDir = "/var/lib/neo4j/logs";
+  redisDataDir = "/var/lib/redis";
 in
 {
   imports = [
@@ -90,6 +105,80 @@ in
     };
   };
 
+  environment.etc."litellm/config.yaml".text = ''
+    model_list:
+      - model_name: gpt-4o-mini
+        litellm_params:
+          model: gpt-4o-mini
+          api_key: os.environ/OPENAI_API_KEY
+  '';
+
+  virtualisation.oci-containers.backend = "podman";
+  virtualisation.oci-containers.containers = {
+    ollama = {
+      image = "ollama/ollama:latest";
+      ports = [ "127.0.0.1:${toString ollamaPort}:11434" ];
+      volumes = [ "${ollamaDataDir}:/root/.ollama:U" ];
+      autoStart = true;
+    };
+
+    qdrant = {
+      image = "qdrant/qdrant:latest";
+      ports = [
+        "127.0.0.1:${toString qdrantHttpPort}:6333"
+        "127.0.0.1:${toString qdrantGrpcPort}:6334"
+      ];
+      volumes = [ "${qdrantDataDir}:/qdrant/storage:U" ];
+      autoStart = true;
+    };
+
+    litellm = {
+      image = "ghcr.io/berriai/litellm:main";
+      ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
+      volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
+      environment = {
+        LITELLM_CONFIG = "/app/config.yaml";
+        LITELLM_PORT = toString litellmPort;
+      };
+      autoStart = true;
+    };
+
+    postgres = {
+      image = "postgres:16";
+      ports = [ "127.0.0.1:${toString postgresPort}:5432" ];
+      volumes = [ "${postgresDataDir}:/var/lib/postgresql/data:U" ];
+      environment = {
+        POSTGRES_USER = "postgres";
+        POSTGRES_DB = "postgres";
+        POSTGRES_HOST_AUTH_METHOD = "trust";
+      };
+      autoStart = true;
+    };
+
+    neo4j = {
+      image = "neo4j:5";
+      ports = [
+        "127.0.0.1:${toString neo4jHttpPort}:7474"
+        "127.0.0.1:${toString neo4jBoltPort}:7687"
+      ];
+      volumes = [
+        "${neo4jDataDir}:/data:U"
+        "${neo4jLogsDir}:/logs:U"
+      ];
+      environment = {
+        NEO4J_AUTH = "none";
+      };
+      autoStart = true;
+    };
+
+    redis = {
+      image = "redis:7";
+      ports = [ "127.0.0.1:${toString redisPort}:6379" ];
+      volumes = [ "${redisDataDir}:/data:U" ];
+      autoStart = true;
+    };
+  };
+
   sops.secrets.ghost_cloudflare_tunnel_token = {
     owner = "root";
     group = "root";
@@ -138,6 +227,13 @@ in
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
     "d ${wellnessRepoDir} 0750 cdenneen users -"
+    "d ${ollamaDataDir} 0750 root root -"
+    "d ${qdrantDataDir} 0750 root root -"
+    "d /var/lib/postgres 0750 root root -"
+    "d /var/lib/neo4j 0750 root root -"
+    "d ${neo4jDataDir} 0750 root root -"
+    "d ${neo4jLogsDir} 0750 root root -"
+    "d ${redisDataDir} 0750 root root -"
   ];
 
   systemd.services.happier-env-bootstrap = {

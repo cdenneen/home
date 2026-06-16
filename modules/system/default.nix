@@ -142,9 +142,11 @@ in
         owner = "root";
         mode = "0400";
       };
-      nix.extraOptions = lib.mkAfter (lib.optionalString pkgs.stdenv.isLinux ''
-        !include /etc/nix/nix.conf.d/90-access-tokens.conf
-      '');
+      nix.extraOptions = lib.mkAfter (
+        lib.optionalString pkgs.stdenv.isLinux ''
+          !include /etc/nix/nix.conf.d/90-access-tokens.conf
+        ''
+      );
       system.activationScripts.nixAccessTokens = lib.mkAfter ''
         token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
         token=""
@@ -154,45 +156,45 @@ in
         fi
 
         ${lib.optionalString pkgs.stdenv.isDarwin ''
-        if [ -z "$token" ]; then
-          sops_file="${config.sops.defaultSopsFile}"
-          age_key="${config.sops.age.keyFile}"
-          if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
-            token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+          if [ -z "$token" ]; then
+            sops_file="${config.sops.defaultSopsFile}"
+            age_key="${config.sops.age.keyFile}"
+            if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
+              token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+            fi
           fi
-        fi
         ''}
 
         ${lib.optionalString pkgs.stdenv.isDarwin ''
-        conf_file="/etc/nix/nix.custom.conf"
-        tmp_file="$conf_file.tmp"
-        ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
+          conf_file="/etc/nix/nix.custom.conf"
+          tmp_file="$conf_file.tmp"
+          ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
 
-        if [ -f "$conf_file" ]; then
-          ${pkgs.gnugrep}/bin/grep -v '^access-tokens = gitlab.com=' "$conf_file" > "$tmp_file" || true
-        else
-          : > "$tmp_file"
-        fi
+          if [ -f "$conf_file" ]; then
+            ${pkgs.gnugrep}/bin/grep -v '^access-tokens = gitlab.com=' "$conf_file" > "$tmp_file" || true
+          else
+            : > "$tmp_file"
+          fi
 
-        if [ -n "$token" ]; then
-          printf 'access-tokens = gitlab.com=%s\n' "$token" >> "$tmp_file"
-        fi
+          if [ -n "$token" ]; then
+            printf 'access-tokens = gitlab.com=%s\n' "$token" >> "$tmp_file"
+          fi
 
-        ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
-        ${pkgs.coreutils}/bin/rm -f "$tmp_file"
+          ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
+          ${pkgs.coreutils}/bin/rm -f "$tmp_file"
         ''}
         ${lib.optionalString pkgs.stdenv.isLinux ''
-        conf_dir="/etc/nix/nix.conf.d"
-        conf_file="$conf_dir/90-access-tokens.conf"
+          conf_dir="/etc/nix/nix.conf.d"
+          conf_file="$conf_dir/90-access-tokens.conf"
 
-        ${pkgs.coreutils}/bin/install -d -m 0755 "$conf_dir"
+          ${pkgs.coreutils}/bin/install -d -m 0755 "$conf_dir"
 
-        if [ -n "$token" ]; then
-          printf 'access-tokens = gitlab.com=%s\n' "$token" > "$conf_file"
-          ${pkgs.coreutils}/bin/chmod 0400 "$conf_file"
-        else
-          ${pkgs.coreutils}/bin/rm -f "$conf_file"
-        fi
+          if [ -n "$token" ]; then
+            printf 'access-tokens = gitlab.com=%s\n' "$token" > "$conf_file"
+            ${pkgs.coreutils}/bin/chmod 0400 "$conf_file"
+          else
+            ${pkgs.coreutils}/bin/rm -f "$conf_file"
+          fi
         ''}
       '';
     })
