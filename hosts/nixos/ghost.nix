@@ -133,7 +133,7 @@ in
     };
 
     litellm = {
-      image = "ghcr.io/berriai/litellm:main";
+      image = "ghcr.io/berriai/litellm:latest";
       ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
       environment = {
