@@ -142,8 +142,7 @@ in
         "--config"
         "/app/config.yaml"
         "--port"
-        toString
-        litellmPort
+        "${toString litellmPort}"
       ];
       environment = {
         LITELLM_CONFIG = "/app/config.yaml";
