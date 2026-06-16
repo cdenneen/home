@@ -222,6 +222,12 @@ in
     imageTag = "0.1.0a3";
   };
 
+  virtualisation.oci-containers.containers.jarvis-node.login = {
+    registry = "registry.gitlab.com";
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
+  };
+
   services.amazon-cloudwatch-agent = {
     enable = true;
     mode = "ec2";

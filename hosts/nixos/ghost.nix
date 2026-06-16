@@ -148,6 +148,26 @@ in
   '';
 
   virtualisation.oci-containers.backend = "podman";
+  virtualisation.oci-containers.containers.jarvis-api.login = {
+    registry = "registry.gitlab.com";
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
+  };
+  virtualisation.oci-containers.containers.jarvis-harness.login = {
+    registry = "registry.gitlab.com";
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
+  };
+  virtualisation.oci-containers.containers.jarvis-slack-gateway.login = {
+    registry = "registry.gitlab.com";
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
+  };
+  virtualisation.oci-containers.containers.jarvis-web.login = {
+    registry = "registry.gitlab.com";
+    username = "cdenneen";
+    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
+  };
   virtualisation.oci-containers.containers = {
     ollama = {
       image = "ollama/ollama:latest";
