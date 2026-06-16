@@ -341,6 +341,7 @@ in
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
@@ -384,6 +385,7 @@ in
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
@@ -415,6 +417,7 @@ in
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
@@ -514,6 +517,7 @@ in
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
@@ -545,6 +549,7 @@ in
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
