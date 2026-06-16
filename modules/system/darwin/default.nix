@@ -109,7 +109,7 @@
         ];
       };
     })
-    (lib.mkIf config ? system {
+    (lib.mkIf (config ? system) {
       launchd.daemons.nix-access-tokens = {
         script = let
           sopsFile = config.sops.defaultSopsFile;
