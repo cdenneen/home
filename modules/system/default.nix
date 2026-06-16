@@ -134,6 +134,16 @@ in
         fi
 
         ${lib.optionalString pkgs.stdenv.isDarwin ''
+        if [ -z "$token" ]; then
+          sops_file="${config.sops.defaultSopsFile}"
+          age_key="${config.sops.age.keyFile}"
+          if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
+            token="$(${pkgs.sops}/bin/sops --extract '["gitlab_com_nix_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+          fi
+        fi
+        ''}
+
+        ${lib.optionalString pkgs.stdenv.isDarwin ''
         conf_file="/etc/nix/nix.custom.conf"
         tmp_file="$conf_file.tmp"
         ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
