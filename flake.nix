@@ -60,7 +60,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     jarvis = {
-      url = "git+ssh://git@gitlab.com/cdenneen/my-jarvis.git";
+      url = "git+https://gitlab.com/cdenneen/my-jarvis.git";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
     nur.url = "github:nix-community/nur";
