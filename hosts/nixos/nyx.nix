@@ -3,6 +3,7 @@
   pkgs,
   config,
   happier,
+  jarvis,
   ...
 }:
 let
@@ -200,6 +201,7 @@ in
 {
   imports = [
     happier.nixosModules.happier-server
+    jarvis.nixosModules.jarvis-node
   ];
 
   networking.hostName = "nyx";
@@ -211,6 +213,13 @@ in
   services.tailscale = {
     enable = true;
     openFirewall = true;
+  };
+
+  services.jarvis-node = {
+    enable = true;
+    mode = "oci";
+    image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-node";
+    imageTag = "0.1.0a3";
   };
 
   services.amazon-cloudwatch-agent = {

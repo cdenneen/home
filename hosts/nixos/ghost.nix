@@ -3,6 +3,7 @@
   lib,
   pkgs,
   happier,
+  jarvis,
   ...
 }:
 let
@@ -68,6 +69,7 @@ in
   imports = [
     ./ghost-base.nix
     happier.nixosModules.happier-server
+    jarvis.nixosModules.jarvis
   ];
 
   profiles.hmIntegrated.enable = lib.mkForce true;
@@ -99,6 +101,13 @@ in
       mode = "light";
       port = 3005;
       environmentFile = "/var/lib/happier-server/happier.env";
+    };
+
+    jarvis = {
+      enable = true;
+      mode = "oci";
+      image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis";
+      imageTag = "0.1.0a3";
     };
 
     cloudflared = {

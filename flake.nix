@@ -201,10 +201,12 @@
             # Do not let formatters rewrite encrypted SOPS files.
             settings.global.excludes = [
               "secrets/secrets.yaml"
+              "secrets/ghost.yaml"
             ];
 
             settings.formatter.prettier.excludes = [
               "secrets/secrets.yaml"
+              "secrets/ghost.yaml"
             ];
           };
 

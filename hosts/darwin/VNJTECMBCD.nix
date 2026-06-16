@@ -55,4 +55,23 @@
     pkgs.uv
   ];
 
+  launchd.daemons.jarvis-node = {
+    script = ''
+      set -euo pipefail
+
+      export HOME="/Users/cdenneen"
+      export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:${pkgs.uv}/bin"
+
+      exec ${pkgs.uv}/bin/uv tool run --from jarvis==0.1.0a3 jarvis-node
+    '';
+    serviceConfig = {
+      RunAtLoad = true;
+      KeepAlive = true;
+      StandardOutPath = "/Users/cdenneen/Library/Logs/jarvis-node.log";
+      StandardErrorPath = "/Users/cdenneen/Library/Logs/jarvis-node.log";
+      ProcessType = "Background";
+      UserName = "cdenneen";
+    };
+  };
+
 }

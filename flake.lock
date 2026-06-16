@@ -505,11 +505,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781612489,
-        "narHash": "sha256-MZKVBIOttnLkdsJ5oArEpREObeN1AZzK9thSGJVLSZ0=",
+        "lastModified": 1781633270,
+        "narHash": "sha256-7+gJbNbI2/nxugvETsseHABk9snVi7OBK/fR/5OZ88E=",
         "ref": "refs/heads/main",
-        "rev": "9e7de63e0fc21391b1e169d11a03150191a998b7",
-        "revCount": 215,
+        "rev": "17d6ce5e6b85e3d04b8a15502faf1e780b5e521a",
+        "revCount": 217,
         "type": "git",
         "url": "https://gitlab.com/cdenneen/my-jarvis.git"
       },
