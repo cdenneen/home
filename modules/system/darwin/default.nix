@@ -109,5 +109,45 @@
         ];
       };
     })
+    (lib.mkIf config ? system {
+      launchd.daemons.nix-access-tokens = {
+        script = let
+          sopsFile = config.sops.defaultSopsFile;
+          ageKey = config.sops.age.keyFile;
+        in ''
+          set -euo pipefail
+
+          token=""
+          token_file="${config.sops.secrets.gitlab_com_nix_token.path}"
+
+          if [ -s "$token_file" ]; then
+            token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+          elif [ -r "${sopsFile}" ] && [ -r "${ageKey}" ]; then
+            token="$(SOPS_AGE_KEY_FILE="${ageKey}" ${pkgs.sops}/bin/sops --extract '["gitlab_com_nix_token"]' --decrypt "${sopsFile}" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+          fi
+
+          conf_file="/etc/nix/nix.custom.conf"
+          tmp_file="$conf_file.tmp"
+
+          ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
+
+          if [ -f "$conf_file" ]; then
+            ${pkgs.gnugrep}/bin/grep -v '^access-tokens = gitlab.com=' "$conf_file" > "$tmp_file" || true
+          else
+            : > "$tmp_file"
+          fi
+
+          if [ -n "$token" ]; then
+            printf 'access-tokens = gitlab.com=%s\n' "$token" >> "$tmp_file"
+          fi
+
+          ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
+          ${pkgs.coreutils}/bin/rm -f "$tmp_file"
+        '';
+        serviceConfig = {
+          RunAtLoad = true;
+        };
+      };
+    })
   ];
 }
