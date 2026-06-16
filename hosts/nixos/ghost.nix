@@ -172,7 +172,7 @@ in
   virtualisation.oci-containers.containers.jarvis-api.environment.PYTHONPATH = "/app/src";
   virtualisation.oci-containers.containers.jarvis-harness.environment.PYTHONPATH = "/app/src";
   virtualisation.oci-containers.containers.jarvis-slack-gateway.environment.PYTHONPATH = "/app/src";
-  virtualisation.oci-containers.containers.jarvis-web.cmd = [
+  virtualisation.oci-containers.containers.jarvis-web.cmd = lib.mkForce [
     "python"
     "-m"
     "http.server"
