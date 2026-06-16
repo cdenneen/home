@@ -570,13 +570,14 @@ in
         exit 1
       fi
 
-      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${redisConfigFile}"
+      ${pkgs.coreutils}/bin/install -m 640 /dev/null "${redisConfigFile}"
       {
         printf 'bind 0.0.0.0\n'
         printf 'protected-mode yes\n'
         printf 'port %s\n' "${toString redisPort}"
         printf 'requirepass %s\n' "$password"
       } > "${redisConfigFile}"
+      ${pkgs.coreutils}/bin/chown 999:999 "${redisConfigFile}"
     '';
   };
 
