@@ -26,6 +26,10 @@ let
   jarvisLiteLLMConfig = "${jarvisRuntimeDir}/litellm-proxy.yaml";
   jarvisLiteLLMImage = "docker.litellm.ai/berriai/litellm:main-latest";
   jarvisContainerImage = "registry.gitlab.com/cdenneen/my-jarvis/jarvis:latest";
+  jarvisApiContainerImage = jarvisContainerImage;
+  jarvisHarnessContainerImage = jarvisContainerImage;
+  jarvisSlackContainerImage = jarvisContainerImage;
+  jarvisWebContainerImage = jarvisContainerImage;
   jarvisSupabaseProjectRef = "ysxipmxwfupqzywhevji";
   jarvisSupabaseApiHost = "${jarvisSupabaseProjectRef}.supabase.co";
   jarvisSupabasePoolerHost = "aws-1-us-east-2.pooler.supabase.com";
