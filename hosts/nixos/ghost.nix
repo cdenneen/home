@@ -30,6 +30,12 @@ let
   githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
+  qdrantApiKeyFile = config.sops.secrets.local_qdrant_api_key.path;
+  litellmMasterKeyFile = config.sops.secrets.local_litellm_master_key.path;
+  litellmSaltKeyFile = config.sops.secrets.local_litellm_salt_key.path;
+  postgresPasswordFile = config.sops.secrets.local_postgres_password.path;
+  neo4jPasswordFile = config.sops.secrets.local_neo4j_password.path;
+  redisPasswordFile = config.sops.secrets.local_redis_password.path;
   wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
   wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
   wellnessSupabaseDbUrlFile = config.sops.secrets.wellness_supabase_db_url.path;
@@ -42,10 +48,17 @@ let
   neo4jHttpPort = 7474;
   neo4jBoltPort = 7687;
   redisPort = 6379;
+  postgresUser = "postgres";
+  postgresDb = "postgres";
+  neo4jUser = "neo4j";
   ollamaDataDir = "/var/lib/ollama";
   qdrantDataDir = "/var/lib/qdrant";
   litellmConfigFile = "/etc/litellm/config.yaml";
   litellmEnvFile = "/run/litellm/env";
+  qdrantEnvFile = "/run/qdrant/env";
+  postgresEnvFile = "/run/postgres/env";
+  neo4jEnvFile = "/run/neo4j/env";
+  redisConfigFile = "/run/redis/redis.conf";
   postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
   neo4jLogsDir = "/var/lib/neo4j/logs";
@@ -130,6 +143,7 @@ in
         "127.0.0.1:${toString qdrantGrpcPort}:6334"
       ];
       volumes = [ "${qdrantDataDir}:/qdrant/storage:U" ];
+      extraOptions = [ "--env-file=${qdrantEnvFile}" ];
       autoStart = true;
     };
 
@@ -155,10 +169,11 @@ in
       image = "postgres:16";
       ports = [ "127.0.0.1:${toString postgresPort}:5432" ];
       volumes = [ "${postgresDataDir}:/var/lib/postgresql/data:U" ];
+      extraOptions = [ "--env-file=${postgresEnvFile}" ];
       environment = {
-        POSTGRES_USER = "postgres";
-        POSTGRES_DB = "postgres";
-        POSTGRES_HOST_AUTH_METHOD = "trust";
+        POSTGRES_USER = postgresUser;
+        POSTGRES_DB = postgresDb;
+        POSTGRES_INITDB_ARGS = "--auth-host=scram-sha-256 --auth-local=scram-sha-256";
       };
       autoStart = true;
     };
@@ -173,16 +188,21 @@ in
         "${neo4jDataDir}:/data:U"
         "${neo4jLogsDir}:/logs:U"
       ];
-      environment = {
-        NEO4J_AUTH = "none";
-      };
+      extraOptions = [ "--env-file=${neo4jEnvFile}" ];
       autoStart = true;
     };
 
     redis = {
       image = "redis:7";
       ports = [ "127.0.0.1:${toString redisPort}:6379" ];
-      volumes = [ "${redisDataDir}:/data:U" ];
+      volumes = [
+        "${redisDataDir}:/data:U"
+        "${redisConfigFile}:/usr/local/etc/redis/redis.conf:ro"
+      ];
+      cmd = [
+        "redis-server"
+        "/usr/local/etc/redis/redis.conf"
+      ];
       autoStart = true;
     };
   };
@@ -200,6 +220,48 @@ in
   sops.secrets.openai_api_key = {
     owner = "cdenneen";
     group = "users";
+    mode = "0400";
+  };
+  sops.secrets.local_qdrant_api_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "local_qdrant_api_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.local_litellm_master_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "local_litellm_master_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.local_litellm_salt_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "local_litellm_salt_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.local_postgres_password = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "local_postgres_password";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.local_neo4j_password = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "local_neo4j_password";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.local_redis_password = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "local_redis_password";
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
   sops.secrets.gemini_api_key = {
@@ -288,25 +350,254 @@ in
       env_dir="$(${pkgs.coreutils}/bin/dirname "${litellmEnvFile}")"
       ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
 
-      if [ ! -r "${openAiKeyFile}" ]; then
-        echo "Missing OpenAI key at ${openAiKeyFile}" >&2
-        exit 1
-      fi
+      read_secret() {
+        secret_file="$1"
+        secret_name="$2"
+        if [ ! -r "$secret_file" ]; then
+          echo "Missing $secret_name at $secret_file" >&2
+          exit 1
+        fi
+        value="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$secret_file")"
+        if [ -z "$value" ]; then
+          echo "$secret_name at $secret_file is empty" >&2
+          exit 1
+        fi
+        printf '%s' "$value"
+      }
 
-      openai_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${openAiKeyFile}")"
-      if [ -z "$openai_key" ]; then
-        echo "OpenAI key at ${openAiKeyFile} is empty" >&2
-        exit 1
-      fi
+      openai_key="$(read_secret "${openAiKeyFile}" "OpenAI key")"
+      master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
+      salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
-      printf 'OPENAI_API_KEY=%s\n' "$openai_key" > "${litellmEnvFile}"
+      {
+        printf 'OPENAI_API_KEY=%s\n' "$openai_key"
+        printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
+        printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
+      } > "${litellmEnvFile}"
+    '';
+  };
+
+  systemd.services.qdrant-env = {
+    description = "Render qdrant env file";
+    before = [ "podman-qdrant.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      env_dir="$(${pkgs.coreutils}/bin/dirname "${qdrantEnvFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+
+      if [ ! -r "${qdrantApiKeyFile}" ]; then
+        echo "Missing Qdrant API key at ${qdrantApiKeyFile}" >&2
+        exit 1
+      fi
+
+      api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${qdrantApiKeyFile}")"
+      if [ -z "$api_key" ]; then
+        echo "Qdrant API key at ${qdrantApiKeyFile} is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${qdrantEnvFile}"
+      printf 'QDRANT__SERVICE__API_KEY=%s\n' "$api_key" > "${qdrantEnvFile}"
+    '';
+  };
+
+  systemd.services.postgres-env = {
+    description = "Render postgres env file";
+    before = [ "podman-postgres.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      env_dir="$(${pkgs.coreutils}/bin/dirname "${postgresEnvFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+
+      if [ ! -r "${postgresPasswordFile}" ]; then
+        echo "Missing Postgres password at ${postgresPasswordFile}" >&2
+        exit 1
+      fi
+
+      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${postgresPasswordFile}")"
+      if [ -z "$password" ]; then
+        echo "Postgres password at ${postgresPasswordFile} is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${postgresEnvFile}"
+      printf 'POSTGRES_PASSWORD=%s\n' "$password" > "${postgresEnvFile}"
+    '';
+  };
+
+  systemd.services.postgres-bootstrap = {
+    description = "Ensure postgres password auth";
+    after = [ "podman-postgres.service" ];
+    requires = [ "podman-postgres.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [
+      pkgs.coreutils
+      pkgs.gnugrep
+      pkgs.gnused
+      pkgs.podman
+    ];
+    script = ''
+      set -euo pipefail
+
+      if [ ! -r "${postgresPasswordFile}" ]; then
+        echo "Missing Postgres password at ${postgresPasswordFile}" >&2
+        exit 1
+      fi
+
+      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${postgresPasswordFile}")"
+      if [ -z "$password" ]; then
+        echo "Postgres password at ${postgresPasswordFile} is empty" >&2
+        exit 1
+      fi
+
+      pg_hba="${postgresDataDir}/pg_hba.conf"
+      for _ in $(seq 1 60); do
+        if [ -s "$pg_hba" ] && ${pkgs.podman}/bin/podman exec postgres pg_isready -U "${postgresUser}" >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+
+      if [ ! -s "$pg_hba" ]; then
+        echo "postgres-bootstrap: pg_hba.conf not found at $pg_hba" >&2
+        exit 1
+      fi
+
+      ${pkgs.podman}/bin/podman exec \
+        -e PGPASSWORD="$password" \
+        postgres \
+        psql -U "${postgresUser}" -d "${postgresDb}" \
+        -c "ALTER USER ${postgresUser} WITH PASSWORD '$password';"
+
+      if ${pkgs.gnugrep}/bin/grep -q '^local\s\+all\s\+all\s\+' "$pg_hba"; then
+        ${pkgs.gnused}/bin/sed -i 's/^local\s\+all\s\+all\s\+.*/local all all scram-sha-256/' "$pg_hba"
+      else
+        printf 'local all all scram-sha-256\n' >> "$pg_hba"
+      fi
+
+      if ${pkgs.gnugrep}/bin/grep -q '^host\s\+all\s\+all\s\+all\s\+' "$pg_hba"; then
+        ${pkgs.gnused}/bin/sed -i 's/^host\s\+all\s\+all\s\+all\s\+.*/host all all all scram-sha-256/' "$pg_hba"
+      else
+        printf 'host all all all scram-sha-256\n' >> "$pg_hba"
+      fi
+
+      ${pkgs.podman}/bin/podman exec \
+        -e PGPASSWORD="$password" \
+        postgres \
+        psql -U "${postgresUser}" -d "${postgresDb}" \
+        -c "SELECT pg_reload_conf();"
+    '';
+  };
+
+  systemd.services.neo4j-env = {
+    description = "Render neo4j env file";
+    before = [ "podman-neo4j.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      env_dir="$(${pkgs.coreutils}/bin/dirname "${neo4jEnvFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+
+      if [ ! -r "${neo4jPasswordFile}" ]; then
+        echo "Missing Neo4j password at ${neo4jPasswordFile}" >&2
+        exit 1
+      fi
+
+      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${neo4jPasswordFile}")"
+      if [ -z "$password" ]; then
+        echo "Neo4j password at ${neo4jPasswordFile} is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${neo4jEnvFile}"
+      printf 'NEO4J_AUTH=%s/%s\n' "${neo4jUser}" "$password" > "${neo4jEnvFile}"
+    '';
+  };
+
+  systemd.services.redis-config = {
+    description = "Render redis config";
+    before = [ "podman-redis.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      config_dir="$(${pkgs.coreutils}/bin/dirname "${redisConfigFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$config_dir"
+
+      if [ ! -r "${redisPasswordFile}" ]; then
+        echo "Missing Redis password at ${redisPasswordFile}" >&2
+        exit 1
+      fi
+
+      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${redisPasswordFile}")"
+      if [ -z "$password" ]; then
+        echo "Redis password at ${redisPasswordFile} is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${redisConfigFile}"
+      {
+        printf 'bind 0.0.0.0\n'
+        printf 'protected-mode yes\n'
+        printf 'port %s\n' "${toString redisPort}"
+        printf 'requirepass %s\n' "$password"
+      } > "${redisConfigFile}"
     '';
   };
 
   systemd.services.podman-litellm = {
     requires = [ "litellm-env.service" ];
     after = [ "litellm-env.service" ];
+  };
+
+  systemd.services.podman-qdrant = {
+    requires = [ "qdrant-env.service" ];
+    after = [ "qdrant-env.service" ];
+  };
+
+  systemd.services.podman-postgres = {
+    requires = [ "postgres-env.service" ];
+    after = [ "postgres-env.service" ];
+  };
+
+  systemd.services.podman-neo4j = {
+    requires = [ "neo4j-env.service" ];
+    after = [ "neo4j-env.service" ];
+  };
+
+  systemd.services.podman-redis = {
+    requires = [ "redis-config.service" ];
+    after = [ "redis-config.service" ];
   };
 
   systemd.services.happier-server = {
