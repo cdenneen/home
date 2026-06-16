@@ -1,5 +1,7 @@
-{ lib, config, inputs, ... }:
-{
+{ lib, config, ... }:
+let
+  inputs = config._module.args.inputs or { };
+in {
   options.services.jarvis = {
     enable = lib.mkEnableOption "Jarvis core/node deployment wrapper";
 
