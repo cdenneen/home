@@ -17,12 +17,5 @@ in {
     ../../../../hosts/nixos/jarvis-nyx.nix
   ];
 
-  config = lib.mkIf config.services.jarvis.enable {
-    assertions = [
-      {
-        assertion = args ? jarvis;
-        message = "Jarvis flake input (inputs.jarvis) is required for services.jarvis";
-      }
-    ];
-  };
+  config = lib.mkIf config.services.jarvis.enable { };
 }
