@@ -171,6 +171,16 @@ in
     username = "gitlab+deploy-token-13979790";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
+  virtualisation.oci-containers.containers.jarvis-web.cmd = lib.mkForce [
+    "python"
+    "-m"
+    "http.server"
+    "3000"
+    "--bind"
+    "0.0.0.0"
+    "--directory"
+    "/app/web"
+  ];
   virtualisation.oci-containers.containers = {
     ollama = {
       image = "ollama/ollama:latest";
