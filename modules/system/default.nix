@@ -76,6 +76,10 @@ in
         owner = "cdenneen";
         mode = "0400";
       };
+      sops.secrets.gitlab_com_nix_token = {
+        owner = "root";
+        mode = "0400";
+      };
 
       home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
         backupFileExtension = "${hmBackupSuffix}.old";
@@ -113,10 +117,54 @@ in
           ];
           auto-optimise-store = true;
         };
+        extraOptions = lib.mkAfter (lib.optionalString pkgs.stdenv.isLinux ''
+          !include /etc/nix/nix.conf.d/90-access-tokens.conf
+        '');
         nixPath = [
           "nixpkgs=${inputs.nixpkgs-unstable}"
         ];
       };
+
+      system.activationScripts.nixAccessTokens = lib.mkAfter ''
+        token_file="${config.sops.secrets.gitlab_com_nix_token.path}"
+        token=""
+
+        if [ -s "$token_file" ]; then
+          token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+        fi
+
+        ${lib.optionalString pkgs.stdenv.isDarwin ''
+        conf_file="/etc/nix/nix.custom.conf"
+        tmp_file="$conf_file.tmp"
+        ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
+
+        if [ -f "$conf_file" ]; then
+          ${pkgs.gnugrep}/bin/grep -v '^access-tokens = gitlab.com=' "$conf_file" > "$tmp_file" || true
+        else
+          : > "$tmp_file"
+        fi
+
+        if [ -n "$token" ]; then
+          printf 'access-tokens = gitlab.com=%s\n' "$token" >> "$tmp_file"
+        fi
+
+        ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
+        ${pkgs.coreutils}/bin/rm -f "$tmp_file"
+        ''}
+        ${lib.optionalString pkgs.stdenv.isLinux ''
+        conf_dir="/etc/nix/nix.conf.d"
+        conf_file="$conf_dir/90-access-tokens.conf"
+
+        ${pkgs.coreutils}/bin/install -d -m 0755 "$conf_dir"
+
+        if [ -n "$token" ]; then
+          printf 'access-tokens = gitlab.com=%s\n' "$token" > "$conf_file"
+          ${pkgs.coreutils}/bin/chmod 0400 "$conf_file"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$conf_file"
+        fi
+        ''}
+      '';
 
       # Containers: make Podman available everywhere by default.
       virtualisation.podman = {
