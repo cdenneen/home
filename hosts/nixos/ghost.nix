@@ -109,7 +109,7 @@ in
       enable = true;
       mode = "oci";
       image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis";
-      imageTag = "0.1.0a4";
+      imageTag = "latest";
       harnessPort = 18079;
       envFile = jarvisEnvFile;
     };
@@ -118,7 +118,7 @@ in
       enable = true;
       mode = "oci";
       image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-web";
-      imageTag = "0.1.0a4";
+      imageTag = "latest";
       port = 3000;
       resourceDir = config.services.jarvis.resourceDir;
       resourcePackage = config.services.jarvis.resourcePackage;
