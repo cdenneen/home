@@ -150,22 +150,22 @@ in
   virtualisation.oci-containers.backend = "podman";
   virtualisation.oci-containers.containers.jarvis-api.login = {
     registry = "registry.gitlab.com";
-    username = "cdenneen";
+    username = "jarvis-runtime-pull";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
   virtualisation.oci-containers.containers.jarvis-harness.login = {
     registry = "registry.gitlab.com";
-    username = "cdenneen";
+    username = "jarvis-runtime-pull";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
   virtualisation.oci-containers.containers.jarvis-slack-gateway.login = {
     registry = "registry.gitlab.com";
-    username = "cdenneen";
+    username = "jarvis-runtime-pull";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
   virtualisation.oci-containers.containers.jarvis-web.login = {
     registry = "registry.gitlab.com";
-    username = "cdenneen";
+    username = "jarvis-runtime-pull";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
   virtualisation.oci-containers.containers = {

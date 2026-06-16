@@ -224,7 +224,7 @@ in
 
   virtualisation.oci-containers.containers.jarvis-node.login = {
     registry = "registry.gitlab.com";
-    username = "cdenneen";
+    username = "jarvis-runtime-pull";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
 
