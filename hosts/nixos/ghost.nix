@@ -109,6 +109,7 @@ in
       mode = "oci";
       image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis";
       imageTag = "0.1.0a3";
+      harnessPort = 18079;
     };
 
     jarvis-web = {
@@ -168,6 +169,19 @@ in
     username = "gitlab+deploy-token-13979790";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
+  virtualisation.oci-containers.containers.jarvis-api.environment.PYTHONPATH = "/app/src";
+  virtualisation.oci-containers.containers.jarvis-harness.environment.PYTHONPATH = "/app/src";
+  virtualisation.oci-containers.containers.jarvis-slack-gateway.environment.PYTHONPATH = "/app/src";
+  virtualisation.oci-containers.containers.jarvis-web.cmd = [
+    "python"
+    "-m"
+    "http.server"
+    "3000"
+    "--bind"
+    "0.0.0.0"
+    "--directory"
+    "/app/web"
+  ];
   virtualisation.oci-containers.containers = {
     ollama = {
       image = "ollama/ollama:latest";
