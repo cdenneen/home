@@ -45,6 +45,7 @@ let
   ollamaDataDir = "/var/lib/ollama";
   qdrantDataDir = "/var/lib/qdrant";
   litellmConfigFile = "/etc/litellm/config.yaml";
+  litellmEnvFile = "/run/litellm/env";
   postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
   neo4jLogsDir = "/var/lib/neo4j/logs";
@@ -136,6 +137,7 @@ in
       image = "ghcr.io/berriai/litellm:latest";
       ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
+      extraOptions = [ "--env-file=${litellmEnvFile}" ];
       environment = {
         LITELLM_CONFIG = "/app/config.yaml";
         LITELLM_PORT = toString litellmPort;
@@ -263,6 +265,42 @@ in
 
       ${pkgs.coreutils}/bin/chmod 600 "$env_file"
     '';
+  };
+
+  systemd.services.litellm-env = {
+    description = "Render litellm env file";
+    before = [ "podman-litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      env_dir="$(${pkgs.coreutils}/bin/dirname "${litellmEnvFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+
+      if [ ! -r "${openAiKeyFile}" ]; then
+        echo "Missing OpenAI key at ${openAiKeyFile}" >&2
+        exit 1
+      fi
+
+      openai_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${openAiKeyFile}")"
+      if [ -z "$openai_key" ]; then
+        echo "OpenAI key at ${openAiKeyFile} is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
+      printf 'OPENAI_API_KEY=%s\n' "$openai_key" > "${litellmEnvFile}"
+    '';
+  };
+
+  systemd.services.podman-litellm = {
+    requires = [ "litellm-env.service" ];
+    after = [ "litellm-env.service" ];
   };
 
   systemd.services.happier-server = {
