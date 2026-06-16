@@ -142,10 +142,6 @@ in
         owner = "root";
         mode = "0400";
       };
-      sops.secrets.gitlab_git_clone_token = {
-        owner = "root";
-        mode = "0400";
-      };
       nix.extraOptions = lib.mkAfter (
         lib.optionalString pkgs.stdenv.isLinux ''
           !include /etc/nix/nix.conf.d/90-access-tokens.conf
@@ -155,15 +151,8 @@ in
         token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
         token=""
 
-        clone_token_file="${config.sops.secrets.gitlab_git_clone_token.path}"
-        clone_token=""
-
         if [ -s "$token_file" ]; then
           token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
-        fi
-
-        if [ -s "$clone_token_file" ]; then
-          clone_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$clone_token_file")"
         fi
 
         netrc_file="/etc/nix/netrc"
@@ -212,16 +201,16 @@ in
         ''}
 
         ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
-        if [ -n "$clone_token" ]; then
-          ${pkgs.coreutils}/bin/printf 'machine gitlab.com\n  login cdenneen\n  password %s\n' "$clone_token" > "$netrc_tmp"
+        if [ -n "$token" ]; then
+          ${pkgs.coreutils}/bin/printf 'machine gitlab.com\n  login cdenneen\n  password %s\n' "$token" > "$netrc_tmp"
           ${pkgs.coreutils}/bin/install -m 0600 "$netrc_tmp" "$netrc_file"
           ${pkgs.coreutils}/bin/rm -f "$netrc_tmp"
         else
           ${pkgs.coreutils}/bin/rm -f "$netrc_file"
         fi
 
-        if [ -n "$clone_token" ]; then
-          ${pkgs.coreutils}/bin/printf 'https://cdenneen:%s@gitlab.com\n' "$clone_token" > /root/.git-credentials
+        if [ -n "$token" ]; then
+          ${pkgs.coreutils}/bin/printf 'https://cdenneen:%s@gitlab.com\n' "$token" > /root/.git-credentials
           ${pkgs.coreutils}/bin/chmod 0600 /root/.git-credentials
           ${pkgs.git}/bin/git config --system credential.helper "store --file /root/.git-credentials"
         else
