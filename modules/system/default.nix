@@ -155,6 +155,9 @@ in
           token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
         fi
 
+        netrc_file="/etc/nix/netrc"
+        netrc_tmp="$netrc_file.tmp"
+
         ${lib.optionalString pkgs.stdenv.isDarwin ''
           if [ -z "$token" ]; then
             sops_file="${config.sops.defaultSopsFile}"
@@ -196,6 +199,15 @@ in
             ${pkgs.coreutils}/bin/rm -f "$conf_file"
           fi
         ''}
+
+        ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
+        if [ -n "$token" ]; then
+          ${pkgs.coreutils}/bin/printf 'machine gitlab.com\n  login cdenneen\n  password %s\n' "$token" > "$netrc_tmp"
+          ${pkgs.coreutils}/bin/install -m 0600 "$netrc_tmp" "$netrc_file"
+          ${pkgs.coreutils}/bin/rm -f "$netrc_tmp"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$netrc_file"
+        fi
       '';
     })
 
