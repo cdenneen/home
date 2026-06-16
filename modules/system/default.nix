@@ -177,7 +177,11 @@ in
       nix.gc.options = "--delete-older-than 14d";
       sops = {
         defaultSopsFile = ../../secrets/secrets.yaml;
-        age.keyFile = "/var/sops/age/keys.txt";
+        age.keyFile =
+          if pkgs.stdenv.isDarwin then
+            "${config.users.users.${config.userPresets.cdenneen.name}.home}/.config/sops/age/keys.txt"
+          else
+            "/var/sops/age/keys.txt";
       };
     })
 
