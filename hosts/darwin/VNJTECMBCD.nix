@@ -2,6 +2,8 @@
 {
   networking.hostName = "VNJTECMBCD";
 
+  profiles.defaults.enable = true;
+
   system.stateVersion = 6;
   system.primaryUser = "cdenneen";
 
