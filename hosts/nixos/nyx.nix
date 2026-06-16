@@ -224,8 +224,8 @@ in
 
   virtualisation.oci-containers.containers.jarvis-node.login = {
     registry = "registry.gitlab.com";
-    username = "cdenneen";
-    passwordFile = config.sops.secrets.gitlab_com_flake_token.path;
+    username = "gitlab+deploy-token-13979790";
+    passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
 
   services.amazon-cloudwatch-agent = {
@@ -789,6 +789,13 @@ in
   sops.secrets.gemini_api_key = {
     owner = "cdenneen";
     group = "users";
+    mode = "0400";
+  };
+  sops.secrets.jarvis_registry_password = {
+    sopsFile = ../../secrets/jarvis.yaml;
+    key = "jarvis_registry_password";
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
 
