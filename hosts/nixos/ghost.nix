@@ -58,6 +58,7 @@ let
   litellmEnvFile = "/run/litellm/env";
   qdrantEnvFile = "/run/qdrant/env";
   postgresEnvFile = "/run/postgres/env";
+  jarvisEnvFile = "/run/jarvis/env";
   neo4jEnvFile = "/run/neo4j/env";
   redisConfigFile = "/run/redis/redis.conf";
   postgresDataDir = "/var/lib/postgres";
@@ -108,15 +109,16 @@ in
       enable = true;
       mode = "oci";
       image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis";
-      imageTag = "0.1.0a3";
+      imageTag = "0.1.0a4";
       harnessPort = 18079;
+      envFile = jarvisEnvFile;
     };
 
     jarvis-web = {
       enable = true;
       mode = "oci";
       image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-web";
-      imageTag = "0.1.0a3";
+      imageTag = "0.1.0a4";
       port = 3000;
       resourceDir = config.services.jarvis.resourceDir;
       resourcePackage = config.services.jarvis.resourcePackage;
@@ -169,19 +171,6 @@ in
     username = "gitlab+deploy-token-13979790";
     passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
-  virtualisation.oci-containers.containers.jarvis-api.environment.PYTHONPATH = "/app/src";
-  virtualisation.oci-containers.containers.jarvis-harness.environment.PYTHONPATH = "/app/src";
-  virtualisation.oci-containers.containers.jarvis-slack-gateway.environment.PYTHONPATH = "/app/src";
-  virtualisation.oci-containers.containers.jarvis-web.cmd = lib.mkForce [
-    "python"
-    "-m"
-    "http.server"
-    "3000"
-    "--bind"
-    "0.0.0.0"
-    "--directory"
-    "/app/web"
-  ];
   virtualisation.oci-containers.containers = {
     ollama = {
       image = "ollama/ollama:latest";
@@ -501,6 +490,44 @@ in
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${postgresEnvFile}"
       printf 'POSTGRES_PASSWORD=%s\n' "$password" > "${postgresEnvFile}"
+    '';
+  };
+
+  systemd.services.jarvis-env = {
+    description = "Render jarvis env file";
+    before = [
+      "podman-jarvis-api.service"
+      "podman-jarvis-harness.service"
+      "podman-jarvis-slack-gateway.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      env_dir="$(${pkgs.coreutils}/bin/dirname "${jarvisEnvFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+
+      if [ ! -r "${postgresPasswordFile}" ]; then
+        echo "Missing Postgres password at ${postgresPasswordFile}" >&2
+        exit 1
+      fi
+
+      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${postgresPasswordFile}")"
+      if [ -z "$password" ]; then
+        echo "Postgres password at ${postgresPasswordFile} is empty" >&2
+        exit 1
+      fi
+
+      db_url="postgresql://${postgresUser}:$password@postgres:${toString postgresPort}/${postgresDb}"
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${jarvisEnvFile}"
+      printf 'JARVIS_FACTORY_DB_URL=%s\n' "$db_url" > "${jarvisEnvFile}"
+      printf 'JARVIS_POSTGRES_DB_URL=%s\n' "$db_url" >> "${jarvisEnvFile}"
     '';
   };
 

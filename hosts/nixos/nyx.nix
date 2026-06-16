@@ -219,7 +219,7 @@ in
     enable = true;
     mode = "oci";
     image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-node";
-    imageTag = "0.1.0a3";
+    imageTag = "0.1.0a4";
   };
 
   virtualisation.oci-containers.containers.jarvis-node.login = {
