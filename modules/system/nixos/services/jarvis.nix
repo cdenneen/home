@@ -1,6 +1,6 @@
 { lib, config, ... }:
 let
-  inputs = config._module.args.inputs or { };
+  args = config._module.args or { };
 in {
   options.services.jarvis = {
     enable = lib.mkEnableOption "Jarvis core/node deployment wrapper";
@@ -20,7 +20,7 @@ in {
   config = lib.mkIf config.services.jarvis.enable {
     assertions = [
       {
-        assertion = inputs ? jarvis;
+        assertion = args ? jarvis;
         message = "Jarvis flake input (inputs.jarvis) is required for services.jarvis";
       }
     ];
