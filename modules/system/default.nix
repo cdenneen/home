@@ -76,10 +76,6 @@ in
         owner = "cdenneen";
         mode = "0400";
       };
-      sops.secrets.gitlab_com_nix_token = {
-        owner = "root";
-        mode = "0400";
-      };
 
       home-manager = lib.mkIf config.profiles.hmIntegrated.enable {
         backupFileExtension = "${hmBackupSuffix}.old";
@@ -117,14 +113,38 @@ in
           ];
           auto-optimise-store = true;
         };
-        extraOptions = lib.mkAfter (lib.optionalString pkgs.stdenv.isLinux ''
-          !include /etc/nix/nix.conf.d/90-access-tokens.conf
-        '');
         nixPath = [
           "nixpkgs=${inputs.nixpkgs-unstable}"
         ];
       };
 
+      # Containers: make Podman available everywhere by default.
+      virtualisation.podman = {
+        enable = lib.mkDefault true;
+        dockerCompat = lib.mkDefault true;
+      };
+
+      # Periodic maintenance to keep /nix/store tidy.
+      nix.gc.automatic = true;
+      nix.gc.options = "--delete-older-than 14d";
+    })
+
+    (lib.mkIf (config ? system && config.system ? stateVersion) {
+      sops = {
+        defaultSopsFile = ../../secrets/secrets.yaml;
+        age.keyFile =
+          if pkgs.stdenv.isDarwin then
+            "${config.users.users.${config.userPresets.cdenneen.name}.home}/.config/sops/age/keys.txt"
+          else
+            "/var/sops/age/keys.txt";
+      };
+      sops.secrets.gitlab_com_nix_token = {
+        owner = "root";
+        mode = "0400";
+      };
+      nix.extraOptions = lib.mkAfter (lib.optionalString pkgs.stdenv.isLinux ''
+        !include /etc/nix/nix.conf.d/90-access-tokens.conf
+      '');
       system.activationScripts.nixAccessTokens = lib.mkAfter ''
         token_file="${config.sops.secrets.gitlab_com_nix_token.path}"
         token=""
@@ -175,24 +195,6 @@ in
         fi
         ''}
       '';
-
-      # Containers: make Podman available everywhere by default.
-      virtualisation.podman = {
-        enable = lib.mkDefault true;
-        dockerCompat = lib.mkDefault true;
-      };
-
-      # Periodic maintenance to keep /nix/store tidy.
-      nix.gc.automatic = true;
-      nix.gc.options = "--delete-older-than 14d";
-      sops = {
-        defaultSopsFile = ../../secrets/secrets.yaml;
-        age.keyFile =
-          if pkgs.stdenv.isDarwin then
-            "${config.users.users.${config.userPresets.cdenneen.name}.home}/.config/sops/age/keys.txt"
-          else
-            "/var/sops/age/keys.txt";
-      };
     })
 
     (lib.mkIf
