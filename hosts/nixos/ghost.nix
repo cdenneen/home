@@ -138,6 +138,13 @@ in
       ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
       extraOptions = [ "--env-file=${litellmEnvFile}" ];
+      cmd = [
+        "--config"
+        "/app/config.yaml"
+        "--port"
+        toString
+        litellmPort
+      ];
       environment = {
         LITELLM_CONFIG = "/app/config.yaml";
         LITELLM_PORT = toString litellmPort;
