@@ -498,26 +498,6 @@
         "type": "github"
       }
     },
-    "jarvis": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs-unstable"
-        ]
-      },
-      "locked": {
-        "lastModified": 1781568935,
-        "narHash": "sha256-EeqcJCGfYyRP4zuZiz7Oyx8+sQhtBoVuw7XMidpO7q8=",
-        "ref": "refs/heads/main",
-        "rev": "92db8b503de4711d6e35992b1b98cee1ce93cc8a",
-        "revCount": 213,
-        "type": "git",
-        "url": "https://gitlab.com/cdenneen/my-jarvis.git"
-      },
-      "original": {
-        "type": "git",
-        "url": "https://gitlab.com/cdenneen/my-jarvis.git"
-      }
-    },
     "mac-app-util": {
       "inputs": {
         "cl-nix-lite": "cl-nix-lite",
@@ -1040,7 +1020,6 @@
         "fluxcdAgentSkills": "fluxcdAgentSkills",
         "happier": "happier",
         "home-manager": "home-manager",
-        "jarvis": "jarvis",
         "mac-app-util": "mac-app-util",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",

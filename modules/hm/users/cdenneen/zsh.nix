@@ -14,15 +14,6 @@ let
     (import ./zsh/init/less.nix)
     (import ./zsh/init/clipboard.nix)
     (import ./zsh/init/functions.nix)
-    ''
-      jarvis-podman() {
-        local uid
-        uid="$(id -u jarvis)"
-        sudo install -d -o jarvis -g jarvis -m 700 "/run/user/$uid"
-        sudo -u jarvis env HOME=/var/lib/jarvis XDG_RUNTIME_DIR="/run/user/$uid" \
-          bash -lc 'cd /var/lib/jarvis && podman "$@"' -- "$@"
-      }
-    ''
   ];
 in
 {

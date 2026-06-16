@@ -77,7 +77,7 @@ The flake is the operational source of truth for personal infrastructure and dev
 - `opencode` local attach/auth helpers that read the live password secret from `/run/secrets/opencode_server_password` on `nyx`
 - `restart-tmux` snapshot/restore logic that detects when an OpenCode session was created with a foreign absolute workspace root and falls back to a host-native restore path
 - shared `nyx` MCP gateways can choose stateful or stateless Streamable HTTP per service; DuckDuckGo now runs stateless on port `18105`
-- Host-specific services such as Jarvis, Cloudflare, Tailscale, happier, and deployment helpers
+- Host-specific services such as Cloudflare, Tailscale, happier, and deployment helpers
 
 ## Design Constraints
 

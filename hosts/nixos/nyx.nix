@@ -213,11 +213,6 @@ in
     openFirewall = true;
   };
 
-  services.jarvis = {
-    enable = true;
-    role = "node";
-  };
-
   services.amazon-cloudwatch-agent = {
     enable = true;
     mode = "ec2";

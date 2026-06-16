@@ -78,16 +78,6 @@ home-manager switch --flake .#cdenneen@nyx
 
 Run the NixOS switch, the Home Manager switch, or both depending on which files changed.
 
-### Jarvis deploy workflow
-
-- App repo: `gitlab.com/cdenneen/my-jarvis`
-- Host app checkout path: `/opt/jarvis`
-- Mandatory flow: local change -> commit/push -> pull on target host -> apply host config -> verify service and route health.
-- Host split:
-  - `ghost`: `jarvis-harness`, `jarvis-api`, `jarvis-slack-gateway`, `jarvis-web`
-  - `nyx`: `jarvis-work-runner`
-  - local Mac: `jarvis-mac-runner` (voice UI consumed via web/PWA)
-
 ### Lint / format
 
 ```sh

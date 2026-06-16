@@ -83,7 +83,6 @@ let
     (pkgs.callPackage ../../../../pkgs/workspace-init.nix { })
     (pkgs.callPackage ../../../../pkgs/setup-repo.nix { })
     (pkgs.callPackage ../../../../pkgs/update-workspace.nix { })
-    (pkgs.callPackage ../../../../pkgs/deploy-jarvis.nix { })
   ];
 
   hmHeavyPackages = with pkgs; [

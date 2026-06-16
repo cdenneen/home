@@ -6,11 +6,6 @@
   ...
 }:
 let
-  aiHost = "ai.denneen.net";
-  aiApiPort = 8080;
-  aiSlackPort = 8081;
-  aiAppPort = 3000;
-  aiProxyPort = 18080;
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
   ghostCloudflareCredFile = "/var/lib/cloudflared/ghost.json";
   pepsApiHost = "peps-api.denneen.net";
@@ -64,16 +59,6 @@ in
   ];
 
   services = {
-    jarvis = {
-      enable = true;
-      role = "core";
-    };
-    jarvisSubstrate = {
-      enable = true;
-      enableStorageContainers = true;
-      enableAppContainers = false;
-    };
-
     tailscale = {
       enable = true;
       openFirewall = true;
@@ -87,39 +72,11 @@ in
       environmentFile = "/var/lib/happier-server/happier.env";
     };
 
-    caddy = {
-      enable = true;
-      virtualHosts."http://127.0.0.1:${toString aiProxyPort}".extraConfig = ''
-        handle /api {
-          reverse_proxy 127.0.0.1:${toString aiApiPort}
-        }
-        handle /api/* {
-          reverse_proxy 127.0.0.1:${toString aiApiPort}
-        }
-        handle /ws {
-          reverse_proxy 127.0.0.1:${toString aiApiPort}
-        }
-        handle /ws/* {
-          reverse_proxy 127.0.0.1:${toString aiApiPort}
-        }
-        handle /slack/events {
-          reverse_proxy 127.0.0.1:${toString aiSlackPort}
-        }
-        handle /slack/events/* {
-          reverse_proxy 127.0.0.1:${toString aiSlackPort}
-        }
-        handle {
-          reverse_proxy 127.0.0.1:${toString aiAppPort}
-        }
-      '';
-    };
-
     cloudflared = {
       enable = true;
       tunnels."${ghostTunnelId}" = {
         credentialsFile = ghostCloudflareCredFile;
         ingress = {
-          "${aiHost}" = "http://127.0.0.1:${toString aiProxyPort}";
           "${pepsApiHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
