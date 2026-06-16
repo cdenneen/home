@@ -138,7 +138,7 @@ in
           else
             "/var/sops/age/keys.txt";
       };
-      sops.secrets.gitlab_com_nix_token = {
+      sops.secrets.gitlab_com_flake_token = {
         owner = "root";
         mode = "0400";
       };
@@ -146,7 +146,7 @@ in
         !include /etc/nix/nix.conf.d/90-access-tokens.conf
       '');
       system.activationScripts.nixAccessTokens = lib.mkAfter ''
-        token_file="${config.sops.secrets.gitlab_com_nix_token.path}"
+        token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
         token=""
 
         if [ -s "$token_file" ]; then
@@ -158,7 +158,7 @@ in
           sops_file="${config.sops.defaultSopsFile}"
           age_key="${config.sops.age.keyFile}"
           if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
-            token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_nix_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+            token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
           fi
         fi
         ''}

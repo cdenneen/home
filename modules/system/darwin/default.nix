@@ -118,12 +118,12 @@
           set -euo pipefail
 
           token=""
-          token_file="${config.sops.secrets.gitlab_com_nix_token.path}"
+          token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
 
           if [ -s "$token_file" ]; then
             token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
           elif [ -r "${sopsFile}" ] && [ -r "${ageKey}" ]; then
-            token="$(SOPS_AGE_KEY_FILE="${ageKey}" ${pkgs.sops}/bin/sops --extract '["gitlab_com_nix_token"]' --decrypt "${sopsFile}" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+            token="$(SOPS_AGE_KEY_FILE="${ageKey}" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "${sopsFile}" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
           fi
 
           conf_file="/etc/nix/nix.custom.conf"
