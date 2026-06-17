@@ -60,7 +60,6 @@ let
   qdrantEnvFile = "/run/qdrant/env";
   postgresEnvFile = "/run/postgres/env";
   jarvisEnvFile = "/run/jarvis/env";
-  jarvisConfigDir = "/var/lib/jarvis/config";
   neo4jEnvFile = "/run/neo4j/env";
   redisConfigFile = "/run/redis/redis.conf";
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
@@ -209,18 +208,6 @@ in
     "0.0.0.0"
     "--directory"
     "/app/web"
-  ];
-  virtualisation.oci-containers.containers.jarvis-api.volumes = lib.mkAfter [
-    "${jarvisConfigDir}:${jarvisConfigDir}:rw"
-  ];
-  virtualisation.oci-containers.containers.jarvis-harness.volumes = lib.mkAfter [
-    "${jarvisConfigDir}:${jarvisConfigDir}:rw"
-  ];
-  virtualisation.oci-containers.containers.jarvis-slack-gateway.volumes = lib.mkAfter [
-    "${jarvisConfigDir}:${jarvisConfigDir}:rw"
-  ];
-  virtualisation.oci-containers.containers.jarvis-web.volumes = lib.mkAfter [
-    "${jarvisConfigDir}:${jarvisConfigDir}:rw"
   ];
   virtualisation.oci-containers.containers = {
     ollama = {
@@ -401,15 +388,13 @@ in
   systemd.tmpfiles.rules = [
     "d /var/lib/cloudflared 0700 root root -"
     "d /var/lib/happier-server 0700 root root -"
-    "d /var/lib/jarvis 0750 root root -"
-    "d ${jarvisConfigDir} 0750 root root -"
     "d ${pepsRuntimeDir} 0750 cdenneen users -"
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
     "d ${wellnessRepoDir} 0750 cdenneen users -"
     "d ${ollamaDataDir} 0750 root root -"
     "d ${qdrantDataDir} 0750 root root -"
-    "d /var/lib/postgres 0750 root root -"
+    "d /var/lib/postgres 0700 999 999 -"
     "d /var/lib/neo4j 0750 root root -"
     "d ${neo4jDataDir} 0750 root root -"
     "d ${neo4jLogsDir} 0750 root root -"
@@ -556,6 +541,24 @@ in
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${postgresEnvFile}"
       printf 'POSTGRES_PASSWORD=%s\n' "$password" > "${postgresEnvFile}"
+    '';
+  };
+
+  systemd.services.postgres-data-permissions = {
+    description = "Ensure Postgres data directory ownership";
+    before = [ "podman-postgres.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      ${pkgs.coreutils}/bin/install -d -m 0700 -o 999 -g 999 "${postgresDataDir}"
+      ${pkgs.coreutils}/bin/chown -R 999:999 "${postgresDataDir}"
+      ${pkgs.coreutils}/bin/chmod 0700 "${postgresDataDir}"
     '';
   };
 
@@ -797,8 +800,14 @@ in
   };
 
   systemd.services.podman-postgres = {
-    requires = [ "postgres-env.service" ];
-    after = [ "postgres-env.service" ];
+    requires = [
+      "postgres-env.service"
+      "postgres-data-permissions.service"
+    ];
+    after = [
+      "postgres-env.service"
+      "postgres-data-permissions.service"
+    ];
   };
 
   systemd.services.podman-neo4j = {
