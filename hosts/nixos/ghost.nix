@@ -91,6 +91,7 @@ in
     isSystemUser = true;
     group = "gitlab-runner";
     home = "/var/lib/gitlab-runner";
+    extraGroups = [ "podman" ];
   };
 
   environment.systemPackages = lib.mkAfter [
@@ -123,7 +124,8 @@ in
       services = {
         ghost = {
           authenticationTokenConfigFile = gitlabRunnerEnvFile;
-          executor = "shell";
+          executor = "docker";
+          dockerImage = "alpine:3.20";
           requestConcurrency = 2;
         };
       };
