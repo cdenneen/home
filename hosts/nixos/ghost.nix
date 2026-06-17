@@ -32,6 +32,7 @@ let
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
   gitlabRunnerTokenFile = config.sops.secrets.gitlab_com_runner_token.path;
+  gitlabFlakeTokenFile = config.sops.secrets.gitlab_com_flake_token.path;
   qdrantApiKeyFile = config.sops.secrets.local_qdrant_api_key.path;
   litellmMasterKeyFile = config.sops.secrets.local_litellm_master_key.path;
   litellmSaltKeyFile = config.sops.secrets.local_litellm_salt_key.path;
@@ -63,6 +64,8 @@ let
   neo4jEnvFile = "/run/neo4j/env";
   redisConfigFile = "/run/redis/redis.conf";
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
+  gitlabRunnerDockerConfig = "/var/lib/gitlab-runner/.docker/config.json";
+  gitlabRunnerDockerUsername = "cdenneen";
   postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
   neo4jLogsDir = "/var/lib/neo4j/logs";
@@ -609,6 +612,39 @@ in
       ${pkgs.coreutils}/bin/install -m 600 -o gitlab-runner -g gitlab-runner /dev/null "${gitlabRunnerEnvFile}"
       printf 'CI_SERVER_URL=%s\n' "https://gitlab.com/" > "${gitlabRunnerEnvFile}"
       printf 'CI_SERVER_TOKEN=%s\n' "$token" >> "${gitlabRunnerEnvFile}"
+    '';
+  };
+
+  systemd.services.gitlab-runner-docker-auth = {
+    description = "Render gitlab-runner Docker auth config";
+    before = [ "gitlab-runner.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      if [ ! -r "${gitlabFlakeTokenFile}" ]; then
+        echo "Missing GitLab flake token at ${gitlabFlakeTokenFile}" >&2
+        exit 1
+      fi
+
+      token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${gitlabFlakeTokenFile}")"
+      if [ -z "$token" ]; then
+        echo "GitLab flake token at ${gitlabFlakeTokenFile} is empty" >&2
+        exit 1
+      fi
+
+      auth="$(${pkgs.coreutils}/bin/printf '%s:%s' "${gitlabRunnerDockerUsername}" "$token" | ${pkgs.coreutils}/bin/base64 -w 0)"
+      config_dir="$(${pkgs.coreutils}/bin/dirname "${gitlabRunnerDockerConfig}")"
+
+      ${pkgs.coreutils}/bin/install -d -m 0700 -o gitlab-runner -g gitlab-runner "$config_dir"
+      ${pkgs.coreutils}/bin/install -m 0600 -o gitlab-runner -g gitlab-runner /dev/null "${gitlabRunnerDockerConfig}"
+      printf '{"auths":{"registry.gitlab.com":{"auth":"%s"}}}\n' "$auth" > "${gitlabRunnerDockerConfig}"
     '';
   };
 
