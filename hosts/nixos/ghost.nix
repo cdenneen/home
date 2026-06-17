@@ -518,7 +518,7 @@ in
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
-      RemainAfterExit = true;
+      RemainAfterExit = false;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
