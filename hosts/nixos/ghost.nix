@@ -31,6 +31,7 @@ let
   githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
+  gitlabRunnerTokenFile = config.sops.secrets.gitlab_com_runner_token.path;
   qdrantApiKeyFile = config.sops.secrets.local_qdrant_api_key.path;
   litellmMasterKeyFile = config.sops.secrets.local_litellm_master_key.path;
   litellmSaltKeyFile = config.sops.secrets.local_litellm_salt_key.path;
@@ -61,6 +62,7 @@ let
   jarvisEnvFile = "/run/jarvis/env";
   neo4jEnvFile = "/run/neo4j/env";
   redisConfigFile = "/run/redis/redis.conf";
+  gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
   postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
   neo4jLogsDir = "/var/lib/neo4j/logs";
@@ -84,6 +86,12 @@ in
   };
 
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
+  users.groups.gitlab-runner = { };
+  users.users.gitlab-runner = {
+    isSystemUser = true;
+    group = "gitlab-runner";
+    home = "/var/lib/gitlab-runner";
+  };
 
   environment.systemPackages = lib.mkAfter [
     pkgs.caddy
@@ -103,6 +111,20 @@ in
       mode = "light";
       port = 3005;
       environmentFile = "/var/lib/happier-server/happier.env";
+    };
+
+    gitlab-runner = {
+      enable = true;
+      extraPackages = [
+        pkgs.git
+        pkgs.openssh
+      ];
+      services = {
+        ghost = {
+          authenticationTokenConfigFile = gitlabRunnerEnvFile;
+          executor = "shell";
+        };
+      };
     };
 
     jarvis = {
@@ -275,6 +297,13 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.gitlab_com_runner_token = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "gitlab_com_runner_token";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
   sops.secrets.local_qdrant_api_key = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "local_qdrant_api_key";
@@ -365,6 +394,12 @@ in
     "d ${neo4jLogsDir} 0750 root root -"
     "d ${redisDataDir} 0750 root root -"
   ];
+
+  systemd.services.gitlab-runner.serviceConfig = {
+    DynamicUser = lib.mkForce false;
+    User = "gitlab-runner";
+    Group = "gitlab-runner";
+  };
 
   systemd.services.happier-env-bootstrap = {
     description = "Bootstrap HANDY_MASTER_SECRET for happier-server";
@@ -538,6 +573,37 @@ in
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${jarvisEnvFile}"
       printf 'JARVIS_FACTORY_DB_URL=%s\n' "$db_url" > "${jarvisEnvFile}"
       printf 'JARVIS_POSTGRES_DB_URL=%s\n' "$db_url" >> "${jarvisEnvFile}"
+    '';
+  };
+
+  systemd.services.gitlab-runner-env = {
+    description = "Render gitlab-runner auth env file";
+    before = [ "gitlab-runner.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      if [ ! -r "${gitlabRunnerTokenFile}" ]; then
+        echo "Missing GitLab runner token at ${gitlabRunnerTokenFile}" >&2
+        exit 1
+      fi
+
+      token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${gitlabRunnerTokenFile}")"
+      if [ -z "$token" ]; then
+        echo "GitLab runner token at ${gitlabRunnerTokenFile} is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o gitlab-runner -g gitlab-runner /var/lib/gitlab-runner
+      ${pkgs.coreutils}/bin/install -m 600 -o gitlab-runner -g gitlab-runner /dev/null "${gitlabRunnerEnvFile}"
+      printf 'CI_SERVER_URL=%s\n' "https://gitlab.com/" > "${gitlabRunnerEnvFile}"
+      printf 'CI_SERVER_TOKEN=%s\n' "$token" >> "${gitlabRunnerEnvFile}"
     '';
   };
 
