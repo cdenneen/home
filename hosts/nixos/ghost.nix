@@ -96,6 +96,7 @@ in
   environment.systemPackages = lib.mkAfter [
     pkgs.caddy
     pkgs.cloudflared
+    pkgs.crane
     pkgs.nodejs_24
   ];
 
@@ -123,6 +124,7 @@ in
         ghost = {
           authenticationTokenConfigFile = gitlabRunnerEnvFile;
           executor = "shell";
+          requestConcurrency = 2;
         };
       };
     };
