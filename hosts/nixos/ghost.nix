@@ -81,6 +81,7 @@ in
   containerPresets = {
     podman.enable = true;
   };
+  virtualisation.docker.enable = lib.mkForce false;
   networking = {
     firewall.trustedInterfaces = lib.mkAfter [ "tailscale0" ];
   };
