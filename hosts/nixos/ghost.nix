@@ -503,11 +503,12 @@ in
     script = ''
       set -euo pipefail
 
-      ${pkgs.coreutils}/bin/install -d -m 0750 -o ollama -g ollama "${ollamaDataDir}"
-      ${pkgs.coreutils}/bin/install -d -m 0750 -o ollama -g ollama "${ollamaDataDir}/models"
-      ${pkgs.coreutils}/bin/chown -R ollama:ollama "${ollamaDataDir}"
-      ${pkgs.coreutils}/bin/chmod 0750 "${ollamaDataDir}"
-      ${pkgs.coreutils}/bin/chmod 0750 "${ollamaDataDir}/models"
+      data_dir="$(${pkgs.coreutils}/bin/readlink -f "${ollamaDataDir}")"
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o ollama -g ollama "$data_dir"
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o ollama -g ollama "$data_dir/models"
+      ${pkgs.coreutils}/bin/chown -R ollama:ollama "$data_dir"
+      ${pkgs.coreutils}/bin/chmod 0750 "$data_dir"
+      ${pkgs.coreutils}/bin/chmod 0750 "$data_dir/models"
     '';
   };
 
