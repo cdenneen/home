@@ -3,7 +3,6 @@
   pkgs,
   config,
   happier,
-  jarvis,
   ...
 }:
 let
@@ -201,7 +200,6 @@ in
 {
   imports = [
     happier.nixosModules.happier-server
-    jarvis.nixosModules.jarvis-node
   ];
 
   networking.hostName = "nyx";
@@ -213,19 +211,6 @@ in
   services.tailscale = {
     enable = true;
     openFirewall = true;
-  };
-
-  services.jarvis-node = {
-    enable = true;
-    mode = "oci";
-    image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-node";
-    imageTag = "0.1.0a4";
-  };
-
-  virtualisation.oci-containers.containers.jarvis-node.login = {
-    registry = "registry.gitlab.com";
-    username = "gitlab+deploy-token-13979790";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
   };
 
   services.amazon-cloudwatch-agent = {
@@ -789,13 +774,6 @@ in
   sops.secrets.gemini_api_key = {
     owner = "cdenneen";
     group = "users";
-    mode = "0400";
-  };
-  sops.secrets.jarvis_registry_password = {
-    sopsFile = ../../secrets/jarvis.yaml;
-    key = "jarvis_registry_password";
-    owner = "root";
-    group = "root";
     mode = "0400";
   };
 

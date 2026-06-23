@@ -42,7 +42,7 @@ The flake is the operational source of truth for personal infrastructure and dev
   - Runs `opencode-serve` on `127.0.0.1:4097` behind the OAuth proxy on `127.0.0.1:4096`.
 - `ghost`
   - Personal NixOS control-plane/deployment host.
-  - Runs local AI/data services via podman-backed systemd oci-containers on `127.0.0.1` with persistence under `/var/lib/<component>`.
+  - Runs local Postgres/Redis/Ollama as native NixOS services and qdrant/litellm/neo4j as podman-backed oci-containers on `127.0.0.1` with persistence under `/var/lib/<component>`.
 - Additional image/bootstrap/utility hosts exist for EC2, WSL, UTM, and bootstrapping.
 
 ## Data Flow

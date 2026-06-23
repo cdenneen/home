@@ -3,7 +3,6 @@
   lib,
   pkgs,
   happier,
-  jarvis,
   ...
 }:
 let
@@ -58,10 +57,7 @@ let
   litellmConfigFile = "/etc/litellm/config.yaml";
   litellmEnvFile = "/run/litellm/env";
   qdrantEnvFile = "/run/qdrant/env";
-  postgresEnvFile = "/run/postgres/env";
-  jarvisEnvFile = "/run/jarvis/env";
   neo4jEnvFile = "/run/neo4j/env";
-  redisConfigFile = "/run/redis/redis.conf";
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
   gitlabRunnerDockerConfig = "/var/lib/gitlab-runner/.docker/config.json";
   postgresDataDir = "/var/lib/postgres";
@@ -73,8 +69,6 @@ in
   imports = [
     ./ghost-base.nix
     happier.nixosModules.happier-server
-    jarvis.nixosModules.jarvis
-    jarvis.nixosModules.jarvis-web
   ];
 
   profiles.hmIntegrated.enable = lib.mkForce true;
@@ -133,23 +127,42 @@ in
       };
     };
 
-    jarvis = {
+    ollama = {
       enable = true;
-      mode = "oci";
-      image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis";
-      imageTag = "latest";
-      harnessPort = 18079;
-      envFile = jarvisEnvFile;
+      home = ollamaDataDir;
+      models = "${ollamaDataDir}/models";
+      host = "127.0.0.1";
+      port = ollamaPort;
+      user = "ollama";
+      group = "ollama";
     };
 
-    jarvis-web = {
+    postgresql = {
       enable = true;
-      mode = "oci";
-      image = "registry.gitlab.com/cdenneen/my-jarvis/jarvis-web";
-      imageTag = "latest";
-      port = 3000;
-      resourceDir = config.services.jarvis.resourceDir;
-      resourcePackage = config.services.jarvis.resourcePackage;
+      package = pkgs.postgresql_16;
+      dataDir = postgresDataDir;
+      enableTCPIP = true;
+      settings = {
+        port = postgresPort;
+        listen_addresses = lib.mkForce "127.0.0.1";
+      };
+      authentication = ''
+        local all postgres peer
+        local all all scram-sha-256
+        host all all 127.0.0.1/32 scram-sha-256
+        host all all ::1/128 scram-sha-256
+      '';
+    };
+
+    redis.servers."" = {
+      enable = true;
+      port = redisPort;
+      bind = "127.0.0.1";
+      requirePassFile = redisPasswordFile;
+      settings = {
+        dir = redisDataDir;
+        "protected-mode" = "yes";
+      };
     };
 
     cloudflared = {
@@ -179,44 +192,7 @@ in
   '';
 
   virtualisation.oci-containers.backend = "podman";
-  virtualisation.oci-containers.containers.jarvis-api.login = {
-    registry = "registry.gitlab.com";
-    username = "gitlab+deploy-token-13979790";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
-  };
-  virtualisation.oci-containers.containers.jarvis-harness.login = {
-    registry = "registry.gitlab.com";
-    username = "gitlab+deploy-token-13979790";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
-  };
-  virtualisation.oci-containers.containers.jarvis-slack-gateway.login = {
-    registry = "registry.gitlab.com";
-    username = "gitlab+deploy-token-13979790";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
-  };
-  virtualisation.oci-containers.containers.jarvis-web.login = {
-    registry = "registry.gitlab.com";
-    username = "gitlab+deploy-token-13979790";
-    passwordFile = config.sops.secrets.jarvis_registry_password.path;
-  };
-  virtualisation.oci-containers.containers.jarvis-web.cmd = lib.mkForce [
-    "python"
-    "-m"
-    "http.server"
-    "3000"
-    "--bind"
-    "0.0.0.0"
-    "--directory"
-    "/app/web"
-  ];
   virtualisation.oci-containers.containers = {
-    ollama = {
-      image = "ollama/ollama:latest";
-      ports = [ "127.0.0.1:${toString ollamaPort}:11434" ];
-      volumes = [ "${ollamaDataDir}:/root/.ollama:U" ];
-      autoStart = true;
-    };
-
     qdrant = {
       image = "qdrant/qdrant:latest";
       ports = [
@@ -246,19 +222,6 @@ in
       autoStart = true;
     };
 
-    postgres = {
-      image = "postgres:16";
-      ports = [ "127.0.0.1:${toString postgresPort}:5432" ];
-      volumes = [ "${postgresDataDir}:/var/lib/postgresql/data:U" ];
-      extraOptions = [ "--env-file=${postgresEnvFile}" ];
-      environment = {
-        POSTGRES_USER = postgresUser;
-        POSTGRES_DB = postgresDb;
-        POSTGRES_INITDB_ARGS = "--auth-host=scram-sha-256 --auth-local=scram-sha-256";
-      };
-      autoStart = true;
-    };
-
     neo4j = {
       image = "neo4j:5";
       ports = [
@@ -273,19 +236,6 @@ in
       autoStart = true;
     };
 
-    redis = {
-      image = "redis:7";
-      ports = [ "127.0.0.1:${toString redisPort}:6379" ];
-      volumes = [
-        "${redisDataDir}:/data:U"
-        "${redisConfigFile}:/usr/local/etc/redis/redis.conf:ro"
-      ];
-      cmd = [
-        "redis-server"
-        "/usr/local/etc/redis/redis.conf"
-      ];
-      autoStart = true;
-    };
   };
 
   sops.secrets.ghost_cloudflare_tunnel_token = {
@@ -313,13 +263,6 @@ in
   sops.secrets.local_qdrant_api_key = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "local_qdrant_api_key";
-    owner = "root";
-    group = "root";
-    mode = "0400";
-  };
-  sops.secrets.jarvis_registry_password = {
-    sopsFile = ../../secrets/jarvis.yaml;
-    key = "jarvis_registry_password";
     owner = "root";
     group = "root";
     mode = "0400";
@@ -355,8 +298,8 @@ in
   sops.secrets.local_redis_password = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "local_redis_password";
-    owner = "root";
-    group = "root";
+    owner = "redis";
+    group = "redis";
     mode = "0400";
   };
   sops.secrets.gemini_api_key = {
@@ -392,13 +335,13 @@ in
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
     "d ${wellnessRepoDir} 0750 cdenneen users -"
-    "d ${ollamaDataDir} 0750 root root -"
+    "d ${ollamaDataDir} 0750 ollama ollama -"
     "d ${qdrantDataDir} 0750 root root -"
-    "d /var/lib/postgres 0700 999 999 -"
+    "d /var/lib/postgres 0700 postgres postgres -"
     "d /var/lib/neo4j 0750 root root -"
     "d ${neo4jDataDir} 0750 root root -"
     "d ${neo4jLogsDir} 0750 root root -"
-    "d ${redisDataDir} 0750 root root -"
+    "d ${redisDataDir} 0750 redis redis -"
   ];
 
   systemd.services.gitlab-runner.serviceConfig = {
@@ -512,41 +455,9 @@ in
     '';
   };
 
-  systemd.services.postgres-env = {
-    description = "Render postgres env file";
-    before = [ "podman-postgres.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = false;
-      UMask = "0077";
-    };
-    path = [ pkgs.coreutils ];
-    script = ''
-      set -euo pipefail
-
-      env_dir="$(${pkgs.coreutils}/bin/dirname "${postgresEnvFile}")"
-      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
-
-      if [ ! -r "${postgresPasswordFile}" ]; then
-        echo "Missing Postgres password at ${postgresPasswordFile}" >&2
-        exit 1
-      fi
-
-      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${postgresPasswordFile}")"
-      if [ -z "$password" ]; then
-        echo "Postgres password at ${postgresPasswordFile} is empty" >&2
-        exit 1
-      fi
-
-      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${postgresEnvFile}"
-      printf 'POSTGRES_PASSWORD=%s\n' "$password" > "${postgresEnvFile}"
-    '';
-  };
-
-  systemd.services.postgres-data-permissions = {
+  systemd.services.postgresql-data-permissions = {
     description = "Ensure Postgres data directory ownership";
-    before = [ "podman-postgres.service" ];
+    before = [ "postgresql.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
@@ -556,47 +467,45 @@ in
     script = ''
       set -euo pipefail
 
-      ${pkgs.coreutils}/bin/install -d -m 0700 -o 999 -g 999 "${postgresDataDir}"
-      ${pkgs.coreutils}/bin/chown -R 999:999 "${postgresDataDir}"
+      ${pkgs.coreutils}/bin/install -d -m 0700 -o postgres -g postgres "${postgresDataDir}"
+      ${pkgs.coreutils}/bin/chown -R postgres:postgres "${postgresDataDir}"
       ${pkgs.coreutils}/bin/chmod 0700 "${postgresDataDir}"
     '';
   };
 
-  systemd.services.jarvis-env = {
-    description = "Render jarvis env file";
-    before = [
-      "podman-jarvis-api.service"
-      "podman-jarvis-harness.service"
-      "podman-jarvis-slack-gateway.service"
-    ];
+  systemd.services.redis-data-permissions = {
+    description = "Ensure Redis data directory ownership";
+    before = [ "redis.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      UMask = "0077";
     };
     path = [ pkgs.coreutils ];
     script = ''
       set -euo pipefail
 
-      env_dir="$(${pkgs.coreutils}/bin/dirname "${jarvisEnvFile}")"
-      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o redis -g redis "${redisDataDir}"
+      ${pkgs.coreutils}/bin/chown -R redis:redis "${redisDataDir}"
+      ${pkgs.coreutils}/bin/chmod 0750 "${redisDataDir}"
+    '';
+  };
 
-      if [ ! -r "${postgresPasswordFile}" ]; then
-        echo "Missing Postgres password at ${postgresPasswordFile}" >&2
-        exit 1
-      fi
+  systemd.services.ollama-data-permissions = {
+    description = "Ensure Ollama data directory ownership";
+    before = [ "ollama.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
 
-      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${postgresPasswordFile}")"
-      if [ -z "$password" ]; then
-        echo "Postgres password at ${postgresPasswordFile} is empty" >&2
-        exit 1
-      fi
-
-      db_url="postgresql://${postgresUser}:$password@postgres:${toString postgresPort}/${postgresDb}"
-      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${jarvisEnvFile}"
-      printf 'JARVIS_FACTORY_DB_URL=%s\n' "$db_url" > "${jarvisEnvFile}"
-      printf 'JARVIS_POSTGRES_DB_URL=%s\n' "$db_url" >> "${jarvisEnvFile}"
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o ollama -g ollama "${ollamaDataDir}"
+      ${pkgs.coreutils}/bin/chown -R ollama:ollama "${ollamaDataDir}"
+      ${pkgs.coreutils}/bin/chmod 0750 "${ollamaDataDir}"
     '';
   };
 
@@ -651,10 +560,10 @@ in
     '';
   };
 
-  systemd.services.postgres-bootstrap = {
-    description = "Ensure postgres password auth";
-    after = [ "podman-postgres.service" ];
-    requires = [ "podman-postgres.service" ];
+  systemd.services.postgresql-password = {
+    description = "Ensure postgres password";
+    after = [ "postgresql.service" ];
+    requires = [ "postgresql.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
@@ -662,9 +571,7 @@ in
     };
     path = [
       pkgs.coreutils
-      pkgs.gnugrep
-      pkgs.gnused
-      pkgs.podman
+      pkgs.util-linux
     ];
     script = ''
       set -euo pipefail
@@ -680,42 +587,16 @@ in
         exit 1
       fi
 
-      pg_hba="${postgresDataDir}/pg_hba.conf"
       for _ in $(seq 1 60); do
-        if [ -s "$pg_hba" ] && ${pkgs.podman}/bin/podman exec postgres pg_isready -U "${postgresUser}" >/dev/null 2>&1; then
+        if ${pkgs.util-linux}/bin/runuser -u postgres -- ${config.services.postgresql.package}/bin/pg_isready -d "${postgresDb}" >/dev/null 2>&1; then
           break
         fi
         sleep 2
       done
 
-      if [ ! -s "$pg_hba" ]; then
-        echo "postgres-bootstrap: pg_hba.conf not found at $pg_hba" >&2
-        exit 1
-      fi
-
-      ${pkgs.podman}/bin/podman exec \
-        -e PGPASSWORD="$password" \
-        postgres \
-        psql -U "${postgresUser}" -d "${postgresDb}" \
+      ${pkgs.util-linux}/bin/runuser -u postgres -- \
+        ${config.services.postgresql.package}/bin/psql -d "${postgresDb}" -v ON_ERROR_STOP=1 \
         -c "ALTER USER ${postgresUser} WITH PASSWORD '$password';"
-
-      if ${pkgs.gnugrep}/bin/grep -q '^local\s\+all\s\+all\s\+' "$pg_hba"; then
-        ${pkgs.gnused}/bin/sed -i 's/^local\s\+all\s\+all\s\+.*/local all all scram-sha-256/' "$pg_hba"
-      else
-        printf 'local all all scram-sha-256\n' >> "$pg_hba"
-      fi
-
-      if ${pkgs.gnugrep}/bin/grep -q '^host\s\+all\s\+all\s\+all\s\+' "$pg_hba"; then
-        ${pkgs.gnused}/bin/sed -i 's/^host\s\+all\s\+all\s\+all\s\+.*/host all all all scram-sha-256/' "$pg_hba"
-      else
-        printf 'host all all all scram-sha-256\n' >> "$pg_hba"
-      fi
-
-      ${pkgs.podman}/bin/podman exec \
-        -e PGPASSWORD="$password" \
-        postgres \
-        psql -U "${postgresUser}" -d "${postgresDb}" \
-        -c "SELECT pg_reload_conf();"
     '';
   };
 
@@ -751,44 +632,6 @@ in
     '';
   };
 
-  systemd.services.redis-config = {
-    description = "Render redis config";
-    before = [ "podman-redis.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      UMask = "0077";
-    };
-    path = [ pkgs.coreutils ];
-    script = ''
-      set -euo pipefail
-
-      config_dir="$(${pkgs.coreutils}/bin/dirname "${redisConfigFile}")"
-      ${pkgs.coreutils}/bin/mkdir -p "$config_dir"
-
-      if [ ! -r "${redisPasswordFile}" ]; then
-        echo "Missing Redis password at ${redisPasswordFile}" >&2
-        exit 1
-      fi
-
-      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${redisPasswordFile}")"
-      if [ -z "$password" ]; then
-        echo "Redis password at ${redisPasswordFile} is empty" >&2
-        exit 1
-      fi
-
-      ${pkgs.coreutils}/bin/install -m 640 /dev/null "${redisConfigFile}"
-      {
-        printf 'bind 0.0.0.0\n'
-        printf 'protected-mode yes\n'
-        printf 'port %s\n' "${toString redisPort}"
-        printf 'requirepass %s\n' "$password"
-      } > "${redisConfigFile}"
-      ${pkgs.coreutils}/bin/chown 999:999 "${redisConfigFile}"
-    '';
-  };
-
   systemd.services.podman-litellm = {
     requires = [ "litellm-env.service" ];
     after = [ "litellm-env.service" ];
@@ -799,25 +642,9 @@ in
     after = [ "qdrant-env.service" ];
   };
 
-  systemd.services.podman-postgres = {
-    requires = [
-      "postgres-env.service"
-      "postgres-data-permissions.service"
-    ];
-    after = [
-      "postgres-env.service"
-      "postgres-data-permissions.service"
-    ];
-  };
-
   systemd.services.podman-neo4j = {
     requires = [ "neo4j-env.service" ];
     after = [ "neo4j-env.service" ];
-  };
-
-  systemd.services.podman-redis = {
-    requires = [ "redis-config.service" ];
-    after = [ "redis-config.service" ];
   };
 
   systemd.services.happier-server = {
