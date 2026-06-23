@@ -44,6 +44,16 @@ sso_account_id=198401342403
 sso_role_name=KubernetesAdmin
 sso_session=cdenneen
 
+[profile sso-interact]
+sso_account_id=462561078695
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
+[profile sso-elecprd]
+sso_account_id=929526930219
+sso_role_name=SystemAdministrator
+sso_session=cdenneen
+
 [profile sso-apss]
 sso_account_id=838870929816
 sso_role_name=SystemAdministrator
