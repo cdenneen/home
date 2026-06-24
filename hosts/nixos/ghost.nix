@@ -155,13 +155,12 @@ in
       enableTCPIP = true;
       settings = {
         port = postgresPort;
-        listen_addresses = lib.mkForce "*";
+        listen_addresses = lib.mkForce "127.0.0.1";
       };
       authentication = ''
         local all postgres peer
         local all all scram-sha-256
         host all all 127.0.0.1/32 scram-sha-256
-        host all all 100.64.0.0/10 scram-sha-256
         host all all ::1/128 scram-sha-256
       '';
     };
@@ -169,7 +168,7 @@ in
     redis.servers."" = {
       enable = true;
       port = redisPort;
-      bind = "0.0.0.0";
+      bind = "127.0.0.1";
       requirePassFile = redisPasswordFile;
       settings = {
         dir = redisDataDir;
@@ -200,8 +199,8 @@ in
     qdrant = {
       image = "qdrant/qdrant:latest";
       ports = [
-        "0.0.0.0:${toString qdrantHttpPort}:6333"
-        "0.0.0.0:${toString qdrantGrpcPort}:6334"
+        "127.0.0.1:${toString qdrantHttpPort}:6333"
+        "127.0.0.1:${toString qdrantGrpcPort}:6334"
       ];
       volumes = [ "${qdrantDataDir}:/qdrant/storage:U" ];
       extraOptions = [ "--env-file=${qdrantEnvFile}" ];
@@ -210,7 +209,7 @@ in
 
     litellm = {
       image = "ghcr.io/berriai/litellm:latest";
-      ports = [ "0.0.0.0:${toString litellmPort}:4000" ];
+      ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
       extraOptions = [
         "--env-file=${litellmEnvFile}"
@@ -232,8 +231,8 @@ in
     neo4j = {
       image = "neo4j:5";
       ports = [
-        "0.0.0.0:${toString neo4jHttpPort}:7474"
-        "0.0.0.0:${toString neo4jBoltPort}:7687"
+        "127.0.0.1:${toString neo4jHttpPort}:7474"
+        "127.0.0.1:${toString neo4jBoltPort}:7687"
       ];
       volumes = [
         "${neo4jDataDir}:/data:U"
@@ -765,25 +764,111 @@ in
     '';
   };
 
+  systemd.services.jarvis-ghost-cleanup = {
+    description = "Remove stale Jarvis Tailscale podman overrides";
+    before = [
+      "podman-litellm.service"
+      "podman-qdrant.service"
+      "podman-neo4j.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [
+      pkgs.coreutils
+      pkgs.systemd
+    ];
+    script = ''
+      set -euo pipefail
+
+      dropins=(
+        /run/systemd/system/podman-litellm.service.d/tailscale-bind.conf
+        /run/systemd/system/podman-qdrant.service.d/tailscale-bind.conf
+        /run/systemd/system/podman-neo4j.service.d/tailscale-bind.conf
+      )
+
+      for dropin in "''${dropins[@]}"; do
+        if [ -e "$dropin" ]; then
+          ${pkgs.coreutils}/bin/rm -f "$dropin"
+        fi
+      done
+
+      ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty /run/systemd/system/podman-litellm.service.d 2>/dev/null || true
+      ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty /run/systemd/system/podman-qdrant.service.d 2>/dev/null || true
+      ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty /run/systemd/system/podman-neo4j.service.d 2>/dev/null || true
+
+      ${pkgs.coreutils}/bin/rm -f /var/lib/jarvis-ghost/podman-*-start-tailscale.sh
+
+      ${pkgs.systemd}/bin/systemctl daemon-reload
+    '';
+  };
+
+  systemd.services.tailscale-serve-ghost = {
+    description = "Expose local services via Tailscale serve";
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [ pkgs.tailscale ];
+    script = ''
+      set -euo pipefail
+
+      ${pkgs.tailscale}/bin/tailscale status >/dev/null
+
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString postgresPort} 127.0.0.1:${toString postgresPort}
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
+      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
+    '';
+  };
+
   systemd.services.podman-litellm = {
     requires = [
       "litellm-env.service"
       "litellm-config.service"
+      "jarvis-ghost-cleanup.service"
     ];
     after = [
       "litellm-env.service"
       "litellm-config.service"
+      "jarvis-ghost-cleanup.service"
     ];
   };
 
   systemd.services.podman-qdrant = {
-    requires = [ "qdrant-env.service" ];
-    after = [ "qdrant-env.service" ];
+    requires = [
+      "qdrant-env.service"
+      "jarvis-ghost-cleanup.service"
+    ];
+    after = [
+      "qdrant-env.service"
+      "jarvis-ghost-cleanup.service"
+    ];
   };
 
   systemd.services.podman-neo4j = {
-    requires = [ "neo4j-env.service" ];
-    after = [ "neo4j-env.service" ];
+    requires = [
+      "neo4j-env.service"
+      "jarvis-ghost-cleanup.service"
+    ];
+    after = [
+      "neo4j-env.service"
+      "jarvis-ghost-cleanup.service"
+    ];
   };
 
   systemd.services.happier-server = {
