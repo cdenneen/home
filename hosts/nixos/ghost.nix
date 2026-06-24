@@ -422,13 +422,18 @@ in
   systemd.services.litellm-env = {
     description = "Render litellm env file";
     before = [ "podman-litellm.service" ];
+    after = [ "tailscaled.service" ];
+    wants = [ "tailscaled.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       UMask = "0077";
     };
-    path = [ pkgs.coreutils ];
+    path = [
+      pkgs.coreutils
+      pkgs.tailscale
+    ];
     script = ''
       set -euo pipefail
 
@@ -457,6 +462,13 @@ in
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
       redis_password="$(read_secret "${redisPasswordFile}" "Redis password")"
+      redis_host="${pkgs.tailscale}/bin/tailscale ip -4 | ${pkgs.coreutils}/bin/head -n 1"
+      redis_host="$(eval "$redis_host")"
+
+      if [ -z "$redis_host" ]; then
+        echo "Failed to determine tailscale IPv4 for Redis host" >&2
+        exit 1
+      fi
       db_url="postgresql://postgres.ysxipmxwfupqzywhevji:$db_password@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
@@ -468,7 +480,7 @@ in
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
         printf 'OLLAMA_API_BASE=%s\n' "http://ollama:11434"
-        printf 'REDIS_HOST=%s\n' "10.88.0.1"
+        printf 'REDIS_HOST=%s\n' "$redis_host"
         printf 'REDIS_PORT=%s\n' "${toString redisPort}"
         printf 'REDIS_PASSWORD=%s\n' "$redis_password"
       } > "${litellmEnvFile}"
