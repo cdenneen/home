@@ -51,22 +51,27 @@ let
   neo4jHttpPort = 7474;
   neo4jBoltPort = 7687;
   redisPort = 6379;
+  minioApiPort = 9000;
+  minioConsolePort = 9001;
   postgresUser = "postgres";
   postgresDb = "postgres";
   neo4jUser = "neo4j";
   ollamaDataDir = "/var/lib/ollama";
   qdrantDataDir = "/var/lib/qdrant";
+  minioDataDir = "/var/lib/minio";
   ghostRuntimeDir = "/run/ghost-services";
   litellmConfigFile = "${ghostRuntimeDir}/litellm/config.yaml";
   litellmEnvFile = "${ghostRuntimeDir}/litellm/env";
   qdrantEnvFile = "${ghostRuntimeDir}/qdrant/env";
   neo4jEnvFile = "${ghostRuntimeDir}/neo4j/env";
+  minioEnvFile = "${ghostRuntimeDir}/minio/env";
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
   gitlabRunnerDockerConfig = "/var/lib/gitlab-runner/.docker/config.json";
   postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
   neo4jLogsDir = "/var/lib/neo4j/logs";
   redisDataDir = "/var/lib/redis";
+  minioCredentialsFile = config.sops.secrets.minio-credentials.path;
 in
 {
   imports = [
@@ -234,6 +239,23 @@ in
       autoStart = true;
     };
 
+    minio = {
+      image = "minio/minio:latest";
+      ports = [
+        "127.0.0.1:${toString minioApiPort}:9000"
+        "127.0.0.1:${toString minioConsolePort}:9001"
+      ];
+      volumes = [ "${minioDataDir}:/data:U" ];
+      extraOptions = [ "--env-file=${minioEnvFile}" ];
+      cmd = [
+        "server"
+        "/data"
+        "--console-address"
+        ":9001"
+      ];
+      autoStart = true;
+    };
+
   };
 
   sops.secrets.ghost_cloudflare_tunnel_token = {
@@ -339,6 +361,11 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.minio-credentials = {
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
 
   systemd.tmpfiles.rules = [
     "d /var/lib/cloudflared 0700 root root -"
@@ -354,6 +381,7 @@ in
     "d ${neo4jDataDir} 0750 root root -"
     "d ${neo4jLogsDir} 0750 root root -"
     "d ${redisDataDir} 0750 redis redis -"
+    "d ${minioDataDir} 0750 root root -"
   ];
 
   systemd.services.gitlab-runner.serviceConfig = {
@@ -467,7 +495,7 @@ in
 
         - model_name: jarvis-coder
           litellm_params:
-            model: ollama/qwen2.5-coder:14b
+            model: ollama/qwen3-coder:14b
             api_base: http://ollama:11434
 
         - model_name: openrouter-free
@@ -756,6 +784,57 @@ in
     '';
   };
 
+  systemd.services.minio-env = {
+    description = "Render MinIO env file";
+    before = [ "podman-minio.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [
+      pkgs.coreutils
+      pkgs.gnugrep
+    ];
+    script = ''
+      set -euo pipefail
+
+      env_dir="$(${pkgs.coreutils}/bin/dirname "${minioEnvFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$env_dir"
+
+      if [ ! -r "${minioCredentialsFile}" ]; then
+        echo "Missing MinIO credentials at ${minioCredentialsFile}" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${minioEnvFile}"
+
+      if ${pkgs.gnugrep}/bin/grep -q '=' "${minioCredentialsFile}"; then
+        ${pkgs.coreutils}/bin/cat "${minioCredentialsFile}" > "${minioEnvFile}"
+        exit 0
+      fi
+
+      if ${pkgs.gnugrep}/bin/grep -q ':' "${minioCredentialsFile}"; then
+        creds_line="$(${pkgs.coreutils}/bin/head -n 1 "${minioCredentialsFile}")"
+        minio_user="''${creds_line%%:*}"
+        minio_password="''${creds_line#*:}"
+
+        if [ -z "$minio_user" ] || [ -z "$minio_password" ]; then
+          echo "MinIO credentials file is missing user or password" >&2
+          exit 1
+        fi
+
+        printf 'MINIO_ROOT_USER=%s\n' "$minio_user" > "${minioEnvFile}"
+        printf 'MINIO_ROOT_PASSWORD=%s\n' "$minio_password" >> "${minioEnvFile}"
+        exit 0
+      fi
+
+      echo "MinIO credentials file must contain either MINIO_ROOT_* env vars or user:password" >&2
+      exit 1
+    '';
+  };
+
   systemd.services.jarvis-ghost-cleanup = {
     description = "Remove stale Jarvis Tailscale podman overrides";
     before = [
@@ -817,6 +896,8 @@ in
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString minioApiPort} 127.0.0.1:${toString minioApiPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString minioConsolePort} 127.0.0.1:${toString minioConsolePort}
     '';
   };
 
@@ -853,6 +934,11 @@ in
       "neo4j-env.service"
       "jarvis-ghost-cleanup.service"
     ];
+  };
+
+  systemd.services.podman-minio = {
+    requires = [ "minio-env.service" ];
+    after = [ "minio-env.service" ];
   };
 
   systemd.services.happier-server = {
