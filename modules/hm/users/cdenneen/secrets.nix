@@ -25,7 +25,7 @@ let
   useNyxRemoteMcp = isDarwin && !isNyx;
   useSharedNyxMcp = useNyxRemoteMcp || isNyx;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
-  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}";
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
   recalliumMcpUrl = nyxSharedMcpUrl 18001;
@@ -136,6 +136,14 @@ let
 
   opencodeConfigJson = builtins.toJSON {
     "$schema" = "https://opencode.ai/config.json";
+    provider = {
+      gitlab = {
+        options = {
+          instanceUrl = "https://git.ap.org";
+          aiGatewayUrl = "https://aigw.associatedpress.com";
+        };
+      };
+    };
     # Keep compaction enabled so long sessions stay responsive.
     compaction = {
       auto = true;
