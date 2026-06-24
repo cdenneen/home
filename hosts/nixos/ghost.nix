@@ -775,21 +775,13 @@ in
     script = ''
       set -euo pipefail
 
-      dropins=(
-        /run/systemd/system/podman-litellm.service.d/tailscale-bind.conf
-        /run/systemd/system/podman-qdrant.service.d/tailscale-bind.conf
-        /run/systemd/system/podman-neo4j.service.d/tailscale-bind.conf
-      )
-
-      for dropin in "''${dropins[@]}"; do
-        if [ -e "$dropin" ]; then
-          ${pkgs.coreutils}/bin/rm -f "$dropin"
+      for unit in podman-litellm podman-qdrant podman-neo4j; do
+        dropin_dir="/run/systemd/system/${unit}.service.d"
+        if [ -d "$dropin_dir" ]; then
+          ${pkgs.coreutils}/bin/rm -f "$dropin_dir"/tailscale-*.conf
+          ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty "$dropin_dir" 2>/dev/null || true
         fi
       done
-
-      ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty /run/systemd/system/podman-litellm.service.d 2>/dev/null || true
-      ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty /run/systemd/system/podman-qdrant.service.d 2>/dev/null || true
-      ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty /run/systemd/system/podman-neo4j.service.d 2>/dev/null || true
 
       ${pkgs.coreutils}/bin/rm -f /var/lib/jarvis-ghost/podman-*-start-tailscale.sh
 
@@ -818,13 +810,13 @@ in
 
       ${pkgs.tailscale}/bin/tailscale status >/dev/null
 
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString postgresPort} 127.0.0.1:${toString postgresPort}
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
-      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString postgresPort} 127.0.0.1:${toString postgresPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
     '';
   };
 
