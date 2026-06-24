@@ -140,7 +140,7 @@ let
       gitlab = {
         options = {
           instanceUrl = "https://git.ap.org";
-          aiGatewayUrl = "https://aigw.associatedpress.com/v1";
+          aiGatewayUrl = "https://aigw.associatedpress.com";
         };
       };
     };
