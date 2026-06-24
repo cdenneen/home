@@ -210,55 +210,55 @@ let
           url = "https://api.githubcopilot.com/mcp/";
           bearer_token_env_var = "GITHUB_TOKEN";
           required = false;
-          startup_timeout_sec = 12;
-          tool_timeout_sec = 60;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
         };
         recallium = {
           url = nyxSharedMcpUrl 18001;
           required = false;
-          startup_timeout_sec = 10;
-          tool_timeout_sec = 120;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 180;
         };
         supabase = {
           url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
           required = false;
-          startup_timeout_sec = 12;
-          tool_timeout_sec = 120;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 180;
         };
         gitlab = (mkSharedMcpCommand 18101 mcpGitlabScript) // {
           required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
         };
         kubernetes = (mkSharedMcpCommand 18102 mcpKubernetesScript) // {
           required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
         };
         aws = (mkSharedMcpCommand 18103 mcpAwsScript) // {
           required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
         };
         terraform = (mkSharedMcpCommand 18104 mcpTerraformScript) // {
           required = false;
-          startup_timeout_sec = 25;
-          tool_timeout_sec = 180;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 240;
         };
         duckduckgo = (mkSharedMcpCommand 18105 mcpDuckDuckGoScript) // {
           required = false;
-          startup_timeout_sec = 10;
-          tool_timeout_sec = 45;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
         };
         context7 = (mkSharedMcpCommand 18106 mcpContext7Script) // {
           required = false;
-          startup_timeout_sec = 12;
-          tool_timeout_sec = 60;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
         };
         playwright = (mkNyxOnlySharedMcpCommand 18107 mcpPlaywrightScript) // {
           required = false;
-          startup_timeout_sec = 15;
-          tool_timeout_sec = 120;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
         };
       };
       sandbox_mode = "workspace-write";

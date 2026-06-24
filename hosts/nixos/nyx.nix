@@ -124,7 +124,6 @@ let
     name: spec:
     let
       stdioScript = pkgs.writeShellScript "nyx-mcp-${name}-stdio" spec.script;
-      stateful = spec.stateful or true;
       run = pkgs.writeShellScript "nyx-mcp-${name}-gateway" ''
         set -euo pipefail
 
@@ -142,16 +141,14 @@ let
         cmd=(
           ${pkgs.nodejs_24}/bin/npx -y supergateway
           --stdio ${lib.escapeShellArg "${stdioScript}"}
-          --outputTransport streamableHttp
+          --outputTransport sse
           --port ${toString spec.port}
-          --streamableHttpPath /mcp
+          --baseUrl /mcp
+          --ssePath /sse
+          --messagePath /message
           --healthEndpoint /healthz
           --logLevel info
         )
-
-        if [ "${if stateful then "1" else "0"}" = "1" ]; then
-          cmd+=(--stateful --sessionTimeout 3600000)
-        fi
 
         exec "''${cmd[@]}"
       '';

@@ -34,7 +34,7 @@ let
     type = "remote";
     url = nyxSharedMcpUrl port;
     enabled = true;
-    timeout = 15000;
+    timeout = 60000;
   };
 
   mkOpencodeMcpCommand = script: [
@@ -148,12 +148,13 @@ let
         type = "remote";
         url = recalliumMcpUrl;
         enabled = true;
-        timeout = 15000;
+        timeout = 60000;
       };
       supabase = {
         type = "remote";
         url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
         enabled = true;
+        timeout = 60000;
       };
       kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
       aws = mkOpencodeMcp 18103 mcpAwsScript;
@@ -175,6 +176,9 @@ let
       skill = {
         "*" = "allow";
       };
+    };
+    experimental = {
+      mcp_timeout = 60000;
     };
     skills = {
       paths = [
