@@ -531,7 +531,7 @@ in
           port: os.environ/REDIS_PORT
           password: os.environ/REDIS_PASSWORD
           similarity_threshold: 0.85
-          redis_semantic_cache_embedding_model: local-embed
+          redis_semantic_cache_embedding_model: ollama/nomic-embed-text
 
       router_settings:
         fallbacks:
