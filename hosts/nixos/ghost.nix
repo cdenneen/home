@@ -56,10 +56,11 @@ let
   neo4jUser = "neo4j";
   ollamaDataDir = "/var/lib/ollama";
   qdrantDataDir = "/var/lib/qdrant";
-  litellmConfigFile = "/run/litellm/config.yaml";
-  litellmEnvFile = "/run/litellm/env";
-  qdrantEnvFile = "/run/qdrant/env";
-  neo4jEnvFile = "/run/neo4j/env";
+  ghostRuntimeDir = "/run/ghost-services";
+  litellmConfigFile = "${ghostRuntimeDir}/litellm/config.yaml";
+  litellmEnvFile = "${ghostRuntimeDir}/litellm/env";
+  qdrantEnvFile = "${ghostRuntimeDir}/qdrant/env";
+  neo4jEnvFile = "${ghostRuntimeDir}/neo4j/env";
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
   gitlabRunnerDockerConfig = "/var/lib/gitlab-runner/.docker/config.json";
   postgresDataDir = "/var/lib/postgres";
@@ -817,13 +818,13 @@ in
 
       ${pkgs.tailscale}/bin/tailscale status >/dev/null
 
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString postgresPort} 127.0.0.1:${toString postgresPort}
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
-      ${pkgs.tailscale}/bin/tailscale serve tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString postgresPort} 127.0.0.1:${toString postgresPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
     '';
   };
 
