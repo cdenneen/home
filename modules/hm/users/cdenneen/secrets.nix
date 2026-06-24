@@ -139,6 +139,7 @@ let
     provider = {
       gitlab = {
         options = {
+          apiKey = "{env:GITLAB_TOKEN}";
           instanceUrl = "https://git.ap.org";
           aiGatewayUrl = "https://aigw.associatedpress.com";
         };
