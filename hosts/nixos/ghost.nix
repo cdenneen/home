@@ -81,15 +81,6 @@ in
   virtualisation.docker.enable = lib.mkForce false;
   networking = {
     firewall.trustedInterfaces = lib.mkAfter [ "podman0" ];
-    firewall.interfaces.tailscale0.allowedTCPPorts = [
-      litellmPort
-      neo4jHttpPort
-      neo4jBoltPort
-      postgresPort
-      qdrantHttpPort
-      qdrantGrpcPort
-      redisPort
-    ];
   };
 
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
