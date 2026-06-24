@@ -456,6 +456,7 @@ in
       db_password="$(read_secret "${jarvisSupabaseDbPasswordFile}" "Jarvis Supabase DB password")"
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
+      redis_password="$(read_secret "${redisPasswordFile}" "Redis password")"
       db_url="postgresql://postgres.ysxipmxwfupqzywhevji:$db_password@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
@@ -466,6 +467,9 @@ in
         printf 'LITELLM_DATABASE_URL=%s\n' "$db_url"
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
+        printf 'REDIS_HOST=%s\n' "127.0.0.1"
+        printf 'REDIS_PORT=%s\n' "${toString redisPort}"
+        printf 'REDIS_PASSWORD=%s\n' "$redis_password"
       } > "${litellmEnvFile}"
     '';
   };
@@ -512,6 +516,21 @@ in
           litellm_params:
             model: openai/gpt-5.4
             api_key: os.environ/OPENAI_API_KEY
+
+        - model_name: openai-embedding
+          litellm_params:
+            model: openai/text-embedding-3-small
+            api_key: os.environ/OPENAI_API_KEY
+
+      litellm_settings:
+        cache: true
+        cache_params:
+          type: redis-semantic
+          host: os.environ/REDIS_HOST
+          port: os.environ/REDIS_PORT
+          password: os.environ/REDIS_PASSWORD
+          similarity_threshold: 0.85
+          redis_semantic_cache_embedding_model: openai-embedding
 
       router_settings:
         fallbacks:
