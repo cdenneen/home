@@ -457,7 +457,7 @@ in
       db_password="$(read_secret "${jarvisSupabaseDbPasswordFile}" "Jarvis Supabase DB password")"
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
-      redis_password="$(read_secret "${redisPasswordFile}" "Redis password")"
+      qdrant_api_key="$(read_secret "${qdrantApiKeyFile}" "Qdrant API key")"
       db_url="postgresql://postgres.ysxipmxwfupqzywhevji:$db_password@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
@@ -469,9 +469,8 @@ in
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
         printf 'OLLAMA_API_BASE=%s\n' "http://127.0.0.1:${toString ollamaPort}"
-        printf 'REDIS_HOST=%s\n' "127.0.0.1"
-        printf 'REDIS_PORT=%s\n' "${toString redisPort}"
-        printf 'REDIS_PASSWORD=%s\n' "$redis_password"
+        printf 'QDRANT_API_BASE=%s\n' "http://127.0.0.1:${toString qdrantHttpPort}"
+        printf 'QDRANT_API_KEY=%s\n' "$qdrant_api_key"
       } > "${litellmEnvFile}"
     '';
   };
@@ -527,13 +526,12 @@ in
       litellm_settings:
         cache: true
         cache_params:
-          type: redis-semantic
+          type: qdrant-semantic
           cache_policy: semantic
-          host: os.environ/REDIS_HOST
-          port: os.environ/REDIS_PORT
-          password: os.environ/REDIS_PASSWORD
           similarity_threshold: 0.85
-          redis_semantic_cache_embedding_model: ollama/nomic-embed-text
+          qdrant_semantic_cache_embedding_model: local-embed
+          qdrant_collection_name: litellm_semantic_cache
+          qdrant_semantic_cache_vector_size: 768
 
       router_settings:
         fallbacks:
