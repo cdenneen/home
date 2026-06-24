@@ -165,7 +165,7 @@ in
     redis.servers."" = {
       enable = true;
       port = redisPort;
-      bind = "127.0.0.1";
+      bind = "127.0.0.1 10.88.0.1 ::1";
       requirePassFile = redisPasswordFile;
       settings = {
         dir = redisDataDir;
@@ -467,7 +467,7 @@ in
         printf 'LITELLM_DATABASE_URL=%s\n' "$db_url"
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
-        printf 'REDIS_HOST=%s\n' "127.0.0.1"
+        printf 'REDIS_HOST=%s\n' "10.88.0.1"
         printf 'REDIS_PORT=%s\n' "${toString redisPort}"
         printf 'REDIS_PASSWORD=%s\n' "$redis_password"
       } > "${litellmEnvFile}"
@@ -517,20 +517,21 @@ in
             model: openai/gpt-5.4
             api_key: os.environ/OPENAI_API_KEY
 
-        - model_name: openai-embedding
+        - model_name: local-embed
           litellm_params:
-            model: openai/text-embedding-3-small
-            api_key: os.environ/OPENAI_API_KEY
+            model: ollama/nomic-embed-text
+            api_base: http://ollama:11434
 
       litellm_settings:
         cache: true
         cache_params:
           type: redis-semantic
+          cache_policy: semantic
           host: os.environ/REDIS_HOST
           port: os.environ/REDIS_PORT
           password: os.environ/REDIS_PASSWORD
           similarity_threshold: 0.85
-          redis_semantic_cache_embedding_model: openai/text-embedding-3-small
+          redis_semantic_cache_embedding_model: local-embed
 
       router_settings:
         fallbacks:
