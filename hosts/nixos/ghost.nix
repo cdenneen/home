@@ -165,7 +165,7 @@ in
     redis.servers."" = {
       enable = true;
       port = redisPort;
-      bind = "127.0.0.1 10.88.0.1 ::1";
+      bind = "127.0.0.1 ::1";
       requirePassFile = redisPasswordFile;
       settings = {
         dir = redisDataDir;
@@ -206,15 +206,17 @@ in
 
     litellm = {
       image = "ghcr.io/berriai/litellm:latest";
-      ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
+      ports = [ ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
       extraOptions = [
         "--env-file=${litellmEnvFile}"
-        "--add-host=ollama:host-gateway"
+        "--network=host"
       ];
       cmd = [
         "--config"
         "/app/config.yaml"
+        "--host"
+        "127.0.0.1"
         "--port"
         "${toString litellmPort}"
       ];
@@ -422,18 +424,13 @@ in
   systemd.services.litellm-env = {
     description = "Render litellm env file";
     before = [ "podman-litellm.service" ];
-    after = [ "tailscaled.service" ];
-    wants = [ "tailscaled.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       UMask = "0077";
     };
-    path = [
-      pkgs.coreutils
-      pkgs.tailscale
-    ];
+    path = [ pkgs.coreutils ];
     script = ''
       set -euo pipefail
 
@@ -462,13 +459,6 @@ in
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
       redis_password="$(read_secret "${redisPasswordFile}" "Redis password")"
-      redis_host="${pkgs.tailscale}/bin/tailscale ip -4 | ${pkgs.coreutils}/bin/head -n 1"
-      redis_host="$(eval "$redis_host")"
-
-      if [ -z "$redis_host" ]; then
-        echo "Failed to determine tailscale IPv4 for Redis host" >&2
-        exit 1
-      fi
       db_url="postgresql://postgres.ysxipmxwfupqzywhevji:$db_password@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
@@ -479,8 +469,8 @@ in
         printf 'LITELLM_DATABASE_URL=%s\n' "$db_url"
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
-        printf 'OLLAMA_API_BASE=%s\n' "http://ollama:11434"
-        printf 'REDIS_HOST=%s\n' "$redis_host"
+        printf 'OLLAMA_API_BASE=%s\n' "http://127.0.0.1:${toString ollamaPort}"
+        printf 'REDIS_HOST=%s\n' "127.0.0.1"
         printf 'REDIS_PORT=%s\n' "${toString redisPort}"
         printf 'REDIS_PASSWORD=%s\n' "$redis_password"
       } > "${litellmEnvFile}"
@@ -508,12 +498,12 @@ in
         - model_name: jarvis-router
           litellm_params:
             model: ollama/qwen3:8b
-            api_base: http://ollama:11434
+            api_base: http://127.0.0.1:${toString ollamaPort}
 
         - model_name: jarvis-coder
           litellm_params:
             model: ollama/qwen2.5-coder:7b
-            api_base: http://ollama:11434
+            api_base: http://127.0.0.1:${toString ollamaPort}
 
         - model_name: openrouter-free
           litellm_params:
@@ -533,7 +523,7 @@ in
         - model_name: local-embed
           litellm_params:
             model: ollama/nomic-embed-text
-            api_base: http://ollama:11434
+            api_base: http://127.0.0.1:${toString ollamaPort}
 
       litellm_settings:
         cache: true
