@@ -427,7 +427,7 @@ in
       db_password="$(read_secret "${jarvisSupabaseDbPasswordFile}" "Jarvis Supabase DB password")"
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
-      db_url="postgresql://postgres.ysxipmxwfupqzywhevji:${db_password}@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
+      db_url="postgresql://postgres.ysxipmxwfupqzywhevji:$db_password@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
       {
