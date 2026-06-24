@@ -776,7 +776,7 @@ in
       set -euo pipefail
 
       for unit in podman-litellm podman-qdrant podman-neo4j; do
-        dropin_dir="/run/systemd/system/${unit}.service.d"
+        dropin_dir="/run/systemd/system/''${unit}.service.d"
         if [ -d "$dropin_dir" ]; then
           ${pkgs.coreutils}/bin/rm -f "$dropin_dir"/tailscale-*.conf
           ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty "$dropin_dir" 2>/dev/null || true
