@@ -467,6 +467,7 @@ in
         printf 'LITELLM_DATABASE_URL=%s\n' "$db_url"
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
+        printf 'OLLAMA_API_BASE=%s\n' "http://ollama:11434"
         printf 'REDIS_HOST=%s\n' "10.88.0.1"
         printf 'REDIS_PORT=%s\n' "${toString redisPort}"
         printf 'REDIS_PASSWORD=%s\n' "$redis_password"
