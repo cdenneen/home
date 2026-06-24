@@ -29,7 +29,9 @@ let
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
   githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
+  openrouterKeyFile = config.sops.secrets.openrouter_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
+  jarvisSupabaseDbPasswordFile = config.sops.secrets.jarvis_supbabase_db_password.path;
   gitlabRunnerTokenFile = config.sops.secrets.gitlab_com_runner_token.path;
   qdrantApiKeyFile = config.sops.secrets.local_qdrant_api_key.path;
   litellmMasterKeyFile = config.sops.secrets.local_litellm_master_key.path;
@@ -54,7 +56,7 @@ let
   neo4jUser = "neo4j";
   ollamaDataDir = "/var/lib/ollama";
   qdrantDataDir = "/var/lib/qdrant";
-  litellmConfigFile = "/etc/litellm/config.yaml";
+  litellmConfigFile = "/run/litellm/config.yaml";
   litellmEnvFile = "/run/litellm/env";
   qdrantEnvFile = "/run/qdrant/env";
   neo4jEnvFile = "/run/neo4j/env";
@@ -183,14 +185,6 @@ in
     };
   };
 
-  environment.etc."litellm/config.yaml".text = ''
-    model_list:
-      - model_name: gpt-4o-mini
-        litellm_params:
-          model: gpt-4o-mini
-          api_key: os.environ/OPENAI_API_KEY
-  '';
-
   virtualisation.oci-containers.backend = "podman";
   virtualisation.oci-containers.containers = {
     qdrant = {
@@ -208,7 +202,10 @@ in
       image = "ghcr.io/berriai/litellm:latest";
       ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
-      extraOptions = [ "--env-file=${litellmEnvFile}" ];
+      extraOptions = [
+        "--env-file=${litellmEnvFile}"
+        "--add-host=ollama:host-gateway"
+      ];
       cmd = [
         "--config"
         "/app/config.yaml"
@@ -277,6 +274,20 @@ in
   sops.secrets.local_litellm_salt_key = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "local_litellm_salt_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.openrouter_api_key = {
+    sopsFile = ../../secrets/jarvis.yaml;
+    key = "openrouter_api_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.jarvis_supbabase_db_password = {
+    sopsFile = ../../secrets/jarvis.yaml;
+    key = "jarvis_supbabase_db_password";
     owner = "root";
     group = "root";
     mode = "0400";
@@ -411,15 +422,124 @@ in
       }
 
       openai_key="$(read_secret "${openAiKeyFile}" "OpenAI key")"
+      openrouter_key="$(read_secret "${openrouterKeyFile}" "OpenRouter key")"
+      gemini_key="$(read_secret "${geminiKeyFile}" "Gemini key")"
+      db_password="$(read_secret "${jarvisSupabaseDbPasswordFile}" "Jarvis Supabase DB password")"
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
+      db_url="postgresql://postgres.ysxipmxwfupqzywhevji:${db_password}@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
       {
         printf 'OPENAI_API_KEY=%s\n' "$openai_key"
+        printf 'OPENROUTER_API_KEY=%s\n' "$openrouter_key"
+        printf 'GEMINI_API_KEY=%s\n' "$gemini_key"
+        printf 'LITELLM_DATABASE_URL=%s\n' "$db_url"
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
       } > "${litellmEnvFile}"
+    '';
+  };
+
+  systemd.services.litellm-config = {
+    description = "Render litellm config file";
+    before = [ "podman-litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      config_dir="$(${pkgs.coreutils}/bin/dirname "${litellmConfigFile}")"
+      ${pkgs.coreutils}/bin/mkdir -p "$config_dir"
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmConfigFile}"
+      cat > "${litellmConfigFile}" <<'EOF'
+      model_list:
+        - model_name: jarvis-router
+          litellm_params:
+            model: ollama/qwen3:8b
+            api_base: http://ollama:11434
+
+        - model_name: jarvis-coder
+          litellm_params:
+            model: ollama/qwen2.5-coder:14b
+            api_base: http://ollama:11434
+
+        - model_name: openrouter-free
+          litellm_params:
+            model: openrouter/openrouter/free
+            api_key: os.environ/OPENROUTER_API_KEY
+
+        - model_name: gemini-flash
+          litellm_params:
+            model: gemini/gemini-3.5-flash
+            api_key: os.environ/GEMINI_API_KEY
+
+        - model_name: openai-fallback
+          litellm_params:
+            model: openai/gpt-5.4
+            api_key: os.environ/OPENAI_API_KEY
+
+      router_settings:
+        fallbacks:
+          - jarvis-router:
+              - openrouter-free
+              - gemini-flash
+              - openai-fallback
+          - jarvis-coder:
+              - openrouter-free
+              - gemini-flash
+              - openai-fallback
+        num_retries: 2
+        timeout: 90
+
+      general_settings:
+        database_url: os.environ/LITELLM_DATABASE_URL
+        allow_requests_on_db_unavailable: true
+
+      jarvis_profiles:
+        default: conversation
+        profiles:
+          - name: conversation
+            primary:
+              - jarvis-router
+            fallback:
+              - openrouter-free
+              - gemini-flash
+              - openai-fallback
+          - name: coding
+            primary:
+              - jarvis-coder
+            fallback:
+              - openrouter-free
+              - gemini-flash
+              - openai-fallback
+          - name: architecture
+            primary:
+              - jarvis-coder
+            fallback:
+              - openrouter-free
+              - gemini-flash
+              - openai-fallback
+        escalation:
+          context_tokens_gt: 24000
+          estimated_repo_files_gt: 100
+          confidence_below: 0.75
+          max_local_retries: 2
+          local_timeout_seconds: 90
+          local_failure:
+            escalate: true
+        cloud_routing:
+          prefer_openrouter: true
+          openrouter_free_only: true
+          use_direct_vendor_only_if:
+            - openrouter_unavailable
+            - vendor_specific_feature_required
+      EOF
     '';
   };
 
@@ -636,8 +756,14 @@ in
   };
 
   systemd.services.podman-litellm = {
-    requires = [ "litellm-env.service" ];
-    after = [ "litellm-env.service" ];
+    requires = [
+      "litellm-env.service"
+      "litellm-config.service"
+    ];
+    after = [
+      "litellm-env.service"
+      "litellm-config.service"
+    ];
   };
 
   systemd.services.podman-qdrant = {
