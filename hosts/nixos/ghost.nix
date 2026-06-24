@@ -80,7 +80,16 @@ in
   };
   virtualisation.docker.enable = lib.mkForce false;
   networking = {
-    firewall.trustedInterfaces = lib.mkAfter [ "tailscale0" ];
+    firewall.trustedInterfaces = lib.mkAfter [ "podman0" ];
+    firewall.interfaces.tailscale0.allowedTCPPorts = [
+      litellmPort
+      neo4jHttpPort
+      neo4jBoltPort
+      postgresPort
+      qdrantHttpPort
+      qdrantGrpcPort
+      redisPort
+    ];
   };
 
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
@@ -146,12 +155,13 @@ in
       enableTCPIP = true;
       settings = {
         port = postgresPort;
-        listen_addresses = lib.mkForce "127.0.0.1";
+        listen_addresses = lib.mkForce "*";
       };
       authentication = ''
         local all postgres peer
         local all all scram-sha-256
         host all all 127.0.0.1/32 scram-sha-256
+        host all all 100.64.0.0/10 scram-sha-256
         host all all ::1/128 scram-sha-256
       '';
     };
@@ -159,7 +169,7 @@ in
     redis.servers."" = {
       enable = true;
       port = redisPort;
-      bind = "127.0.0.1";
+      bind = "0.0.0.0";
       requirePassFile = redisPasswordFile;
       settings = {
         dir = redisDataDir;
@@ -190,8 +200,8 @@ in
     qdrant = {
       image = "qdrant/qdrant:latest";
       ports = [
-        "127.0.0.1:${toString qdrantHttpPort}:6333"
-        "127.0.0.1:${toString qdrantGrpcPort}:6334"
+        "0.0.0.0:${toString qdrantHttpPort}:6333"
+        "0.0.0.0:${toString qdrantGrpcPort}:6334"
       ];
       volumes = [ "${qdrantDataDir}:/qdrant/storage:U" ];
       extraOptions = [ "--env-file=${qdrantEnvFile}" ];
@@ -200,7 +210,7 @@ in
 
     litellm = {
       image = "ghcr.io/berriai/litellm:latest";
-      ports = [ "127.0.0.1:${toString litellmPort}:4000" ];
+      ports = [ "0.0.0.0:${toString litellmPort}:4000" ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
       extraOptions = [
         "--env-file=${litellmEnvFile}"
@@ -222,8 +232,8 @@ in
     neo4j = {
       image = "neo4j:5";
       ports = [
-        "127.0.0.1:${toString neo4jHttpPort}:7474"
-        "127.0.0.1:${toString neo4jBoltPort}:7687"
+        "0.0.0.0:${toString neo4jHttpPort}:7474"
+        "0.0.0.0:${toString neo4jBoltPort}:7687"
       ];
       volumes = [
         "${neo4jDataDir}:/data:U"
