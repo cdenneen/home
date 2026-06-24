@@ -495,7 +495,7 @@ in
 
         - model_name: jarvis-coder
           litellm_params:
-            model: ollama/qwen3-coder:14b
+            model: ollama/qwen2.5-coder:7b
             api_base: http://ollama:11434
 
         - model_name: openrouter-free
