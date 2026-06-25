@@ -508,9 +508,14 @@ in
             model: openrouter/openrouter/free
             api_key: os.environ/OPENROUTER_API_KEY
 
-        - model_name: openrouter/*
+        - model_name: openrouter/*:free
           litellm_params:
-            model: openrouter/*
+            model: openrouter/*:free
+            api_key: os.environ/OPENROUTER_API_KEY
+
+        - model_name: openrouter-embed
+          litellm_params:
+            model: openrouter/nvidia/llama-nemotron-embed-vl-1b-v2:free
             api_key: os.environ/OPENROUTER_API_KEY
 
         - model_name: gemini/*
@@ -535,7 +540,7 @@ in
           type: qdrant-semantic
           cache_policy: semantic
           similarity_threshold: 0.85
-          qdrant_semantic_cache_embedding_model: local-embed
+          qdrant_semantic_cache_embedding_model: openrouter-embed
           qdrant_collection_name: litellm_semantic_cache
           qdrant_semantic_cache_vector_size: 768
 
