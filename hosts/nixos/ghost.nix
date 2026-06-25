@@ -503,6 +503,16 @@ in
             model: openrouter/openrouter/owl-alpha
             api_key: os.environ/OPENROUTER_API_KEY
 
+        - model_name: jarvis-coding-free
+          litellm_params:
+            model: openrouter/poolside/laguna-xs.2:free
+            api_key: os.environ/OPENROUTER_API_KEY
+
+        - model_name: jarvis-coding-deep-free
+          litellm_params:
+            model: openrouter/poolside/laguna-m.1:free
+            api_key: os.environ/OPENROUTER_API_KEY
+
         - model_name: openrouter-free
           litellm_params:
             model: openrouter/openrouter/free
@@ -547,11 +557,13 @@ in
       router_settings:
         fallbacks:
           - jarvis-router:
-              - openrouter-free
+              - openrouter/*
               - gemini/*
               - openai/*
           - jarvis-coder:
-              - openrouter-free
+              - jarvis-coding-free
+              - jarvis-coding-deep-free
+              - openrouter/*
               - gemini/*
               - openai/*
         num_retries: 2
@@ -568,21 +580,25 @@ in
             primary:
               - jarvis-router
             fallback:
-              - openrouter-free
+              - openrouter/*
               - gemini/*
               - openai/*
           - name: coding
             primary:
               - jarvis-coder
             fallback:
-              - openrouter-free
+              - jarvis-coding-free
+              - jarvis-coding-deep-free
+              - openrouter/*
               - gemini/*
               - openai/*
           - name: architecture
             primary:
-              - jarvis-coder
+              - jarvis-coding-deep-free
             fallback:
-              - openrouter-free
+              - jarvis-coding-free
+              - jarvis-coder
+              - openrouter/*
               - gemini/*
               - openai/*
         escalation:
