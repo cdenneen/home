@@ -508,14 +508,19 @@ in
             model: openrouter/openrouter/free
             api_key: os.environ/OPENROUTER_API_KEY
 
-        - model_name: gemini-flash
+        - model_name: openrouter/*
           litellm_params:
-            model: gemini/gemini-3.5-flash
+            model: openrouter/*
+            api_key: os.environ/OPENROUTER_API_KEY
+
+        - model_name: gemini/*
+          litellm_params:
+            model: gemini/*
             api_key: os.environ/GEMINI_API_KEY
 
-        - model_name: openai-fallback
+        - model_name: openai/*
           litellm_params:
-            model: openai/gpt-5.4
+            model: openai/*
             api_key: os.environ/OPENAI_API_KEY
 
         - model_name: local-embed
@@ -525,6 +530,7 @@ in
 
       litellm_settings:
         cache: true
+        check_provider_endpoint: true
         cache_params:
           type: qdrant-semantic
           cache_policy: semantic
@@ -537,12 +543,12 @@ in
         fallbacks:
           - jarvis-router:
               - openrouter-free
-              - gemini-flash
-              - openai-fallback
+              - gemini/*
+              - openai/*
           - jarvis-coder:
               - openrouter-free
-              - gemini-flash
-              - openai-fallback
+              - gemini/*
+              - openai/*
         num_retries: 2
         timeout: 90
 
@@ -558,22 +564,22 @@ in
               - jarvis-router
             fallback:
               - openrouter-free
-              - gemini-flash
-              - openai-fallback
+              - gemini/*
+              - openai/*
           - name: coding
             primary:
               - jarvis-coder
             fallback:
               - openrouter-free
-              - gemini-flash
-              - openai-fallback
+              - gemini/*
+              - openai/*
           - name: architecture
             primary:
               - jarvis-coder
             fallback:
               - openrouter-free
-              - gemini-flash
-              - openai-fallback
+              - gemini/*
+              - openai/*
         escalation:
           context_tokens_gt: 24000
           estimated_repo_files_gt: 100
