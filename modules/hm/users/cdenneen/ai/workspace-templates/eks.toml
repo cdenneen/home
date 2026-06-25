@@ -1,0 +1,21 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+default_permissions = "workspace-dev"
+model_reasoning_effort = "xhigh"
+model_reasoning_summary = "detailed"
+
+developer_instructions = """
+Workspace focus: EKS and Kubernetes operations.
+
+Routing guidance:
+- Use `kubernetes-expert` first for cluster context, events, logs, rollout, and manifest issues.
+- Use `flux-expert` for FluxCD/Flux Operator state, source drift, and reconciliation failures.
+- Use `aws-expert` for EKS IAM/OIDC, node/IRSA auth, and AWS service integration failures.
+- Use `terraform-expert` when the issue is rooted in IaC wiring or module outputs.
+- Use `gitlab-ci-expert` for deployment pipeline blockers or environment promotion flow.
+
+Execution guidance:
+- Confirm context/namespace early and avoid broad mutations.
+- Prefer read-only diagnostics before proposing changes.
+- End with concrete validation steps and rollback-safe next action.
+"""

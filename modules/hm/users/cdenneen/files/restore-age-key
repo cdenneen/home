@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+set -euo pipefail
+
+OP_BIN="/etc/profiles/per-user/cdenneen/bin/op"
+
+# Determine AGE key location by OS
+UNAME="$(uname -s)"
+case "$UNAME" in
+  Darwin)
+    AGE_DIR="$HOME/Library/Application Support/sops/age"
+    ;;
+  *)
+    AGE_DIR="$HOME/.config/sops/age"
+    ;;
+esac
+
+AGE_KEY_FILE="$AGE_DIR/keys.txt"
+
+if [ ! -x "$OP_BIN" ]; then
+  echo "error: 1Password CLI not found at $OP_BIN" >&2
+  exit 1
+fi
+
+mkdir -p "$AGE_DIR"
+chmod 700 "$AGE_DIR"
+
+echo "Restoring AGE key from 1Password..."
+"$OP_BIN" document get age-key > "$AGE_KEY_FILE"
+
+if [ ! -s "$AGE_KEY_FILE" ]; then
+  echo "error: AGE key file is empty; aborting" >&2
+  exit 1
+fi
+
+chmod 600 "$AGE_KEY_FILE"
+echo "AGE key restored to $AGE_KEY_FILE"

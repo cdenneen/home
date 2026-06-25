@@ -1,0 +1,87 @@
+name: flake-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full_checks:
+        description: "Run full explicit host eval/build checks"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: flake-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Flake checks are intentionally omitted in CI.
+  # They are strict under flake-parts and require per-system guarantees
+  # that are better validated via system evals below.
+
+  nixos-eval:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v16
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Evaluate NixOS (nyx)
+        run: nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
+
+  darwin-eval:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@v21
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v16
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Evaluate Darwin (VNJTECMBCD)
+        run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+
+  flake-checks-full-linux:
+    if: github.event_name == 'workflow_dispatch' && inputs.full_checks
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Full explicit checks (Linux)
+        run: |
+          nix flake check --accept-flake-config
+          nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
+          nix build .#nixosConfigurations.MacBook-Pro-NixOS.config.system.build.toplevel --accept-flake-config
+
+  flake-checks-full-darwin:
+    if: github.event_name == 'workflow_dispatch' && inputs.full_checks
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@v21
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+      - name: Full explicit checks (Darwin)
+        run: |
+          nix flake check --accept-flake-config
+          nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+          nix build '.#homeConfigurations.cdenneen@VNJTECMBCD.activationPackage' --accept-flake-config
+
+  # Cachix publishing is handled in a separate workflow triggered only on push

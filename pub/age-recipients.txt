@@ -1,0 +1,19 @@
+# AGE recipients for secrets/secrets.yaml
+#
+# Keep this file human-readable and up to date.
+# Each recipient should be annotated with the host or user it belongs to.
+# This file is NOT used by sops directly; it is used by helper scripts
+# to make sops updatekeys output intelligible.
+
+# Personal keys
+age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8  # cdenneen@personal
+age1wtjnrhlhdw28f88gakkewlju5edksrsl6ray4rw2z30vzunkvddqz75sck  # cdenneen@personal (old, rotated)
+
+# Hosts
+age1q9pv3enk7x3w7dxm55f4svqlhse9ztfcfwmsfc2eqcfclha34pls7vw2w2  # eros (host)
+# age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # wsl
+age1jukfrhvgtf9w07p7gyulz4tc3ypudul0llvevl6k8p88ps7fsv6qqc8v5y  # VNJTECMBCD (host)
+age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8  # mbair (uses cdenneen@personal key)
+age1svkqsf5r7ykyw2wam85vecgkp7sy3e8ava8ajfamjnsxgcep9vgsep4292 # nyx
+age1ggv6euwjzc2yje7vv5p6jy7nmm9ccpn67a475usvary2fnzzkvaqmgmlru # ghost
+age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8 # MacBook-Pro-NixOS

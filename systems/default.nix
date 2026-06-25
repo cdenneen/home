@@ -1,177 +1,278 @@
-{
-  apple-silicon-support,
-  catppuccin,
-  disko,
-  home-manager,
-  mac-app-util,
-  nh_plus,
-  nix-darwin,
-  nix-index-database,
-  nixos-cosmic,
-  nixos-hardware,
-  nixpkgs,
-  nixos-wsl,
-  nur,
-  nur-packages,
-  nvf,
-  self,
-  sops-nix,
-  ...
-}@inputs:
+inputs:
 let
-  sharedHomeManagerModules = [
-    catppuccin.homeManagerModules.catppuccin
-    nix-index-database.hmModules.nix-index
-    nur.modules.homeManager.default
-    nvf.homeManagerModules.nvf
-    self.homeManagerModules.default
+  self = inputs.self;
+  inherit (inputs)
+    arion
+    catppuccin
+    disko
+    home-manager
+    mac-app-util
+    nix-index-database
+    nixpkgs
+    nixos-crostini
+    nixos-wsl
+    opnix
+    sops-nix
+    ;
+
+  mkPkgs = system: {
+    stable = self.lib.import_nixpkgs system inputs.nixpkgs-stable;
+    unstable = self.lib.import_nixpkgs system inputs.nixpkgs-unstable;
+  };
+
+  hostCatalog = import ../hosts;
+
+  sharedHomeModules = [
+    catppuccin.homeModules.catppuccin
+    nix-index-database.homeModules.nix-index
+    self.homeModules.default
+    opnix.homeManagerModules.default
     sops-nix.homeManagerModules.sops
   ];
-  lib = nixpkgs.lib;
-  nixosSystem =
+
+  sharedHomeModulesIntegrated = sharedHomeModules;
+
+  sharedHomeModulesStandalone = sharedHomeModules;
+
+  extraModulesForTags =
+    tags:
+    let
+      has = tag: builtins.elem tag (tags);
+    in
+    (
+      if has "ec2" then
+        [
+          ../hosts/nixos/ec2-base.nix
+          "${nixpkgs}/nixos/modules/virtualisation/amazon-image.nix"
+        ]
+      else
+        [ ]
+    )
+    ++ (
+      if has "amazon-ami" then
+        [
+          ../hosts/nixos/ec2-base.nix
+          "${nixpkgs}/nixos/maintainers/scripts/ec2/amazon-image.nix"
+        ]
+      else
+        [ ]
+    )
+    ++ (if has "qemu-guest" then [ "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix" ] else [ ])
+    ++ (if has "wsl" then [ nixos-wsl.nixosModules.wsl ] else [ ])
+    ++ (if has "crostini" then [ nixos-crostini.nixosModules.crostini ] else [ ]);
+
+  mkNixosSystem =
     {
       system,
       nixosModules ? [ ],
-      homeManagerModules ? [ ],
+      homeModules ? [ ],
+      tags ? [ ],
     }:
     let
-      pkgs = self.lib.import_nixpkgs { inherit system; };
+      pkgsSet = mkPkgs system;
+      stablePkgs = pkgsSet.stable;
+      unstablePkgs = pkgsSet.unstable;
       specialArgs = inputs // {
-        inherit system;
+        inherit system stablePkgs unstablePkgs;
       };
     in
-    lib.nixosSystem {
-      inherit system pkgs;
+    nixpkgs.lib.nixosSystem {
+      inherit system;
+      pkgs = stablePkgs;
       specialArgs = specialArgs;
       modules = [
+        ../modules/shared/users/cdenneen.nix
+        arion.nixosModules.arion
         catppuccin.nixosModules.catppuccin
         disko.nixosModules.disko
         home-manager.nixosModules.default
         nix-index-database.nixosModules.nix-index
-        nixos-cosmic.nixosModules.default
         nixpkgs.nixosModules.notDetected
-        nur.modules.nixos.default
-        nur-packages.nixosModules.cloudflare-ddns
         self.nixosModules.default
         sops-nix.nixosModules.sops
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules =
-              homeManagerModules
-              ++ sharedHomeManagerModules;
+            sharedModules = homeModules ++ sharedHomeModulesIntegrated;
           };
         }
-      ] ++ nixosModules;
+      ]
+      ++ extraModulesForTags tags
+      ++ nixosModules;
     };
-  darwinSystem =
+
+  mkDarwinSystem =
     {
       system,
       darwinModules ? [ ],
-      homeManagerModules ? [ ],
+      homeModules ? [ ],
     }:
     let
-      pkgs = self.lib.import_nixpkgs { inherit system; };
+      pkgsSet = mkPkgs system;
+      stablePkgs = pkgsSet.stable;
+      unstablePkgs = pkgsSet.unstable;
       specialArgs = inputs // {
-        inherit system;
+        inherit system stablePkgs unstablePkgs;
       };
     in
-    nix-darwin.lib.darwinSystem {
-      inherit pkgs;
+    inputs.nix-darwin.lib.darwinSystem {
+      pkgs = stablePkgs;
       specialArgs = specialArgs;
       modules = [
+        ../modules/shared/users/cdenneen.nix
         home-manager.darwinModules.default
+        inputs.nix-homebrew.darwinModules.nix-homebrew
         mac-app-util.darwinModules.default
-        nh_plus.nixDarwinModules.prebuiltin
         nix-index-database.darwinModules.nix-index
         self.darwinModules.default
+        sops-nix.darwinModules.sops
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
             sharedModules = [
               mac-app-util.homeManagerModules.default
-            ] ++ homeManagerModules ++ sharedHomeManagerModules;
+            ]
+            ++ homeModules
+            ++ sharedHomeModulesIntegrated;
+          };
+          homebrew = {
+            enable = true;
+            user = "cdenneen";
           };
         }
-      ] ++ darwinModules;
+      ]
+      ++ darwinModules;
     };
-  homeConfiguration =
+
+  mkHomeConfiguration =
     {
       system,
-      homeManagerModules ? [ ],
+      homeModules ? [ ],
     }:
     let
-      pkgs = self.lib.import_nixpkgs { inherit system; };
-      specialArgs = inputs // {
-        inherit system;
-      };
+      pkgsSet = mkPkgs system;
+      stablePkgs = pkgsSet.stable;
+      unstablePkgs = pkgsSet.unstable;
     in
     home-manager.lib.homeManagerConfiguration {
-      inherit pkgs;
-      extraSpecialArgs = specialArgs;
-      modules = homeManagerModules ++ sharedHomeManagerModules;
+      pkgs = unstablePkgs;
+      extraSpecialArgs = inputs // {
+        inherit system stablePkgs unstablePkgs;
+      };
+      modules = homeModules ++ sharedHomeModulesStandalone;
     };
+
+  lib = {
+    inherit
+      mkPkgs
+      mkNixosSystem
+      mkDarwinSystem
+      mkHomeConfiguration
+      sharedHomeModules
+      sharedHomeModulesIntegrated
+      sharedHomeModulesStandalone
+      hostCatalog
+      extraModulesForTags
+      ;
+
+    bootstrap =
+      {
+        hostName,
+        system,
+        kind ? "nixos",
+        tags ? [ ],
+        nixosModules ? [ ],
+        darwinModules ? [ ],
+        homeModules ? [ ],
+      }:
+      let
+        defaultHomeModule =
+          { pkgs, ... }:
+          {
+            home.username = "cdenneen";
+            home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
+            profiles.defaults.enable = true;
+            profiles.gui.enable = pkgs.stdenv.isDarwin;
+          };
+
+        homeConfigurations = {
+          cdenneen = mkHomeConfiguration {
+            inherit system;
+            homeModules = [ defaultHomeModule ] ++ homeModules;
+          };
+        };
+
+        nixosConfigurations = {
+          ${hostName} = mkNixosSystem {
+            inherit system tags;
+            nixosModules = [
+              (
+                { ... }:
+                {
+                  networking.hostName = hostName;
+                }
+              )
+            ]
+            ++ nixosModules;
+          };
+        };
+
+        darwinConfigurations = {
+          ${hostName} = mkDarwinSystem {
+            inherit system;
+            darwinModules = [
+              (
+                { ... }:
+                {
+                  networking.hostName = hostName;
+                }
+              )
+            ]
+            ++ darwinModules;
+          };
+        };
+      in
+      {
+        inherit homeConfigurations;
+        nixosConfigurations = if kind == "nixos" then nixosConfigurations else { };
+        darwinConfigurations = if kind == "darwin" then darwinConfigurations else { };
+      };
+  };
+
+  nixos = import ./nixos.nix {
+    inherit
+      inputs
+      self
+      lib
+      hostCatalog
+      ;
+  };
+  darwin = import ./darwin.nix {
+    inherit
+      inputs
+      self
+      lib
+      hostCatalog
+      ;
+  };
+  home = import ./home.nix {
+    inherit
+      inputs
+      self
+      lib
+      hostCatalog
+      ;
+  };
 in
 {
-  darwinConfigurations = {
-    VNJTECMBCD= darwinSystem {
-      system = "aarch64-darwin";
-      darwinModules = [ ./mac.nix ];
-    };
-    mbair = darwinSystem {
-      system = "x86_64-darwin";
-      darwinModules = [ ./MacBookAir-Intel.nix ];
-    };
+  lib = lib // {
+    inherit (darwin) darwinSystem;
+    inherit (home) homeConfiguration;
+    inherit (nixos) nixosSystem;
   };
-  homeConfigurations = {
-    "hm@linux" = homeConfiguration {
-      system = "aarch64-linux";
-      homeManagerModules = [
-        ./home.nix
-      ];
-    };
-    "hm@mac" = homeConfiguration {
-      system = "aarch64-darwin";
-      homeManagerModules = [
-        ./home.nix
-      ];
-    };
-  };
-  nixosConfigurations = {
-    eros = nixosSystem {
-      system = "aarch64-linux";
-      nixosModules = [
-        ./eros.nix
-        "${nixpkgs}/nixos/modules/virtualisation/amazon-image.nix"
-      ];
-    };
-    MacBook-Pro-Nixos = nixosSystem {
-      system = "aarch64-linux";
-      nixosModules = [
-        ./MacBook-Pro-Nixos
-        apple-silicon-support.nixosModules.apple-silicon-support
-      ];
-    };
-    oracle-cloud-nixos = nixosSystem {
-      system = "aarch64-linux";
-      nixosModules = [
-        ./oracle-cloud-nixos.nix
-        "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
-      ];
-    };
-    utm = nixosSystem {
-      system = "aarch64-linux";
-      nixosModules = [
-        ./utm.nix
-        "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
-      ];
-    };
-    wsl = nixosSystem {
-      system = "x86_64-linux";
-      nixosModules = [
-        ./wsl.nix
-        nixos-wsl.nixosModules.wsl
-      ];
-    };
-  };
+
+  inherit (darwin) darwinConfigurations;
+  inherit (home) homeConfigurations;
+  inherit (nixos) nixosConfigurations;
+  nixosConfigurationsAll = nixos.allNixosConfigurations;
 }

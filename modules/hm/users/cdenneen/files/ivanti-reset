@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Reset common Ivanti/Pulse client local-state issues on macOS:
+# - stale connstore temp files
+# - broken launch agent state
+# - stale user web/cache state (optional --hard)
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "ivanti-reset: macOS only" >&2
+  exit 1
+fi
+
+HARD=0
+if [[ "${1:-}" == "--hard" ]]; then
+  HARD=1
+elif [[ "${1:-}" != "" ]]; then
+  echo "Usage: ivanti-reset [--hard]" >&2
+  exit 1
+fi
+
+if ! command -v sudo >/dev/null 2>&1; then
+  echo "ivanti-reset: sudo is required" >&2
+  exit 1
+fi
+
+if ! sudo -n true 2>/dev/null; then
+  echo "ivanti-reset: this command requires passwordless sudo (or run once with sudo auth cached)" >&2
+  exit 1
+fi
+
+APP_NAME="Ivanti Secure Access"
+APP_BIN="/Applications/${APP_NAME}.app/Contents/MacOS/Ivanti Secure Access"
+STATE_DIR="/Library/Application Support/Pulse Secure/Pulse"
+USER_ID="$(id -u)"
+STAMP="$(date +%Y%m%d%H%M%S)"
+
+echo "[1/7] Stopping Ivanti UI and launch agent"
+launchctl bootout "gui/${USER_ID}/net.pulsesecure.pulseagent" >/dev/null 2>&1 || true
+pkill -f "Ivanti Secure Access" >/dev/null 2>&1 || true
+
+# Give child processes a moment to exit cleanly.
+sleep 1
+
+echo "[2/7] Stopping root helper services"
+sudo -n pkill -f "dsAccessService" >/dev/null 2>&1 || true
+sudo -n pkill -f "PulseOpswatService" >/dev/null 2>&1 || true
+sudo -n pkill -f "net.pulsesecure.WebLoginService" >/dev/null 2>&1 || true
+
+if [[ -d "$STATE_DIR" ]]; then
+  echo "[3/7] Cleaning system connstore temp state"
+  sudo -n find "$STATE_DIR" -maxdepth 1 -type f -name "*_connstore.tmp" -delete || true
+
+  if [[ -f "$STATE_DIR/connstore.dat" ]]; then
+    sudo -n cp -a "$STATE_DIR/connstore.dat" "$STATE_DIR/connstore.dat.bak.${STAMP}"
+  fi
+
+  echo "[4/7] Normalizing Ivanti system-state permissions"
+  sudo -n chown -R root:wheel "$STATE_DIR"
+  sudo -n find "$STATE_DIR" -type d -exec chmod 755 {} +
+  sudo -n find "$STATE_DIR" -type f -exec chmod 644 {} +
+
+  # Keep sensitive S-* store files tighter when present.
+  sudo -n find "$STATE_DIR" -maxdepth 1 -type f -name "S-*.dat" -exec chmod 640 {} + || true
+  sudo -n find "$STATE_DIR" -maxdepth 1 -type f -name "S-*.bak" -exec chmod 640 {} + || true
+fi
+
+if [[ "$HARD" -eq 1 ]]; then
+  echo "[5/7] Clearing user Ivanti web/cache state (--hard)"
+  rm -rf "$HOME/Library/Caches/net.pulsesecure.Pulse-Secure" || true
+  rm -rf "$HOME/Library/HTTPStorages/net.pulsesecure.Pulse-Secure" || true
+  rm -rf "$HOME/Library/WebKit/net.pulsesecure.Pulse-Secure" || true
+fi
+
+echo "[6/7] Restarting Ivanti"
+if [[ -x "$APP_BIN" ]]; then
+  open -a "$APP_NAME" || true
+fi
+launchctl kickstart -k "gui/${USER_ID}/net.pulsesecure.pulseagent" >/dev/null 2>&1 || true
+
+echo "[7/7] Recent Ivanti log markers"
+LOG_FILE="/private/var/log/Pulse Secure/Logging/PulseClient.log"
+if [[ -f "$LOG_FILE" ]]; then
+  /usr/bin/tail -n 120 "$LOG_FILE" \
+    | /usr/bin/grep -E "EAP Authentication FAILED|DSAccessMonitorPlugin|Failed fopen: 13|status-msg-id" \
+    || true
+fi
+
+echo "Done. Retry connection in Ivanti."

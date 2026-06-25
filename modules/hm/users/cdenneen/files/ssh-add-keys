@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: ssh-add-keys [--dry-run] [--list] [--fix-agent] [path ...]" >&2
+}
+
+dry_run=0
+list_only=0
+fix_agent=0
+if [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  dry_run=1
+  shift
+fi
+
+if [[ "${1:-}" == "--list" ]]; then
+  list_only=1
+  shift
+fi
+
+if [[ "${1:-}" == "--fix-agent" ]]; then
+  fix_agent=1
+  shift
+fi
+
+if ! command -v ssh-add >/dev/null 2>&1; then
+  echo "ssh-add-keys: ssh-add not found" >&2
+  exit 127
+fi
+
+if ! command -v ssh-keygen >/dev/null 2>&1; then
+  echo "ssh-add-keys: ssh-keygen not found" >&2
+  exit 127
+fi
+
+if (( fix_agent )) && command -v gpgconf >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
+  sock="$(gpgconf --list-dirs agent-ssh-socket 2>/dev/null || true)"
+  if [[ -n "$sock" ]] && [[ -S "$sock" ]]; then
+    if ! SSH_AUTH_SOCK="$sock" ssh-add -l >/dev/null 2>&1; then
+      systemctl --user stop gpg-agent.service >/dev/null 2>&1 || true
+      systemctl --user restart gpg-agent.socket gpg-agent-ssh.socket >/dev/null 2>&1 || true
+      export SSH_AUTH_SOCK="$sock"
+    fi
+  fi
+fi
+
+paths=("$@")
+if [[ ${#paths[@]} -eq 0 ]]; then
+  paths=("$HOME/.ssh")
+fi
+
+add_one() {
+  local f="$1"
+
+  [[ -f "$f" ]] || return 0
+
+  case "$f" in
+    *.pub|*/known_hosts|*/known_hosts.old|*/config|*/authorized_keys|*/authorized_keys2|*/environment)
+      return 0
+      ;;
+  esac
+
+  # Quick validation: can we derive a public key from it?
+  if ! ssh-keygen -y -f "$f" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if (( dry_run )); then
+    echo "would add: $f"
+    return 0
+  fi
+
+  if (( list_only )); then
+    echo "$f"
+    return 0
+  fi
+
+  ssh-add "$f" >/dev/null
+  echo "added: $f"
+}
+
+for p in "${paths[@]}"; do
+  if [[ -d "$p" ]]; then
+    shopt -s nullglob
+    for f in "$p"/*; do
+      add_one "$f"
+    done
+    shopt -u nullglob
+  else
+    add_one "$p"
+  fi
+done

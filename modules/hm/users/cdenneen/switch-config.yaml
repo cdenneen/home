@@ -1,0 +1,75 @@
+kind: SwitchConfig
+version: v1alpha1
+showPreview: false
+kubeconfigStores:
+  - kind: filesystem
+    id: default
+    kubeconfigName: "*"
+    paths:
+      - "~/.kube"
+  - kind: eks
+    showPrefix: false
+    id: prod-sso-use1
+    config:
+      profile: tf-awsprod
+      region: us-east-1
+  - kind: eks
+    showPrefix: false
+    id: qa-sso-use1
+    config:
+      profile: tf-awsqa
+      region: us-east-1
+  - kind: eks
+    showPrefix: false
+    id: apss-sso-use1
+    config:
+      profile: tf-apss
+      region: us-east-1
+  - kind: eks
+    showPrefix: false
+    id: capdev-sso-use1
+    config:
+      profile: tf-capdev
+      region: us-east-1
+  - kind: eks
+    showPrefix: false
+    id: prod-sso-usw2
+    config:
+      profile: tf-awsprod
+      region: us-west-2
+  - kind: eks
+    showPrefix: false
+    id: qa-sso-usw2
+    config:
+      profile: tf-awsqa
+      region: us-west-2
+  - kind: eks
+    showPrefix: false
+    id: apss-sso-usw2
+    config:
+      profile: tf-apss
+      region: us-west-2
+  - kind: eks
+    showPrefix: false
+    id: capdev-sso-usw2
+    config:
+      profile: tf-capdev
+      region: us-west-2
+  - kind: eks
+    showPrefix: true
+    id: eksadmin-apss-use1
+    config:
+      profile: eks-apss
+      region: us-east-1
+  - kind: eks
+    showPrefix: true
+    id: eksadmin-prod-use1
+    config:
+      profile: eks-prod
+      region: us-east-1
+  - kind: eks
+    showPrefix: true
+    id: eksadmin-prod-usw2
+    config:
+      profile: eks-prod
+      region: us-west-2

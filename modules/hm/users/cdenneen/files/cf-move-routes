@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: cf-move-routes <ghost|nyx|mac> [hostname...]
+
+Moves Cloudflare CNAME tunnel routes for the default app hostnames:
+  peps.denneen.net
+  peps-api.denneen.net
+  wellness-api.denneen.net
+
+Override hostnames by listing them after the target tunnel.
+Requires:
+  CLOUDFLARE_API_TOKEN / CF_API_TOKEN
+  CLOUDFLARE_ACCOUNT_ID / CF_ACCOUNT_ID
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 1 ]]; then
+  usage
+  exit "${1:+0}"
+fi
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "cf-move-routes: missing required command: $1" >&2
+    exit 1
+  }
+}
+
+require_cmd curl
+require_cmd jq
+
+token="${CLOUDFLARE_API_TOKEN:-${CF_API_TOKEN:-}}"
+account_id="${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:-}}"
+zone_name="${CLOUDFLARE_ZONE_NAME:-denneen.net}"
+
+if [[ -z "$token" ]]; then
+  echo "cf-move-routes: CLOUDFLARE_API_TOKEN is not set" >&2
+  exit 1
+fi
+
+if [[ -z "$account_id" ]]; then
+  echo "cf-move-routes: CLOUDFLARE_ACCOUNT_ID is not set" >&2
+  exit 1
+fi
+
+target="$1"
+shift || true
+
+case "$target" in
+  ghost) tunnel_id="1481e71c-a53f-4fe0-8983-468a3e0fffdf" ;;
+  nyx) tunnel_id="d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" ;;
+  mac) tunnel_id="53b1d5f2-afa2-4269-81d4-b01c1037298b" ;;
+  *)
+    echo "cf-move-routes: unsupported target tunnel '$target'" >&2
+    exit 1
+    ;;
+esac
+
+if [[ $# -eq 0 ]]; then
+  set -- peps.denneen.net peps-api.denneen.net wellness-api.denneen.net
+fi
+
+api() {
+  local method="$1"
+  local url="$2"
+  local body="${3:-}"
+
+  if [[ -n "$body" ]]; then
+    curl -fsS -X "$method" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      "$url" \
+      --data "$body"
+  else
+    curl -fsS -X "$method" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      "$url"
+  fi
+}
+
+tunnel_check="$(api GET "https://api.cloudflare.com/client/v4/accounts/${account_id}/cfd_tunnel/${tunnel_id}")"
+if [[ "$(jq -r '.success' <<<"$tunnel_check")" != "true" ]]; then
+  echo "cf-move-routes: unable to read target tunnel ${tunnel_id}" >&2
+  jq <<<"$tunnel_check" >&2
+  exit 1
+fi
+
+target_content="${tunnel_id}.cfargotunnel.com"
+zone_lookup="$(api GET "https://api.cloudflare.com/client/v4/zones?name=${zone_name}")"
+zone_id="$(jq -r '.result[0].id // empty' <<<"$zone_lookup")"
+
+if [[ -z "$zone_id" ]]; then
+  echo "cf-move-routes: unable to resolve zone id for ${zone_name}" >&2
+  jq <<<"$zone_lookup" >&2
+  exit 1
+fi
+
+for hostname in "$@"; do
+  lookup="$(api GET "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${hostname}")"
+  record_id="$(jq -r '.result[0].id // empty' <<<"$lookup")"
+  current_content="$(jq -r '.result[0].content // empty' <<<"$lookup")"
+  current_type="$(jq -r '.result[0].type // empty' <<<"$lookup")"
+  current_proxied="$(jq -r '.result[0].proxied // false' <<<"$lookup")"
+
+  if [[ -z "$record_id" ]]; then
+    echo "cf-move-routes: no DNS record found for ${hostname}" >&2
+    jq <<<"$lookup" >&2
+    exit 1
+  fi
+
+  if [[ "$current_type" != "CNAME" ]]; then
+    echo "cf-move-routes: ${hostname} is ${current_type}, expected CNAME" >&2
+    exit 1
+  fi
+
+  if [[ "$current_content" == "$target_content" && "$current_proxied" == "true" ]]; then
+    echo "${hostname}: already points to ${target}"
+    continue
+  fi
+
+  body="$(jq -cn \
+    --arg type "CNAME" \
+    --arg name "$hostname" \
+    --arg content "$target_content" \
+    '{type:$type,name:$name,content:$content,ttl:1,proxied:true}')"
+
+  update="$(api PUT "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" "$body")"
+  if [[ "$(jq -r '.success' <<<"$update")" != "true" ]]; then
+    echo "cf-move-routes: failed to update ${hostname}" >&2
+    jq <<<"$update" >&2
+    exit 1
+  fi
+
+  echo "${hostname}: ${current_content} -> ${target_content}"
+done

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+url="${1:-http://127.0.0.1:4097}"
+dir="${2:-${PWD}}"
+
+opencode_username="${OPENCODE_SERVER_USERNAME:-opencode}"
+opencode_password="${OPENCODE_SERVER_PASSWORD:-}"
+
+if [ -z "$opencode_password" ] && [ -r /run/secrets/opencode_server_password ]; then
+  opencode_password="$(tr -d '\n\r' </run/secrets/opencode_server_password)"
+fi
+
+if command -v realpath >/dev/null 2>&1; then
+  dir="$(realpath -m "$dir")"
+fi
+
+curl_auth_args=()
+attach_auth_args=()
+if [ -n "$opencode_password" ]; then
+  curl_auth_args=(-u "${opencode_username}:${opencode_password}")
+  attach_auth_args=(--username "$opencode_username" --password "$opencode_password")
+fi
+
+sessions_json="$(curl -sf "${curl_auth_args[@]}" "$url/session")"
+
+sid="$(
+  printf '%s' "$sessions_json" \
+    | jq -r --arg dir "$dir" '
+        [ .[]
+          | select(.directory == $dir)
+          | { id: .id, updated: (.time.updated // 0) }
+        ]
+        | sort_by(.updated)
+        | last
+        | .id // empty
+      '
+)"
+
+if [ -z "$sid" ]; then
+  exec opencode attach "$url" "${attach_auth_args[@]}" --dir "$dir" --continue
+fi
+
+exec opencode attach "$url" "${attach_auth_args[@]}" --dir "$dir" --session "$sid"

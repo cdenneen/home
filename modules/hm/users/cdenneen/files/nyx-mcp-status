@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+nyx_host="${NYX_MCP_HOST:-nyx.tail0e55.ts.net}"
+nyx_ssh_host="${NYX_SSH_HOST:-nyx}"
+
+check_http() {
+  local name="$1"
+  local port="$2"
+  local path="$3"
+  local url="http://${nyx_host}:${port}${path}"
+  local code
+
+  code="$(curl -sS -o /dev/null -w "%{http_code}" --max-time 3 "$url" 2>/dev/null || true)"
+  case "$code" in
+    2* | 3* | 4*)
+      printf "ok\t%s\t%s\t%s\n" "$name" "$code" "$url"
+      ;;
+    *)
+      printf "fail\t%s\t%s\t%s\n" "$name" "${code:-000}" "$url"
+      ;;
+  esac
+}
+
+printf "Shared MCP endpoints on %s\n" "$nyx_host"
+printf "status\tname\thttp\turl\n"
+check_http "recallium" "18001" "/mcp"
+check_http "gitlab" "18101" "/healthz"
+check_http "kubernetes" "18102" "/healthz"
+check_http "aws" "18103" "/healthz"
+check_http "terraform" "18104" "/healthz"
+check_http "duckduckgo" "18105" "/healthz"
+check_http "context7" "18106" "/healthz"
+check_http "playwright" "18107" "/healthz"
+
+printf "\nnyx host status\n"
+ssh \
+  -o ConnectTimeout=8 \
+  -o ServerAliveInterval=15 \
+  -o ServerAliveCountMax=1 \
+  -o ClearAllForwardings=yes \
+  "$nyx_ssh_host" \
+  'set -euo pipefail
+    uptime
+    printf "ssh_sessions\t"
+    ss -tn "sport = :22" | tail -n +2 | wc -l | tr -d " "
+    printf "\n"
+    printf "tmux_set_clipboard\t"
+    tmux show -g set-clipboard 2>/dev/null || true
+    printf "tmux_allow_passthrough\t"
+    tmux show -g allow-passthrough 2>/dev/null || true
+    printf "\nrunning_mcp_services\n"
+    systemctl --user --no-pager --plain --type=service --state=running 2>/dev/null \
+      | grep -E "nyx-mcp-|opencode|happier|recallium" || true
+  '
