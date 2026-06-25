@@ -495,22 +495,22 @@ in
       model_list:
         - model_name: jarvis-router
           litellm_params:
-            model: ollama/qwen3:8b
-            api_base: http://127.0.0.1:${toString ollamaPort}
+            model: openrouter/openrouter/owl-alpha
+            api_key: os.environ/OPENROUTER_API_KEY
 
         - model_name: jarvis-coder
           litellm_params:
-            model: ollama/qwen2.5-coder:7b
-            api_base: http://127.0.0.1:${toString ollamaPort}
+            model: openrouter/openrouter/owl-alpha
+            api_key: os.environ/OPENROUTER_API_KEY
 
         - model_name: openrouter-free
           litellm_params:
             model: openrouter/openrouter/free
             api_key: os.environ/OPENROUTER_API_KEY
 
-        - model_name: openrouter/*:free
+        - model_name: openrouter/*
           litellm_params:
-            model: openrouter/*:free
+            model: openrouter/*
             api_key: os.environ/OPENROUTER_API_KEY
 
         - model_name: openrouter-embed
@@ -542,7 +542,7 @@ in
           similarity_threshold: 0.85
           qdrant_semantic_cache_embedding_model: openrouter-embed
           qdrant_collection_name: litellm_semantic_cache
-          qdrant_semantic_cache_vector_size: 768
+          qdrant_semantic_cache_vector_size: 2048
 
       router_settings:
         fallbacks:
