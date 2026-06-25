@@ -14,6 +14,27 @@ in
       flavor = config.catppuccin.flavor;
     };
     programs.alacritty = {
+      settings = {
+        font = {
+          normal = {
+            family = "JetBrainsMono Nerd Font";
+            style = "Regular";
+          };
+          bold = {
+            family = "JetBrainsMono Nerd Font";
+            style = "Bold";
+          };
+          italic = {
+            family = "JetBrainsMono Nerd Font";
+            style = "italic";
+          };
+          bold_italic = {
+            family = "JetBrainsMono Nerd Font";
+            style = "Bold Italic";
+          };
+          size = 15.0;
+        };
+      };
       # settings = {
       #   key_bindings = [
       #     { key = "K"; mods = "Command"; chars = "ClearHistory"; }
