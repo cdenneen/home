@@ -22,17 +22,18 @@ let
 
   hostCatalog = import ../hosts;
 
-  sharedHomeModules = [
-    catppuccin.homeModules.catppuccin
+  sharedHomeModulesFor = system: [
+    (
+      if system == "x86_64-darwin" then
+        ../modules/hm/compat/catppuccin-stub.nix
+      else
+        catppuccin.homeModules.catppuccin
+    )
     nix-index-database.homeModules.nix-index
     self.homeModules.default
     opnix.homeManagerModules.default
     sops-nix.homeManagerModules.sops
   ];
-
-  sharedHomeModulesIntegrated = sharedHomeModules;
-
-  sharedHomeModulesStandalone = sharedHomeModules;
 
   extraModulesForTags =
     tags:
@@ -93,7 +94,7 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = homeModules ++ sharedHomeModulesIntegrated;
+            sharedModules = homeModules ++ sharedHomeModulesFor system;
           };
         }
       ]
@@ -122,18 +123,23 @@ let
         ../modules/shared/users/cdenneen.nix
         home-manager.darwinModules.default
         inputs.nix-homebrew.darwinModules.nix-homebrew
-        mac-app-util.darwinModules.default
         nix-index-database.darwinModules.nix-index
         self.darwinModules.default
         sops-nix.darwinModules.sops
+      ]
+      ++ nixpkgs.lib.optionals (system != "x86_64-darwin") [
+        mac-app-util.darwinModules.default
+      ]
+      ++ [
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = [
-              mac-app-util.homeManagerModules.default
-            ]
-            ++ homeModules
-            ++ sharedHomeModulesIntegrated;
+            sharedModules =
+              nixpkgs.lib.optionals (system != "x86_64-darwin") [
+                mac-app-util.homeManagerModules.default
+              ]
+              ++ homeModules
+              ++ sharedHomeModulesFor system;
           };
           homebrew = {
             enable = true;
@@ -159,7 +165,7 @@ let
       extraSpecialArgs = inputs // {
         inherit system stablePkgs unstablePkgs;
       };
-      modules = homeModules ++ sharedHomeModulesStandalone;
+      modules = homeModules ++ sharedHomeModulesFor system;
     };
 
   lib = {
@@ -168,9 +174,7 @@ let
       mkNixosSystem
       mkDarwinSystem
       mkHomeConfiguration
-      sharedHomeModules
-      sharedHomeModulesIntegrated
-      sharedHomeModulesStandalone
+      sharedHomeModulesFor
       hostCatalog
       extraModulesForTags
       ;

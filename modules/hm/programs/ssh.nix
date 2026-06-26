@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  options,
   ...
 }:
 let
@@ -35,20 +36,19 @@ in
       zsh.initContent = lib.mkAfter shellInit;
       bash.initExtra = lib.mkAfter shellInit;
       ssh = {
-        enableDefaultConfig = false;
+        extraConfig = ''
+          Host *
+            HashKnownHosts no
+            UserKnownHostsFile ~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts
+        '';
         matchBlocks."*" = {
           forwardAgent = false;
-          addKeysToAgent = "no";
           compression = false;
           serverAliveInterval = 0;
           serverAliveCountMax = 3;
-          hashKnownHosts = false;
-          userKnownHostsFile = "~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts";
-          controlMaster = "no";
-          controlPath = "~/.ssh/master-%r@%n:%p";
-          controlPersist = "no";
         };
-      };
+      }
+      // lib.optionalAttrs (options.programs.ssh ? enableDefaultConfig) { enableDefaultConfig = false; };
     };
   };
 }

@@ -41,7 +41,6 @@
       kitty.enable = true;
       rio.enable = false;
       wezterm.enable = false;
-      opencode.enable = true;
     };
 
     home.sessionVariables = {

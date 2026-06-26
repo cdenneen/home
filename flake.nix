@@ -20,7 +20,9 @@
 
   inputs = {
     # Canonical nixpkgs input required by flake-parts (stable for system builds)
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    # mbair is capped at macOS Big Sur. Keep this branch on 25.05 because newer
+    # x86_64-darwin binaries are built for newer macOS deployment targets.
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     arion = {
       url = "github:hercules-ci/arion";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -36,14 +38,14 @@
     };
     flake-parts.url = "github:hercules-ci/flake-parts";
     home-manager = {
-      url = "github:nix-community/home-manager/release-25.11";
+      url = "github:nix-community/home-manager/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
     nix-darwin = {
-      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
+      url = "github:nix-darwin/nix-darwin/nix-darwin-25.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-index-database = {
@@ -85,7 +87,14 @@
       import_nixpkgs =
         system: nixpkgs:
         import nixpkgs {
-          inherit system;
+          localSystem =
+            if system == "x86_64-darwin" then
+              {
+                inherit system;
+                darwinMinVersion = "11.0";
+              }
+            else
+              { inherit system; };
           overlays = [
             (final: prev: {
               # nixpkgs kept nixfmt-rfc-style as an alias for a while and emits a warning
@@ -94,9 +103,7 @@
               "nixfmt-rfc-style" = prev.nixfmt;
 
               # Avoid deprecation warning from xorg.lndir alias.
-              xorg = prev.xorg // {
-                lndir = prev.lndir;
-              };
+              xorg = prev.xorg // prev.lib.optionalAttrs (prev ? lndir) { lndir = prev.lndir; };
 
               # inetutils fails on darwin with -Werror=format-security.
               inetutils = prev.inetutils.overrideAttrs (old: {

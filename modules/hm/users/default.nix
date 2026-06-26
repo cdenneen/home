@@ -22,7 +22,7 @@ in
 
   config = lib.mkIf cfg.defaults.enable {
     home = {
-      stateVersion = "25.11";
+      stateVersion = "25.05";
       enableNixpkgsReleaseCheck = false;
       sessionPath =
         lib.optionals config.programs.volta.enable [
@@ -195,8 +195,6 @@ in
       direnv.enable = lib.mkDefault true;
       direnv.nix-direnv.enable = lib.mkDefault true;
 
-      opencode.enable = lib.mkDefault true;
-      opencode.package = lib.mkDefault opencodePkg;
     };
     # Catppuccin program integrations (top-level module, not under programs)
     # Catppuccin program integrations (supported by the flake)
@@ -217,6 +215,7 @@ in
     home.packages = [
       pkgs.cachix
       pkgs.coreutils
+      opencodePkg
       (pkgs.callPackage ../../../pkgs/hm-switch.nix { })
       pkgs.nerd-fonts.jetbrains-mono
     ]
