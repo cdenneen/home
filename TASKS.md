@@ -11,6 +11,7 @@
 - [x] Configure mbair to use `cdenneen/taps/tailscale-app@1.70.0`.
 - [x] Keep mbair on Alacritty/Kitty and avoid Ghostty.
 - [x] Verify `nix eval --impure .#darwinConfigurations.mbair.system` succeeds.
+- [x] Pin mbair release inputs to 25.05 and add Big Sur/HM compatibility shims.
 
 ## Active
 
@@ -20,7 +21,7 @@
 
 ## Deferred
 
-- [ ] Decide whether to pin mbair to a narrower nixpkgs branch for long-term Big Sur compatibility.
+- [x] Decide whether to pin mbair to a narrower nixpkgs branch for long-term Big Sur compatibility.
 
 ## Blocked
 

@@ -20,3 +20,17 @@
 - Decision: Disable GUI/dev-heavy profiles, Podman, Homebrew auto-upgrades, and Ghostty; keep Alacritty/Kitty and local Codex/OpenCode.
 - Rationale: Reduce incompatibility risk from modern packages and casks.
 - Consequences: Additional packages can be re-enabled later after runtime verification.
+
+## 2026-06-26 - Pin mbair to 25.05 for Big Sur compatibility
+
+- Context: `darwin-rebuild switch` on Big Sur failed because `coreutils-9.10` from the newer release line was built for macOS 14 and referenced `_mkfifoat`, which Big Sur lacks.
+- Decision: Pin `nixpkgs`, Home Manager, and nix-darwin to their 25.05 release lines on the `mbair` branch.
+- Rationale: Big Sur needs older `x86_64-darwin` binaries built against an older deployment target/SDK.
+- Consequences: mbair stays on 25.05 while the main branch can continue moving forward.
+
+## 2026-06-26 - Stub Catppuccin on mbair
+
+- Context: The newer Catppuccin Home Manager module both triggered the failing install hook and exposed options incompatible with Home Manager 25.05.
+- Decision: Use a no-op Catppuccin compatibility module for `x86_64-darwin`.
+- Rationale: Keep existing local `catppuccin.*` settings accepted without building Catppuccin assets on Big Sur.
+- Consequences: mbair will not receive Catppuccin-managed theme assets from Home Manager.

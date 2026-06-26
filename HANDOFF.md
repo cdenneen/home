@@ -15,10 +15,14 @@ The `mbair` branch has been forward-ported from an old unrelated fork to the cur
 - Disabled automatic Nix GC for mbair because nix-darwin has `nix.enable = false` under Determinate Nix.
 - Configured Homebrew tap/cask for `cdenneen/taps/tailscale-app@1.70.0`.
 - Documented that mbair uses the existing personal age recipient.
+- Pinned mbair branch inputs to 25.05 for Big Sur-compatible `x86_64-darwin` binaries.
+- Replaced Catppuccin Home Manager module with a no-op stub on `x86_64-darwin`.
+- Added Home Manager 25.05 compatibility fixes for Git, SSH, OpenCode installation, and `home.stateVersion`.
 
 ## Current Status
 
 - `nix eval --impure .#darwinConfigurations.mbair.system` succeeds.
+- The resulting derivation is `darwin-system-25.05...`; it no longer references the failing Catppuccin install hook.
 - Branch pushed to `origin/mbair`.
 
 ## Open Issues
