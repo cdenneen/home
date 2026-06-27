@@ -12,6 +12,7 @@
 - [x] Keep mbair on Alacritty/Kitty and avoid Ghostty.
 - [x] Verify `nix eval --impure .#darwinConfigurations.mbair.system` succeeds.
 - [x] Pin mbair release inputs to 25.05 and add Big Sur/HM compatibility shims.
+- [x] Disable unstable `opnix` Home Manager module on mbair and use stable Home Manager packages.
 
 ## Active
 

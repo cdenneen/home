@@ -13,6 +13,7 @@
 - Pinned mbair branch release inputs to 25.05 (`nixpkgs`, Home Manager, nix-darwin) for Big Sur-compatible `x86_64-darwin` binaries.
 - Added a no-op Catppuccin Home Manager compatibility stub for `x86_64-darwin` so the newer Catppuccin module does not build assets with macOS-14-targeted tooling.
 - Added Home Manager 25.05 compatibility shims for Git, SSH, OpenCode installation, and `home.stateVersion`.
+- Fixed a follow-up Big Sur failure where `opnix` and the integrated Home Manager package set still pulled unstable/macOS-14-targeted tooling: mbair now skips the `opnix` Home Manager module and uses stable 25.05 packages for integrated Home Manager.
 - Removed NUR wiring from the branch to reduce stale dependency surface.
 - Added mbair age recipient documentation; mbair uses the existing `personal_current` age recipient.
 - Configured mbair Homebrew to use `cdenneen/taps/tailscale-app@1.70.0` and disable auto-update/upgrade/cleanup.
@@ -23,6 +24,7 @@
 
 - No current eval blocker.
 - Big Sur runtime compatibility for the custom Tailscale cask is not fully verified on the machine.
+- `opnix`-generated onepassword secrets are disabled on mbair; restore equivalent files manually or convert those few outputs to SOPS if needed.
 
 ## Known Risks
 

@@ -18,11 +18,13 @@ The `mbair` branch has been forward-ported from an old unrelated fork to the cur
 - Pinned mbair branch inputs to 25.05 for Big Sur-compatible `x86_64-darwin` binaries.
 - Replaced Catppuccin Home Manager module with a no-op stub on `x86_64-darwin`.
 - Added Home Manager 25.05 compatibility fixes for Git, SSH, OpenCode installation, and `home.stateVersion`.
+- Disabled the `opnix` Home Manager module on `x86_64-darwin` and forced mbair integrated Home Manager to use stable 25.05 packages.
 
 ## Current Status
 
 - `nix eval --impure .#darwinConfigurations.mbair.system` succeeds.
 - The resulting derivation is `darwin-system-25.05...`; it no longer references the failing Catppuccin install hook.
+- The Home Manager path no longer references `opnix` or `coreutils-9.11`.
 - Branch pushed to `origin/mbair`.
 
 ## Open Issues
