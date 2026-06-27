@@ -31,8 +31,8 @@ in
         ++ [
           "/run/wrappers/bin"
           "${config.home.homeDirectory}/.cargo/bin"
-          "${config.home.homeDirectory}/.local/bin"
           "${config.home.homeDirectory}/.bin"
+          "${config.home.homeDirectory}/.local/bin"
           "${config.home.homeDirectory}/bin"
           "${config.home.homeDirectory}/.nix-profile/bin"
           "/nix/profile/bin"
@@ -70,6 +70,10 @@ in
     # must live at the system level (NixOS / nix-darwin).
     # XDG config files managed by Home Manager
     xdg.configFile = { };
+    home.file.".bin/pnpm" = lib.mkIf pkgs.stdenv.isDarwin {
+      source = lib.getExe pkgs.pnpm;
+      executable = true;
+    };
     programs = {
       home-manager.enable = true;
       starship = {
