@@ -9,6 +9,7 @@ let
   cfg = config.userPresets;
   homePath = if pkgs.stdenv.isDarwin then "/Users" else "/home";
   enableGui = config.profiles.gui.enable;
+  hmPkgs = if config.networking.hostName == "mbair" then pkgs else unstablePkgs;
 in
 {
   options.userPresets = {
@@ -52,7 +53,7 @@ in
         home-manager.users.${cfg.cdenneen.name} = lib.mkIf config.profiles.hmIntegrated.enable {
           home.username = cfg.cdenneen.name;
           home.homeDirectory = "${homePath}/${cfg.cdenneen.name}";
-          _module.args.pkgs = lib.mkForce unstablePkgs;
+          _module.args.pkgs = lib.mkForce hmPkgs;
           imports = [
             ../../hm/users/cdenneen/default.nix
           ];

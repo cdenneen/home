@@ -22,18 +22,20 @@ let
 
   hostCatalog = import ../hosts;
 
-  sharedHomeModulesFor = system: [
-    (
-      if system == "x86_64-darwin" then
-        ../modules/hm/compat/catppuccin-stub.nix
-      else
-        catppuccin.homeModules.catppuccin
-    )
-    nix-index-database.homeModules.nix-index
-    self.homeModules.default
-    opnix.homeManagerModules.default
-    sops-nix.homeManagerModules.sops
-  ];
+  sharedHomeModulesFor =
+    system:
+    [
+      (
+        if system == "x86_64-darwin" then
+          ../modules/hm/compat/catppuccin-stub.nix
+        else
+          catppuccin.homeModules.catppuccin
+      )
+      nix-index-database.homeModules.nix-index
+      self.homeModules.default
+      sops-nix.homeManagerModules.sops
+    ]
+    ++ nixpkgs.lib.optionals (system != "x86_64-darwin") [ opnix.homeManagerModules.default ];
 
   extraModulesForTags =
     tags:
