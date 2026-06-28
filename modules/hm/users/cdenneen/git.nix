@@ -25,6 +25,14 @@ in
     ignores = [
       ".DS_Store"
       "Thumbs.db"
+      ".ai/"
+      "thoughts/"
+      "PROJECT_STATE.md"
+      "NEXT_STEPS.md"
+      "ARCHITECTURE.md"
+      "TASKS.md"
+      "DECISIONS.md"
+      "HANDOFF.md"
     ];
 
     includes = [

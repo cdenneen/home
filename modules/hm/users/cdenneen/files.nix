@@ -326,6 +326,9 @@ in
 
   home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
   home.file.".codex/RTK.md".source = ./ai/RTK.md;
+
+  home.file.".claude/CLAUDE.md".source = ./ai/AGENTS.md;
+
   home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
   home.file.".codex/subagents/terraform-expert.md".source = ./ai/subagents/terraform-expert.md;
   home.file.".codex/subagents/gitlab-ci-expert.md".source = ./ai/subagents/gitlab-ci-expert.md;

@@ -330,23 +330,34 @@ This repository uses file-based project memory. Conversation history is ephemera
 When a new session begins, read in this order:
 
 1. `AGENTS.md`
-2. `HANDOFF.md`
-3. `PROJECT_STATE.md`
-4. `DECISIONS.md`
-5. `NEXT_STEPS.md`
+2. `.ai/HANDOFF.md` (fallback: `HANDOFF.md`)
+3. `.ai/PROJECT_STATE.md` (fallback: `PROJECT_STATE.md`)
+4. `.ai/DECISIONS.md` (fallback: `DECISIONS.md`)
+5. `.ai/NEXT_STEPS.md` (fallback: `NEXT_STEPS.md`)
 
 Then summarize understanding before making changes.
 
 ### Required Project Memory Files
 
-Maintain these files at all times:
+Maintain these files at all times under `.ai/`:
 
-- `PROJECT_STATE.md`
-- `NEXT_STEPS.md`
-- `ARCHITECTURE.md`
-- `TASKS.md`
-- `DECISIONS.md`
-- `HANDOFF.md`
+- `.ai/PROJECT_STATE.md`
+- `.ai/NEXT_STEPS.md`
+- `.ai/ARCHITECTURE.md`
+- `.ai/TASKS.md`
+- `.ai/DECISIONS.md`
+- `.ai/HANDOFF.md`
+
+Legacy root-level memory files with the same names may exist in older repos. If present, move them into `.ai/` before making further updates:
+
+```sh
+mkdir -p .ai
+for f in PROJECT_STATE.md NEXT_STEPS.md ARCHITECTURE.md TASKS.md DECISIONS.md HANDOFF.md; do
+  [ -f "$f" ] && [ ! -f ".ai/$f" ] && mv "$f" ".ai/$f"
+done
+```
+
+If both root and `.ai/` versions exist, read both, preserve the newest useful information in `.ai/`, then remove the root copy.
 
 ### Update Triggers
 
@@ -373,7 +384,7 @@ The agent MUST update project memory when any of the following occur:
 
 ### File Responsibilities
 
-#### `PROJECT_STATE.md`
+#### `.ai/PROJECT_STATE.md`
 
 Current project snapshot. Keep it concise and factual. Include:
 
@@ -385,7 +396,7 @@ Current project snapshot. Keep it concise and factual. Include:
 - Known risks
 - Important assumptions
 
-#### `NEXT_STEPS.md`
+#### `.ai/NEXT_STEPS.md`
 
 Actionable continuation plan. Include:
 
@@ -395,7 +406,7 @@ Actionable continuation plan. Include:
 - Validation steps
 - Recommended next-session starting point
 
-#### `ARCHITECTURE.md`
+#### `.ai/ARCHITECTURE.md`
 
 Long-term technical reference. Include:
 
@@ -406,7 +417,7 @@ Long-term technical reference. Include:
 - Integration points
 - Design constraints
 
-#### `TASKS.md`
+#### `.ai/TASKS.md`
 
 Working task tracker. Use checkbox format and keep these sections current:
 
@@ -415,7 +426,7 @@ Working task tracker. Use checkbox format and keep these sections current:
 - Deferred tasks
 - Blocked tasks
 
-#### `DECISIONS.md`
+#### `.ai/DECISIONS.md`
 
 Persistent engineering journal. Keep this file forever. Record:
 
@@ -432,7 +443,7 @@ Also record:
 - Rejected designs
 - Things that should not be attempted again
 
-#### `HANDOFF.md`
+#### `.ai/HANDOFF.md`
 
 Session recovery document optimized for a fresh agent with no prior context. Keep it small (roughly 1–3 pages) and include:
 
@@ -451,9 +462,9 @@ A new agent should be able to continue the project successfully using only:
 
 - repository contents
 - `AGENTS.md`
-- `HANDOFF.md`
-- `PROJECT_STATE.md`
-- `DECISIONS.md`
+- `.ai/HANDOFF.md`
+- `.ai/PROJECT_STATE.md`
+- `.ai/DECISIONS.md`
 
 without access to prior conversation history.
 
@@ -469,17 +480,17 @@ When updating memory files:
 - Preserve rejected approaches.
 - Preserve blocker information.
 
-Project memory files are part of the deliverable and must remain current.
+Project memory files are local agent state, not normal source deliverables. Keep them current under `.ai/`, which is globally ignored by Git.
 
 ### Shutdown Routine
 
 Before ending any substantial work session:
 
-1. Update `TASKS.md`
-2. Update `PROJECT_STATE.md`
-3. Update `DECISIONS.md`
-4. Refresh `NEXT_STEPS.md`
-5. Regenerate `HANDOFF.md`
+1. Update `.ai/TASKS.md`
+2. Update `.ai/PROJECT_STATE.md`
+3. Update `.ai/DECISIONS.md`
+4. Refresh `.ai/NEXT_STEPS.md`
+5. Regenerate `.ai/HANDOFF.md`
 6. Verify another agent could continue successfully
 
 ## Tooling Preferences and Fallbacks
