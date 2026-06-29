@@ -141,14 +141,16 @@ let
         cmd=(
           ${pkgs.nodejs_24}/bin/npx -y supergateway
           --stdio ${lib.escapeShellArg "${stdioScript}"}
-          --outputTransport sse
+          --outputTransport streamableHttp
           --port ${toString spec.port}
-          --baseUrl /mcp
-          --ssePath /sse
-          --messagePath /message
+          --streamableHttpPath /mcp
           --healthEndpoint /healthz
           --logLevel info
         )
+
+        if [ "${lib.boolToString (spec.stateful or true)}" = "true" ]; then
+          cmd+=(--stateful)
+        fi
 
         exec "''${cmd[@]}"
       '';

@@ -25,7 +25,7 @@ let
   useNyxRemoteMcp = isDarwin && !isNyx;
   useSharedNyxMcp = useNyxRemoteMcp || isNyx;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
-  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
   recalliumMcpUrl = nyxSharedMcpUrl 18001;

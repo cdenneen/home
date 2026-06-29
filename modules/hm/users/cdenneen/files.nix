@@ -25,7 +25,7 @@ let
   isDarwin = pkgs.stdenv.isDarwin;
   useSharedNyxMcp = isDarwin || isNyx;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
-  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   writableRoots = [
     "/Users/cdenneen"
