@@ -25,7 +25,13 @@ let
   sopsSecretsDir = if isDarwin then darwinSopsSecretsDir else linuxSopsSecretsDir;
   useNyxRemoteMcp = isDarwin && !isNyx;
   useSharedNyxMcp = useNyxRemoteMcp || isNyx || isGhost;
-  nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
+  nyxSharedMcpHost =
+    if isNyx then
+      "127.0.0.1"
+    else if isGhost then
+      "100.80.58.4"
+    else
+      "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
