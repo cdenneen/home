@@ -10,7 +10,6 @@
 let
   cfg = config.profiles;
   happierPkg = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-cli;
-  codexPkg = pkgs.callPackage ../../pkgs/codex-cli.nix { };
   hmBackupSuffix =
     if self ? shortRev then
       self.shortRev
@@ -27,6 +26,7 @@ in
     ./dev.nix
     ./console.nix
     ./sudo.nix
+    ./ai-tools.nix
   ];
 
   options.profiles.defaults.enable = lib.mkEnableOption "Enable Defaults";
@@ -64,7 +64,6 @@ in
       environment.systemPackages = [
         pkgs.home-manager
         happierPkg
-        codexPkg
       ];
     }
     # NOTE: Do NOT set security.sudo.enable here.

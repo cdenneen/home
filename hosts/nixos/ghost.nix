@@ -81,7 +81,7 @@ in
 
   profiles.hmIntegrated.enable = lib.mkForce true;
 
-  userPresets.aiUsers.enable = true;
+  profiles.aiTools.enable = true;
 
   containerPresets = {
     podman.enable = true;
@@ -89,6 +89,17 @@ in
   virtualisation.docker.enable = lib.mkForce false;
   networking = {
     firewall.trustedInterfaces = lib.mkAfter [ "podman0" ];
+    nftables.tables.jarvis-container-nat = {
+      family = "ip";
+      content = ''
+        chain prerouting {
+          type nat hook prerouting priority dstnat;
+          ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 5432 dnat ip to 127.0.0.1:5432
+          ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 6379 dnat ip to 127.0.0.1:6379
+          ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 4000 dnat ip to 127.0.0.1:4000
+        }
+      '';
+    };
   };
 
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
@@ -161,6 +172,7 @@ in
         local all postgres peer
         local all all scram-sha-256
         host all all 127.0.0.1/32 scram-sha-256
+        host all all 10.88.0.0/16 scram-sha-256
       '';
     };
 

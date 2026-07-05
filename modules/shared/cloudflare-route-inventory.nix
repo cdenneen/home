@@ -53,30 +53,21 @@ in
       };
     };
 
+    ai-api-backend = route {
+      hostname = "ai.denneen.net";
+      path = "^/api/backend";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:3000";
+      };
+    };
+
     ai-api = route {
       hostname = "ai.denneen.net";
       path = "^/api";
       owner = "ghost";
       serviceByTunnel = {
-        ghost = "http://localhost:8080";
-      };
-    };
-
-    ai-ws = route {
-      hostname = "ai.denneen.net";
-      path = "^/ws";
-      owner = "ghost";
-      serviceByTunnel = {
-        ghost = "http://localhost:8080";
-      };
-    };
-
-    ai-slack-events = route {
-      hostname = "ai.denneen.net";
-      path = "^/slack/events";
-      owner = "ghost";
-      serviceByTunnel = {
-        ghost = "http://localhost:8081";
+        ghost = "http://localhost:8000";
       };
     };
 
