@@ -81,6 +81,8 @@ in
 
   profiles.hmIntegrated.enable = lib.mkForce true;
 
+  userPresets.aiUsers.enable = true;
+
   containerPresets = {
     podman.enable = true;
   };
@@ -103,6 +105,7 @@ in
     pkgs.cloudflared
     pkgs.crane
     pkgs.nodejs_24
+    pkgs.pnpm
   ];
 
   services = {
