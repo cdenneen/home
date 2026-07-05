@@ -195,6 +195,8 @@ in
           "${pepsApiHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
+          "ai-dev.denneen.net" = "http://127.0.0.1:3000";
+          "ai.denneen.net" = "http://127.0.0.1:3001";
         };
         default = "http_status:404";
         originRequest = {

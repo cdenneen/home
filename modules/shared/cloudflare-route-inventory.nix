@@ -53,12 +53,39 @@ in
       };
     };
 
+    ai-dev-api-backend = route {
+      hostname = "ai-dev.denneen.net";
+      path = "^/api/backend";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:3000";
+      };
+    };
+
+    ai-dev-api = route {
+      hostname = "ai-dev.denneen.net";
+      path = "^/api";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:8000";
+      };
+    };
+
+    ai-dev-root = route {
+      hostname = "ai-dev.denneen.net";
+      path = "^/";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:3000";
+      };
+    };
+
     ai-api-backend = route {
       hostname = "ai.denneen.net";
       path = "^/api/backend";
       owner = "ghost";
       serviceByTunnel = {
-        ghost = "http://localhost:3000";
+        ghost = "http://localhost:3001";
       };
     };
 
@@ -67,7 +94,7 @@ in
       path = "^/api";
       owner = "ghost";
       serviceByTunnel = {
-        ghost = "http://localhost:8000";
+        ghost = "http://localhost:8001";
       };
     };
 
@@ -76,7 +103,7 @@ in
       path = "^/";
       owner = "ghost";
       serviceByTunnel = {
-        ghost = "http://localhost:3000";
+        ghost = "http://localhost:3001";
       };
     };
 
