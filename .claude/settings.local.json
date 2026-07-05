@@ -21,7 +21,9 @@
       "Bash(sudo cat /etc/cloudflared/*.yml)",
       "Bash(sudo systemctl restart \"cloudflared-tunnel-1481e71c-a53f-4fe0-8983-468a3e0fffdf.service\")",
       "Bash(sudo systemctl cat \"cloudflared-tunnel-1481e71c-a53f-4fe0-8983-468a3e0fffdf.service\")",
-      "Bash(sudo journalctl -u \"cloudflared-tunnel-1481e71c-a53f-4fe0-8983-468a3e0fffdf.service\" --since \"1 minute ago\" --no-pager)"
+      "Bash(sudo journalctl -u \"cloudflared-tunnel-1481e71c-a53f-4fe0-8983-468a3e0fffdf.service\" --since \"1 minute ago\" --no-pager)",
+      "Bash(sudo rm /etc/cloudflared/ghost-tunnel.yml)",
+      "Bash(sudo ls /etc/cloudflared/)"
     ]
   }
 }

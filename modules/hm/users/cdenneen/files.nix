@@ -352,16 +352,16 @@ in
   home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
     mcpServers = {
       recallium = {
+        type = "http";
         url = nyxSharedMcpUrl 18001;
-        timeout = 60000;
       };
       context7 = {
+        type = "http";
         url = nyxSharedMcpUrl 18106;
-        timeout = 60000;
       };
       playwright = {
+        type = "http";
         url = nyxSharedMcpUrl 18107;
-        timeout = 120000;
       };
     }
     // lib.optionalAttrs isGhost {
@@ -458,13 +458,11 @@ in
     set -euo pipefail
 
     mcp_src="$HOME/.claude/mcp-settings.source"
-    dst="$HOME/.claude/settings.json"
+    dst="$HOME/.claude.json"
 
     if [ ! -f "$mcp_src" ]; then
       exit 0
     fi
-
-    $DRY_RUN_CMD mkdir -p "$HOME/.claude"
 
     if [ -f "$dst" ]; then
       merged="$(${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$dst" "$mcp_src")"
@@ -472,7 +470,7 @@ in
       merged="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
     fi
 
-    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude/settings.json.XXXXXX")"
+    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude.json.XXXXXX")"
     printf '%s\n' "$merged" > "$tmp"
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
