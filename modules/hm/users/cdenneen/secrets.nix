@@ -188,6 +188,9 @@ let
         url = "https://mcp.cloudflare.com/mcp";
         enabled = true;
         timeout = 60000;
+        headers = {
+          Authorization = "{env:CLOUDFLARE_API_TOKEN_BEARER}";
+        };
       };
     };
     permission = {
@@ -652,6 +655,7 @@ in
     if [ -r "${config.sops.secrets.cloudflare_account_api_token.path}" ]; then
       export CLOUDFLARE_API_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.cloudflare_account_api_token.path}")"
       export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+      export CLOUDFLARE_API_TOKEN_BEARER="Bearer $CLOUDFLARE_API_TOKEN"
     fi
 
     export CLOUDFLARE_ACCOUNT_ID="19a23ecf9ba79236ab8e64c8c7bf3507"
@@ -675,6 +679,7 @@ in
     if [ -r "${config.sops.secrets.cloudflare_account_api_token.path}" ]; then
       export CLOUDFLARE_API_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.cloudflare_account_api_token.path}")"
       export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+      export CLOUDFLARE_API_TOKEN_BEARER="Bearer $CLOUDFLARE_API_TOKEN"
     fi
 
     export CLOUDFLARE_ACCOUNT_ID="19a23ecf9ba79236ab8e64c8c7bf3507"

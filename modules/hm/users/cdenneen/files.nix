@@ -368,6 +368,9 @@ in
       cloudflare = {
         type = "http";
         url = "https://mcp.cloudflare.com/mcp";
+        headers = {
+          Authorization = "__CLOUDFLARE_API_TOKEN_PLACEHOLDER__";
+        };
       };
     };
   });
@@ -456,10 +459,31 @@ in
       exit 0
     fi
 
+    mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
+
+    # Substitute cloudflare API token placeholder at activation time so the
+    # secret never lands in the nix store.
+    cf_token=""
+    for _cf_candidate in \
+      /run/user/1000/secrets.d/*/cloudflare_account_api_token \
+      "$HOME/.local/share/sops-nix/secrets/cloudflare_account_api_token" \
+      "$HOME/.config/sops-nix/secrets/cloudflare_account_api_token"
+    do
+      if [ -r "$_cf_candidate" ]; then
+        cf_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_cf_candidate")"
+        break
+      fi
+    done
+
+    if [ -n "$cf_token" ]; then
+      mcp_json="$(printf '%s' "$mcp_json" | \
+        ${pkgs.gnused}/bin/sed "s|__CLOUDFLARE_API_TOKEN_PLACEHOLDER__|Bearer $cf_token|g")"
+    fi
+
     if [ -f "$dst" ]; then
-      merged="$(${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" "$mcp_src")"
+      merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" -)"
     else
-      merged="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
+      merged="$mcp_json"
     fi
 
     tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude.json.XXXXXX")"
