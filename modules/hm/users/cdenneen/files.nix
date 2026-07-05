@@ -366,16 +366,8 @@ in
     }
     // lib.optionalAttrs isGhost {
       cloudflare = {
-        type = "stdio";
-        command = "bash";
-        args = [
-          "-lc"
-          "exec npx -y @cloudflare/mcp-server-cloudflare"
-        ];
-        env = {
-          CLOUDFLARE_API_TOKEN = "\${CLOUDFLARE_API_TOKEN}";
-          CLOUDFLARE_ACCOUNT_ID = "19a23ecf9ba79236ab8e64c8c7bf3507";
-        };
+        type = "http";
+        url = "https://mcp.cloudflare.com/mcp";
       };
     };
   });
@@ -465,7 +457,7 @@ in
     fi
 
     if [ -f "$dst" ]; then
-      merged="$(${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$dst" "$mcp_src")"
+      merged="$(${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" "$mcp_src")"
     else
       merged="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
     fi

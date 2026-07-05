@@ -184,16 +184,8 @@ let
     }
     // lib.optionalAttrs isGhost {
       cloudflare = {
-        type = "local";
-        command = [
-          "bash"
-          "-lc"
-          "exec npx -y @cloudflare/mcp-server-cloudflare"
-        ];
-        environment = {
-          CLOUDFLARE_API_TOKEN = "{env:CLOUDFLARE_API_TOKEN}";
-          CLOUDFLARE_ACCOUNT_ID = "19a23ecf9ba79236ab8e64c8c7bf3507";
-        };
+        type = "remote";
+        url = "https://mcp.cloudflare.com/mcp";
         enabled = true;
         timeout = 60000;
       };
