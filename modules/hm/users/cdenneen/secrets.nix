@@ -15,6 +15,7 @@ let
     else
       builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
+  isGhost = hostName == "ghost";
   isDarwin = pkgs.stdenv.isDarwin;
   isLinux = pkgs.stdenv.isLinux;
   # Avoid runtime-dir secret paths on Linux (e.g. /run/user/$UID) which may be
@@ -23,7 +24,7 @@ let
   darwinSopsSecretsDir = "${config.home.homeDirectory}/.config/sops-nix/secrets";
   sopsSecretsDir = if isDarwin then darwinSopsSecretsDir else linuxSopsSecretsDir;
   useNyxRemoteMcp = isDarwin && !isNyx;
-  useSharedNyxMcp = useNyxRemoteMcp || isNyx;
+  useSharedNyxMcp = useNyxRemoteMcp || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
@@ -56,7 +57,7 @@ let
 
   mkNyxOnlyOpencodeMcp =
     port: script:
-    if isNyx then
+    if isNyx || isGhost then
       mkSharedOpencodeMcp port
     else
       {
@@ -179,6 +180,22 @@ let
       playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
         enabled = true;
         timeout = 120000;
+      };
+    }
+    // lib.optionalAttrs isGhost {
+      cloudflare = {
+        type = "local";
+        command = [
+          "bash"
+          "-lc"
+          "exec npx -y @cloudflare/mcp-server-cloudflare"
+        ];
+        environment = {
+          CLOUDFLARE_API_TOKEN = "{env:CLOUDFLARE_API_TOKEN}";
+          CLOUDFLARE_ACCOUNT_ID = "19a23ecf9ba79236ab8e64c8c7bf3507";
+        };
+        enabled = true;
+        timeout = 60000;
       };
     };
     permission = {

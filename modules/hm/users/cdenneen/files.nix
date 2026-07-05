@@ -22,8 +22,9 @@ let
     else
       builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
+  isGhost = hostName == "ghost";
   isDarwin = pkgs.stdenv.isDarwin;
-  useSharedNyxMcp = isDarwin || isNyx;
+  useSharedNyxMcp = isDarwin || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
@@ -70,7 +71,7 @@ let
 
   mkNyxOnlySharedMcpCommand =
     port: script:
-    if isNyx then
+    if isNyx || isGhost then
       {
         url = nyxSharedMcpUrl port;
       }
@@ -260,6 +261,25 @@ let
           startup_timeout_sec = 30;
           tool_timeout_sec = 180;
         };
+      }
+      // lib.optionalAttrs isGhost {
+        cloudflare = {
+          command = "bash";
+          args = [
+            "-lc"
+            ''
+              set -euo pipefail
+              exec npx -y @cloudflare/mcp-server-cloudflare
+            ''
+          ];
+          env = {
+            CLOUDFLARE_API_TOKEN = "{sops:cloudflare_account_api_token}";
+            CLOUDFLARE_ACCOUNT_ID = "19a23ecf9ba79236ab8e64c8c7bf3507";
+          };
+          required = false;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
+        };
       };
       sandbox_mode = "workspace-write";
       approval_policy = "on-request";
@@ -328,6 +348,37 @@ in
   home.file.".codex/RTK.md".source = ./ai/RTK.md;
 
   home.file.".claude/CLAUDE.md".source = ./ai/AGENTS.md;
+
+  home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
+    mcpServers = {
+      recallium = {
+        url = nyxSharedMcpUrl 18001;
+        timeout = 60000;
+      };
+      context7 = {
+        url = nyxSharedMcpUrl 18106;
+        timeout = 60000;
+      };
+      playwright = {
+        url = nyxSharedMcpUrl 18107;
+        timeout = 120000;
+      };
+    }
+    // lib.optionalAttrs isGhost {
+      cloudflare = {
+        type = "stdio";
+        command = "bash";
+        args = [
+          "-lc"
+          "exec npx -y @cloudflare/mcp-server-cloudflare"
+        ];
+        env = {
+          CLOUDFLARE_API_TOKEN = "\${CLOUDFLARE_API_TOKEN}";
+          CLOUDFLARE_ACCOUNT_ID = "19a23ecf9ba79236ab8e64c8c7bf3507";
+        };
+      };
+    };
+  });
 
   home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
   home.file.".codex/subagents/terraform-expert.md".source = ./ai/subagents/terraform-expert.md;
@@ -402,6 +453,30 @@ in
       codexProfileAttrs."ci-runner";
   home.file.".codex/strict.config.toml".source =
     tomlFormat.generate "codex-strict.config.toml" codexProfileAttrs.strict;
+
+  home.activation.claudeMcpSettingsWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+
+    mcp_src="$HOME/.claude/mcp-settings.source"
+    dst="$HOME/.claude/settings.json"
+
+    if [ ! -f "$mcp_src" ]; then
+      exit 0
+    fi
+
+    $DRY_RUN_CMD mkdir -p "$HOME/.claude"
+
+    if [ -f "$dst" ]; then
+      merged="$(${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$dst" "$mcp_src")"
+    else
+      merged="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
+    fi
+
+    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude/settings.json.XXXXXX")"
+    printf '%s\n' "$merged" > "$tmp"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+  '';
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail
