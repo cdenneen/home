@@ -123,6 +123,8 @@ in
     tailscale = {
       enable = true;
       openFirewall = true;
+      useRoutingFeatures = "client";
+      extraSetFlags = [ "--accept-dns=true" ];
     };
 
     happier-server = {
