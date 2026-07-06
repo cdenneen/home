@@ -62,6 +62,15 @@ in
       };
     };
 
+    ai-dev-ws = route {
+      hostname = "ai-dev.denneen.net";
+      path = "^/api/v1/ws";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:8000";
+      };
+    };
+
     ai-dev-api = route {
       hostname = "ai-dev.denneen.net";
       path = "^/api";
@@ -86,6 +95,15 @@ in
       owner = "ghost";
       serviceByTunnel = {
         ghost = "http://localhost:3001";
+      };
+    };
+
+    ai-ws = route {
+      hostname = "ai.denneen.net";
+      path = "^/api/v1/ws";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:8001";
       };
     };
 
