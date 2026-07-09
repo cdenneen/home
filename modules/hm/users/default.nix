@@ -222,7 +222,10 @@ in
       pkgs.cachix
       pkgs.coreutils
       (pkgs.callPackage ../../../pkgs/hm-switch.nix { })
+      pkgs.jq
       pkgs.nerd-fonts.jetbrains-mono
+      pkgs.python3
+      pkgs.python3Packages.pip
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
       pkgs.pinentry-curses

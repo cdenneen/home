@@ -41,6 +41,12 @@
       bind -r K resize-pane -U 5
       bind -r L resize-pane -R 5
 
+      # Make tmux-resurrect/tmux-continuum reliably save and restore sessions.
+      set -g @continuum-restore 'on'
+      set -g @continuum-save-interval '5'
+      set -g @resurrect-capture-pane-contents 'on'
+      set -g @resurrect-pane-contents-area 'full'
+
       bind S run-shell "~/.local/bin/restart-tmux #{session_name} --snapshot >/dev/null 2>&1 || true" \; display-message "snapshot saved: #{session_name}"
       set-hook -g client-detached 'run-shell "~/.local/bin/restart-tmux #{session_name} --snapshot >/dev/null 2>&1 || true"'
 
@@ -52,8 +58,9 @@
       sensible
       yank
       resurrect
-      continuum
       vim-tmux-navigator
+      # Keep continuum last so its status hook continues to autosave.
+      continuum
     ];
   };
 }
