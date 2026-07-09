@@ -1,0 +1,9 @@
+# Codex defaults for this trusted repo.
+# Keep this scoped to project-level workspace access; use `--yolo` only when
+# you explicitly want to bypass sandboxing entirely for a session.
+
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
