@@ -514,12 +514,12 @@ in
       model_list:
         - model_name: jarvis-router
           litellm_params:
-            model: openrouter/openrouter/owl-alpha
+            model: openrouter/openrouter/free
             api_key: os.environ/OPENROUTER_API_KEY
 
         - model_name: jarvis-coder
           litellm_params:
-            model: openrouter/openrouter/owl-alpha
+            model: openrouter/openrouter/free
             api_key: os.environ/OPENROUTER_API_KEY
 
         - model_name: jarvis-coding-free
