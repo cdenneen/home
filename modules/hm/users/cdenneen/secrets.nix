@@ -288,6 +288,13 @@ in
     chmod 700 "$HOME/.local/share/sops-nix"
     chmod 700 "$HOME/.local/share/sops-nix/secrets"
 
+    # programs.ssh writes ~/.ssh/config as a read-only store-backed symlink.
+    # OpenSSH rejects that mode, so we materialize a private 0600 copy later in
+    # activation. Remove that copied file here so Home Manager can relink cleanly.
+    if [ -f "$HOME/.ssh/config" ] && [ ! -L "$HOME/.ssh/config" ]; then
+      rm -f "$HOME/.ssh/config"
+    fi
+
     is_hm_link() {
       local path="$1"
 
@@ -406,6 +413,18 @@ in
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.config/gh/hosts.yml"
+  '';
+
+  home.activation.materializeSshConfig = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+
+    if [ -L "$HOME/.ssh/config" ]; then
+      config_target="$(readlink -f "$HOME/.ssh/config")"
+      tmp_config="$HOME/.ssh/config.tmp.$$"
+      cp "$config_target" "$tmp_config"
+      chmod 600 "$tmp_config"
+      mv -f "$tmp_config" "$HOME/.ssh/config"
+    fi
   '';
 
   home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.isDarwin (

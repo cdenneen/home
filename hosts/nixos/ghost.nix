@@ -104,6 +104,13 @@ in
 
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
   users.groups.gitlab-runner = { };
+  users.groups.happier-server = { };
+  users.users.happier-server = {
+    isSystemUser = true;
+    group = "happier-server";
+    home = "/var/lib/happier-server";
+    createHome = true;
+  };
   users.users.gitlab-runner = {
     isSystemUser = true;
     group = "gitlab-runner";
@@ -389,7 +396,7 @@ in
 
   systemd.tmpfiles.rules = [
     "d /var/lib/cloudflared 0700 root root -"
-    "d /var/lib/happier-server 0700 root root -"
+    "d /var/lib/happier-server 0750 happier-server happier-server -"
     "d ${pepsRuntimeDir} 0750 cdenneen users -"
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
@@ -427,7 +434,7 @@ in
       set -euo pipefail
 
       env_file="/var/lib/happier-server/happier.env"
-      ${pkgs.coreutils}/bin/mkdir -p /var/lib/happier-server
+      ${pkgs.coreutils}/bin/install -d -m 0750 -o happier-server -g happier-server /var/lib/happier-server
 
       if [ ! -s "$env_file" ] || ! ${pkgs.gnugrep}/bin/grep -q '^HANDY_MASTER_SECRET=' "$env_file"; then
         secret="$(${pkgs.openssl}/bin/openssl rand -base64 48 | ${pkgs.coreutils}/bin/tr -d '\n\r')"
@@ -703,6 +710,8 @@ in
       ${pkgs.coreutils}/bin/install -d -m 0750 -o redis -g redis "${redisDataDir}"
       ${pkgs.coreutils}/bin/chown -R redis:redis "${redisDataDir}"
       ${pkgs.coreutils}/bin/chmod 0750 "${redisDataDir}"
+      ${pkgs.coreutils}/bin/install -m 0600 -o redis -g redis /dev/null "${redisDataDir}/redis.conf"
+      printf 'include "/run/redis/nixos.conf"\n' > "${redisDataDir}/redis.conf"
     '';
   };
 
@@ -954,7 +963,12 @@ in
       set -euo pipefail
 
       ${pkgs.tailscale}/bin/tailscale status >/dev/null
+      ${pkgs.tailscale}/bin/tailscale serve reset
 
+
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp 3005 127.0.0.1:3005
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString pepsApiPort} 127.0.0.1:${toString pepsApiPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString wellnessApiPort} 127.0.0.1:${toString wellnessApiPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
@@ -1010,7 +1024,27 @@ in
   systemd.services.happier-server = {
     requires = [ "happier-env-bootstrap.service" ];
     after = [ "happier-env-bootstrap.service" ];
+    serviceConfig = {
+      DynamicUser = lib.mkForce false;
+      User = "happier-server";
+      Group = "happier-server";
+      Environment = [ "API_BIND_HOST=127.0.0.1" ];
+    };
   };
+
+  systemd.services.happier-server-migrate.serviceConfig = {
+    DynamicUser = lib.mkForce false;
+    User = "happier-server";
+    Group = "happier-server";
+  };
+
+  systemd.services.happier-server-sqlite-wal.serviceConfig = {
+    DynamicUser = lib.mkForce false;
+    User = "happier-server";
+    Group = "happier-server";
+  };
+
+  systemd.services.ollama.serviceConfig.DynamicUser = lib.mkForce false;
 
   systemd.services.peps-sync = {
     description = "Sync peps repo from GitHub";
@@ -1065,6 +1099,19 @@ in
       git "''${git_auth[@]}" fetch --prune origin "${pepsGitBranch}"
       git checkout -B "${pepsGitBranch}" "origin/${pepsGitBranch}"
       git reset --hard "origin/${pepsGitBranch}"
+
+      peps_server_file="${pepsRepoDir}/src/api/server.ts"
+      if [ ! -f "$peps_server_file" ]; then
+        echo "peps-api: server file not found at $peps_server_file" >&2
+        exit 1
+      fi
+
+      ${pkgs.perl}/bin/perl -0pi -e "s/app\.listen\(PORT, \(\) => \{/app.listen(PORT, process.env.API_BIND_HOST || '127.0.0.1', () => {/" "$peps_server_file"
+
+      if ! ${pkgs.gnugrep}/bin/grep -Fq "process.env.API_BIND_HOST || '127.0.0.1'" "$peps_server_file"; then
+        echo "peps-api: failed to patch loopback bind in $peps_server_file" >&2
+        exit 1
+      fi
     '';
   };
 
@@ -1179,6 +1226,7 @@ in
       }
 
       write_var API_PORT "${toString pepsApiPort}"
+      write_var API_BIND_HOST "127.0.0.1"
       write_var AUTH_REQUIRED "true"
       write_var AUTH_ADMIN_EMAILS "${pepsAdminEmails}"
       write_var SUPABASE_URL "${wellnessSupabaseUrl}"
