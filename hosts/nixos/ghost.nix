@@ -1028,7 +1028,10 @@ in
       DynamicUser = lib.mkForce false;
       User = "happier-server";
       Group = "happier-server";
-      Environment = [ "API_BIND_HOST=127.0.0.1" ];
+      Environment = [
+        "HAPPIER_SERVER_HOST=127.0.0.1"
+        "METRICS_ENABLED=false"
+      ];
     };
   };
 
