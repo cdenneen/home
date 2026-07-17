@@ -33,6 +33,7 @@ let
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
   jarvisSupabaseDbPasswordFile = config.sops.secrets.jarvis_supbabase_db_password.path;
   gitlabRunnerTokenFile = config.sops.secrets.gitlab_com_runner_token.path;
+  gitlabRunnerSecondaryTokenFile = config.sops.secrets.gitlab_com_runner_token_2.path;
   qdrantApiKeyFile = config.sops.secrets.local_qdrant_api_key.path;
   litellmMasterKeyFile = config.sops.secrets.local_litellm_master_key.path;
   litellmSaltKeyFile = config.sops.secrets.local_litellm_salt_key.path;
@@ -66,6 +67,7 @@ let
   neo4jEnvFile = "${ghostRuntimeDir}/neo4j/env";
   minioEnvFile = "${ghostRuntimeDir}/minio/env";
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
+  gitlabRunnerSecondaryEnvFile = "/var/lib/gitlab-runner/runner-auth-2.env";
   gitlabRunnerDockerConfig = "/var/lib/gitlab-runner/.docker/config.json";
   postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
@@ -144,6 +146,7 @@ in
 
     gitlab-runner = {
       enable = true;
+      settings.concurrent = 3;
       extraPackages = [
         pkgs.git
         pkgs.openssh
@@ -151,6 +154,12 @@ in
       services = {
         ghost = {
           authenticationTokenConfigFile = gitlabRunnerEnvFile;
+          executor = "docker";
+          dockerImage = "alpine:3.20";
+          requestConcurrency = 2;
+        };
+        "ghost-2" = {
+          authenticationTokenConfigFile = gitlabRunnerSecondaryEnvFile;
           executor = "docker";
           dockerImage = "alpine:3.20";
           requestConcurrency = 2;
@@ -307,6 +316,13 @@ in
     group = "root";
     mode = "0400";
   };
+  sops.secrets.gitlab_com_runner_token_2 = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "gitlab_com_runner_token_2";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
   sops.secrets.local_qdrant_api_key = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "local_qdrant_api_key";
@@ -411,10 +427,20 @@ in
     "d ${minioDataDir} 0750 root root -"
   ];
 
-  systemd.services.gitlab-runner.serviceConfig = {
-    DynamicUser = lib.mkForce false;
-    User = "gitlab-runner";
-    Group = "gitlab-runner";
+  systemd.services.gitlab-runner = {
+    after = [
+      "gitlab-runner-env.service"
+      "gitlab-runner-docker-auth.service"
+    ];
+    requires = [
+      "gitlab-runner-env.service"
+      "gitlab-runner-docker-auth.service"
+    ];
+    serviceConfig = {
+      DynamicUser = lib.mkForce false;
+      User = "gitlab-runner";
+      Group = "gitlab-runner";
+    };
   };
 
   systemd.services.happier-env-bootstrap = {
@@ -760,10 +786,24 @@ in
         exit 1
       fi
 
+      if [ ! -r "${gitlabRunnerSecondaryTokenFile}" ]; then
+        echo "Missing GitLab runner token at ${gitlabRunnerSecondaryTokenFile}" >&2
+        exit 1
+      fi
+
+      secondary_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${gitlabRunnerSecondaryTokenFile}")"
+      if [ -z "$secondary_token" ]; then
+        echo "GitLab runner token at ${gitlabRunnerSecondaryTokenFile} is empty" >&2
+        exit 1
+      fi
+
       ${pkgs.coreutils}/bin/install -d -m 0750 -o gitlab-runner -g gitlab-runner /var/lib/gitlab-runner
       ${pkgs.coreutils}/bin/install -m 600 -o gitlab-runner -g gitlab-runner /dev/null "${gitlabRunnerEnvFile}"
+      ${pkgs.coreutils}/bin/install -m 600 -o gitlab-runner -g gitlab-runner /dev/null "${gitlabRunnerSecondaryEnvFile}"
       printf 'CI_SERVER_URL=%s\n' "https://gitlab.com/" > "${gitlabRunnerEnvFile}"
       printf 'CI_SERVER_TOKEN=%s\n' "$token" >> "${gitlabRunnerEnvFile}"
+      printf 'CI_SERVER_URL=%s\n' "https://gitlab.com/" > "${gitlabRunnerSecondaryEnvFile}"
+      printf 'CI_SERVER_TOKEN=%s\n' "$secondary_token" >> "${gitlabRunnerSecondaryEnvFile}"
     '';
   };
 
