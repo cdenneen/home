@@ -1,4 +1,5 @@
 {
+  axis,
   config,
   lib,
   pkgs,
@@ -78,6 +79,7 @@ in
 {
   imports = [
     ./ghost-base.nix
+    axis.nixosModules.default
     happier.nixosModules.happier-server
   ];
 
@@ -129,6 +131,13 @@ in
   ];
 
   services = {
+    axis = {
+      enable = true;
+      dataRoot = "/var/lib/axis";
+      host = "127.0.0.1";
+      port = 8780;
+    };
+
     tailscale = {
       enable = true;
       openFirewall = true;

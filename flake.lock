@@ -65,6 +65,27 @@
         "type": "github"
       }
     },
+    "axis": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1785195899,
+        "narHash": "sha256-hhl6gUeOa63tUGka2YitYN8jy7oorPPcOlrPSr+5yCo=",
+        "ref": "feat/ax-w1005-distribution-flake",
+        "rev": "070ca21e5cf2c52f244171e165b790af99337d0b",
+        "revCount": 170,
+        "type": "git",
+        "url": "ssh://git@gitlab.com/ghostspace/axis.git"
+      },
+      "original": {
+        "ref": "feat/ax-w1005-distribution-flake",
+        "type": "git",
+        "url": "ssh://git@gitlab.com/ghostspace/axis.git"
+      }
+    },
     "brew-src": {
       "flake": false,
       "locked": {
@@ -1013,6 +1034,7 @@
       "inputs": {
         "apple-silicon-support": "apple-silicon-support",
         "arion": "arion",
+        "axis": "axis",
         "catppuccin": "catppuccin",
         "devshell": "devshell",
         "disko": "disko",
