@@ -72,16 +72,15 @@
         ]
       },
       "locked": {
-        "lastModified": 1785195899,
-        "narHash": "sha256-hhl6gUeOa63tUGka2YitYN8jy7oorPPcOlrPSr+5yCo=",
-        "ref": "feat/ax-w1005-distribution-flake",
-        "rev": "070ca21e5cf2c52f244171e165b790af99337d0b",
-        "revCount": 170,
+        "lastModified": 1785197499,
+        "narHash": "sha256-Tm5blIXJv7IPwci31Yt5MTU+vVUXw0wN/mbsRoe+2do=",
+        "ref": "refs/heads/main",
+        "rev": "f4d835a84a2f4a8388d43f3b5633b222ba919acc",
+        "revCount": 177,
         "type": "git",
         "url": "ssh://git@gitlab.com/ghostspace/axis.git"
       },
       "original": {
-        "ref": "feat/ax-w1005-distribution-flake",
         "type": "git",
         "url": "ssh://git@gitlab.com/ghostspace/axis.git"
       }
