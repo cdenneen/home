@@ -1,6 +1,14 @@
 { lib }:
 {
   commonBootstrap = ''
+    if [ -z "''${XDG_RUNTIME_DIR:-}" ] && command -v id >/dev/null 2>&1; then
+      runtime_dir="/run/user/$(id -u)"
+      if [ -d "$runtime_dir" ]; then
+        export XDG_RUNTIME_DIR="$runtime_dir"
+      fi
+      unset runtime_dir
+    fi
+
     if [ -r "/etc/profiles/per-user/$USER/etc/profile.d/hm-session-vars.sh" ]; then
       . "/etc/profiles/per-user/$USER/etc/profile.d/hm-session-vars.sh"
     elif [ -r "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh" ]; then
@@ -28,6 +36,10 @@
       elif [ -r "$HOME/.config/sops/age/keys.txt" ]; then
         export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
       fi
+    fi
+
+    if [ -n "''${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/ssh-agent" ]; then
+      export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent"
     fi
   '';
 

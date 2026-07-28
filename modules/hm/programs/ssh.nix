@@ -5,16 +5,6 @@
 }:
 let
   cfg = config.programs.ssh;
-
-  shellInit = ''
-    # Use ssh-agent; only start one if we don't already have a usable socket.
-    if { [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; }; then
-      case "$SSH_AUTH_SOCK" in
-        */ssh-*/agent.*) : ;;
-        *) eval "$(ssh-agent -s)" >/dev/null ;;
-      esac
-    fi
-  '';
 in
 {
   config = lib.mkIf cfg.enable {
@@ -30,10 +20,8 @@ in
       nyx,nyx.tail0e55.ts.net,100.80.58.4 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3PCrjUkoqJkZ1Ibi+s702ub7zrqvh44pxVFii5C/FG
       ghost,ghost.tail0e55.ts.net,100.114.242.29,150.136.97.147 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIr7jR0S7KbVD7+wYAqgCEiVVyUYhM2K90EiVKz7ofCd
     '';
+    services.ssh-agent.enable = true;
     programs = {
-      # Run late so we can override any earlier SSH_AUTH_SOCK exports.
-      zsh.initContent = lib.mkAfter shellInit;
-      bash.initExtra = lib.mkAfter shellInit;
       ssh = {
         enableDefaultConfig = false;
         matchBlocks."*" = {
