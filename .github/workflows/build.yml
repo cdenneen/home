@@ -30,7 +30,6 @@ jobs:
           - nixpkgs-unstable
           - home-manager
           - nix-darwin
-          - happier
           - nixos-hardware
           - nix-index-database
           - nixos-wsl

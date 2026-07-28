@@ -4,12 +4,10 @@
   pkgs,
   unstablePkgs ? pkgs,
   self,
-  happier,
   ...
 }@inputs:
 let
   cfg = config.profiles;
-  happierPkg = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-cli;
   hmBackupSuffix =
     if self ? shortRev then
       self.shortRev
@@ -63,7 +61,6 @@ in
       # Ensure home-manager CLI is available even before HM activation.
       environment.systemPackages = [
         pkgs.home-manager
-        happierPkg
       ];
     }
     # NOTE: Do NOT set security.sudo.enable here.

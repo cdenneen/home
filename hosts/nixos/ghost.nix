@@ -3,7 +3,6 @@
   config,
   lib,
   pkgs,
-  happier,
   ...
 }:
 let
@@ -32,13 +31,11 @@ let
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   openrouterKeyFile = config.sops.secrets.openrouter_api_key.path;
   geminiKeyFile = config.sops.secrets.gemini_api_key.path;
-  jarvisSupabaseDbPasswordFile = config.sops.secrets.jarvis_supbabase_db_password.path;
   gitlabRunnerTokenFile = config.sops.secrets.gitlab_com_runner_token.path;
   gitlabRunnerSecondaryTokenFile = config.sops.secrets.gitlab_com_runner_token_2.path;
   qdrantApiKeyFile = config.sops.secrets.local_qdrant_api_key.path;
   litellmMasterKeyFile = config.sops.secrets.local_litellm_master_key.path;
   litellmSaltKeyFile = config.sops.secrets.local_litellm_salt_key.path;
-  postgresPasswordFile = config.sops.secrets.local_postgres_password.path;
   neo4jPasswordFile = config.sops.secrets.local_neo4j_password.path;
   redisPasswordFile = config.sops.secrets.local_redis_password.path;
   wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
@@ -49,14 +46,11 @@ let
   qdrantHttpPort = 6333;
   qdrantGrpcPort = 6334;
   litellmPort = 4000;
-  postgresPort = 5432;
   neo4jHttpPort = 7474;
   neo4jBoltPort = 7687;
   redisPort = 6379;
   minioApiPort = 9000;
   minioConsolePort = 9001;
-  postgresUser = "postgres";
-  postgresDb = "postgres";
   neo4jUser = "neo4j";
   ollamaDataDir = "/var/lib/ollama";
   qdrantDataDir = "/var/lib/qdrant";
@@ -70,7 +64,6 @@ let
   gitlabRunnerEnvFile = "/var/lib/gitlab-runner/runner-auth.env";
   gitlabRunnerSecondaryEnvFile = "/var/lib/gitlab-runner/runner-auth-2.env";
   gitlabRunnerDockerConfig = "/var/lib/gitlab-runner/.docker/config.json";
-  postgresDataDir = "/var/lib/postgres";
   neo4jDataDir = "/var/lib/neo4j/data";
   neo4jLogsDir = "/var/lib/neo4j/logs";
   redisDataDir = "/var/lib/redis";
@@ -80,7 +73,6 @@ in
   imports = [
     ./ghost-base.nix
     axis.nixosModules.default
-    happier.nixosModules.happier-server
   ];
 
   profiles.hmIntegrated.enable = lib.mkForce true;
@@ -91,14 +83,42 @@ in
     podman.enable = true;
   };
   virtualisation.docker.enable = lib.mkForce false;
+
+  # Oracle Cloud's free-tier VM has 4 OCPUs and 24 GiB RAM. Keep enough
+  # headroom for remote access and core services when agent workloads spike.
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 25;
+    priority = 100;
+  };
+
+  nix.settings = {
+    cores = lib.mkForce 2;
+    max-jobs = lib.mkForce 2;
+  };
+
+  systemd.slices."user-1000" = {
+    description = "Resource limits for cdenneen user workloads";
+    sliceConfig = {
+      MemoryHigh = "16G";
+      MemoryMax = "18G";
+      MemorySwapMax = "4G";
+      TasksMax = 2048;
+    };
+  };
+
+  # If the user slice reaches its hard limit, preserve the user manager so
+  # the kernel selects a large worker instead of tearing down tmux wholesale.
+  systemd.services."user@".serviceConfig.OOMScoreAdjust = lib.mkForce (-500);
+
   networking = {
     firewall.trustedInterfaces = lib.mkAfter [ "podman0" ];
-    nftables.tables.jarvis-container-nat = {
+    nftables.tables.shared-container-nat = {
       family = "ip";
       content = ''
         chain prerouting {
           type nat hook prerouting priority dstnat;
-          ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 5432 dnat ip to 127.0.0.1:5432
           ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 6379 dnat ip to 127.0.0.1:6379
           ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 4000 dnat ip to 127.0.0.1:4000
         }
@@ -108,13 +128,6 @@ in
 
   users.users.cdenneen.extraGroups = lib.mkAfter [ "tailscale" ];
   users.groups.gitlab-runner = { };
-  users.groups.happier-server = { };
-  users.users.happier-server = {
-    isSystemUser = true;
-    group = "happier-server";
-    home = "/var/lib/happier-server";
-    createHome = true;
-  };
   users.users.gitlab-runner = {
     isSystemUser = true;
     group = "gitlab-runner";
@@ -143,14 +156,6 @@ in
       openFirewall = true;
       useRoutingFeatures = "client";
       extraSetFlags = [ "--accept-dns=true" ];
-    };
-
-    happier-server = {
-      enable = true;
-      package = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-server;
-      mode = "light";
-      port = 3005;
-      environmentFile = "/var/lib/happier-server/happier.env";
     };
 
     gitlab-runner = {
@@ -184,23 +189,6 @@ in
       port = ollamaPort;
       user = "ollama";
       group = "ollama";
-    };
-
-    postgresql = {
-      enable = true;
-      package = pkgs.postgresql_16;
-      dataDir = postgresDataDir;
-      enableTCPIP = true;
-      settings = {
-        port = postgresPort;
-        listen_addresses = lib.mkForce "127.0.0.1";
-      };
-      authentication = ''
-        local all postgres peer
-        local all all scram-sha-256
-        host all all 127.0.0.1/32 scram-sha-256
-        host all all 10.88.0.0/16 scram-sha-256
-      '';
     };
 
     redis.servers."" = {
@@ -360,20 +348,6 @@ in
     group = "root";
     mode = "0400";
   };
-  sops.secrets.jarvis_supbabase_db_password = {
-    sopsFile = ../../secrets/jarvis.yaml;
-    key = "jarvis_supbabase_db_password";
-    owner = "root";
-    group = "root";
-    mode = "0400";
-  };
-  sops.secrets.local_postgres_password = {
-    sopsFile = ../../secrets/ghost.yaml;
-    key = "local_postgres_password";
-    owner = "root";
-    group = "root";
-    mode = "0400";
-  };
   sops.secrets.local_neo4j_password = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "local_neo4j_password";
@@ -421,14 +395,12 @@ in
 
   systemd.tmpfiles.rules = [
     "d /var/lib/cloudflared 0700 root root -"
-    "d /var/lib/happier-server 0750 happier-server happier-server -"
     "d ${pepsRuntimeDir} 0750 cdenneen users -"
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
     "d ${wellnessRepoDir} 0750 cdenneen users -"
     "d ${ollamaDataDir} 0750 ollama ollama -"
     "d ${qdrantDataDir} 0750 root root -"
-    "d /var/lib/postgres 0700 postgres postgres -"
     "d /var/lib/neo4j 0750 root root -"
     "d ${neo4jDataDir} 0750 root root -"
     "d ${neo4jLogsDir} 0750 root root -"
@@ -450,35 +422,6 @@ in
       User = "gitlab-runner";
       Group = "gitlab-runner";
     };
-  };
-
-  systemd.services.happier-env-bootstrap = {
-    description = "Bootstrap HANDY_MASTER_SECRET for happier-server";
-    before = [ "happier-server.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    path = [
-      pkgs.coreutils
-      pkgs.gnugrep
-      pkgs.openssl
-    ];
-    script = ''
-      set -euo pipefail
-
-      env_file="/var/lib/happier-server/happier.env"
-      ${pkgs.coreutils}/bin/install -d -m 0750 -o happier-server -g happier-server /var/lib/happier-server
-
-      if [ ! -s "$env_file" ] || ! ${pkgs.gnugrep}/bin/grep -q '^HANDY_MASTER_SECRET=' "$env_file"; then
-        secret="$(${pkgs.openssl}/bin/openssl rand -base64 48 | ${pkgs.coreutils}/bin/tr -d '\n\r')"
-        ${pkgs.coreutils}/bin/install -m 600 /dev/null "$env_file"
-        printf 'HANDY_MASTER_SECRET=%s\n' "$secret" > "$env_file"
-      fi
-
-      ${pkgs.coreutils}/bin/chmod 600 "$env_file"
-    '';
   };
 
   systemd.services.litellm-env = {
@@ -515,18 +458,15 @@ in
       openai_key="$(read_secret "${openAiKeyFile}" "OpenAI key")"
       openrouter_key="$(read_secret "${openrouterKeyFile}" "OpenRouter key")"
       gemini_key="$(read_secret "${geminiKeyFile}" "Gemini key")"
-      db_password="$(read_secret "${jarvisSupabaseDbPasswordFile}" "Jarvis Supabase DB password")"
       master_key="$(read_secret "${litellmMasterKeyFile}" "LiteLLM master key")"
       salt_key="$(read_secret "${litellmSaltKeyFile}" "LiteLLM salt key")"
       qdrant_api_key="$(read_secret "${qdrantApiKeyFile}" "Qdrant API key")"
-      db_url="postgresql://postgres.ysxipmxwfupqzywhevji:$db_password@aws-1-us-east-2.pooler.supabase.com:5432/postgres?options=-csearch_path%3Dlitellm"
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmEnvFile}"
       {
         printf 'OPENAI_API_KEY=%s\n' "$openai_key"
         printf 'OPENROUTER_API_KEY=%s\n' "$openrouter_key"
         printf 'GEMINI_API_KEY=%s\n' "$gemini_key"
-        printf 'LITELLM_DATABASE_URL=%s\n' "$db_url"
         printf 'LITELLM_MASTER_KEY=%s\n' "$master_key"
         printf 'LITELLM_SALT_KEY=%s\n' "$salt_key"
         printf 'OLLAMA_API_BASE=%s\n' "http://127.0.0.1:${toString ollamaPort}"
@@ -554,26 +494,6 @@ in
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${litellmConfigFile}"
       cat > "${litellmConfigFile}" <<'EOF'
       model_list:
-        - model_name: jarvis-router
-          litellm_params:
-            model: openrouter/openrouter/free
-            api_key: os.environ/OPENROUTER_API_KEY
-
-        - model_name: jarvis-coder
-          litellm_params:
-            model: openrouter/openrouter/free
-            api_key: os.environ/OPENROUTER_API_KEY
-
-        - model_name: jarvis-coding-free
-          litellm_params:
-            model: openrouter/poolside/laguna-xs.2:free
-            api_key: os.environ/OPENROUTER_API_KEY
-
-        - model_name: jarvis-coding-deep-free
-          litellm_params:
-            model: openrouter/poolside/laguna-m.1:free
-            api_key: os.environ/OPENROUTER_API_KEY
-
         - model_name: openrouter-free
           litellm_params:
             model: openrouter/openrouter/free
@@ -616,66 +536,9 @@ in
           qdrant_semantic_cache_vector_size: 2048
 
       router_settings:
-        fallbacks:
-          - jarvis-router:
-              - openrouter/*
-              - gemini/*
-              - openai/*
-          - jarvis-coder:
-              - jarvis-coding-free
-              - jarvis-coding-deep-free
-              - openrouter/*
-              - gemini/*
-              - openai/*
         num_retries: 2
         timeout: 90
 
-      general_settings:
-        database_url: os.environ/LITELLM_DATABASE_URL
-        allow_requests_on_db_unavailable: true
-
-      jarvis_profiles:
-        default: conversation
-        profiles:
-          - name: conversation
-            primary:
-              - jarvis-router
-            fallback:
-              - openrouter/*
-              - gemini/*
-              - openai/*
-          - name: coding
-            primary:
-              - jarvis-coder
-            fallback:
-              - jarvis-coding-free
-              - jarvis-coding-deep-free
-              - openrouter/*
-              - gemini/*
-              - openai/*
-          - name: architecture
-            primary:
-              - jarvis-coding-deep-free
-            fallback:
-              - jarvis-coding-free
-              - jarvis-coder
-              - openrouter/*
-              - gemini/*
-              - openai/*
-        escalation:
-          context_tokens_gt: 24000
-          estimated_repo_files_gt: 100
-          confidence_below: 0.75
-          max_local_retries: 2
-          local_timeout_seconds: 90
-          local_failure:
-            escalate: true
-        cloud_routing:
-          prefer_openrouter: true
-          openrouter_free_only: true
-          use_direct_vendor_only_if:
-            - openrouter_unavailable
-            - vendor_specific_feature_required
       EOF
     '';
   };
@@ -709,24 +572,6 @@ in
 
       ${pkgs.coreutils}/bin/install -m 600 /dev/null "${qdrantEnvFile}"
       printf 'QDRANT__SERVICE__API_KEY=%s\n' "$api_key" > "${qdrantEnvFile}"
-    '';
-  };
-
-  systemd.services.postgresql-data-permissions = {
-    description = "Ensure Postgres data directory ownership";
-    before = [ "postgresql.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    path = [ pkgs.coreutils ];
-    script = ''
-      set -euo pipefail
-
-      ${pkgs.coreutils}/bin/install -d -m 0700 -o postgres -g postgres "${postgresDataDir}"
-      ${pkgs.coreutils}/bin/chown -R postgres:postgres "${postgresDataDir}"
-      ${pkgs.coreutils}/bin/chmod 0700 "${postgresDataDir}"
     '';
   };
 
@@ -836,46 +681,6 @@ in
     '';
   };
 
-  systemd.services.postgresql-password = {
-    description = "Ensure postgres password";
-    after = [ "postgresql.service" ];
-    requires = [ "postgresql.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    path = [
-      pkgs.coreutils
-      pkgs.util-linux
-    ];
-    script = ''
-      set -euo pipefail
-
-      if [ ! -r "${postgresPasswordFile}" ]; then
-        echo "Missing Postgres password at ${postgresPasswordFile}" >&2
-        exit 1
-      fi
-
-      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${postgresPasswordFile}")"
-      if [ -z "$password" ]; then
-        echo "Postgres password at ${postgresPasswordFile} is empty" >&2
-        exit 1
-      fi
-
-      for _ in $(seq 1 60); do
-        if ${pkgs.util-linux}/bin/runuser -u postgres -- ${config.services.postgresql.package}/bin/pg_isready -d "${postgresDb}" >/dev/null 2>&1; then
-          break
-        fi
-        sleep 2
-      done
-
-      ${pkgs.util-linux}/bin/runuser -u postgres -- \
-        ${config.services.postgresql.package}/bin/psql -d "${postgresDb}" -v ON_ERROR_STOP=1 \
-        -c "ALTER USER ${postgresUser} WITH PASSWORD '$password';"
-    '';
-  };
-
   systemd.services.neo4j-env = {
     description = "Render neo4j env file";
     before = [ "podman-neo4j.service" ];
@@ -959,39 +764,6 @@ in
     '';
   };
 
-  systemd.services.jarvis-ghost-cleanup = {
-    description = "Remove stale Jarvis Tailscale podman overrides";
-    before = [
-      "podman-litellm.service"
-      "podman-qdrant.service"
-      "podman-neo4j.service"
-    ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    path = [
-      pkgs.coreutils
-      pkgs.systemd
-    ];
-    script = ''
-      set -euo pipefail
-
-      for unit in podman-litellm podman-qdrant podman-neo4j; do
-        dropin_dir="/run/systemd/system/''${unit}.service.d"
-        if [ -d "$dropin_dir" ]; then
-          ${pkgs.coreutils}/bin/rm -f "$dropin_dir"/tailscale-*.conf
-          ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty "$dropin_dir" 2>/dev/null || true
-        fi
-      done
-
-      ${pkgs.coreutils}/bin/rm -f /var/lib/jarvis-ghost/podman-*-start-tailscale.sh
-
-      ${pkgs.systemd}/bin/systemctl daemon-reload
-    '';
-  };
-
   systemd.services.tailscale-serve-ghost = {
     description = "Expose local services via Tailscale serve";
     after = [
@@ -1015,13 +787,11 @@ in
       ${pkgs.tailscale}/bin/tailscale serve reset
 
 
-      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp 3005 127.0.0.1:3005
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString pepsApiPort} 127.0.0.1:${toString pepsApiPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString wellnessApiPort} 127.0.0.1:${toString wellnessApiPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
-      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString postgresPort} 127.0.0.1:${toString postgresPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantGrpcPort} 127.0.0.1:${toString qdrantGrpcPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
@@ -1034,66 +804,26 @@ in
     requires = [
       "litellm-env.service"
       "litellm-config.service"
-      "jarvis-ghost-cleanup.service"
     ];
     after = [
       "litellm-env.service"
       "litellm-config.service"
-      "jarvis-ghost-cleanup.service"
     ];
   };
 
   systemd.services.podman-qdrant = {
-    requires = [
-      "qdrant-env.service"
-      "jarvis-ghost-cleanup.service"
-    ];
-    after = [
-      "qdrant-env.service"
-      "jarvis-ghost-cleanup.service"
-    ];
+    requires = [ "qdrant-env.service" ];
+    after = [ "qdrant-env.service" ];
   };
 
   systemd.services.podman-neo4j = {
-    requires = [
-      "neo4j-env.service"
-      "jarvis-ghost-cleanup.service"
-    ];
-    after = [
-      "neo4j-env.service"
-      "jarvis-ghost-cleanup.service"
-    ];
+    requires = [ "neo4j-env.service" ];
+    after = [ "neo4j-env.service" ];
   };
 
   systemd.services.podman-minio = {
     requires = [ "minio-env.service" ];
     after = [ "minio-env.service" ];
-  };
-
-  systemd.services.happier-server = {
-    requires = [ "happier-env-bootstrap.service" ];
-    after = [ "happier-env-bootstrap.service" ];
-    serviceConfig = {
-      DynamicUser = lib.mkForce false;
-      User = "happier-server";
-      Group = "happier-server";
-      Environment = [
-        "HAPPIER_SERVER_HOST=127.0.0.1"
-        "METRICS_ENABLED=false"
-      ];
-    };
-  };
-
-  systemd.services.happier-server-migrate.serviceConfig = {
-    DynamicUser = lib.mkForce false;
-    User = "happier-server";
-    Group = "happier-server";
-  };
-
-  systemd.services.happier-server-sqlite-wal.serviceConfig = {
-    DynamicUser = lib.mkForce false;
-    User = "happier-server";
-    Group = "happier-server";
   };
 
   systemd.services.ollama.serviceConfig.DynamicUser = lib.mkForce false;

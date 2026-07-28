@@ -397,33 +397,6 @@ in
     fi
   '';
 
-  # Keep macOS as a Happier client only (no local happier-server), and ensure
-  # the official nyx daemon launch agent is installed/running at login.
-  home.activation.happierNyxDaemonDarwin = lib.hm.dag.entryAfter [ "setupLaunchAgents" ] ''
-    if [ "$(uname -s)" = "Darwin" ]; then
-      happier_bin="$(command -v happier || true)"
-      if [ -n "$happier_bin" ] && [ -x "$happier_bin" ]; then
-        export HAPPIER_HOME_DIR="$HOME/.happier"
-        export HAPPIER_SERVER_URL="https://nyx.tail0e55.ts.net"
-        export HAPPIER_WEBAPP_URL="https://nyx.tail0e55.ts.net"
-        export HAPPIER_PUBLIC_SERVER_URL="https://nyx.tail0e55.ts.net"
-        export HAPPIER_NO_BROWSER_OPEN=1
-        export HAPPIER_DAEMON_WAIT_FOR_AUTH=1
-        export HAPPIER_DAEMON_WAIT_FOR_AUTH_TIMEOUT_MS=0
-
-        $DRY_RUN_CMD "$happier_bin" --server nyx daemon service install --json >/dev/null
-        $DRY_RUN_CMD "$happier_bin" --server nyx daemon service start --json >/dev/null
-      fi
-
-      legacy_agent="$HOME/Library/LaunchAgents/org.nix-community.home.happier-daemon-nyx.plist"
-      if [ -e "$legacy_agent" ]; then
-        uid="$(${pkgs.coreutils}/bin/id -u)"
-        $DRY_RUN_CMD /bin/launchctl bootout "gui/$uid/org.nix-community.home.happier-daemon-nyx" 2>/dev/null || true
-        $DRY_RUN_CMD rm -f "$legacy_agent"
-      fi
-    fi
-  '';
-
   # direnv loads this automatically (if present). Keep it tiny and just source
   # shared helpers so individual repos can assume they exist.
   home.file.".config/direnv/direnvrc".text = ''

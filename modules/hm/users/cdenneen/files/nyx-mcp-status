@@ -51,5 +51,5 @@ ssh \
     tmux show -g allow-passthrough 2>/dev/null || true
     printf "\nrunning_mcp_services\n"
     systemctl --user --no-pager --plain --type=service --state=running 2>/dev/null \
-      | grep -E "nyx-mcp-|opencode|happier|recallium" || true
+      | grep -E "nyx-mcp-|opencode|recallium" || true
   '

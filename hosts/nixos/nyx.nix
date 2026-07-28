@@ -2,7 +2,6 @@
   lib,
   pkgs,
   config,
-  happier,
   ...
 }:
 let
@@ -197,10 +196,6 @@ let
   supabaseAccessTokenFile = config.sops.secrets.supabase_access_token.path;
 in
 {
-  imports = [
-    happier.nixosModules.happier-server
-  ];
-
   networking.hostName = "nyx";
   networking.extraHosts = ''
     100.80.58.4 nyx.tail0e55.ts.net
@@ -297,42 +292,6 @@ in
       };
     };
   };
-
-  services.happier-server = {
-    enable = true;
-    package = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-server;
-    mode = "full";
-    port = 3005;
-    environmentFile = config.sops.secrets.happier-env.path;
-    minio.rootCredentialsFile = config.sops.secrets.minio-credentials.path;
-  };
-
-  systemd.services.redis-happier =
-    let
-      recoverIncompatibleRdb = pkgs.writeShellScript "redis-happier-recover-incompatible-rdb" ''
-        set -euo pipefail
-
-        db_dir="/var/lib/redis-happier"
-        dump_file="$db_dir/dump.rdb"
-
-        if [ ! -s "$dump_file" ]; then
-          exit 0
-        fi
-
-        if ${pkgs.redis}/bin/redis-check-rdb "$dump_file" >/dev/null 2>&1; then
-          exit 0
-        fi
-
-        ts="$(${pkgs.coreutils}/bin/date -u +%Y%m%dT%H%M%SZ)"
-        backup_file="$db_dir/dump.rdb.incompatible.$ts"
-
-        echo "redis-happier: incompatible dump.rdb detected, moving to $backup_file" >&2
-        ${pkgs.coreutils}/bin/mv "$dump_file" "$backup_file"
-      '';
-    in
-    {
-      serviceConfig.ExecStartPre = lib.mkBefore [ recoverIncompatibleRdb ];
-    };
 
   virtualisation.docker.enable = lib.mkForce false;
 
@@ -748,7 +707,6 @@ in
     after = [ "cloudflared-credentials-opencode.service" ];
   };
 
-  sops.secrets.happier-env.owner = "root";
   sops.secrets.minio-credentials.owner = "root";
   sops.secrets.wellness_supabase_publishable_key = {
     owner = "cdenneen";
