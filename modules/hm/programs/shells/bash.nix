@@ -11,7 +11,26 @@ in
       '';
       profileExtra = ''
         if [ -e $HOME/.nix-profile/etc/profile.d/nix.sh ]; then . $HOME/.nix-profile/etc/profile.d/nix.sh; fi
-        if [ -e $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh ]; then . $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh; fi
+        if [ -r "/etc/profiles/per-user/$USER/etc/profile.d/hm-session-vars.sh" ]; then
+          . "/etc/profiles/per-user/$USER/etc/profile.d/hm-session-vars.sh"
+        elif [ -e $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh ]; then
+          . $HOME/.nix-profile/etc/profile.d/hm-session-vars.sh
+        fi
+
+        if [ -r "$HOME/.secrets" ]; then
+          . "$HOME/.secrets"
+          unset GITLAB_TOKEN GITLAB_ACCESS_TOKEN GITLAB_PERSONAL_ACCESS_TOKEN OAUTH_TOKEN 2>/dev/null || true
+        fi
+
+        if [ -r /run/secrets/github-token ]; then
+          export GITHUB_TOKEN="$(tr -d '\n' </run/secrets/github-token)"
+        elif [ -r /var/run/secrets/github-token ]; then
+          export GITHUB_TOKEN="$(tr -d '\n' </var/run/secrets/github-token)"
+        elif [ -r "$HOME/.local/share/sops-nix/secrets/github-token" ]; then
+          export GITHUB_TOKEN="$(tr -d '\n' <"$HOME/.local/share/sops-nix/secrets/github-token")"
+        elif [ -r "$HOME/.config/sops-nix/secrets/github-token" ]; then
+          export GITHUB_TOKEN="$(tr -d '\n' <"$HOME/.config/sops-nix/secrets/github-token")"
+        fi
 
         if [ -z "''${SOPS_AGE_KEY_FILE:-}" ]; then
           if [ -r /var/sops/age/keys.txt ]; then
