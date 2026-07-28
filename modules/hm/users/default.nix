@@ -2,13 +2,13 @@
   config,
   lib,
   pkgs,
-  system,
   osConfig,
   ...
 }:
 let
   cfg = config.profiles;
   opencodePkg = pkgs.callPackage ../../../pkgs/opencode-cli.nix { };
+  hostSystem = pkgs.stdenv.hostPlatform.system;
 in
 {
   imports = [
@@ -41,7 +41,7 @@ in
           "/run/current-system/sw/bin"
           "/nix/var/nix/profiles/default/bin"
         ]
-        ++ lib.optionals (system == "aarch64-darwin") [
+        ++ lib.optionals (hostSystem == "aarch64-darwin") [
           "/opt/homebrew/bin"
           "/opt/homebrew/sbin"
         ]

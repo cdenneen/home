@@ -2,25 +2,50 @@
   config,
   lib,
   vimnix,
-  system,
   pkgs,
   ...
 }:
 let
   cfg = config.programs.nvim;
-
+  vimnixRoot = vimnix.outPath;
+  mkIfExists = path: if builtins.pathExists path then path else pkgs.emptyFile;
 in
 {
-  imports = [ vimnix.homeManagerModules.default ];
   options.programs.nvim = {
     enable = lib.mkEnableOption "Enable neovim";
   };
 
   config = lib.mkIf cfg.enable {
-    # vimnix bootstraps lazy.nvim from init.lua, so Home Manager plugin wiring
-    # is unnecessary here and currently triggers a plugin schema mismatch with
-    # recent nixpkgs/home-manager combinations.
-    programs.neovim.plugins = lib.mkForce [ ];
+    home.packages = with pkgs; [
+      neovim-unwrapped
+      biome
+      clang-tools
+      gh
+      go
+      gofumpt
+      gotools
+      gopls
+      jq
+      luajitPackages.jsregexp
+      luajitPackages.luarocks
+      mdformat
+      nixd
+      pyright
+      ripgrep
+      rust-analyzer
+      ruff
+      stylua
+      taplo
+      tree-sitter
+      typescript
+      typescript-language-server
+      yamlfmt
+    ];
+
+    home.file = {
+      ".config/nvim/init.lua".source = "${vimnixRoot}/init.lua";
+      ".config/nvim/lua".source = mkIfExists "${vimnixRoot}/lua";
+    };
 
     home.shellAliases.vi = "nvim";
     home.shellAliases.vim = "nvim";

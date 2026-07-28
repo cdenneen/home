@@ -1,5 +1,6 @@
 {
   config,
+  fluxcdAgentSkills,
   lib,
   osConfig ? null,
   nixHostName ? null,
@@ -24,6 +25,7 @@ let
   isNyx = hostName == "nyx";
   isGhost = hostName == "ghost";
   isDarwin = pkgs.stdenv.isDarwin;
+  hostSystem = pkgs.stdenv.hostPlatform.system;
   useSharedNyxMcp = isDarwin || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
@@ -337,6 +339,8 @@ in
 
   programs."fluxcd-agent-skills" = {
     enable = true;
+    package = fluxcdAgentSkills.packages.${hostSystem}.skills;
+    installPackage = fluxcdAgentSkills.packages.${hostSystem}.install;
     tools = [ "codex" ];
     targets = [
       ".agents/skills"

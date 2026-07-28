@@ -2,12 +2,12 @@
   config,
   lib,
   pkgs,
-  system,
   stablePkgs,
   ...
 }:
 let
   cfg = config.profiles;
+  hostSystem = pkgs.stdenv.hostPlatform.system;
 in
 {
   options = {
@@ -84,7 +84,7 @@ in
         ]
         ++
           lib.optionals
-            (builtins.elem system [
+            (builtins.elem hostSystem [
               "aarch64-darwin"
               "aarch64-linux"
               "x86_64-linux"

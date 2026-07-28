@@ -2,18 +2,18 @@
   config,
   lib,
   pkgs,
-  system,
   ...
 }:
 let
   cfg = config.programs.hyper;
+  hostSystem = pkgs.stdenv.hostPlatform.system;
 in
 {
   options.programs.hyper = {
     enable = lib.mkEnableOption "Hyper terminal emulator";
     package = lib.mkOption {
       type = lib.types.package;
-      default = if (system == "x86_64-linux") then pkgs.hyper else pkgs.emptyDirectory;
+      default = if (hostSystem == "x86_64-linux") then pkgs.hyper else pkgs.emptyDirectory;
     };
     config_file = lib.mkOption {
       type = lib.types.lines;
