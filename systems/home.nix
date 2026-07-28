@@ -17,9 +17,13 @@ let
     };
 
   opencodeHomeModule =
-    { pkgs, ... }:
     {
-      programs.opencode.package = pkgs.callPackage ../pkgs/opencode-cli.nix { };
+      agentPkgs ? null,
+      pkgs,
+      ...
+    }:
+    {
+      programs.opencode.package = agentPkgs.opencode;
     };
 
   homeConfiguration = mkHomeConfiguration;

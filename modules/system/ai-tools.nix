@@ -1,15 +1,22 @@
 {
   config,
+  agentPkgs ? null,
   lib,
   unstablePkgs ? null,
   pkgs,
   ...
 }:
 let
-  aiPkgs = if unstablePkgs != null then unstablePkgs else pkgs;
+  aiPkgs =
+    if agentPkgs != null then
+      agentPkgs
+    else if unstablePkgs != null then
+      unstablePkgs
+    else
+      pkgs;
 in
 {
-  options.profiles.aiTools.enable = lib.mkEnableOption "AI CLI tools (claude-code, opencode)";
+  options.profiles.aiTools.enable = lib.mkEnableOption "AI CLI tools (claude-code, codex, opencode)";
 
   config = lib.mkIf config.profiles.aiTools.enable {
     environment.systemPackages = [

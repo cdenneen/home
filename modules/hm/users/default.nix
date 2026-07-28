@@ -1,5 +1,6 @@
 {
   config,
+  agentPkgs ? null,
   lib,
   pkgs,
   osConfig,
@@ -7,7 +8,7 @@
 }:
 let
   cfg = config.profiles;
-  opencodePkg = pkgs.callPackage ../../../pkgs/opencode-cli.nix { };
+  opencodePkg = agentPkgs.opencode;
   hostSystem = pkgs.stdenv.hostPlatform.system;
 in
 {

@@ -59,6 +59,18 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+    opencode-src = {
+      url = "github:sst/opencode";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    codex-src = {
+      url = "github:sadjow/codex-cli-nix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    claude-src = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
     fluxcdAgentSkills = {
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -131,7 +143,6 @@
 
             })
             nur.overlays.default
-            # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
           ];
           config = {
             allowBroken = true;

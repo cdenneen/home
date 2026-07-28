@@ -1,4 +1,5 @@
 {
+  agentPkgs,
   lib,
   pkgs,
   config,
@@ -1194,9 +1195,7 @@ in
 
   home-manager.users.cdenneen.imports = [ ./nyx-home.nix ];
 
-  home-manager.users.cdenneen.programs.opencode.package = lib.mkForce (
-    pkgs.callPackage ../../pkgs/opencode-cli.nix { }
-  );
+  home-manager.users.cdenneen.programs.opencode.package = lib.mkForce agentPkgs.opencode;
 
   # Starship palette is configured in nyx-home.nix.
 }
