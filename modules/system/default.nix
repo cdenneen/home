@@ -34,6 +34,7 @@ in
     {
       # Enable cdenneen user preset globally so Home Manager activates everywhere
       userPresets.cdenneen.enable = true;
+      profiles.aiTools.enable = lib.mkDefault true;
 
       # Home Manager integration is enabled by default, but can be disabled
       # for hosts that prefer standalone home-manager switch.
