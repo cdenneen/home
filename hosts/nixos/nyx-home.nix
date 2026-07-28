@@ -6,23 +6,20 @@
 }:
 let
   happierCli = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-cli;
+  opencodePasswordInit = ''
+    if [ -z "''${OPENCODE_SERVER_PASSWORD:-}" ] && [ -r /run/secrets/opencode_server_password ]; then
+      export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/tr -d '\n\r' </run/secrets/opencode_server_password)"
+    fi
+  '';
 in
 {
   sops.secrets = { };
 
   programs.starship.settings.palette = lib.mkForce "nyx";
 
-  programs.zsh.initExtra = lib.mkAfter ''
-    if [ -z "''${OPENCODE_SERVER_PASSWORD:-}" ] && [ -r /run/secrets/opencode_server_password ]; then
-      export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/tr -d '\n\r' </run/secrets/opencode_server_password)"
-    fi
-  '';
+  programs.zsh.initContent = lib.mkAfter opencodePasswordInit;
 
-  programs.bash.initExtra = lib.mkAfter ''
-    if [ -z "''${OPENCODE_SERVER_PASSWORD:-}" ] && [ -r /run/secrets/opencode_server_password ]; then
-      export OPENCODE_SERVER_PASSWORD="$(${pkgs.coreutils}/bin/tr -d '\n\r' </run/secrets/opencode_server_password)"
-    fi
-  '';
+  programs.bash.initExtra = lib.mkAfter opencodePasswordInit;
 
   home.activation.happierNyxCleanupLegacyService = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     legacy_default="$HOME/.config/systemd/user/happier-daemon.service"

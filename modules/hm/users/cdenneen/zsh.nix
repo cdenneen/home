@@ -47,7 +47,10 @@ in
     assign = "none";
   };
 
-  programs.zsh.envExtra = import ./zsh/env.nix { inherit pkgs lib; };
+  programs.zsh.envExtra = import ./zsh/env.nix {
+    inherit pkgs lib;
+    sessionPath = config.home.sessionPath;
+  };
 
   programs.zsh.shellAliases = import ./zsh/aliases.nix;
 
