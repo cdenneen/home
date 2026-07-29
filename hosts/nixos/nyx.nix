@@ -421,7 +421,6 @@ in
       "d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" = {
         credentialsFile = "/var/lib/cloudflared/opencode.json";
         ingress = {
-          "chat.denneen.net" = "http://127.0.0.1:4096";
           "${opensyncPublicHost}" = "http://127.0.0.1:5173";
         };
         default = "http_status:404";

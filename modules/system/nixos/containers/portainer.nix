@@ -30,7 +30,7 @@ in
   config = lib.mkIf cfg.enable {
     containerPresets.podman.enable = lib.mkDefault true;
     virtualisation.arion.projects.portainer.settings.services.portainer.service = {
-      image = "docker.io/portainer/portainer-ce:latest";
+      image = "docker.io/portainer/portainer-ce:2.39.5@sha256:f6bc23d1695530a609563fd65c180aaafec0fc02e019d5fc63d16b6fbe83addd";
       ports = [
         "${toString cfg.port}:8000"
         "${toString cfg.sport}:9443"

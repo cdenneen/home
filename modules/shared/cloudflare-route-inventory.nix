@@ -39,9 +39,9 @@ in
   publishedRoutes = {
     chat = route {
       hostname = "chat.denneen.net";
-      owner = "nyx";
+      owner = "ghost";
       serviceByTunnel = {
-        nyx = "http://localhost:4096";
+        ghost = "http://localhost:8080";
       };
     };
 

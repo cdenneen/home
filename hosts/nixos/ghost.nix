@@ -107,6 +107,10 @@ in
 
   containerPresets = {
     podman.enable = true;
+    open-webui = {
+      enable = true;
+      ollamaBaseUrl = "http://127.0.0.1:${toString ollamaPort}";
+    };
   };
   virtualisation.docker.enable = lib.mkForce false;
 
@@ -195,13 +199,13 @@ in
         ghost = {
           authenticationTokenConfigFile = gitlabRunnerEnvFile;
           executor = "docker";
-          dockerImage = "alpine:3.20";
+          dockerImage = "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b";
           requestConcurrency = 2;
         };
         "ghost-2" = {
           authenticationTokenConfigFile = gitlabRunnerSecondaryEnvFile;
           executor = "docker";
-          dockerImage = "alpine:3.20";
+          dockerImage = "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b";
           requestConcurrency = 2;
         };
       };
@@ -233,6 +237,7 @@ in
       tunnels."${ghostTunnelId}" = {
         credentialsFile = ghostCloudflareCredFile;
         ingress = {
+          "chat.denneen.net" = "http://127.0.0.1:8080";
           "${pepsApiHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
@@ -251,7 +256,7 @@ in
   virtualisation.oci-containers.backend = "podman";
   virtualisation.oci-containers.containers = {
     qdrant = {
-      image = "qdrant/qdrant:latest";
+      image = "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286";
       ports = [
         "127.0.0.1:${toString qdrantHttpPort}:6333"
         "127.0.0.1:${toString qdrantGrpcPort}:6334"
@@ -262,7 +267,7 @@ in
     };
 
     litellm = {
-      image = "ghcr.io/berriai/litellm:latest";
+      image = "ghcr.io/berriai/litellm:v1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe";
       ports = [ ];
       volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
       extraOptions = [
@@ -285,7 +290,7 @@ in
     };
 
     neo4j = {
-      image = "neo4j:5";
+      image = "neo4j:5.26.28@sha256:362542416de6c09a971484d1893878016cc3b5cdec166e54b1c824a220ecd6b9";
       ports = [
         "127.0.0.1:${toString neo4jHttpPort}:7474"
         "127.0.0.1:${toString neo4jBoltPort}:7687"
