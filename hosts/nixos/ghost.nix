@@ -109,6 +109,7 @@ in
     podman.enable = true;
     open-webui = {
       enable = true;
+      dataDir = "/var/lib/open-webui-fresh";
       ollamaBaseUrl = "http://127.0.0.1:${toString ollamaPort}";
     };
   };
