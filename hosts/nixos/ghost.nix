@@ -8,6 +8,30 @@
 let
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
   ghostCloudflareCredFile = "/var/lib/cloudflared/ghost.json";
+  axisWebPackage = axis.packages.${pkgs.system}.axis-web;
+  axisWebTokenFile = "/run/axis-web/token";
+  axisWebTokenSetup = pkgs.writeShellScript "axis-web-token-setup" ''
+    set -euo pipefail
+
+    contexts_file="/var/lib/axis/client/contexts.json"
+    token_tmp="${axisWebTokenFile}.tmp"
+
+    if [ ! -r "$contexts_file" ]; then
+      echo "axis-web: client contexts are not readable" >&2
+      exit 1
+    fi
+
+    trap '${pkgs.coreutils}/bin/rm -f "$token_tmp"' EXIT
+    ${pkgs.coreutils}/bin/install -m 0600 /dev/null "$token_tmp"
+    ${pkgs.jq}/bin/jq -er '
+      .active_context as $active
+      | select(($active | type) == "string" and ($active | length) > 0)
+      | .contexts[$active].auth_token
+      | select(type == "string" and length > 0)
+    ' "$contexts_file" > "$token_tmp"
+    ${pkgs.coreutils}/bin/chmod 0600 "$token_tmp"
+    ${pkgs.coreutils}/bin/mv -f "$token_tmp" "${axisWebTokenFile}"
+  '';
   pepsApiHost = "peps-api.denneen.net";
   pepsWebHost = "peps.denneen.net";
   pepsRepoDir = "/var/lib/peps/repo";
@@ -421,6 +445,64 @@ in
       DynamicUser = lib.mkForce false;
       User = "gitlab-runner";
       Group = "gitlab-runner";
+    };
+  };
+
+  systemd.services.axis-web = {
+    description = "AXIS Web embodiment";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "axis.service"
+      "network-online.target"
+    ];
+    requires = [
+      "axis.service"
+      "network-online.target"
+    ];
+    environment = {
+      HOSTNAME = "127.0.0.1";
+      PORT = "3001";
+      AXIS_WEB_SERVICE_URL = "http://127.0.0.1:8780";
+      AXIS_WEB_TOKEN_FILE = axisWebTokenFile;
+    };
+    serviceConfig = {
+      Type = "simple";
+      User = "axis";
+      Group = "axis";
+      ExecStartPre = axisWebTokenSetup;
+      ExecStart = "${axisWebPackage}/bin/axis-web";
+      Restart = "on-failure";
+      RestartSec = "5s";
+      RuntimeDirectory = "axis-web";
+      RuntimeDirectoryMode = "0700";
+      UMask = "0077";
+
+      AmbientCapabilities = "";
+      CapabilityBoundingSet = "";
+      LockPersonality = true;
+      NoNewPrivileges = true;
+      PrivateDevices = true;
+      PrivateTmp = true;
+      ProcSubset = "pid";
+      ProtectClock = true;
+      ProtectControlGroups = true;
+      ProtectHome = true;
+      ProtectHostname = true;
+      ProtectKernelLogs = true;
+      ProtectKernelModules = true;
+      ProtectKernelTunables = true;
+      ProtectProc = "invisible";
+      ProtectSystem = "strict";
+      RemoveIPC = true;
+      RestrictAddressFamilies = [
+        "AF_INET"
+        "AF_INET6"
+        "AF_UNIX"
+      ];
+      RestrictNamespaces = true;
+      RestrictRealtime = true;
+      RestrictSUIDSGID = true;
+      SystemCallArchitectures = "native";
     };
   };
 
@@ -1305,6 +1387,9 @@ in
 
   systemd.services."cloudflared-tunnel-${ghostTunnelId}" = {
     requires = [ "cloudflared-credentials-ghost.service" ];
-    after = [ "cloudflared-credentials-ghost.service" ];
+    after = [
+      "axis-web.service"
+      "cloudflared-credentials-ghost.service"
+    ];
   };
 }

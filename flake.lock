@@ -67,16 +67,17 @@
     },
     "axis": {
       "inputs": {
+        "nix-darwin": "nix-darwin",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1785197499,
-        "narHash": "sha256-Tm5blIXJv7IPwci31Yt5MTU+vVUXw0wN/mbsRoe+2do=",
+        "lastModified": 1785293560,
+        "narHash": "sha256-R2hUH7YGB/j5MiyJT6pQXMOwn23ZYBk14JHw12JCXuk=",
         "ref": "refs/heads/main",
-        "rev": "f4d835a84a2f4a8388d43f3b5633b222ba919acc",
-        "revCount": 177,
+        "rev": "890847a8221da512f3d830996737033667f5f214",
+        "revCount": 213,
         "type": "git",
         "url": "ssh://git@gitlab.com/ghostspace/axis.git"
       },
@@ -543,6 +544,28 @@
       }
     },
     "nix-darwin": {
+      "inputs": {
+        "nixpkgs": [
+          "axis",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1772129556,
+        "narHash": "sha256-Utk0zd8STPsUJPyjabhzPc5BpPodLTXrwkpXBHYnpeg=",
+        "owner": "nix-darwin",
+        "repo": "nix-darwin",
+        "rev": "ebec37af18215214173c98cf6356d0aca24a2585",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-darwin",
+        "ref": "nix-darwin-25.11",
+        "repo": "nix-darwin",
+        "type": "github"
+      }
+    },
+    "nix-darwin_2": {
       "inputs": {
         "nixpkgs": [
           "nixpkgs"
@@ -1033,7 +1056,7 @@
         "fluxcdAgentSkills": "fluxcdAgentSkills",
         "home-manager": "home-manager",
         "mac-app-util": "mac-app-util",
-        "nix-darwin": "nix-darwin",
+        "nix-darwin": "nix-darwin_2",
         "nix-homebrew": "nix-homebrew",
         "nix-index-database": "nix-index-database",
         "nixos-crostini": "nixos-crostini",
