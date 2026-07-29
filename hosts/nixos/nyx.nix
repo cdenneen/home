@@ -10,15 +10,15 @@ let
   convexCloudOrigin = "http://${convexHost}:3210";
   convexSiteOrigin = "http://${convexHost}:3211";
   opensyncPublicHost = "opensync.denneen.net";
-  convexBackendImage = "ghcr.io/get-convex/convex-backend@sha256:ed7ad78d762042f99dcaaf0d9e3d54394bc9c57f49db9a086022e6812c0fe2e5";
-  convexDashboardImage = "ghcr.io/get-convex/convex-dashboard@sha256:5130ab98244b8e9900c05603cfce8cf5a806c769af716a512e662545a9332db2";
+  convexBackendImage = "ghcr.io/get-convex/convex-backend@sha256:467964cc6af57ba3e757e3e6cb1fa09a1c577803a19f03f0f42c9c4b134b070c";
+  convexDashboardImage = "ghcr.io/get-convex/convex-dashboard@sha256:5f4620ca0640ed863a8c5109123b9831157e889c6294e28c5e96ea0a62375efb";
   opensyncRevision = "80005262fed8dac894fe618352a5e4b94c53813d";
   recalliumHost = "nyx.tail0e55.ts.net";
   recalliumApiPort = 18001;
   recalliumUiPort = 19001;
   recalliumMcpUrl = "http://${recalliumHost}:${toString recalliumApiPort}/mcp";
   recalliumUiBaseUrl = "http://${recalliumHost}:${toString recalliumUiPort}";
-  recalliumImage = "docker.io/recalliumai/recallium@sha256:306b43857aa712bb0f8e63d1830776c621c0220131856d3be88a0429d22f907d";
+  recalliumImage = "docker.io/recalliumai/recallium:0.8.488@sha256:241bf1034df6e953f088d42b1d0a36d2689fc9cde305f506268c9cfbdbc2257a";
   terraformMcpImage = "hashicorp/terraform-mcp-server:0.4.0";
   nyxMcpWarmPackages = [
     "supergateway"
