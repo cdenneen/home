@@ -9,6 +9,8 @@ let
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
   ghostCloudflareCredFile = "/var/lib/cloudflared/ghost.json";
   axisWebPackage = axis.packages.${pkgs.system}.axis-web;
+  axisWebDashboardPasswordFile = config.sops.secrets.axis_web_dashboard_password.path;
+  axisWebSessionSecretFile = config.sops.secrets.axis_web_session_secret.path;
   axisWebTokenFile = "/run/axis-web/token";
   axisWebTokenSetup = pkgs.writeShellScript "axis-web-token-setup" ''
     set -euo pipefail
@@ -320,6 +322,18 @@ in
     group = "root";
     mode = "0400";
   };
+  sops.secrets.axis_web_dashboard_password = {
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis-web.service" ];
+  };
+  sops.secrets.axis_web_session_secret = {
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis-web.service" ];
+  };
   sops.secrets.cdenneen_ed25519_2024 = {
     owner = "cdenneen";
     group = "users";
@@ -459,9 +473,15 @@ in
       "axis.service"
       "network-online.target"
     ];
+    unitConfig.RequiresMountsFor = [
+      axisWebDashboardPasswordFile
+      axisWebSessionSecretFile
+    ];
     environment = {
       HOSTNAME = "127.0.0.1";
       PORT = "3001";
+      AXIS_WEB_DASHBOARD_PASSWORD_FILE = axisWebDashboardPasswordFile;
+      AXIS_WEB_SESSION_SECRET_FILE = axisWebSessionSecretFile;
       AXIS_WEB_SERVICE_URL = "http://127.0.0.1:8780";
       AXIS_WEB_TOKEN_FILE = axisWebTokenFile;
     };
