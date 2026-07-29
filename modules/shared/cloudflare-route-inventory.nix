@@ -103,7 +103,7 @@ in
       path = "^/api/v1/ws";
       owner = "ghost";
       serviceByTunnel = {
-        ghost = "http://localhost:8001";
+        ghost = "http://localhost:8780";
       };
     };
 
@@ -112,7 +112,7 @@ in
       path = "^/api";
       owner = "ghost";
       serviceByTunnel = {
-        ghost = "http://localhost:8001";
+        ghost = "http://localhost:8780";
       };
     };
 
