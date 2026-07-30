@@ -1,6 +1,7 @@
 # Encrypted Secret Operations
 
-`secrets/secrets.yaml` is SOPS-encrypted. Never place plaintext credentials in
+`secrets/secrets.yaml` and product-scoped files such as `secrets/axis.yaml` are
+SOPS-encrypted. Never place plaintext credentials in
 the repository, shell history, command arguments, logs, GitLab/GitHub issues,
 or acceptance evidence.
 
@@ -52,7 +53,9 @@ sops updatekeys secrets/secrets.yaml
 
 ## AXIS Secrets
 
-AXIS-related keys use the `axis_` prefix. Provider API keys, voice IDs, model
-routing configuration, dashboard credentials, and external-vault bootstrap
-references remain installation-local. Portable Organism exports contain only
-approved semantic intent and references, never these values.
+AXIS-related keys use the `axis_` prefix and live in `secrets/axis.yaml`, not the
+general host `secrets/secrets.yaml`. This limits recipient, review, rotation,
+and deployment blast radius. Provider API keys, voice IDs, model routing
+configuration, dashboard credentials, and external-vault bootstrap references
+remain installation-local. Portable Organism exports contain only approved
+semantic intent and references, never these values.

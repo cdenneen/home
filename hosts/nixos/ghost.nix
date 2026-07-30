@@ -329,12 +329,14 @@ in
     mode = "0400";
   };
   sops.secrets.axis_web_dashboard_password = {
+    sopsFile = ../../secrets/axis.yaml;
     owner = "axis";
     group = "axis";
     mode = "0400";
     restartUnits = [ "axis-web.service" ];
   };
   sops.secrets.axis_web_session_secret = {
+    sopsFile = ../../secrets/axis.yaml;
     owner = "axis";
     group = "axis";
     mode = "0400";
