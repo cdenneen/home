@@ -78,8 +78,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Merge flake.lock PR
+      - name: Merge dependency PR
         if: steps.evals.outputs.ready == 'true' && steps.pr.outputs.pr != ''
-        run: gh pr merge --auto --squash "${{ steps.pr.outputs.pr }}"
+        run: |
+          PR="${{ steps.pr.outputs.pr }}"
+
+          # Prefer auto-merge when the repository allows it, but fall back to
+          # a direct squash merge for green dependency PRs when auto-merge is disabled.
+          if gh pr merge --auto --squash "$PR"; then
+            exit 0
+          fi
+
+          echo "Auto-merge unavailable; performing direct squash merge for PR #$PR."
+          gh pr merge --squash --delete-branch "$PR"
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
