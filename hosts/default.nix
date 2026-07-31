@@ -80,6 +80,14 @@ let
       homeModules = [ ./darwin/VNJTECMBCD-home.nix ];
       tags = [ ];
     }
+    {
+      name = "mbair";
+      system = "x86_64-darwin";
+      modules = [ ./darwin/mbair.nix ];
+      homeModules = [ ./darwin/mbair-home.nix ];
+      legacyBigSur = true;
+      tags = [ ];
+    }
   ];
 
   all = nixos ++ darwin;

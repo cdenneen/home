@@ -39,6 +39,10 @@
       url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    home-manager-mbair = {
+      url = "github:nix-community/home-manager/release-25.05";
+      inputs.nixpkgs.follows = "nixpkgs-mbair";
+    };
     apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
     axis = {
       url = "git+ssh://git@gitlab.com/ghostspace/axis.git";
@@ -50,6 +54,10 @@
       url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-darwin-mbair = {
+      url = "github:nix-darwin/nix-darwin/nix-darwin-25.05";
+      inputs.nixpkgs.follows = "nixpkgs-mbair";
+    };
     nix-index-database = {
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -58,6 +66,7 @@
     nixos-hardware.url = "github:nixos/nixos-hardware";
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
+    nixpkgs-mbair.url = "github:nixos/nixpkgs/nixos-25.05";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     opencode-src = {
       url = "github:sst/opencode";
@@ -99,10 +108,19 @@
     }:
     let
       configurations = import ./systems (inputs // { inherit self; });
-      import_nixpkgs =
+      import_nixpkgs_with =
         system: nixpkgs:
+        {
+          darwinMinVersion ? null,
+          includeNur ? true,
+        }:
         import nixpkgs {
-          inherit system;
+          localSystem = {
+            inherit system;
+          }
+          // nixpkgs.lib.optionalAttrs (darwinMinVersion != null) {
+            inherit darwinMinVersion;
+          };
           overlays = [
             (final: prev: {
               # nixpkgs kept nixfmt-rfc-style as an alias for a while and emits a warning
@@ -111,9 +129,7 @@
               "nixfmt-rfc-style" = prev.nixfmt;
 
               # Avoid deprecation warning from xorg.lndir alias.
-              xorg = prev.xorg // {
-                lndir = prev.lndir;
-              };
+              xorg = prev.xorg // prev.lib.optionalAttrs (prev ? lndir) { lndir = prev.lndir; };
 
               # inetutils fails on darwin with -Werror=format-security.
               inetutils = prev.inetutils.overrideAttrs (old: {
@@ -152,18 +168,19 @@
                   prev.oauth2-proxy;
 
             })
-            nur.overlays.default
-          ];
+          ]
+          ++ nixpkgs.lib.optional includeNur nur.overlays.default;
           config = {
             allowBroken = true;
             allowUnfree = true;
           };
         };
+      import_nixpkgs = system: nixpkgs: import_nixpkgs_with system nixpkgs { };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       flake = {
         lib = {
-          inherit import_nixpkgs;
+          inherit import_nixpkgs import_nixpkgs_with;
         }
         // configurations.lib;
         nixosModules.default = ./modules/system/nixos;

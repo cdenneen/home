@@ -1,4 +1,9 @@
-{ config, lib, ... }:
+{
+  config,
+  lib,
+  options,
+  ...
+}:
 let
   cfg = config.programs.git;
 in
@@ -16,13 +21,9 @@ in
       };
     };
     programs = {
-      delta = {
-        enable = true;
-        enableGitIntegration = true;
-      };
       git = {
         lfs.enable = true;
-        settings = {
+        ${if options.programs.git ? settings then "settings" else "extraConfig"} = {
           pull.rebase = "true";
           rebase.autostash = "true";
           core.editor = "nvim";
@@ -189,98 +190,104 @@ in
             ws-update = "!update_workspace";
             clone = ''
               !f(){
-                            if [ $# -lt 1 ]; then
-                              echo "usage: git clone <url> [path]" >&2
-                              exit 2
-                            fi
-
-                            url="\$1"
-                            dest="''${2:-}"
-                            shift || true
-
-                            case "\$url" in
-                              git@*:* )
-                                host="''${url#git@}"
-                                host="''${host%%:*}"
-                                path="''${url#git@''${host}:}"
-                                ;;
-                              http://*/*|https://*/* )
-                                host="''${url#*://}"
-                                host="''${host%%/*}"
-                                path="''${url#*://''${host}/}"
-                                ;;
-                              ssh://git@*/* )
-                                host="''${url#ssh://git@}"
-                                host="''${host%%/*}"
-                                path="''${url#ssh://git@''${host}/}"
-                                ;;
-                              * )
-                                echo "git clone: unsupported URL: \$url" >&2
+                              if [ $# -lt 1 ]; then
+                                echo "usage: git clone <url> [path]" >&2
                                 exit 2
-                                ;;
-                            esac
+                              fi
 
-                            path="''${path%.git}"
-                            repo="''${path##*/}"
+                              url="\$1"
+                              dest="''${2:-}"
+                              shift || true
 
-                            if [ -z "\$dest" ]; then
-                              target_dir="."
-                              target_name="\$repo"
-                            else
-                              target_dir="''${dest%/*}"
-                              [ "\$target_dir" = "\$dest" ] && target_dir="."
-                              target_name="''${dest##*/}"
-                            fi
+                              case "\$url" in
+                                git@*:* )
+                                  host="''${url#git@}"
+                                  host="''${host%%:*}"
+                                  path="''${url#git@''${host}:}"
+                                  ;;
+                                http://*/*|https://*/* )
+                                  host="''${url#*://}"
+                                  host="''${host%%/*}"
+                                  path="''${url#*://''${host}/}"
+                                  ;;
+                                ssh://git@*/* )
+                                  host="''${url#ssh://git@}"
+                                  host="''${host%%/*}"
+                                  path="''${url#ssh://git@''${host}/}"
+                                  ;;
+                                * )
+                                  echo "git clone: unsupported URL: \$url" >&2
+                                  exit 2
+                                  ;;
+                              esac
 
-                            if [ -e "\$target_dir/\$target_name" ]; then
-                              echo "git clone: destination exists: \$target_dir/\$target_name" >&2
-                              exit 1
-                            fi
+                              path="''${path%.git}"
+                              repo="''${path##*/}"
 
-                            if [ -n "''${CACHE_ROOT:-}" ]; then
-                              cache_root="\$CACHE_ROOT"
-                            elif [ "\$(uname -s)" = "Darwin" ]; then
-                              cache_root="\$HOME/code/cache"
-                            else
-                              cache_root="\$HOME/src/cache"
-                            fi
-                            cache_repo="''${cache_root}/''${host}_''${path//\//_}.git"
-
-                            mkdir -p "\$cache_root"
-                            if [ ! -d "\$cache_repo" ]; then
-                              git clone --bare "\$url" "\$cache_repo"
-                            fi
-                            git --git-dir="\$cache_repo" config --add remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*" >/dev/null 2>&1 || true
-                            git --git-dir="\$cache_repo" fetch --prune origin
-
-                            branch="\$(git --git-dir="\$cache_repo" symbolic-ref -q refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')"
-                            if [ -z "\$branch" ]; then
-                              if git --git-dir="\$cache_repo" show-ref --verify --quiet refs/remotes/origin/main; then
-                                branch="main"
-                              elif git --git-dir="\$cache_repo" show-ref --verify --quiet refs/remotes/origin/master; then
-                                branch="master"
+                              if [ -z "\$dest" ]; then
+                                target_dir="."
+                                target_name="\$repo"
                               else
-                                echo "git clone: unable to determine default branch" >&2
+                                target_dir="''${dest%/*}"
+                                [ "\$target_dir" = "\$dest" ] && target_dir="."
+                                target_name="''${dest##*/}"
+                              fi
+
+                              if [ -e "\$target_dir/\$target_name" ]; then
+                                echo "git clone: destination exists: \$target_dir/\$target_name" >&2
                                 exit 1
                               fi
-                            fi
 
-                            ws="\$WORKSPACE_NAME"
-                            if [ -z "\$ws" ]; then
-                              ws="\$(basename "\$(cd "\$target_dir" && pwd)")"
-                            fi
-                            ws="\$(printf '%s' "\$ws" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//; s/-$//')"
-                            [ -n "\$ws" ] || { echo "invalid workspace name" >&2; exit 2; }
+                              if [ -n "''${CACHE_ROOT:-}" ]; then
+                                cache_root="\$CACHE_ROOT"
+                              elif [ "\$(uname -s)" = "Darwin" ]; then
+                                cache_root="\$HOME/code/cache"
+                              else
+                                cache_root="\$HOME/src/cache"
+                              fi
+                              cache_repo="''${cache_root}/''${host}_''${path//\//_}.git"
 
-                            localb="\$branch@\$ws"
-                            git --git-dir="\$cache_repo" worktree add -B "\$localb" "\$target_dir/\$target_name" "origin/\$branch"
-                            git -C "\$target_dir/\$target_name" branch --set-upstream-to="origin/\$branch" "\$localb" >/dev/null 2>&1 || true
-                            echo "Added worktree \$target_dir/\$target_name on \$localb (tracks origin/\$branch)"
-                          }; f'';
+                              mkdir -p "\$cache_root"
+                              if [ ! -d "\$cache_repo" ]; then
+                                git clone --bare "\$url" "\$cache_repo"
+                              fi
+                              git --git-dir="\$cache_repo" config --add remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*" >/dev/null 2>&1 || true
+                              git --git-dir="\$cache_repo" fetch --prune origin
+
+                              branch="\$(git --git-dir="\$cache_repo" symbolic-ref -q refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')"
+                              if [ -z "\$branch" ]; then
+                                if git --git-dir="\$cache_repo" show-ref --verify --quiet refs/remotes/origin/main; then
+                                  branch="main"
+                                elif git --git-dir="\$cache_repo" show-ref --verify --quiet refs/remotes/origin/master; then
+                                  branch="master"
+                                else
+                                  echo "git clone: unable to determine default branch" >&2
+                                  exit 1
+                                fi
+                              fi
+
+                              ws="\$WORKSPACE_NAME"
+                              if [ -z "\$ws" ]; then
+                                ws="\$(basename "\$(cd "\$target_dir" && pwd)")"
+                              fi
+                              ws="\$(printf '%s' "\$ws" | tr -cs 'A-Za-z0-9._-' '-' | sed 's/^-//; s/-$//')"
+                              [ -n "\$ws" ] || { echo "invalid workspace name" >&2; exit 2; }
+
+                              localb="\$branch@\$ws"
+                              git --git-dir="\$cache_repo" worktree add -B "\$localb" "\$target_dir/\$target_name" "origin/\$branch"
+                              git -C "\$target_dir/\$target_name" branch --set-upstream-to="origin/\$branch" "\$localb" >/dev/null 2>&1 || true
+                              echo "Added worktree \$target_dir/\$target_name on \$localb (tracks origin/\$branch)"
+              }; f'';
           };
         };
       };
       lazygit.enable = true;
+    }
+    // lib.optionalAttrs (options.programs ? delta) {
+      delta = {
+        enable = true;
+        enableGitIntegration = true;
+      };
     };
   };
 }

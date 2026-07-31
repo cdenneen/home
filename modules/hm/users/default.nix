@@ -1,14 +1,17 @@
 {
   config,
   agentPkgs ? null,
+  homeStateVersion ? "25.11",
   lib,
+  options,
   pkgs,
   osConfig,
   ...
 }:
 let
   cfg = config.profiles;
-  opencodePkg = agentPkgs.opencode;
+  hasOpencode = agentPkgs != null && options.programs ? opencode;
+  opencodePkg = if hasOpencode then agentPkgs.opencode else null;
   hostSystem = pkgs.stdenv.hostPlatform.system;
 in
 {
@@ -23,7 +26,7 @@ in
 
   config = lib.mkIf cfg.defaults.enable {
     home = {
-      stateVersion = "25.11";
+      stateVersion = homeStateVersion;
       enableNixpkgsReleaseCheck = false;
       sessionPath =
         lib.optionals config.programs.volta.enable [
@@ -188,7 +191,6 @@ in
       zsh.enable = lib.mkDefault true;
       bash.enable = lib.mkDefault true;
       nvim.enable = lib.mkDefault true;
-      nix-index-database.comma.enable = lib.mkDefault true;
 
       atuin = {
         enable = lib.mkDefault true;
@@ -200,6 +202,11 @@ in
       direnv.enable = lib.mkDefault true;
       direnv.nix-direnv.enable = lib.mkDefault true;
 
+    }
+    // lib.optionalAttrs (options.programs ? nix-index-database) {
+      nix-index-database.comma.enable = lib.mkDefault true;
+    }
+    // lib.optionalAttrs hasOpencode {
       opencode.enable = lib.mkDefault true;
       opencode.package = lib.mkDefault opencodePkg;
     };

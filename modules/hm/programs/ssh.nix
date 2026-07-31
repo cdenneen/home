@@ -1,10 +1,19 @@
 {
   config,
+  homeStateVersion ? "25.11",
   lib,
+  options,
   ...
 }:
 let
   cfg = config.programs.ssh;
+  hasSshAgentService = homeStateVersion != "25.05" && options.services ? ssh-agent;
+  shellInit = ''
+    # Use ssh-agent; only start one if there is no usable socket.
+    if { [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; }; then
+      eval "$(ssh-agent -s)" >/dev/null
+    fi
+  '';
 in
 {
   config = lib.mkIf cfg.enable {
@@ -20,23 +29,46 @@ in
       nyx,nyx.tail0e55.ts.net,100.80.58.4 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3PCrjUkoqJkZ1Ibi+s702ub7zrqvh44pxVFii5C/FG
       ghost,ghost.tail0e55.ts.net,100.114.242.29,150.136.97.147 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIr7jR0S7KbVD7+wYAqgCEiVVyUYhM2K90EiVKz7ofCd
     '';
-    services.ssh-agent.enable = true;
-    programs = {
-      ssh = {
-        enableDefaultConfig = false;
-        matchBlocks."*" = {
-          forwardAgent = false;
-          addKeysToAgent = "no";
-          compression = false;
-          serverAliveInterval = 0;
-          serverAliveCountMax = 3;
-          hashKnownHosts = false;
-          userKnownHostsFile = "~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts";
-          controlMaster = "no";
-          controlPath = "~/.ssh/master-%r@%n:%p";
-          controlPersist = "no";
-        };
-      };
+    services = lib.optionalAttrs hasSshAgentService {
+      ssh-agent.enable = true;
     };
+    programs =
+      lib.optionalAttrs (!hasSshAgentService) {
+        zsh.initContent = lib.mkAfter shellInit;
+        bash.initExtra = lib.mkAfter shellInit;
+      }
+      // {
+        ssh =
+          if options.programs.ssh ? enableDefaultConfig then
+            {
+              enableDefaultConfig = false;
+              matchBlocks."*" = {
+                forwardAgent = false;
+                addKeysToAgent = "no";
+                compression = false;
+                serverAliveInterval = 0;
+                serverAliveCountMax = 3;
+                hashKnownHosts = false;
+                userKnownHostsFile = "~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts";
+                controlMaster = "no";
+                controlPath = "~/.ssh/master-%r@%n:%p";
+                controlPersist = "no";
+              };
+            }
+          else
+            {
+              extraConfig = ''
+                Host *
+                  HashKnownHosts no
+                  UserKnownHostsFile ~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts
+              '';
+              matchBlocks."*" = {
+                forwardAgent = false;
+                compression = false;
+                serverAliveInterval = 0;
+                serverAliveCountMax = 3;
+              };
+            };
+      };
   };
 }

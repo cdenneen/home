@@ -25,6 +25,7 @@ let
       name = "cdenneen@${host.name}";
       value = homeConfiguration {
         system = host.system;
+        legacyBigSur = host.legacyBigSur or false;
         homeModules = [
           defaultHomeModule
           # Make the host name available during pure HM eval.
