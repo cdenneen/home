@@ -41,6 +41,10 @@
     rio.enable = lib.mkForce false;
     wezterm.enable = lib.mkForce false;
     zellij.enable = lib.mkForce false;
+    zsh.shellAliases = {
+      vi = lib.mkOverride 40 "/usr/bin/vi";
+      vim = lib.mkOverride 40 "/usr/bin/vi";
+    };
   };
 
   services.syncthing.enable = lib.mkForce false;
@@ -51,5 +55,10 @@
     peps-service.enable = lib.mkForce false;
   };
 
-  home.sessionVariables.SOPS_AGE_KEY_FILE = "$HOME/Library/Application Support/sops/age/keys.txt";
+  home.sessionVariables = {
+    EDITOR = lib.mkOverride 40 "/usr/bin/vi";
+    VISUAL = lib.mkOverride 40 "/usr/bin/vi";
+    MANPAGER = lib.mkOverride 40 "less -R";
+    SOPS_AGE_KEY_FILE = "$HOME/Library/Application Support/sops/age/keys.txt";
+  };
 }

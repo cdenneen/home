@@ -3,11 +3,13 @@
   homeStateVersion ? "25.11",
   lib,
   options,
+  pkgs,
   ...
 }:
 let
   cfg = config.programs.ssh;
   hasSshAgentService = homeStateVersion != "25.05" && options.services ? ssh-agent;
+  needsShellAgent = !hasSshAgentService && !pkgs.stdenv.isDarwin;
   shellInit = ''
     # Use ssh-agent; only start one if there is no usable socket.
     if { [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; }; then
@@ -33,7 +35,7 @@ in
       ssh-agent.enable = true;
     };
     programs =
-      lib.optionalAttrs (!hasSshAgentService) {
+      lib.optionalAttrs needsShellAgent {
         zsh.initContent = lib.mkAfter shellInit;
         bash.initExtra = lib.mkAfter shellInit;
       }
@@ -61,6 +63,10 @@ in
                 Host *
                   HashKnownHosts no
                   UserKnownHostsFile ~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts
+                ${lib.optionalString pkgs.stdenv.isDarwin ''
+                  AddKeysToAgent yes
+                  UseKeychain yes
+                ''}
               '';
               matchBlocks."*" = {
                 forwardAgent = false;
