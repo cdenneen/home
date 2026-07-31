@@ -212,11 +212,15 @@
             settings.global.excludes = [
               "secrets/secrets.yaml"
               "secrets/ghost.yaml"
+              "secrets/axis.yaml"
+              "secrets/jarvis.yaml"
             ];
 
             settings.formatter.prettier.excludes = [
               "secrets/secrets.yaml"
               "secrets/ghost.yaml"
+              "secrets/axis.yaml"
+              "secrets/jarvis.yaml"
             ];
           };
 

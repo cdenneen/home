@@ -136,7 +136,7 @@ let
     exec npx -y @playwright/mcp
   '';
 
-  opencodeConfigJson = builtins.toJSON {
+  opencodeConfig = {
     "$schema" = "https://opencode.ai/config.json";
     provider = {
       gitlab = {
@@ -633,10 +633,6 @@ in
     }
 
     {
-      ".opencode/opencode.json".text = opencodeConfigJson;
-    }
-
-    {
       ".local/bin/update-secrets" = {
         source = ./files/update-secrets;
         executable = true;
@@ -650,6 +646,17 @@ in
       ".local/bin/restore-age-key" = {
         source = ./files/restore-age-key;
         executable = true;
+      };
+    }
+
+    {
+      ".cocoindex_code/global_settings.yml" = {
+        force = true;
+        text = ''
+          embedding:
+            provider: sentence-transformers
+            model: Snowflake/snowflake-arctic-embed-xs
+        '';
       };
     }
 
@@ -680,18 +687,6 @@ in
     ''
   );
 
-  home.activation.opencodeMirrorConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    set -euo pipefail
-
-    src="$HOME/.opencode/opencode.json"
-    dst="$HOME/.config/opencode/config.json"
-
-    if [ -f "$src" ]; then
-      $DRY_RUN_CMD mkdir -p "$HOME/.config/opencode"
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src" "$dst"
-    fi
-  '';
-
   # If a local user override exists for opencode-serve.service, it can shadow the
   # system-managed user unit (defined in NixOS) and break PATH/MCP startup.
   home.activation.opencodeNyxCleanupUserUnit = lib.mkIf isNyx (
@@ -714,4 +709,9 @@ in
   programs.zsh.initContent = lib.mkAfter shellSecretExports;
 
   programs.bash.initExtra = lib.mkAfter shellSecretExports;
+
+  programs.opencode.settings = opencodeConfig;
+  xdg.configFile = lib.mkIf config.programs.opencode.enable {
+    "opencode/config.json".force = true;
+  };
 }
