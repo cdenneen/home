@@ -21,6 +21,12 @@ let
     unstable = self.lib.import_nixpkgs system inputs.nixpkgs-unstable;
   };
 
+  mkAgentPkgs = system: {
+    claude-code = inputs.claude-src.packages.${system}.claude-code;
+    codex = inputs.codex-src.packages.${system}.codex;
+    opencode = inputs.opencode-src.packages.${system}.opencode;
+  };
+
   hostCatalog = import ../hosts;
 
   sharedHomeModules = [
@@ -74,8 +80,14 @@ let
       pkgsSet = mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
+      agentPkgs = mkAgentPkgs system;
       specialArgs = inputs // {
-        inherit system stablePkgs unstablePkgs;
+        inherit
+          system
+          stablePkgs
+          unstablePkgs
+          agentPkgs
+          ;
       };
     in
     nixpkgs.lib.nixosSystem {
@@ -96,8 +108,11 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = homeModules ++ sharedHomeModulesIntegrated;
+            sharedModules = sharedHomeModulesIntegrated;
           };
+        }
+        {
+          home-manager.users.cdenneen.imports = homeModules;
         }
       ]
       ++ extraModulesForTags tags
@@ -114,8 +129,14 @@ let
       pkgsSet = mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
+      agentPkgs = mkAgentPkgs system;
       specialArgs = inputs // {
-        inherit system stablePkgs unstablePkgs;
+        inherit
+          system
+          stablePkgs
+          unstablePkgs
+          agentPkgs
+          ;
       };
     in
     inputs.nix-darwin.lib.darwinSystem {
@@ -136,13 +157,15 @@ let
             sharedModules = [
               mac-app-util.homeManagerModules.default
             ]
-            ++ homeModules
             ++ sharedHomeModulesIntegrated;
           };
           homebrew = {
             enable = true;
             user = "cdenneen";
           };
+        }
+        {
+          home-manager.users.cdenneen.imports = homeModules;
         }
       ]
       ++ darwinModules;
@@ -157,11 +180,17 @@ let
       pkgsSet = mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
+      agentPkgs = mkAgentPkgs system;
     in
     home-manager.lib.homeManagerConfiguration {
       pkgs = unstablePkgs;
       extraSpecialArgs = inputs // {
-        inherit system stablePkgs unstablePkgs;
+        inherit
+          system
+          stablePkgs
+          unstablePkgs
+          agentPkgs
+          ;
       };
       modules = homeModules ++ sharedHomeModulesStandalone;
     };
@@ -169,6 +198,7 @@ let
   lib = {
     inherit
       mkPkgs
+      mkAgentPkgs
       mkNixosSystem
       mkDarwinSystem
       mkHomeConfiguration
@@ -208,7 +238,11 @@ let
 
         nixosConfigurations = {
           ${hostName} = mkNixosSystem {
-            inherit system tags;
+            inherit
+              system
+              tags
+              homeModules
+              ;
             nixosModules = [
               (
                 { ... }:
@@ -223,7 +257,10 @@ let
 
         darwinConfigurations = {
           ${hostName} = mkDarwinSystem {
-            inherit system;
+            inherit
+              system
+              homeModules
+              ;
             darwinModules = [
               (
                 { ... }:

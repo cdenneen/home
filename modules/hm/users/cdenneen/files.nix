@@ -1,14 +1,35 @@
 {
   config,
+  fluxcdAgentSkills,
   lib,
+  osConfig ? null,
+  nixHostName ? null,
   pkgs,
   ...
 }:
 
 let
   tomlFormat = pkgs.formats.toml { };
+  cloudflareRouteInventory = import ../../../../modules/shared/cloudflare-route-inventory.nix;
+  cloudflareRouteInventoryJson = pkgs.writeText "cloudflare-route-inventory.json" (
+    builtins.toJSON cloudflareRouteInventory
+  );
+  cocoindexCodeExe = lib.getExe (pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { });
   homeDir = config.home.homeDirectory;
+  hostName =
+    if osConfig != null then
+      (osConfig.networking.hostName or "")
+    else if nixHostName != null then
+      nixHostName
+    else
+      builtins.getEnv "HOSTNAME";
+  isNyx = hostName == "nyx";
+  isGhost = hostName == "ghost";
   isDarwin = pkgs.stdenv.isDarwin;
+  hostSystem = pkgs.stdenv.hostPlatform.system;
+  useSharedNyxMcp = isDarwin || isNyx || isGhost;
+  nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   writableRoots = [
     "/Users/cdenneen"
@@ -26,6 +47,103 @@ let
     "${homeDir}/.local/share/pnpm"
   ];
 
+  mkMcpCommand = script: {
+    command = "bash";
+    args = [
+      "-lc"
+      script
+    ];
+  };
+
+  mkSharedMcpCommand =
+    port: script:
+    if useSharedNyxMcp then
+      {
+        url = nyxSharedMcpUrl port;
+      }
+    else
+      mkMcpCommand script;
+
+  mkLocalMcpCommand = script: {
+    command = "bash";
+    args = [
+      "-lc"
+      script
+    ];
+  };
+
+  mkNyxOnlySharedMcpCommand =
+    port: script:
+    if isNyx || isGhost then
+      {
+        url = nyxSharedMcpUrl port;
+      }
+    else
+      mkLocalMcpCommand script;
+
+  mcpGitlabScript = ''
+    set -euo pipefail
+
+    export GITLAB_API_URL="https://git.ap.org/api/v4"
+    export GITLAB_READ_ONLY_MODE="true"
+
+    if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+      token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+      if [ -z "$token" ]; then
+        token="$(glab auth token 2>/dev/null || true)"
+      fi
+      if [ -n "$token" ]; then
+        export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+      fi
+    fi
+
+    exec npx -y @zereight/mcp-gitlab
+  '';
+
+  mcpKubernetesScript = ''
+    set -euo pipefail
+
+    kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+    if [ -r "$kubeconfig" ]; then
+      sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
+      sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+      export KUBECONFIG="$sanitized"
+    fi
+
+    exec npx -y @strowk/mcp-k8s
+  '';
+
+  mcpAwsScript = ''
+    set -euo pipefail
+    export LOG_LEVEL="error"
+    exec npx -y aws-mcp-readonly-lite
+  '';
+
+  mcpTerraformScript = ''
+    set -euo pipefail
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+      exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
+    fi
+
+    exec npx -y terraform-mcp-server
+  '';
+
+  mcpDuckDuckGoScript = ''
+    set -euo pipefail
+    exec npx -y ddg-mcp-search
+  '';
+
+  mcpContext7Script = ''
+    set -euo pipefail
+    exec npx -y @upstash/context7-mcp
+  '';
+
+  mcpPlaywrightScript = ''
+    set -euo pipefail
+    exec npx -y @playwright/mcp
+  '';
+
   codexConfigAttrs =
     (lib.optionalAttrs isDarwin {
       notify = [
@@ -34,7 +152,6 @@ let
       ];
     })
     // {
-      profile = "safe-relaxed";
       model = "gpt-5.3-codex";
       model_reasoning_effort = "xhigh";
       model_reasoning_summary = "detailed";
@@ -42,6 +159,10 @@ let
       file_opener = "none";
       show_raw_agent_reasoning = true;
       web_search = "live";
+      history = {
+        persistence = "save-all";
+        max_bytes = 268435456;
+      };
       agents = {
         max_threads = 6;
       };
@@ -84,30 +205,6 @@ let
           };
         };
       };
-      profiles = {
-        "fast-triage" = {
-          approval_policy = "on-request";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "medium";
-          model_reasoning_summary = "concise";
-        };
-        "safe-relaxed" = {
-          approval_policy = "on-request";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "xhigh";
-        };
-        "ci-runner" = {
-          approval_policy = "on-request";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "high";
-          model_reasoning_summary = "detailed";
-        };
-        strict = {
-          approval_policy = "untrusted";
-          sandbox_mode = "workspace-write";
-          model_reasoning_effort = "high";
-        };
-      };
       features = {
         child_agents_md = true;
         steer = true;
@@ -117,126 +214,80 @@ let
           url = "https://api.githubcopilot.com/mcp/";
           bearer_token_env_var = "GITHUB_TOKEN";
           required = false;
-          startup_timeout_sec = 12;
-          tool_timeout_sec = 60;
-        };
-        gitlab = {
-          command = "bash";
-          args = [
-            "-lc"
-            ''
-              set -euo pipefail
-
-              if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
-                token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
-                if [ -z "$token" ]; then
-                  token="$(glab auth token 2>/dev/null || true)"
-                fi
-                if [ -n "$token" ]; then
-                  export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
-                fi
-              fi
-
-              exec npx -y @zereight/mcp-gitlab
-            ''
-          ];
-          required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
-          env = {
-            GITLAB_API_URL = "https://git.ap.org/api/v4";
-            GITLAB_READ_ONLY_MODE = "true";
-          };
-          env_vars = [
-            "GITLAB_PERSONAL_ACCESS_TOKEN"
-          ];
-        };
-        kubernetes = {
-          command = "bash";
-          args = [
-            "-lc"
-            ''
-              set -euo pipefail
-
-              kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
-              if [ -r "$kubeconfig" ]; then
-                sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
-                sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
-                export KUBECONFIG="$sanitized"
-              fi
-
-              exec npx -y @strowk/mcp-k8s
-            ''
-          ];
-          required = false;
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
-        aws = {
-          command = "npx";
-          args = [
-            "-y"
-            "aws-mcp-readonly-lite"
-          ];
+        recallium = {
+          url = nyxSharedMcpUrl 18001;
           required = false;
           startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
-          env = {
-            LOG_LEVEL = "error";
-          };
-        };
-        terraform = {
-          command = "bash";
-          args = [
-            "-lc"
-            ''
-              set -euo pipefail
-
-              if command -v podman >/dev/null 2>&1; then
-                exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
-              fi
-
-              exec npx -y terraform-mcp-server
-            ''
-          ];
-          required = false;
-          startup_timeout_sec = 25;
           tool_timeout_sec = 180;
-          env_vars = [
-            "TF_TOKEN_app_terraform_io"
-            "TERRAFORM_TOKEN"
-            "TFE_TOKEN"
-          ];
         };
-        duckduckgo = {
-          command = "npx";
-          args = [
-            "-y"
-            "ddg-mcp-search"
-          ];
+        supabase = {
+          url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
           required = false;
-          startup_timeout_sec = 10;
-          tool_timeout_sec = 45;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 180;
         };
-        context7 = {
-          command = "npx";
-          args = [
-            "-y"
-            "@upstash/context7-mcp"
-          ];
+        gitlab = (mkSharedMcpCommand 18101 mcpGitlabScript) // {
           required = false;
-          startup_timeout_sec = 12;
-          tool_timeout_sec = 60;
-          env_vars = [ "CONTEXT7_API_KEY" ];
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
         };
-        playwright = {
-          command = "npx";
-          args = [
-            "-y"
-            "@playwright/mcp"
-          ];
+        kubernetes = (mkSharedMcpCommand 18102 mcpKubernetesScript) // {
           required = false;
-          startup_timeout_sec = 15;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
+        };
+        aws = (mkSharedMcpCommand 18103 mcpAwsScript) // {
+          required = false;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
+        };
+        terraform = (mkSharedMcpCommand 18104 mcpTerraformScript) // {
+          required = false;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 240;
+        };
+        duckduckgo = (mkSharedMcpCommand 18105 mcpDuckDuckGoScript) // {
+          required = false;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
+        };
+        context7 = (mkSharedMcpCommand 18106 mcpContext7Script) // {
+          required = false;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 120;
+        };
+        playwright = (mkNyxOnlySharedMcpCommand 18107 mcpPlaywrightScript) // {
+          required = false;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
+        };
+        cocoindex-code = {
+          command = cocoindexCodeExe;
+          args = [ "mcp" ];
+          required = false;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
+        };
+      }
+      // lib.optionalAttrs isGhost {
+        cloudflare = {
+          command = "bash";
+          args = [
+            "-lc"
+            ''
+              set -euo pipefail
+              exec npx -y @cloudflare/mcp-server-cloudflare
+            ''
+          ];
+          env = {
+            CLOUDFLARE_API_TOKEN = "{sops:cloudflare_account_api_token}";
+            CLOUDFLARE_ACCOUNT_ID = "19a23ecf9ba79236ab8e64c8c7bf3507";
+          };
+          required = false;
+          startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
       };
@@ -251,6 +302,32 @@ let
         ignore_default_excludes = true;
       };
     };
+
+  codexProfileAttrs = {
+    "fast-triage" = {
+      approval_policy = "on-request";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "medium";
+      model_reasoning_summary = "concise";
+    };
+    "safe-relaxed" = {
+      approval_policy = "on-request";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "xhigh";
+      model_reasoning_summary = "detailed";
+    };
+    "ci-runner" = {
+      approval_policy = "on-request";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "high";
+      model_reasoning_summary = "detailed";
+    };
+    strict = {
+      approval_policy = "untrusted";
+      sandbox_mode = "workspace-write";
+      model_reasoning_effort = "high";
+    };
+  };
 in
 {
   # User-scoped config files for cdenneen.
@@ -270,6 +347,8 @@ in
 
   programs."fluxcd-agent-skills" = {
     enable = true;
+    package = fluxcdAgentSkills.packages.${hostSystem}.skills;
+    installPackage = fluxcdAgentSkills.packages.${hostSystem}.install;
     tools = [ "codex" ];
     targets = [
       ".agents/skills"
@@ -278,6 +357,48 @@ in
   };
 
   home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
+  home.file.".codex/RTK.md".source = ./ai/RTK.md;
+  home.file.".codex/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
+  home.file.".codex/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+
+  home.file.".agents/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
+  home.file.".agents/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+
+  home.file.".opencode/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
+  home.file.".opencode/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+
+  home.file.".claude/CLAUDE.md".source = ./ai/AGENTS.md;
+
+  home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
+    mcpServers = {
+      recallium = {
+        type = "http";
+        url = nyxSharedMcpUrl 18001;
+      };
+      context7 = {
+        type = "http";
+        url = nyxSharedMcpUrl 18106;
+      };
+      playwright = {
+        type = "http";
+        url = nyxSharedMcpUrl 18107;
+      };
+      cocoindex-code = {
+        command = cocoindexCodeExe;
+        args = [ "mcp" ];
+      };
+    }
+    // lib.optionalAttrs isGhost {
+      cloudflare = {
+        type = "http";
+        url = "https://mcp.cloudflare.com/mcp";
+        headers = {
+          Authorization = "__CLOUDFLARE_API_TOKEN_PLACEHOLDER__";
+        };
+      };
+    };
+  });
+
   home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
   home.file.".codex/subagents/terraform-expert.md".source = ./ai/subagents/terraform-expert.md;
   home.file.".codex/subagents/gitlab-ci-expert.md".source = ./ai/subagents/gitlab-ci-expert.md;
@@ -301,8 +422,99 @@ in
     source = ./files/restart-tmux;
     executable = true;
   };
+  home.file.".local/bin/ivanti-reset" = {
+    source = ./files/ivanti-reset;
+    executable = true;
+  };
+  home.file.".local/bin/ensure-oci-ghost-runner" = {
+    source = ./files/ensure-oci-ghost-runner;
+    executable = true;
+  };
+  home.file.".local/bin/ensure-peps-runner" = {
+    source = ./files/ensure-peps-runner;
+    executable = true;
+  };
+  home.file.".local/bin/deploy-app" = {
+    source = ./files/deploy-app;
+    executable = true;
+  };
+  home.file.".local/bin/cf-move-routes" = {
+    source = ./files/cf-move-routes;
+    executable = true;
+  };
+  home.file.".local/bin/cf-move-published-routes" = {
+    source = ./files/cf-move-published-routes;
+    executable = true;
+  };
+  home.file.".config/cloudflare/route-inventory.json".source = cloudflareRouteInventoryJson;
+  home.file.".local/bin/nyx-mcp-preflight" = {
+    source = ./files/nyx-mcp-preflight;
+    executable = true;
+  };
+  home.file.".local/bin/nyx-mcp-status" = {
+    source = ./files/nyx-mcp-status;
+    executable = true;
+  };
+  home.file.".local/bin/opencode-attach-latest" = {
+    source = ./files/opencode-attach-latest;
+    executable = true;
+  };
   home.file.".codex/config.toml.source".source =
     tomlFormat.generate "codex-config.toml" codexConfigAttrs;
+  home.file.".codex/fast-triage.config.toml".source =
+    tomlFormat.generate "codex-fast-triage.config.toml"
+      codexProfileAttrs."fast-triage";
+  home.file.".codex/safe-relaxed.config.toml".source =
+    tomlFormat.generate "codex-safe-relaxed.config.toml"
+      codexProfileAttrs."safe-relaxed";
+  home.file.".codex/ci-runner.config.toml".source =
+    tomlFormat.generate "codex-ci-runner.config.toml"
+      codexProfileAttrs."ci-runner";
+  home.file.".codex/strict.config.toml".source =
+    tomlFormat.generate "codex-strict.config.toml" codexProfileAttrs.strict;
+
+  home.activation.claudeMcpSettingsWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+
+    mcp_src="$HOME/.claude/mcp-settings.source"
+    dst="$HOME/.claude.json"
+
+    if [ ! -f "$mcp_src" ]; then
+      exit 0
+    fi
+
+    mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
+
+    # Substitute cloudflare API token placeholder at activation time so the
+    # secret never lands in the nix store.
+    cf_token=""
+    for _cf_candidate in \
+      /run/user/1000/secrets.d/*/cloudflare_account_api_token \
+      "$HOME/.local/share/sops-nix/secrets/cloudflare_account_api_token" \
+      "$HOME/.config/sops-nix/secrets/cloudflare_account_api_token"
+    do
+      if [ -r "$_cf_candidate" ]; then
+        cf_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_cf_candidate")"
+        break
+      fi
+    done
+
+    if [ -n "$cf_token" ]; then
+      mcp_json="$(printf '%s' "$mcp_json" | \
+        ${pkgs.gnused}/bin/sed "s|__CLOUDFLARE_API_TOKEN_PLACEHOLDER__|Bearer $cf_token|g")"
+    fi
+
+    if [ -f "$dst" ]; then
+      merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" -)"
+    else
+      merged="$mcp_json"
+    fi
+
+    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude.json.XXXXXX")"
+    printf '%s\n' "$merged" > "$tmp"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+  '';
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail

@@ -1,8 +1,9 @@
 ''
+  if [[ -o interactive ]]; then
     [[ $commands[gh] ]] && source <(gh completion -s zsh)
     [[ $commands[kubectl] ]] && source <(kubectl completion zsh)
 
-  # Completion styling
+    # Completion styling
     zstyle ':completion:*' auto-description 'specify: %d'
     zstyle ':completion:*' completer _expand _complete _correct _approximate
     zstyle ':completion:*' format 'Completing %d'
@@ -35,4 +36,5 @@
       # switch group using `<` and `>`
       zstyle ':fzf-tab:*' switch-group '<' '>'
     fi
+  fi
 ''

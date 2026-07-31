@@ -14,6 +14,8 @@ This repo is a Nix flake monorepo for NixOS, nix-darwin, and Home Manager. These
 - Home Manager is integrated by default and uses its own nixpkgs (unstable) via per-user HM config.
 - `secrets/secrets.yaml` is encrypted with sops + age; recipients are managed via `.sops.yaml`.
 - `~/.config/glab-cli/config.yml` is managed from SOPS secret `glab_cli_config` (mode `0600`).
+- Prefer `gh` for `github.com` auth, checkout, and commit/push workflows when the task is interactive.
+- Prefer `glab` for `gitlab.com` and `git.ap.org` auth, checkout, and commit/push workflows when the task is interactive.
 - Prefer conservative changes; keep diffs small and readable.
 - Prefer OpenTofu (`tofu`) over `terraform` for all Terraform commands.
 
@@ -54,6 +56,27 @@ sudo darwin-rebuild switch --flake .#<host>
 ```sh
 home-manager switch --flake .#cdenneen@<host>
 ```
+
+### `nyx` deploy workflow
+
+For changes that need to land on `nyx`, use the repo workflow instead of deploying from an uncommitted local tree:
+
+```sh
+# local machine
+git add <files>
+git commit -m "<message>"
+git pull --rebase
+git push
+
+# on nyx
+cd ~/src/workspace/nix/home
+git pull --rebase
+sudo nixos-rebuild switch --flake .#nyx
+# and/or
+home-manager switch --flake .#cdenneen@nyx
+```
+
+Run the NixOS switch, the Home Manager switch, or both depending on which files changed.
 
 ### Lint / format
 

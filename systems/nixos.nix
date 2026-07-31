@@ -11,6 +11,7 @@ let
     _: host:
     mkNixosSystem {
       system = host.system;
+      homeModules = host.homeModules or [ ];
       nixosModules = host.modules;
       tags = host.tags or [ ];
     }

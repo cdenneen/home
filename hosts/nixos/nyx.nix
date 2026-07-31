@@ -1,17 +1,202 @@
 {
+  agentPkgs,
   lib,
   pkgs,
   config,
-  happier,
-  unstablePkgs,
-  opencode ? null,
   ...
 }:
-{
-  imports = [
-    happier.nixosModules.happier-server
+let
+  convexHost = "nyx.tail0e55.ts.net";
+  convexCloudOrigin = "http://${convexHost}:3210";
+  convexSiteOrigin = "http://${convexHost}:3211";
+  opensyncPublicHost = "opensync.denneen.net";
+  convexBackendImage = "ghcr.io/get-convex/convex-backend@sha256:467964cc6af57ba3e757e3e6cb1fa09a1c577803a19f03f0f42c9c4b134b070c";
+  convexDashboardImage = "ghcr.io/get-convex/convex-dashboard@sha256:5f4620ca0640ed863a8c5109123b9831157e889c6294e28c5e96ea0a62375efb";
+  opensyncRevision = "80005262fed8dac894fe618352a5e4b94c53813d";
+  recalliumHost = "nyx.tail0e55.ts.net";
+  recalliumApiPort = 18001;
+  recalliumUiPort = 19001;
+  recalliumMcpUrl = "http://${recalliumHost}:${toString recalliumApiPort}/mcp";
+  recalliumUiBaseUrl = "http://${recalliumHost}:${toString recalliumUiPort}";
+  recalliumImage = "docker.io/recalliumai/recallium:0.8.488@sha256:241bf1034df6e953f088d42b1d0a36d2689fc9cde305f506268c9cfbdbc2257a";
+  terraformMcpImage = "hashicorp/terraform-mcp-server:0.4.0";
+  nyxMcpWarmPackages = [
+    "supergateway"
+    "@zereight/mcp-gitlab"
+    "@strowk/mcp-k8s"
+    "aws-mcp-readonly-lite"
+    "terraform-mcp-server"
+    "ddg-mcp-search"
+    "@upstash/context7-mcp"
+    "@playwright/mcp"
   ];
+  nyxSharedMcpServers = {
+    gitlab = {
+      port = 18101;
+      script = ''
+        set -euo pipefail
 
+        export GITLAB_API_URL="https://git.ap.org/api/v4"
+        export GITLAB_READ_ONLY_MODE="true"
+
+        token_file="$HOME/.config/opnix/gitlab_token"
+        if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && [ -r "$token_file" ]; then
+          token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$token_file")"
+          if [ -n "$token" ]; then
+            export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+          fi
+        fi
+
+        if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+          token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+          if [ -z "$token" ]; then
+            token="$(glab auth token 2>/dev/null || true)"
+          fi
+          if [ -n "$token" ]; then
+            export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+          fi
+        fi
+
+        exec ${pkgs.nodejs_24}/bin/npx -y @zereight/mcp-gitlab
+      '';
+    };
+    kubernetes = {
+      port = 18102;
+      script = ''
+        set -euo pipefail
+
+        kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+        if [ -r "$kubeconfig" ]; then
+          sanitized="''${TMPDIR:-/tmp}/nyx-mcp-kubeconfig.$$"
+          ${pkgs.gnused}/bin/sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+          export KUBECONFIG="$sanitized"
+        fi
+
+        exec ${pkgs.nodejs_24}/bin/npx -y @strowk/mcp-k8s
+      '';
+    };
+    aws = {
+      port = 18103;
+      script = ''
+        set -euo pipefail
+        export LOG_LEVEL="error"
+        exec ${pkgs.nodejs_24}/bin/npx -y aws-mcp-readonly-lite
+      '';
+    };
+    terraform = {
+      port = 18104;
+      script = ''
+        set -euo pipefail
+
+        if ${pkgs.podman}/bin/podman info >/dev/null 2>&1; then
+          exec ${pkgs.podman}/bin/podman run -i --rm ${lib.escapeShellArg terraformMcpImage}
+        fi
+
+        exec ${pkgs.nodejs_24}/bin/npx -y terraform-mcp-server
+      '';
+    };
+    duckduckgo = {
+      port = 18105;
+      stateful = false;
+      script = ''
+        set -euo pipefail
+        exec ${pkgs.nodejs_24}/bin/npx -y ddg-mcp-search
+      '';
+    };
+    context7 = {
+      port = 18106;
+      script = ''
+        set -euo pipefail
+        exec ${pkgs.nodejs_24}/bin/npx -y @upstash/context7-mcp
+      '';
+    };
+    playwright = {
+      port = 18107;
+      memoryHigh = "1536M";
+      memoryMax = "2G";
+      script = ''
+        set -euo pipefail
+        exec ${pkgs.nodejs_24}/bin/npx -y @playwright/mcp --headless
+      '';
+    };
+  };
+  mkNyxMcpGatewayService =
+    name: spec:
+    let
+      stdioScript = pkgs.writeShellScript "nyx-mcp-${name}-stdio" spec.script;
+      run = pkgs.writeShellScript "nyx-mcp-${name}-gateway" ''
+        set -euo pipefail
+
+        export PATH="${
+          lib.makeBinPath [
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.glab
+            pkgs.gnused
+            pkgs.nodejs_24
+            pkgs.podman
+          ]
+        }:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:$PATH"
+
+        cmd=(
+          ${pkgs.nodejs_24}/bin/npx -y supergateway
+          --stdio ${lib.escapeShellArg "${stdioScript}"}
+          --outputTransport streamableHttp
+          --port ${toString spec.port}
+          --streamableHttpPath /mcp
+          --healthEndpoint /healthz
+          --logLevel info
+        )
+
+        if [ "${lib.boolToString (spec.stateful or true)}" = "true" ]; then
+          cmd+=(--stateful)
+        fi
+
+        exec "''${cmd[@]}"
+      '';
+    in
+    {
+      description = "Shared MCP ${name} gateway";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "default.target" ];
+      restartIfChanged = true;
+      restartTriggers = [
+        stdioScript
+        run
+      ];
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = run;
+        Restart = "always";
+        RestartSec = 10;
+        MemoryAccounting = true;
+        MemoryHigh = spec.memoryHigh or "768M";
+        MemoryMax = spec.memoryMax or "1G";
+      };
+    };
+  pepsApiHost = "peps-api.denneen.net";
+  pepsWebHost = "peps.denneen.net";
+  pepsApiPort = 8787;
+  pepsRepoDir = "/home/cdenneen/src/workspace/personal/peps";
+  pepsRuntimeDir = "/var/lib/peps";
+  pepsEnvFile = "${pepsRuntimeDir}/backend.env";
+  pepsEnvLocalFile = "${pepsRuntimeDir}/backend.env.local";
+  pepsHealthImportTokenFile = "${pepsRuntimeDir}/health_import_token";
+  pepsStateFilePath = "/home/cdenneen/.local/state/peps-api/web-state.json";
+  pepsAdminEmails = "cdenneen@gmail.com,c.denneen@gmail.com";
+  wellnessApiHost = "wellness-api.denneen.net";
+  wellnessApiPort = 8797;
+  wellnessRepoDir = "/home/cdenneen/src/workspace/personal/wellness";
+  wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
+  wellnessOpenAiKeyFile = "/home/cdenneen/.config/sops-nix/secrets/openai_api_key";
+  wellnessGeminiKeyFile = config.sops.secrets.gemini_api_key.path;
+  wellnessSupabasePublishableKeyFile = config.sops.secrets.wellness_supabase_publishable_key.path;
+  wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
+  wellnessSupabaseDbUrlFile = config.sops.secrets.wellness_supabase_db_url.path;
+  supabaseAccessTokenFile = config.sops.secrets.supabase_access_token.path;
+in
+{
   networking.hostName = "nyx";
   networking.extraHosts = ''
     100.80.58.4 nyx.tail0e55.ts.net
@@ -107,15 +292,6 @@
         };
       };
     };
-  };
-
-  services.happier-server = {
-    enable = true;
-    package = happier.packages.${pkgs.stdenv.hostPlatform.system}.happier-server;
-    mode = "full";
-    port = 3005;
-    environmentFile = config.sops.secrets.happier-env.path;
-    minio.rootCredentialsFile = config.sops.secrets.minio-credentials.path;
   };
 
   virtualisation.docker.enable = lib.mkForce false;
@@ -214,20 +390,29 @@
     settings = {
       # Answer DNS queries from Tailscale clients for split DNS.
       interface = "tailscale0";
-      bind-interfaces = true;
+      bind-dynamic = true;
       domain-needed = true;
       bogus-priv = true;
       no-resolv = true;
-      # Route git.ap.org lookups to the VPC resolver.
-      server = [ "/git.ap.org/10.224.0.2" ];
+      # Route AP internal split-DNS zones to the VPC resolver.
+      server = [
+        "/git.ap.org/10.224.0.2"
+        "/associatedpress.com/10.224.0.2"
+        "/apsharedservices.com/10.224.0.2"
+      ];
     };
   };
 
   services.caddy = {
     enable = true;
-    virtualHosts."nyx.tail0e55.ts.net".extraConfig = ''
-      reverse_proxy 127.0.0.1:3005
-    '';
+    virtualHosts = {
+      "nyx.tail0e55.ts.net".extraConfig = ''
+        reverse_proxy 127.0.0.1:3005
+      '';
+      "${opensyncPublicHost}".extraConfig = ''
+        reverse_proxy 127.0.0.1:5173
+      '';
+    };
   };
 
   services.cloudflared = {
@@ -236,7 +421,7 @@
       "d1d49353-ddca-4c9c-bc8a-3bbb1885aa98" = {
         credentialsFile = "/var/lib/cloudflared/opencode.json";
         ingress = {
-          "chat.denneen.net" = "http://127.0.0.1:4096";
+          "${opensyncPublicHost}" = "http://127.0.0.1:5173";
         };
         default = "http_status:404";
         originRequest = {
@@ -247,17 +432,231 @@
     };
   };
 
+  virtualisation.oci-containers.backend = "podman";
+  virtualisation.oci-containers.containers = {
+    convex-backend = {
+      image = convexBackendImage;
+      ports = [
+        "3210:3210"
+        "3211:3211"
+      ];
+      volumes = [
+        "/var/lib/convex/data:/convex/data"
+      ];
+      environment = {
+        CONVEX_CLOUD_ORIGIN = convexCloudOrigin;
+        CONVEX_SITE_ORIGIN = convexSiteOrigin;
+        DISABLE_METRICS_ENDPOINT = "true";
+        DOCUMENT_RETENTION_DELAY = "172800";
+        RUST_LOG = "info";
+      };
+      autoStart = true;
+    };
+
+    convex-dashboard = {
+      image = convexDashboardImage;
+      ports = [ "6791:6791" ];
+      environment = {
+        NEXT_PUBLIC_DEPLOYMENT_URL = convexCloudOrigin;
+      };
+      dependsOn = [ "convex-backend" ];
+      autoStart = true;
+    };
+
+    recallium = {
+      image = recalliumImage;
+      ports = [
+        "${toString recalliumUiPort}:9000"
+        "${toString recalliumApiPort}:8000"
+        "5433:5432"
+      ];
+      volumes = [
+        "/var/lib/recallium/data:/data"
+        "/var/lib/recallium/wal:/wal"
+        "/var/lib/recallium/docs:/documents"
+        "/var/lib/recallium/secrets:/secrets"
+      ];
+      environment = {
+        TZ = "America/Chicago";
+        LOG_LEVEL = "INFO";
+        RECALLIUM_EDITION = "community";
+        ENVIRONMENT = "production";
+        UI_BASE_URL = recalliumUiBaseUrl;
+        HOST_API_PORT = toString recalliumApiPort;
+        HOST_UI_PORT = toString recalliumUiPort;
+        HOST_POSTGRES_PORT = "5433";
+        DB_HOST = "localhost";
+        DB_PORT = "5432";
+        DB_USER = "recallium";
+        DB_PASSWORD = "recallium_password";
+        DB_NAME = "recallium_memories";
+        LOAD_SAMPLE_DATA = "false";
+      };
+      extraOptions = [
+        "--add-host=host.docker.internal:host-gateway"
+      ];
+      autoStart = true;
+    };
+  };
+
   systemd.tmpfiles.rules = [
     "d /var/lib/cloudflared 0700 root root -"
     "d /run/caddy 0750 caddy caddy -"
+    "d /var/lib/convex 0700 root root -"
+    "d /var/lib/convex/data 0700 root root -"
+    "d /var/lib/opensync 0750 cdenneen users -"
+    "d /var/lib/opensync/repo 0750 cdenneen users -"
+    "d /var/lib/opensync/state 0750 cdenneen users -"
+    "d /var/lib/recallium 0750 cdenneen users -"
+    "d /var/lib/recallium/data 0750 cdenneen users -"
+    "d /var/lib/recallium/wal 0750 cdenneen users -"
+    "d /var/lib/recallium/docs 0750 cdenneen users -"
+    "d /var/lib/recallium/secrets 0750 cdenneen users -"
   ];
+
+  systemd.services.convex-generate-admin-key = {
+    description = "Generate self-hosted Convex admin key";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "podman-convex-backend.service" ];
+    requires = [ "podman-convex-backend.service" ];
+    path = [
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gnugrep
+      pkgs.podman
+    ];
+    script = ''
+      set -euo pipefail
+
+      out="/var/lib/convex/admin.key"
+      out_opensync="/var/lib/opensync/state/convex-admin.key"
+      if [ -s "$out" ] && [ -s "$out_opensync" ]; then
+        exit 0
+      fi
+
+      for _ in $(seq 1 60); do
+        if ${pkgs.curl}/bin/curl -fsS http://127.0.0.1:3210/version >/dev/null; then
+          break
+        fi
+        sleep 2
+      done
+
+      key="$(${pkgs.podman}/bin/podman exec convex-backend ./generate_admin_key.sh | ${pkgs.coreutils}/bin/tail -n 1 | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+      if [ -z "$key" ]; then
+        echo "convex-generate-admin-key: failed to generate key" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -m 600 /dev/null "$out"
+      printf '%s\n' "$key" > "$out"
+
+      ${pkgs.coreutils}/bin/install -m 640 -o cdenneen -g users /dev/null "$out_opensync"
+      printf '%s\n' "$key" > "$out_opensync"
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+    };
+  };
+
+  systemd.services.opensync-web = {
+    description = "OpenSync web on self-hosted Convex";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "podman-convex-backend.service"
+      "convex-generate-admin-key.service"
+    ];
+    wants = [ "network-online.target" ];
+    requires = [
+      "podman-convex-backend.service"
+      "convex-generate-admin-key.service"
+    ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.git
+      pkgs.gnugrep
+      pkgs.nodejs_24
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = "/var/lib/opensync";
+      Restart = "always";
+      RestartSec = "15s";
+      TimeoutStartSec = "15min";
+      Environment = [
+        "HOME=/home/cdenneen"
+      ];
+    };
+    script = ''
+            set -euo pipefail
+
+            repo_dir="/var/lib/opensync/repo"
+            branch="main"
+            revision="${opensyncRevision}"
+            remote="https://github.com/waynesutton/opensync.git"
+            admin_key_file="/var/lib/opensync/state/convex-admin.key"
+            workos_client_id_file="${config.sops.secrets.opensync_workos_client_id.path}"
+            workos_api_key_file="${config.sops.secrets.opensync_workos_api_key.path}"
+            workos_cookie_password_file="${config.sops.secrets.opensync_workos_cookie_password.path}"
+
+            if [ ! -s "$admin_key_file" ]; then
+              echo "opensync-web: missing Convex admin key at $admin_key_file" >&2
+              exit 1
+            fi
+
+            if [ ! -d "$repo_dir/.git" ]; then
+              rm -rf "$repo_dir"
+              git clone --branch "$branch" "$remote" "$repo_dir"
+            fi
+
+            cd "$repo_dir"
+            git fetch --prune origin "$branch"
+            if ! git cat-file -e "$revision^{commit}" 2>/dev/null; then
+              git fetch --depth 1 origin "$revision"
+            fi
+            git checkout --detach "$revision"
+            git reset --hard "$revision"
+
+            npm ci --no-audit --no-fund
+
+            workos_client_id="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$workos_client_id_file")"
+            workos_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$workos_api_key_file")"
+            workos_cookie_password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$workos_cookie_password_file")"
+            convex_admin_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$admin_key_file")"
+
+            if [ -z "$workos_client_id" ] || [ -z "$workos_api_key" ] || [ -z "$workos_cookie_password" ] || [ -z "$convex_admin_key" ]; then
+              echo "opensync-web: one or more required secrets are empty" >&2
+              exit 1
+            fi
+
+            export CONVEX_SELF_HOSTED_URL="http://127.0.0.1:3210"
+            export CONVEX_SELF_HOSTED_ADMIN_KEY="$convex_admin_key"
+
+            npx convex env set WORKOS_API_KEY "$workos_api_key"
+            npx convex env set WORKOS_CLIENT_ID "$workos_client_id"
+            npx convex deploy
+
+            cat > "$repo_dir/.env.local" <<EOF
+      VITE_CONVEX_URL=${convexCloudOrigin}
+      VITE_WORKOS_CLIENT_ID=$workos_client_id
+      VITE_REDIRECT_URI=http://localhost:5173/callback
+      WORKOS_COOKIE_PASSWORD=$workos_cookie_password
+      EOF
+
+            exec npm run dev -- --host 127.0.0.1 --port 5173
+    '';
+  };
 
   systemd.services.cloudflared-credentials-opencode =
     let
       script = pkgs.writeShellScript "cloudflared-credentials-opencode" ''
         set -euo pipefail
 
-        token_file="${config.sops.secrets.cloudflare_tunnel_token.path}"
+        token_file="${config.sops.secrets.nyx_cloudflare_tunnel_token.path}"
         cred_dir="/var/lib/cloudflared"
         cred_file="$cred_dir/opencode.json"
 
@@ -308,11 +707,35 @@
     after = [ "cloudflared-credentials-opencode.service" ];
   };
 
-  sops.secrets.happier-env.owner = "root";
   sops.secrets.minio-credentials.owner = "root";
+  sops.secrets.wellness_supabase_publishable_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.wellness_supabase_secret_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.wellness_supabase_db_url = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.supabase_access_token = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.gemini_api_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
 
   # Cloudflare Tunnel for Telegram webhook.
-  sops.secrets.cloudflare_tunnel_token = {
+  sops.secrets.nyx_cloudflare_tunnel_token = {
     owner = "cdenneen";
     group = "users";
     mode = "0400";
@@ -322,11 +745,97 @@
     group = "users";
     mode = "0400";
   };
+  sops.secrets.opensync_workos_client_id = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.opensync_workos_api_key = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets.opensync_workos_cookie_password = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+
+  systemd.user.services.nyx-mcp-warm-cache =
+    let
+      run = pkgs.writeShellScript "nyx-mcp-warm-cache" ''
+        set -euo pipefail
+
+        export PATH="${pkgs.bash}/bin:${pkgs.nodejs_24}/bin:$PATH"
+
+        state_dir="$HOME/.local/state/nyx-mcp"
+        log_file="$state_dir/warm-cache.log"
+        ${pkgs.coreutils}/bin/mkdir -p "$state_dir"
+
+        echo "$(${pkgs.coreutils}/bin/date -Is) start" >> "$log_file"
+
+        warm_pkg() {
+          local pkg="$1"
+          if ${pkgs.nodejs_24}/bin/npm exec --yes --package "$pkg" -- ${pkgs.nodejs_24}/bin/node -e "process.exit(0)" >/dev/null 2>&1; then
+            echo "$(${pkgs.coreutils}/bin/date -Is) ok package=$pkg" >> "$log_file"
+          else
+            echo "$(${pkgs.coreutils}/bin/date -Is) warn package=$pkg failed" >> "$log_file"
+          fi
+        }
+
+        ${lib.concatMapStringsSep "\n" (pkg: "warm_pkg ${lib.escapeShellArg pkg}") nyxMcpWarmPackages}
+
+        if ${pkgs.podman}/bin/podman info >/dev/null 2>&1; then
+          if ${pkgs.podman}/bin/podman image exists ${lib.escapeShellArg terraformMcpImage}; then
+            echo "$(${pkgs.coreutils}/bin/date -Is) ok image=${terraformMcpImage} exists" >> "$log_file"
+          elif ${pkgs.podman}/bin/podman pull ${lib.escapeShellArg terraformMcpImage} >/dev/null 2>&1; then
+            echo "$(${pkgs.coreutils}/bin/date -Is) ok image=${terraformMcpImage} pulled" >> "$log_file"
+          else
+            echo "$(${pkgs.coreutils}/bin/date -Is) warn image=${terraformMcpImage} pull failed" >> "$log_file"
+          fi
+        else
+          echo "$(${pkgs.coreutils}/bin/date -Is) warn podman info unavailable" >> "$log_file"
+        fi
+
+        echo "$(${pkgs.coreutils}/bin/date -Is) done" >> "$log_file"
+      '';
+    in
+    {
+      description = "Warm nyx MCP package caches";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+      };
+      script = "exec ${run}";
+    };
+
+  systemd.user.services.nyx-mcp-gitlab = mkNyxMcpGatewayService "gitlab" nyxSharedMcpServers.gitlab;
+  systemd.user.services.nyx-mcp-kubernetes = mkNyxMcpGatewayService "kubernetes" nyxSharedMcpServers.kubernetes;
+  systemd.user.services.nyx-mcp-aws = mkNyxMcpGatewayService "aws" nyxSharedMcpServers.aws;
+  systemd.user.services.nyx-mcp-terraform = mkNyxMcpGatewayService "terraform" nyxSharedMcpServers.terraform;
+  systemd.user.services.nyx-mcp-duckduckgo = mkNyxMcpGatewayService "duckduckgo" nyxSharedMcpServers.duckduckgo;
+  systemd.user.services.nyx-mcp-context7 = mkNyxMcpGatewayService "context7" nyxSharedMcpServers.context7;
+  systemd.user.services.nyx-mcp-playwright = mkNyxMcpGatewayService "playwright" nyxSharedMcpServers.playwright;
+
+  systemd.user.timers.nyx-mcp-warm-cache = {
+    description = "Run nyx MCP cache warmup after boot";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "3min";
+      OnUnitActiveSec = "12h";
+      RandomizedDelaySec = "2min";
+      Persistent = true;
+      Unit = "nyx-mcp-warm-cache.service";
+    };
+  };
+
   systemd.user.services.opencode-serve =
     let
       run = pkgs.writeShellScript "opencode-web" ''
-         set -euo pipefail
-         gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
+        set -euo pipefail
+        gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
+        password_file="${config.sops.secrets.opencode_server_password.path}"
         if [ -r "$gitlab_file" ]; then
           gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$gitlab_file")"
           if [ -z "$gitlab_token" ]; then
@@ -337,13 +846,31 @@
         else
           echo "opencode-web: gitlab token file not readable" >&2
         fi
+
+        if [ -r "$password_file" ]; then
+          opencode_password="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$password_file")"
+          if [ -z "$opencode_password" ]; then
+            echo "opencode-web: password file empty" >&2
+          else
+            export OPENCODE_SERVER_PASSWORD="$opencode_password"
+          fi
+        else
+          echo "opencode-web: password file not readable" >&2
+        fi
+
         exec /etc/profiles/per-user/cdenneen/bin/opencode serve --hostname 127.0.0.1 --port 4097
       '';
     in
     {
       description = "OpenCode web (chat)";
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
+      after = [
+        "network-online.target"
+        "nyx-mcp-playwright.service"
+      ];
+      wants = [
+        "network-online.target"
+        "nyx-mcp-playwright.service"
+      ];
       wantedBy = [ "default.target" ];
       unitConfig = {
         StartLimitIntervalSec = "5min";
@@ -499,6 +1026,12 @@
         pw_file="${config.sops.secrets.opencode_server_password.path}"
         log_dir="${config.users.users.cdenneen.home}/.local/state"
         log_file="$log_dir/opencode-serve-compact.log"
+        stale_age_ms=$((90 * 60 * 1000))
+        max_compactions=12
+        overflow_limit=48
+        delete_age_ms=$((7 * 24 * 60 * 60 * 1000))
+        delete_limit=16
+        keep_per_directory=2
         ${pkgs.coreutils}/bin/mkdir -p "$log_dir"
 
         timestamp="$(${pkgs.coreutils}/bin/date -Is)"
@@ -514,26 +1047,88 @@
         fi
 
         auth="opencode:$pw"
-        sessions="$(${pkgs.curl}/bin/curl -sS -u "$auth" http://127.0.0.1:4096/session \
-          | ${pkgs.jq}/bin/jq -r '.[].id' || true)"
+        sessions_json="$(${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" http://127.0.0.1:4097/session || printf '[]')"
+        total_sessions="$(${pkgs.jq}/bin/jq -r 'length' <<<"$sessions_json" 2>/dev/null || printf '0')"
 
-        if [ -z "$sessions" ]; then
-          echo "$timestamp no sessions to compact" >> "$log_file"
+        if [ "$total_sessions" = "0" ]; then
+          echo "$timestamp no sessions to compact total_sessions=0" >> "$log_file"
           exit 0
         fi
 
-        payload='{"command":"compact","arguments":""}'
-        for sid in $sessions; do
-          if ! ${pkgs.curl}/bin/curl -sS -u "$auth" \
-            -H "content-type: application/json" \
-            -X POST "http://127.0.0.1:4096/session/$sid/command" \
-            -d "$payload" >/dev/null; then
-            echo "$timestamp compact failed session=$sid" >> "$log_file"
+        now_ms="$(${pkgs.coreutils}/bin/date +%s%3N)"
+        sessions="$(${pkgs.jq}/bin/jq -r \
+          --argjson now "$now_ms" \
+          --argjson stale "$stale_age_ms" \
+          --argjson overflow "$overflow_limit" \
+          --argjson max "$max_compactions" '
+            (sort_by(.time.updated // 0)) as $sorted
+            | [ $sorted[] | select(($now - (.time.updated // 0)) >= $stale) | .id ] as $stale_ids
+            | if ($stale_ids | length) > 0 then
+                $stale_ids[:$max]
+              elif ($sorted | length) > $overflow then
+                [ $sorted[] | .id ][:$max]
+              else
+                []
+              end
+            | .[]
+          ' <<<"$sessions_json" 2>/dev/null || true)"
+
+        if [ -z "$sessions" ]; then
+          echo "$timestamp no compaction candidates total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
+        else
+          payload='{"command":"compact","arguments":""}'
+          compacted=0
+          for sid in $sessions; do
+            if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
+              -H "content-type: application/json" \
+              -X POST "http://127.0.0.1:4097/session/$sid/command" \
+              -d "$payload" >/dev/null; then
+              echo "$timestamp compact failed session=$sid" >> "$log_file"
+            else
+              compacted=$((compacted + 1))
+            fi
+          done
+
+          echo "$timestamp compacted sessions=$compacted total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
+        fi
+
+        delete_candidates="$(${pkgs.jq}/bin/jq -r \
+          --argjson now "$now_ms" \
+          --argjson stale "$delete_age_ms" \
+          --argjson keep_per_dir "$keep_per_directory" \
+          --argjson max "$delete_limit" '
+            [
+              (
+                sort_by([(.directory // "__global__"), (.time.updated // 0)])
+                | group_by(.directory // "__global__")[]
+                | sort_by(.time.updated // 0)
+                | reverse
+                | .[$keep_per_dir:][]
+                | select(($now - (.time.updated // 0)) > $stale)
+              )
+            ]
+            | sort_by(.time.updated // 0)
+            | .[:$max]
+            | .[]
+            | .id
+          ' <<<"$sessions_json" 2>/dev/null || true)"
+
+        if [ -z "$delete_candidates" ]; then
+          echo "$timestamp no stale deletions total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
+          exit 0
+        fi
+
+        deleted=0
+        for sid in $delete_candidates; do
+          if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
+            -X DELETE "http://127.0.0.1:4097/session/$sid" >/dev/null; then
+            echo "$timestamp delete failed session=$sid" >> "$log_file"
+          else
+            deleted=$((deleted + 1))
           fi
         done
 
-        count="$(${pkgs.coreutils}/bin/printf "%s" "$sessions" | ${pkgs.coreutils}/bin/wc -w | ${pkgs.coreutils}/bin/tr -d ' ')"
-        echo "$timestamp compacted sessions=$count" >> "$log_file"
+        echo "$timestamp deleted stale_sessions=$deleted total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
       '';
     in
     {
@@ -541,6 +1136,7 @@
       serviceConfig = {
         Type = "oneshot";
         ExecStart = run;
+        TimeoutStartSec = "3min";
       };
     };
 
@@ -548,8 +1144,8 @@
     description = "Periodic OpenCode session compaction";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      OnBootSec = "5m";
-      OnUnitActiveSec = "6h";
+      OnBootSec = "4m";
+      OnUnitActiveSec = "30min";
       Persistent = true;
       Unit = "opencode-serve-compact.service";
     };
@@ -591,14 +1187,9 @@
     };
   };
 
-  home-manager.users.cdenneen.imports = [ ./nyx-home.nix ];
-
-  home-manager.users.cdenneen.programs.opencode.package = lib.mkForce (
-    if opencode != null then
-      opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
-    else
-      pkgs.opencode
-  );
-
+  environment.variables = {
+    VITE_CONVEX_URL = convexCloudOrigin;
+    RECALLIUM_MCP_URL = recalliumMcpUrl;
+  };
   # Starship palette is configured in nyx-home.nix.
 }

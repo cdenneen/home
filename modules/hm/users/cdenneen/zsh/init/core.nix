@@ -8,7 +8,9 @@
   gco() { git co "$@"; }
   gcob() { git cob "$@"; }
 
-  # kubeswitch integration (no external zsh snippets).
-  command -v switcher >/dev/null 2>&1 && eval "$(switcher init zsh)"
-  command -v switch >/dev/null 2>&1 && eval "$(switch completion zsh)"
+  if [[ -o interactive ]]; then
+    # kubeswitch integration (no external zsh snippets).
+    command -v switcher >/dev/null 2>&1 && eval "$(switcher init zsh)"
+    command -v switch >/dev/null 2>&1 && eval "$(switch completion zsh)"
+  fi
 ''

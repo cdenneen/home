@@ -40,6 +40,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
+    axis = {
+      url = "git+ssh://git@gitlab.com/ghostspace/axis.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
     nix-darwin = {
@@ -55,7 +59,18 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
-    opencode.url = "github:anomalyco/opencode/dev";
+    opencode-src = {
+      url = "github:sst/opencode";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    codex-src = {
+      url = "github:sadjow/codex-cli-nix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    claude-src = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
     fluxcdAgentSkills = {
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -69,7 +84,6 @@
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
-    happier.url = "github:das-monki/nix-happier";
   };
 
   outputs =
@@ -129,7 +143,6 @@
 
             })
             nur.overlays.default
-            # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
           ];
           config = {
             allowBroken = true;
@@ -198,10 +211,16 @@
             # Do not let formatters rewrite encrypted SOPS files.
             settings.global.excludes = [
               "secrets/secrets.yaml"
+              "secrets/ghost.yaml"
+              "secrets/axis.yaml"
+              "secrets/jarvis.yaml"
             ];
 
             settings.formatter.prettier.excludes = [
               "secrets/secrets.yaml"
+              "secrets/ghost.yaml"
+              "secrets/axis.yaml"
+              "secrets/jarvis.yaml"
             ];
           };
 

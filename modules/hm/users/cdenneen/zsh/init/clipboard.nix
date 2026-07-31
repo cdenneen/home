@@ -80,6 +80,13 @@
 
         cat >"$tmp"
 
+        if [[ -n "$TMUX" || -t 1 ]]; then
+          if cat "$tmp" | _pbcopy_osc52; then
+            rm -f "$tmp"
+            return
+          fi
+        fi
+
         if _tcp_clipboard_available; then
           if cat "$tmp" | _pbcopy_tcp; then
             rm -f "$tmp"
@@ -94,12 +101,12 @@
           fi
         fi
 
-      if ! cat "$tmp" | _pbcopy_osc52; then
+        if ! cat "$tmp" | _pbcopy_osc52; then
+          rm -f "$tmp"
+          return 1
+        fi
         rm -f "$tmp"
-        return 1
-      fi
-      rm -f "$tmp"
-      return
+        return
       fi
 
       if [[ "$OSTYPE" == darwin* ]] && command -v /usr/bin/pbcopy >/dev/null 2>&1; then

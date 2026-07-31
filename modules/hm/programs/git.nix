@@ -32,6 +32,7 @@ in
           gpg.format = lib.mkDefault "ssh";
           init.defaultBranch = "main";
           url."git@github.com:".pushInsteadOf = "https://github.com/";
+          url."git@gitlab.com:".insteadOf = "https://gitlab.com/";
           url."git@git.ap.org:".insteadOf = "https://git.ap.org/";
           alias = {
             a = "add";

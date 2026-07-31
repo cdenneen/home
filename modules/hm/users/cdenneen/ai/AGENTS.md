@@ -2,6 +2,7 @@
 
 - GitLab IaC Pipelines (glab + Terraform/OpenTofu/Terragrunt + AWS OIDC)
 - Workspace Git Workflow (Cache + Worktrees)
+- Persistent Project Memory Requirements
 - Tooling Preferences and Fallbacks
 - MCP and Skills
 - Git Workflow
@@ -320,6 +321,178 @@ git ws-branch feat/my-branch [start-point]
 - Always use `setup_repo` or `git clone` (alias) so repos are created as worktrees from the cache.
 - Never run plain `git clone` without the alias; it breaks the cache/worktree workflow.
 
+## Persistent Project Memory Requirements
+
+This repository uses file-based project memory. Conversation history is ephemeral and may be lost due to context limits, compaction, crashes, model changes, or agent restarts.
+
+### Startup Routine
+
+When a new session begins, read in this order:
+
+1. `AGENTS.md`
+2. `.ai/HANDOFF.md` (fallback: `HANDOFF.md`)
+3. `.ai/PROJECT_STATE.md` (fallback: `PROJECT_STATE.md`)
+4. `.ai/DECISIONS.md` (fallback: `DECISIONS.md`)
+5. `.ai/NEXT_STEPS.md` (fallback: `NEXT_STEPS.md`)
+
+Then summarize understanding before making changes.
+
+### Required Project Memory Files
+
+Maintain these files at all times under `.ai/`:
+
+- `.ai/PROJECT_STATE.md`
+- `.ai/NEXT_STEPS.md`
+- `.ai/ARCHITECTURE.md`
+- `.ai/TASKS.md`
+- `.ai/DECISIONS.md`
+- `.ai/HANDOFF.md`
+
+Legacy root-level memory files with the same names may exist in older repos. If present, move them into `.ai/` before making further updates:
+
+```sh
+mkdir -p .ai
+for f in PROJECT_STATE.md NEXT_STEPS.md ARCHITECTURE.md TASKS.md DECISIONS.md HANDOFF.md; do
+  [ -f "$f" ] && [ ! -f ".ai/$f" ] && mv "$f" ".ai/$f"
+done
+```
+
+If both root and `.ai/` versions exist, read both, preserve the newest useful information in `.ai/`, then remove the root copy.
+
+### Update Triggers
+
+The agent MUST update project memory when any of the following occur:
+
+- A feature is completed.
+- A significant implementation decision is made.
+- An architectural change is introduced.
+- A bug is fixed.
+- A new blocker is discovered.
+- A task is abandoned.
+- A task is reprioritized.
+- More than 30 minutes of work has elapsed.
+- More than 10 files have been modified.
+- Before ending a session.
+- Before requesting user review.
+- Before any potentially disruptive refactor.
+- When context usage appears high.
+
+### Context Pressure
+
+- If estimated context usage exceeds 50%, update all memory files before continuing.
+- If estimated context usage exceeds 75%, perform a full handoff refresh before continuing.
+
+### File Responsibilities
+
+#### `.ai/PROJECT_STATE.md`
+
+Current project snapshot. Keep it concise and factual. Include:
+
+- Current goals
+- Current status
+- Active work stream
+- Recent accomplishments
+- Current blockers
+- Known risks
+- Important assumptions
+
+#### `.ai/NEXT_STEPS.md`
+
+Actionable continuation plan. Include:
+
+- Immediate next task
+- Ordered task list
+- Dependencies
+- Validation steps
+- Recommended next-session starting point
+
+#### `.ai/ARCHITECTURE.md`
+
+Long-term technical reference. Include:
+
+- System architecture
+- Key components
+- Data flow
+- Major dependencies
+- Integration points
+- Design constraints
+
+#### `.ai/TASKS.md`
+
+Working task tracker. Use checkbox format and keep these sections current:
+
+- Completed tasks
+- Active tasks
+- Deferred tasks
+- Blocked tasks
+
+#### `.ai/DECISIONS.md`
+
+Persistent engineering journal. Keep this file forever. Record:
+
+- Date
+- Context
+- Decision
+- Rationale
+- Alternatives considered
+- Consequences
+
+Also record:
+
+- Failed approaches
+- Rejected designs
+- Things that should not be attempted again
+
+#### `.ai/HANDOFF.md`
+
+Session recovery document optimized for a fresh agent with no prior context. Keep it small (roughly 1–3 pages) and include:
+
+- Project summary
+- Current status
+- What was completed
+- What remains
+- Open issues
+- Important files
+- Current branch information
+- Exact next action
+
+### Continuation Rule
+
+A new agent should be able to continue the project successfully using only:
+
+- repository contents
+- `AGENTS.md`
+- `.ai/HANDOFF.md`
+- `.ai/PROJECT_STATE.md`
+- `.ai/DECISIONS.md`
+
+without access to prior conversation history.
+
+### Memory Quality Rule
+
+When updating memory files:
+
+- Prefer concise factual summaries.
+- Remove stale information.
+- Avoid duplicate content.
+- Preserve important rationale.
+- Preserve lessons learned.
+- Preserve rejected approaches.
+- Preserve blocker information.
+
+Project memory files are local agent state, not normal source deliverables. Keep them current under `.ai/`, which is globally ignored by Git.
+
+### Shutdown Routine
+
+Before ending any substantial work session:
+
+1. Update `.ai/TASKS.md`
+2. Update `.ai/PROJECT_STATE.md`
+3. Update `.ai/DECISIONS.md`
+4. Refresh `.ai/NEXT_STEPS.md`
+5. Regenerate `.ai/HANDOFF.md`
+6. Verify another agent could continue successfully
+
 ## Tooling Preferences and Fallbacks
 
 ### Preferred tools (use when available)
@@ -349,6 +522,18 @@ git ws-branch feat/my-branch [start-point]
 - Example: `nix shell nixpkgs#httpie -c http -- --version`
 - If Nix is not available but the system has `brew`/`apt`/`yum`/etc, suggest installing the tool or use a fallback.
 
+### Codex RTK reference
+
+- RTK guidance lives in `~/.codex/RTK.md`.
+- In Codex sessions, prefer `rtk <command>` for tests, builds, installs, and verbose `git`/log commands when the wrapper is available.
+- Use raw commands for tiny output or interactive flows when `rtk` would get in the way.
+
+### Codebase memory
+
+- When `ccc` / the `cocoindex-code` MCP is available, prefer it for semantic code discovery before broad repo-wide scans.
+- Use `ccc search` for concept lookup and `ccc grep` for structural or AST-style matching.
+- Fall back to `rg` once you know the file or symbol range you need to inspect directly.
+
 ## MCP and Skills
 
 ### MCP servers
@@ -367,6 +552,9 @@ git ws-branch feat/my-branch [start-point]
   - `gitops-knowledge`
   - `gitops-repo-audit`
   - `gitops-cluster-debug`
+- Repo-managed skills installed globally:
+  - `cocoindex-code`
+  - `rtk-workflow`
 
 ## Codex Subagent Routing
 
