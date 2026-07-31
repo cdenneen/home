@@ -15,3 +15,6 @@ HANDOFF.md
 NEXT_STEPS.md
 PROJECT_STATE.md
 TASKS.md
+# CocoIndex Code (ccc)
+/.cocoindex_code/*
+!/.cocoindex_code/settings.yml
