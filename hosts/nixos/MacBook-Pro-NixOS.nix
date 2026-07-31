@@ -157,20 +157,6 @@
     gui.enable = true;
   };
   userPresets.cdenneen.enable = true;
-  home-manager.users.cdenneen.programs.opencode.enable = lib.mkForce false;
-  home-manager.users.cdenneen.profiles.gui.ghostty.softwareRenderer = true;
-  home-manager.users.cdenneen.xdg.desktopEntries."ghostty-safe" = {
-    name = "Ghostty (Safe)";
-    genericName = "Terminal";
-    categories = [
-      "System"
-      "TerminalEmulator"
-    ];
-    icon = "ghostty";
-    exec = "env GDK_BACKEND=wayland,x11 LIBGL_ALWAYS_SOFTWARE=1 ghostty";
-    terminal = false;
-  };
-  home-manager.users.cdenneen.wayland.windowManager.hyprland.enable = lib.mkForce false;
   services.xserver.enable = true;
   services.displayManager.sddm.enable = true;
   services.desktopManager.plasma6.enable = true;

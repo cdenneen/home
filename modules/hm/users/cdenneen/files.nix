@@ -14,6 +14,7 @@ let
   cloudflareRouteInventoryJson = pkgs.writeText "cloudflare-route-inventory.json" (
     builtins.toJSON cloudflareRouteInventory
   );
+  cocoindexCodeExe = lib.getExe (pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { });
   homeDir = config.home.homeDirectory;
   hostName =
     if osConfig != null then
@@ -263,6 +264,13 @@ let
           startup_timeout_sec = 30;
           tool_timeout_sec = 180;
         };
+        cocoindex-code = {
+          command = cocoindexCodeExe;
+          args = [ "mcp" ];
+          required = false;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
+        };
       }
       // lib.optionalAttrs isGhost {
         cloudflare = {
@@ -350,6 +358,14 @@ in
 
   home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
   home.file.".codex/RTK.md".source = ./ai/RTK.md;
+  home.file.".codex/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
+  home.file.".codex/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+
+  home.file.".agents/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
+  home.file.".agents/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+
+  home.file.".opencode/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
+  home.file.".opencode/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
 
   home.file.".claude/CLAUDE.md".source = ./ai/AGENTS.md;
 
@@ -366,6 +382,10 @@ in
       playwright = {
         type = "http";
         url = nyxSharedMcpUrl 18107;
+      };
+      cocoindex-code = {
+        command = cocoindexCodeExe;
+        args = [ "mcp" ];
       };
     }
     // lib.optionalAttrs isGhost {

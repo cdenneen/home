@@ -30,6 +30,7 @@ let
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
   recalliumMcpUrl = nyxSharedMcpUrl 18001;
+  cocoindexCodeExe = lib.getExe (pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { });
 
   mkSharedOpencodeMcp = port: {
     type = "remote";
@@ -135,7 +136,7 @@ let
     exec npx -y @playwright/mcp
   '';
 
-  opencodeConfigJson = builtins.toJSON {
+  opencodeConfig = {
     "$schema" = "https://opencode.ai/config.json";
     provider = {
       gitlab = {
@@ -178,6 +179,15 @@ let
           };
         };
       playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
+        enabled = true;
+        timeout = 120000;
+      };
+      cocoindex-code = {
+        type = "local";
+        command = [
+          cocoindexCodeExe
+          "mcp"
+        ];
         enabled = true;
         timeout = 120000;
       };
@@ -623,10 +633,6 @@ in
     }
 
     {
-      ".opencode/opencode.json".text = opencodeConfigJson;
-    }
-
-    {
       ".local/bin/update-secrets" = {
         source = ./files/update-secrets;
         executable = true;
@@ -640,6 +646,17 @@ in
       ".local/bin/restore-age-key" = {
         source = ./files/restore-age-key;
         executable = true;
+      };
+    }
+
+    {
+      ".cocoindex_code/global_settings.yml" = {
+        force = true;
+        text = ''
+          embedding:
+            provider: sentence-transformers
+            model: Snowflake/snowflake-arctic-embed-xs
+        '';
       };
     }
 
@@ -692,4 +709,9 @@ in
   programs.zsh.initContent = lib.mkAfter shellSecretExports;
 
   programs.bash.initExtra = lib.mkAfter shellSecretExports;
+
+  programs.opencode.settings = opencodeConfig;
+  xdg.configFile = lib.mkIf config.programs.opencode.enable {
+    "opencode/config.json".force = true;
+  };
 }

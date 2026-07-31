@@ -108,8 +108,11 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = homeModules ++ sharedHomeModulesIntegrated;
+            sharedModules = sharedHomeModulesIntegrated;
           };
+        }
+        {
+          home-manager.users.cdenneen.imports = homeModules;
         }
       ]
       ++ extraModulesForTags tags
@@ -154,13 +157,15 @@ let
             sharedModules = [
               mac-app-util.homeManagerModules.default
             ]
-            ++ homeModules
             ++ sharedHomeModulesIntegrated;
           };
           homebrew = {
             enable = true;
             user = "cdenneen";
           };
+        }
+        {
+          home-manager.users.cdenneen.imports = homeModules;
         }
       ]
       ++ darwinModules;
@@ -233,7 +238,11 @@ let
 
         nixosConfigurations = {
           ${hostName} = mkNixosSystem {
-            inherit system tags;
+            inherit
+              system
+              tags
+              homeModules
+              ;
             nixosModules = [
               (
                 { ... }:
@@ -248,7 +257,10 @@ let
 
         darwinConfigurations = {
           ${hostName} = mkDarwinSystem {
-            inherit system;
+            inherit
+              system
+              homeModules
+              ;
             darwinModules = [
               (
                 { ... }:

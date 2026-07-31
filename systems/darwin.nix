@@ -11,6 +11,7 @@ let
     _: host:
     mkDarwinSystem {
       system = host.system;
+      homeModules = host.homeModules or [ ];
       darwinModules = host.modules;
     }
   ) hostCatalog.darwinByName;

@@ -16,21 +16,9 @@ let
       profiles.gui.enable = pkgs.stdenv.isDarwin;
     };
 
-  opencodeHomeModule =
-    {
-      agentPkgs ? null,
-      pkgs,
-      ...
-    }:
-    {
-      programs.opencode.package = agentPkgs.opencode;
-    };
-
   homeConfiguration = mkHomeConfiguration;
 
   allHosts = builtins.attrValues hostCatalog.allByName;
-
-  extraModulesForHost = hostName: if hostName == "nyx" then [ ../hosts/nixos/nyx-home.nix ] else [ ];
 
   homeConfigurations = builtins.listToAttrs (
     map (host: {
@@ -39,7 +27,6 @@ let
         system = host.system;
         homeModules = [
           defaultHomeModule
-          opencodeHomeModule
           # Make the host name available during pure HM eval.
           (
             { ... }:
@@ -48,7 +35,7 @@ let
             }
           )
         ]
-        ++ extraModulesForHost host.name;
+        ++ (host.homeModules or [ ]);
       };
     }) allHosts
   );

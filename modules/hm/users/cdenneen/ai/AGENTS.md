@@ -525,7 +525,14 @@ Before ending any substantial work session:
 ### Codex RTK reference
 
 - RTK guidance lives in `~/.codex/RTK.md`.
-- In Codex sessions, prefer `rtk <command>` when the wrapper is available.
+- In Codex sessions, prefer `rtk <command>` for tests, builds, installs, and verbose `git`/log commands when the wrapper is available.
+- Use raw commands for tiny output or interactive flows when `rtk` would get in the way.
+
+### Codebase memory
+
+- When `ccc` / the `cocoindex-code` MCP is available, prefer it for semantic code discovery before broad repo-wide scans.
+- Use `ccc search` for concept lookup and `ccc grep` for structural or AST-style matching.
+- Fall back to `rg` once you know the file or symbol range you need to inspect directly.
 
 ## MCP and Skills
 
@@ -545,6 +552,9 @@ Before ending any substantial work session:
   - `gitops-knowledge`
   - `gitops-repo-audit`
   - `gitops-cluster-debug`
+- Repo-managed skills installed globally:
+  - `cocoindex-code`
+  - `rtk-workflow`
 
 ## Codex Subagent Routing
 
