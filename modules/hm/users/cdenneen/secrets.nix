@@ -680,6 +680,18 @@ in
     ''
   );
 
+  home.activation.opencodeMirrorConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    set -euo pipefail
+
+    src="$HOME/.opencode/opencode.json"
+    dst="$HOME/.config/opencode/config.json"
+
+    if [ -f "$src" ]; then
+      $DRY_RUN_CMD mkdir -p "$HOME/.config/opencode"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src" "$dst"
+    fi
+  '';
+
   # If a local user override exists for opencode-serve.service, it can shadow the
   # system-managed user unit (defined in NixOS) and break PATH/MCP startup.
   home.activation.opencodeNyxCleanupUserUnit = lib.mkIf isNyx (
