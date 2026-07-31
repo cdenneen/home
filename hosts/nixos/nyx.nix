@@ -1191,10 +1191,5 @@ in
     VITE_CONVEX_URL = convexCloudOrigin;
     RECALLIUM_MCP_URL = recalliumMcpUrl;
   };
-
-  home-manager.users.cdenneen.imports = [ ./nyx-home.nix ];
-
-  home-manager.users.cdenneen.programs.opencode.package = lib.mkForce agentPkgs.opencode;
-
   # Starship palette is configured in nyx-home.nix.
 }

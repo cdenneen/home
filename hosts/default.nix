@@ -13,6 +13,7 @@ let
       name = "eros";
       system = "aarch64-linux";
       modules = [ ./nixos/eros.nix ];
+      homeModules = [ ./nixos/eros-home.nix ];
       tags = [ "ec2" ];
     }
     {
@@ -34,12 +35,14 @@ let
       name = "nyx";
       system = "aarch64-linux";
       modules = [ ./nixos/nyx.nix ];
+      homeModules = [ ./nixos/nyx-home.nix ];
       tags = [ "ec2" ];
     }
     {
       name = "MacBook-Pro-NixOS";
       system = "x86_64-linux";
       modules = [ ./nixos/MacBook-Pro-NixOS.nix ];
+      homeModules = [ ./nixos/MacBook-Pro-NixOS-home.nix ];
       tags = [ ];
     }
     {
@@ -64,6 +67,7 @@ let
       name = "wsl";
       system = "x86_64-linux";
       modules = [ ./nixos/wsl.nix ];
+      homeModules = [ ./nixos/wsl-home.nix ];
       tags = [ "wsl" ];
     }
   ];
@@ -73,6 +77,7 @@ let
       name = "VNJTECMBCD";
       system = "aarch64-darwin";
       modules = [ ./darwin/VNJTECMBCD.nix ];
+      homeModules = [ ./darwin/VNJTECMBCD-home.nix ];
       tags = [ ];
     }
   ];
