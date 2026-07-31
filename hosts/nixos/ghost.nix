@@ -114,6 +114,19 @@ in
     };
   };
   virtualisation.docker.enable = lib.mkForce false;
+  virtualisation.podman.autoPrune = {
+    enable = true;
+    dates = "weekly";
+    flags = [ "--all" ];
+  };
+
+  boot.tmp.cleanOnBoot = true;
+  systemd.tmpfiles.settings."00-ghost-tmp"."/tmp".q = {
+    mode = "1777";
+    user = "root";
+    group = "root";
+    age = "3d";
+  };
 
   # Oracle Cloud's free-tier VM has 4 OCPUs and 24 GiB RAM. Keep enough
   # headroom for remote access and core services when agent workloads spike.
@@ -124,9 +137,17 @@ in
     priority = 100;
   };
 
-  nix.settings = {
-    cores = lib.mkForce 2;
-    max-jobs = lib.mkForce 2;
+  nix = {
+    gc = {
+      dates = lib.mkForce "daily";
+      options = lib.mkForce "--delete-older-than 3d";
+    };
+    settings = {
+      cores = lib.mkForce 2;
+      max-jobs = lib.mkForce 2;
+      min-free = 5 * 1024 * 1024 * 1024;
+      max-free = 15 * 1024 * 1024 * 1024;
+    };
   };
 
   systemd.slices."user-1000" = {
