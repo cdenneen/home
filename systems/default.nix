@@ -21,6 +21,20 @@ let
     unstable = self.lib.import_nixpkgs system inputs.nixpkgs-unstable;
   };
 
+  mkMbairPkgs =
+    system:
+    let
+      stable = self.lib.import_nixpkgs_with system inputs.nixpkgs-mbair {
+        includeNur = false;
+      };
+    in
+    {
+      inherit stable;
+      # Do not let integrated Home Manager pull current unstable packages into
+      # a Big Sur generation.
+      unstable = stable;
+    };
+
   mkAgentPkgs = system: {
     claude-code = inputs.claude-src.packages.${system}.claude-code;
     codex = inputs.codex-src.packages.${system}.codex;
@@ -29,14 +43,28 @@ let
 
   hostCatalog = import ../hosts;
 
-  sharedHomeModules = [
-    catppuccin.homeModules.catppuccin
-    nix-index-database.homeModules.nix-index
-    nur.modules.homeManager.default
-    self.homeModules.default
-    opnix.homeManagerModules.default
-    sops-nix.homeManagerModules.sops
-  ];
+  sharedHomeModulesFor =
+    {
+      enableCatppuccin ? true,
+      enableNixIndex ? true,
+      enableNur ? true,
+      enableOpnix ? true,
+    }:
+    [
+      (
+        if enableCatppuccin then
+          catppuccin.homeModules.catppuccin
+        else
+          ../modules/hm/compat/catppuccin-stub.nix
+      )
+    ]
+    ++ nixpkgs.lib.optional enableNixIndex nix-index-database.homeModules.nix-index
+    ++ nixpkgs.lib.optional enableNur nur.modules.homeManager.default
+    ++ [ self.homeModules.default ]
+    ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
+    ++ [ sops-nix.homeManagerModules.sops ];
+
+  sharedHomeModules = sharedHomeModulesFor { };
 
   sharedHomeModulesIntegrated = sharedHomeModules;
 
@@ -81,12 +109,14 @@ let
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
       agentPkgs = mkAgentPkgs system;
+      homeStateVersion = "25.11";
       specialArgs = inputs // {
         inherit
           system
           stablePkgs
           unstablePkgs
           agentPkgs
+          homeStateVersion
           ;
       };
     in
@@ -124,46 +154,68 @@ let
       system,
       darwinModules ? [ ],
       homeModules ? [ ],
+      legacyBigSur ? false,
     }:
     let
-      pkgsSet = mkPkgs system;
+      pkgsSet = if legacyBigSur then mkMbairPkgs system else mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
-      agentPkgs = mkAgentPkgs system;
+      agentPkgs = if legacyBigSur then null else mkAgentPkgs system;
+      homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
+      nixDarwinInput = if legacyBigSur then inputs.nix-darwin-mbair else inputs.nix-darwin;
+      homeStateVersion = if legacyBigSur then "25.05" else "25.11";
+      hostHomeModules = sharedHomeModulesFor {
+        enableCatppuccin = !legacyBigSur;
+        enableNixIndex = !legacyBigSur;
+        enableNur = !legacyBigSur;
+        enableOpnix = !legacyBigSur;
+      };
       specialArgs = inputs // {
         inherit
           system
           stablePkgs
           unstablePkgs
           agentPkgs
+          homeStateVersion
           ;
       };
     in
-    inputs.nix-darwin.lib.darwinSystem {
+    assert nixpkgs.lib.assertMsg (
+      !legacyBigSur || system == "x86_64-darwin"
+    ) "mkDarwinSystem: legacyBigSur requires system = x86_64-darwin";
+    nixDarwinInput.lib.darwinSystem {
       pkgs = stablePkgs;
       specialArgs = specialArgs;
       modules = [
         ../modules/shared/users/cdenneen.nix
-        home-manager.darwinModules.default
+        homeManagerInput.darwinModules.default
         inputs.nix-homebrew.darwinModules.nix-homebrew
+      ]
+      ++ nixpkgs.lib.optionals (!legacyBigSur) [
         mac-app-util.darwinModules.default
         nix-index-database.darwinModules.nix-index
         nur.modules.darwin.default
+      ]
+      ++ [
         self.darwinModules.default
         sops-nix.darwinModules.sops
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = [
-              mac-app-util.homeManagerModules.default
-            ]
-            ++ sharedHomeModulesIntegrated;
+            sharedModules =
+              nixpkgs.lib.optionals (!legacyBigSur) [
+                mac-app-util.homeManagerModules.default
+              ]
+              ++ hostHomeModules;
           };
           homebrew = {
             enable = true;
             user = "cdenneen";
           };
         }
+        (nixpkgs.lib.mkIf legacyBigSur {
+          home-manager.useGlobalPkgs = nixpkgs.lib.mkForce true;
+        })
         {
           home-manager.users.cdenneen.imports = homeModules;
         }
@@ -175,14 +227,26 @@ let
     {
       system,
       homeModules ? [ ],
+      legacyBigSur ? false,
     }:
     let
-      pkgsSet = mkPkgs system;
+      pkgsSet = if legacyBigSur then mkMbairPkgs system else mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
-      agentPkgs = mkAgentPkgs system;
+      agentPkgs = if legacyBigSur then null else mkAgentPkgs system;
+      homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
+      homeStateVersion = if legacyBigSur then "25.05" else "25.11";
+      hostHomeModules = sharedHomeModulesFor {
+        enableCatppuccin = !legacyBigSur;
+        enableNixIndex = !legacyBigSur;
+        enableNur = !legacyBigSur;
+        enableOpnix = !legacyBigSur;
+      };
     in
-    home-manager.lib.homeManagerConfiguration {
+    assert nixpkgs.lib.assertMsg (
+      !legacyBigSur || system == "x86_64-darwin"
+    ) "mkHomeConfiguration: legacyBigSur requires system = x86_64-darwin";
+    homeManagerInput.lib.homeManagerConfiguration {
       pkgs = unstablePkgs;
       extraSpecialArgs = inputs // {
         inherit
@@ -190,19 +254,22 @@ let
           stablePkgs
           unstablePkgs
           agentPkgs
+          homeStateVersion
           ;
       };
-      modules = homeModules ++ sharedHomeModulesStandalone;
+      modules = homeModules ++ hostHomeModules;
     };
 
   lib = {
     inherit
       mkPkgs
+      mkMbairPkgs
       mkAgentPkgs
       mkNixosSystem
       mkDarwinSystem
       mkHomeConfiguration
       sharedHomeModules
+      sharedHomeModulesFor
       sharedHomeModulesIntegrated
       sharedHomeModulesStandalone
       hostCatalog

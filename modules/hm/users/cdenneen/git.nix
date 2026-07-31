@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  options,
   ...
 }:
 
@@ -12,11 +13,13 @@ in
   programs.git = {
     enable = true;
 
-    settings.user = {
-      name = "Chris Denneen";
-      email = "cdenneen@gmail.com";
+    ${if options.programs.git ? settings then "settings" else "extraConfig"} = {
+      user = {
+        name = "Chris Denneen";
+        email = "cdenneen@gmail.com";
+      };
+      gpg.ssh.allowedSignersFile = "~/.config/git/allowed_signers";
     };
-    settings.gpg.ssh.allowedSignersFile = "~/.config/git/allowed_signers";
     signing = {
       key = "${sshDir}/github_ed25519";
       signByDefault = true;

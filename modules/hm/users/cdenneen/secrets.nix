@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  options,
   pkgs,
   osConfig ? null,
   nixHostName ? null,
@@ -243,27 +244,37 @@ let
   '';
 in
 {
-  programs.onepassword-secrets = {
-    enable = true;
-    tokenFile = "${config.home.homeDirectory}/.config/opnix/token";
-    secrets = {
-      gitlabToken = {
-        reference = "op://keys/gitlab/credential";
-        path = ".config/opnix/gitlab_token";
-        mode = "0600";
+  programs =
+    lib.optionalAttrs (options.programs ? onepassword-secrets) {
+      onepassword-secrets = {
+        enable = true;
+        tokenFile = "${config.home.homeDirectory}/.config/opnix/token";
+        secrets = {
+          gitlabToken = {
+            reference = "op://keys/gitlab/credential";
+            path = ".config/opnix/gitlab_token";
+            mode = "0600";
+          };
+          chatOauthClientSecret = {
+            reference = "op://keys/chat_oauth2/credential";
+            path = ".config/opnix/chat_oauth_client_secret";
+            mode = "0600";
+          };
+          chatOauthCookieSecret = {
+            reference = "op://keys/chat_oauth2/cookie_secret";
+            path = ".config/opnix/chat_oauth_cookie_secret";
+            mode = "0600";
+          };
+        };
       };
-      chatOauthClientSecret = {
-        reference = "op://keys/chat_oauth2/credential";
-        path = ".config/opnix/chat_oauth_client_secret";
-        mode = "0600";
-      };
-      chatOauthCookieSecret = {
-        reference = "op://keys/chat_oauth2/cookie_secret";
-        path = ".config/opnix/chat_oauth_cookie_secret";
-        mode = "0600";
-      };
+    }
+    // {
+      zsh.initContent = lib.mkAfter shellSecretExports;
+      bash.initExtra = lib.mkAfter shellSecretExports;
+    }
+    // lib.optionalAttrs (options.programs ? opencode) {
+      opencode.settings = opencodeConfig;
     };
-  };
 
   sops.secrets = {
     fortress_rsa = {
@@ -706,12 +717,7 @@ in
     ''
   );
 
-  programs.zsh.initContent = lib.mkAfter shellSecretExports;
-
-  programs.bash.initExtra = lib.mkAfter shellSecretExports;
-
-  programs.opencode.settings = opencodeConfig;
-  xdg.configFile = lib.mkIf config.programs.opencode.enable {
+  xdg.configFile = lib.mkIf (options.programs ? opencode && config.programs.opencode.enable) {
     "opencode/config.json".force = true;
   };
 }

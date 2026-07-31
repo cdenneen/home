@@ -13,6 +13,7 @@ let
       system = host.system;
       homeModules = host.homeModules or [ ];
       darwinModules = host.modules;
+      legacyBigSur = host.legacyBigSur or false;
     }
   ) hostCatalog.darwinByName;
 in
