@@ -11,6 +11,7 @@ let
   hostName = if osConfig != null then (osConfig.networking.hostName or "") else "";
   isGhost = hostName == "ghost";
   enableOciGhostAutostart = false;
+  cocoindexCodePkg = pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { };
   sshDir = "${config.home.homeDirectory}/.ssh";
   # Prefer the macOS lemonade server over a local Linux server so SSH
   # remote forwarding to 127.0.0.1:2489 works without port conflicts.
@@ -78,6 +79,8 @@ let
     oci-cli
 
     # Workspace / repo flow
+    cocoindexCodePkg
+    uv
     (pkgs.callPackage ../../../../pkgs/rtk.nix { })
     (pkgs.callPackage ../../../../pkgs/update-workspace-agents.nix { })
     (pkgs.callPackage ../../../../pkgs/workspace-init.nix { })

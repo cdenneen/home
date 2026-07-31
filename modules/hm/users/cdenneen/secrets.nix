@@ -30,6 +30,7 @@ let
 
   # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
   recalliumMcpUrl = nyxSharedMcpUrl 18001;
+  cocoindexCodeExe = lib.getExe (pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { });
 
   mkSharedOpencodeMcp = port: {
     type = "remote";
@@ -178,6 +179,15 @@ let
           };
         };
       playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
+        enabled = true;
+        timeout = 120000;
+      };
+      cocoindex-code = {
+        type = "local";
+        command = [
+          cocoindexCodeExe
+          "mcp"
+        ];
         enabled = true;
         timeout = 120000;
       };
