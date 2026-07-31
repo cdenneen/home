@@ -141,6 +141,16 @@
                 }
               );
 
+              # oauth2-proxy 7.15.3 requires Go 1.26, but nixpkgs still uses
+              # the default Go 1.25 builder for this package.
+              oauth2-proxy =
+                if prev.oauth2-proxy.version == "7.15.3" && prev.lib.versionOlder prev.go.version "1.26" then
+                  prev.oauth2-proxy.override {
+                    buildGoModule = prev.buildGo126Module;
+                  }
+                else
+                  prev.oauth2-proxy;
+
             })
             nur.overlays.default
           ];
