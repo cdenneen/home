@@ -105,8 +105,6 @@
 
   services.amazon-ssm-agent.enable = true;
 
-  home-manager.users.cdenneen.programs.starship.settings.palette = lib.mkForce "eros";
-
   # Matches running system (do not change after initial install)
   # Match global default; do not downgrade
   system.stateVersion = lib.mkForce "26.05";

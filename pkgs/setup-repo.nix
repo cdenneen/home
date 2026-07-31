@@ -8,7 +8,7 @@ pkgs.writeShellScriptBin "setup_repo" ''
   fi
 
   url="$1"
-  branch_arg="${"2:-"}"
+  branch_arg="''${2:-}"
 
   case "$url" in
     git@*:* )
@@ -56,7 +56,8 @@ pkgs.writeShellScriptBin "setup_repo" ''
   if [ -n "$branch_arg" ]; then
     branch="$branch_arg"
   else
-    branch="$(${pkgs.git}/bin/git --git-dir="$cache_repo" symbolic-ref -q refs/remotes/origin/HEAD | ${pkgs.coreutils}/bin/sed 's@^refs/remotes/origin/@@')"
+    head_ref="$(${pkgs.git}/bin/git --git-dir="$cache_repo" symbolic-ref -q refs/remotes/origin/HEAD || true)"
+    branch="''${head_ref#refs/remotes/origin/}"
     if [ -z "$branch" ]; then
       if ${pkgs.git}/bin/git --git-dir="$cache_repo" show-ref --verify --quiet refs/remotes/origin/main; then
         branch="main"

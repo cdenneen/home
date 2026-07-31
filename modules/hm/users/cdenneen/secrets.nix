@@ -3,15 +3,150 @@
   lib,
   pkgs,
   osConfig ? null,
+  nixHostName ? null,
   ...
 }:
 let
   hostName =
-    if osConfig != null then (osConfig.networking.hostName or "") else builtins.getEnv "HOSTNAME";
+    if osConfig != null then
+      (osConfig.networking.hostName or "")
+    else if nixHostName != null then
+      nixHostName
+    else
+      builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
+  isGhost = hostName == "ghost";
+  isDarwin = pkgs.stdenv.isDarwin;
+  isLinux = pkgs.stdenv.isLinux;
+  # Avoid runtime-dir secret paths on Linux (e.g. /run/user/$UID) which may be
+  # missing when the user session is not active (notably on headless hosts).
+  linuxSopsSecretsDir = "${config.home.homeDirectory}/.local/share/sops-nix/secrets";
+  darwinSopsSecretsDir = "${config.home.homeDirectory}/.config/sops-nix/secrets";
+  sopsSecretsDir = if isDarwin then darwinSopsSecretsDir else linuxSopsSecretsDir;
+  useNyxRemoteMcp = isDarwin && !isNyx;
+  useSharedNyxMcp = useNyxRemoteMcp || isNyx || isGhost;
+  nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
+  nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
-  opencodeConfigJson = builtins.toJSON {
+  # When running on nyx itself, prefer localhost to avoid any tailscale/DNS weirdness.
+  recalliumMcpUrl = nyxSharedMcpUrl 18001;
+  cocoindexCodeExe = lib.getExe (pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { });
+
+  mkSharedOpencodeMcp = port: {
+    type = "remote";
+    url = nyxSharedMcpUrl port;
+    enabled = true;
+    timeout = 60000;
+  };
+
+  mkOpencodeMcpCommand = script: [
+    "bash"
+    "-lc"
+    script
+  ];
+
+  mkOpencodeMcp =
+    port: script:
+    if useSharedNyxMcp then
+      mkSharedOpencodeMcp port
+    else
+      {
+        type = "local";
+        command = mkOpencodeMcpCommand script;
+        enabled = true;
+      };
+
+  mkNyxOnlyOpencodeMcp =
+    port: script:
+    if isNyx || isGhost then
+      mkSharedOpencodeMcp port
+    else
+      {
+        type = "local";
+        command = mkOpencodeMcpCommand script;
+        enabled = true;
+      };
+
+  mkLocalOpencodeMcpCommand = script: [
+    "bash"
+    "-lc"
+    script
+  ];
+
+  mcpGitlabScript = ''
+    set -euo pipefail
+
+    export GITLAB_API_URL="https://git.ap.org/api/v4"
+    export GITLAB_READ_ONLY_MODE="true"
+
+    if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
+      token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
+      if [ -z "$token" ]; then
+        token="$(glab auth token 2>/dev/null || true)"
+      fi
+      if [ -n "$token" ]; then
+        export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
+      fi
+    fi
+
+    exec npx -y @zereight/mcp-gitlab
+  '';
+
+  mcpKubernetesScript = ''
+    set -euo pipefail
+
+    kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
+    if [ -r "$kubeconfig" ]; then
+      sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
+      sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
+      export KUBECONFIG="$sanitized"
+    fi
+
+    exec npx -y @strowk/mcp-k8s
+  '';
+
+  mcpAwsScript = ''
+    set -euo pipefail
+    export LOG_LEVEL="error"
+    exec npx -y aws-mcp-readonly-lite
+  '';
+
+  mcpTerraformScript = ''
+    set -euo pipefail
+
+    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+      exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
+    fi
+
+    exec npx -y terraform-mcp-server
+  '';
+
+  mcpDuckDuckGoScript = ''
+    set -euo pipefail
+    exec npx -y ddg-mcp-search
+  '';
+
+  mcpContext7Script = ''
+    set -euo pipefail
+    exec npx -y @upstash/context7-mcp
+  '';
+
+  mcpPlaywrightScript = ''
+    set -euo pipefail
+    exec npx -y @playwright/mcp
+  '';
+
+  opencodeConfig = {
     "$schema" = "https://opencode.ai/config.json";
+    provider = {
+      gitlab = {
+        options = {
+          apiKey = "{env:GITLAB_TOKEN}";
+          instanceUrl = "https://git.ap.org";
+          aiGatewayUrl = "https://aigw.associatedpress.com";
+        };
+      };
+    };
     # Keep compaction enabled so long sessions stay responsive.
     compaction = {
       auto = true;
@@ -19,98 +154,62 @@ let
       reserved = 10000;
     };
     mcp = {
-      gitlab = {
-        type = "local";
-        command = [
-          "bash"
-          "-lc"
-          ''
-            set -euo pipefail
-
-            if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
-              token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
-              if [ -z "$token" ]; then
-                token="$(glab auth token 2>/dev/null || true)"
-              fi
-              if [ -n "$token" ]; then
-                export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
-              fi
-            fi
-
-            exec npx -y @zereight/mcp-gitlab
-          ''
-        ];
+      gitlab = mkOpencodeMcp 18101 mcpGitlabScript;
+      recallium = {
+        type = "remote";
+        url = recalliumMcpUrl;
         enabled = true;
-        environment = {
-          GITLAB_API_URL = "https://git.ap.org/api/v4";
-          GITLAB_READ_ONLY_MODE = "true";
+        timeout = 60000;
+      };
+      supabase = {
+        type = "remote";
+        url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
+        enabled = true;
+        timeout = 60000;
+      };
+      kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
+      aws = mkOpencodeMcp 18103 mcpAwsScript;
+      terraform = mkOpencodeMcp 18104 mcpTerraformScript;
+      duckduckgo = mkOpencodeMcp 18105 mcpDuckDuckGoScript;
+      context7 =
+        (mkOpencodeMcp 18106 mcpContext7Script)
+        // lib.optionalAttrs (!useSharedNyxMcp) {
+          environment = {
+            CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+          };
         };
+      playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
+        enabled = true;
+        timeout = 120000;
       };
-      kubernetes = {
+      cocoindex-code = {
         type = "local";
         command = [
-          "npx"
-          "-y"
-          "@strowk/mcp-k8s"
+          cocoindexCodeExe
+          "mcp"
         ];
         enabled = true;
+        timeout = 120000;
       };
-      aws = {
-        type = "local";
-        command = [
-          "npx"
-          "-y"
-          "aws-mcp-readonly-lite"
-        ];
+    }
+    // lib.optionalAttrs isGhost {
+      cloudflare = {
+        type = "remote";
+        url = "https://mcp.cloudflare.com/mcp";
         enabled = true;
-      };
-      terraform = {
-        type = "local";
-        # Use HashiCorp's MCP server in stdio mode (no TFE token required).
-        command = [
-          "podman"
-          "run"
-          "-i"
-          "--rm"
-          "hashicorp/terraform-mcp-server:0.4.0"
-        ];
-        enabled = true;
-      };
-      duckduckgo = {
-        type = "local";
-        command = [
-          "npx"
-          "-y"
-          "ddg-mcp-search"
-        ];
-        enabled = true;
-      };
-      context7 = {
-        type = "local";
-        command = [
-          "npx"
-          "-y"
-          "@upstash/context7-mcp"
-        ];
-        enabled = true;
-        environment = {
-          CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+        timeout = 60000;
+        headers = {
+          Authorization = "{env:CLOUDFLARE_API_TOKEN_BEARER}";
         };
-      };
-      playwright = {
-        type = "local";
-        command = [
-          "npx"
-          "-y"
-          "@playwright/mcp"
-        ];
-        enabled = true;
       };
     };
     permission = {
       skill = {
         "*" = "allow";
       };
+    };
+    experimental = {
+      mcp_timeout = 60000;
     };
     skills = {
       paths = [
@@ -119,6 +218,29 @@ let
       ];
     };
   };
+  shellSecretExports = ''
+    if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
+      export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
+    fi
+
+    if [ -r "${config.sops.secrets.cloudflare_account_api_token.path}" ]; then
+      export CLOUDFLARE_API_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.cloudflare_account_api_token.path}")"
+      export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+      export CLOUDFLARE_API_TOKEN_BEARER="Bearer $CLOUDFLARE_API_TOKEN"
+    fi
+
+    export CLOUDFLARE_ACCOUNT_ID="19a23ecf9ba79236ab8e64c8c7bf3507"
+    export CF_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
+    export CLOUDFLARE_ZONE_NAME="denneen.net"
+
+    if [ -r "${config.sops.secrets.gemini_api_key.path}" ]; then
+      gemini_api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.gemini_api_key.path}")"
+      if [ -n "$gemini_api_key" ]; then
+        export GEMINI_API_KEY="$gemini_api_key"
+        export GOOGLE_API_KEY="$gemini_api_key"
+      fi
+    fi
+  '';
 in
 {
   programs.onepassword-secrets = {
@@ -144,24 +266,46 @@ in
   };
 
   sops.secrets = {
-    fortress_rsa.mode = "0600";
-    cdenneen_ed25519_2024.mode = "0600";
-    github_ed25519.mode = "0600";
-    codecommit_rsa.mode = "0600";
-    id_rsa_cloud9.mode = "0600";
-
-    openclaw_gateway_token = {
-      mode = "0400";
-      path = "${config.home.homeDirectory}/.config/openclaw/gateway.token";
+    fortress_rsa = {
+      mode = "0600";
+      path = "${sopsSecretsDir}/fortress_rsa";
+    };
+    cdenneen_ed25519_2024 = {
+      mode = "0600";
+      path = "${sopsSecretsDir}/cdenneen_ed25519_2024";
+    };
+    github_ed25519 = {
+      mode = "0600";
+      path = "${sopsSecretsDir}/github_ed25519";
+    };
+    codecommit_rsa = {
+      mode = "0600";
+      path = "${sopsSecretsDir}/codecommit_rsa";
+    };
+    id_rsa_cloud9 = {
+      mode = "0600";
+      path = "${sopsSecretsDir}/id_rsa_cloud9";
     };
 
     openai_api_key.mode = "0400";
+    github-token = {
+      mode = "0400";
+      path = "${sopsSecretsDir}/github-token";
+    };
+    gemini_api_key.mode = "0400";
+    supabase_access_token.mode = "0400";
+    cloudflare_account_api_token.mode = "0400";
     telegram_bot_token.mode = "0400";
+    telegram_chat_id.mode = "0400";
 
     glab_cli_config = {
       mode = "0600";
       path = "${config.home.homeDirectory}/.config/glab-cli/config.yml";
     };
+
+    oci_config.mode = "0600";
+
+    oci_private_key.mode = "0600";
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
@@ -170,6 +314,19 @@ in
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
     mkdir -p "$HOME/.ssh"
     chmod 700 "$HOME/.ssh"
+    mkdir -p "$HOME/.oci"
+    chmod 700 "$HOME/.oci"
+
+    mkdir -p "$HOME/.local/share/sops-nix/secrets"
+    chmod 700 "$HOME/.local/share/sops-nix"
+    chmod 700 "$HOME/.local/share/sops-nix/secrets"
+
+    # programs.ssh writes ~/.ssh/config as a read-only store-backed symlink.
+    # OpenSSH rejects that mode, so we materialize a private 0600 copy later in
+    # activation. Remove that copied file here so Home Manager can relink cleanly.
+    if [ -f "$HOME/.ssh/config" ] && [ ! -L "$HOME/.ssh/config" ]; then
+      rm -f "$HOME/.ssh/config"
+    fi
 
     is_hm_link() {
       local path="$1"
@@ -280,7 +437,6 @@ in
     backup_if_unmanaged "$HOME/.ssh/cdenneen_ed25519_2024" "${config.sops.secrets.cdenneen_ed25519_2024.path}"
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa" "${config.sops.secrets.codecommit_rsa.path}"
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9" "${config.sops.secrets.id_rsa_cloud9.path}"
-
     # Public keys: managed by Home Manager (symlink into /nix/store).
     backup_if_unmanaged "$HOME/.ssh/config" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/fortress_rsa.pub" "" "/nix/store/"
@@ -289,7 +445,169 @@ in
     backup_if_unmanaged "$HOME/.ssh/cdenneen_ed25519_2024.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/codecommit_rsa.pub" "" "/nix/store/"
     backup_if_unmanaged "$HOME/.ssh/id_rsa_cloud9.pub" "" "/nix/store/"
+    backup_if_unmanaged "$HOME/.config/gh/hosts.yml"
   '';
+
+  home.activation.materializeSshConfig = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+
+    if [ -L "$HOME/.ssh/config" ]; then
+      config_target="$(readlink -f "$HOME/.ssh/config")"
+      tmp_config="$HOME/.ssh/config.tmp.$$"
+      cp "$config_target" "$tmp_config"
+      chmod 600 "$tmp_config"
+      mv -f "$tmp_config" "$HOME/.ssh/config"
+    fi
+  '';
+
+  home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+    ''
+  );
+  home.activation.fixDarwinSopsSecretsDir = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryBefore [ "sops-nix" ] ''
+      set -euo pipefail
+
+      secrets_dir="$HOME/.config/sops-nix/secrets"
+
+      if [ -L "$secrets_dir" ] && [ ! -e "$secrets_dir" ]; then
+        $DRY_RUN_CMD rm -f "$secrets_dir"
+      fi
+
+      $DRY_RUN_CMD mkdir -p "$HOME/.config/sops-nix"
+      $DRY_RUN_CMD chmod 700 "$HOME/.config/sops-nix"
+    ''
+  );
+
+  home.activation.materializeDarwinSopsSecrets = lib.mkIf pkgs.stdenv.isDarwin (
+    lib.hm.dag.entryAfter [ "sops-nix" ] ''
+      set -euo pipefail
+
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+
+      sops_nix_program="${config.launchd.agents.sops-nix.config.Program}"
+
+      if [ -x "$sops_nix_program" ]; then
+        $DRY_RUN_CMD "$sops_nix_program"
+      elif command -v sops-nix-user >/dev/null 2>&1; then
+        $DRY_RUN_CMD sops-nix-user
+      fi
+    ''
+  );
+
+  # On headless Linux hosts, `nh home switch` is sometimes executed via `su -` from
+  # root which does not create a user session (so `/run/user/$UID` and
+  # $XDG_RUNTIME_DIR are missing). sops-nix relies on XDG_RUNTIME_DIR to mount
+  # secrets, so provide a fallback under $HOME and materialize once during
+  # activation.
+  home.activation.materializeLinuxSopsSecrets = lib.mkIf pkgs.stdenv.isLinux (
+    lib.hm.dag.entryAfter [ "sops-nix" ] ''
+      set -euo pipefail
+
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+
+      if [ -z "''${XDG_RUNTIME_DIR:-}" ] || [ ! -d "''${XDG_RUNTIME_DIR:-}" ]; then
+        export XDG_RUNTIME_DIR="$HOME/.local/share/xdg-runtime"
+      fi
+
+      $DRY_RUN_CMD mkdir -p "$XDG_RUNTIME_DIR"
+      $DRY_RUN_CMD chmod 700 "$XDG_RUNTIME_DIR"
+
+      if command -v sops-nix-user >/dev/null 2>&1; then
+        $DRY_RUN_CMD sops-nix-user
+      fi
+    ''
+  );
+
+  home.activation.materializeOciFiles =
+    lib.hm.dag.entryAfter
+      (if pkgs.stdenv.isDarwin then [ "materializeDarwinSopsSecrets" ] else [ "sops-nix" ])
+      ''
+        set -euo pipefail
+
+        src_cfg="$HOME/.config/sops-nix/secrets/oci_config"
+        src_key="$HOME/.config/sops-nix/secrets/oci_private_key"
+        dst_dir="$HOME/.oci"
+
+        if [ ! -r "$src_cfg" ] || [ ! -r "$src_key" ]; then
+          echo "warning: OCI secrets are missing from sops-nix output; skipping OCI materialization ($src_cfg, $src_key)" >&2
+          exit 0
+        fi
+
+        $DRY_RUN_CMD mkdir -p "$dst_dir"
+        $DRY_RUN_CMD chmod 700 "$dst_dir"
+
+        if [ -L "$dst_dir/config" ]; then
+          $DRY_RUN_CMD rm -f "$dst_dir/config"
+        fi
+        if [ -L "$dst_dir/private_key.pem" ]; then
+          $DRY_RUN_CMD rm -f "$dst_dir/private_key.pem"
+        fi
+
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src_cfg" "$dst_dir/config"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$src_key" "$dst_dir/private_key.pem"
+      '';
+
+  home.activation.materializeGhHosts =
+    lib.hm.dag.entryAfter
+      (
+        if pkgs.stdenv.isDarwin then
+          [ "materializeDarwinSopsSecrets" ]
+        else
+          [ "materializeLinuxSopsSecrets" ]
+      )
+      ''
+                set -euo pipefail
+
+                export PATH="${pkgs.coreutils}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+
+                token_file=""
+                for candidate in \
+                  /run/secrets/github-token \
+                  /var/run/secrets/github-token \
+                  "$HOME/.local/share/sops-nix/secrets/github-token" \
+                  "$HOME/.config/sops-nix/secrets/github-token"
+                do
+                  if [ -r "$candidate" ]; then
+                    token_file="$candidate"
+                    break
+                  fi
+                done
+
+                if [ -z "$token_file" ]; then
+                  echo "warning: github-token secret is missing; skipping gh hosts materialization" >&2
+                  exit 0
+                fi
+
+                github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+                if [ -z "$github_token" ]; then
+                  echo "warning: github-token secret is empty; skipping gh hosts materialization" >&2
+                  exit 0
+                fi
+
+                gh_dir="$HOME/.config/gh"
+                gh_hosts="$gh_dir/hosts.yml"
+                tmp_file="$(${pkgs.coreutils}/bin/mktemp)"
+
+                cleanup() {
+                  rm -f "$tmp_file"
+                }
+                trap cleanup EXIT
+
+                $DRY_RUN_CMD mkdir -p "$gh_dir"
+                cat >"$tmp_file" <<EOF
+        github.com:
+            users:
+                ${config.home.username}:
+                    oauth_token: $github_token
+            git_protocol: ssh
+            user: ${config.home.username}
+            oauth_token: $github_token
+        EOF
+
+                $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp_file" "$gh_hosts"
+      '';
 
   home.file = lib.mkMerge [
     {
@@ -315,10 +633,6 @@ in
     }
 
     {
-      ".opencode/opencode.json".text = opencodeConfigJson;
-    }
-
-    {
       ".local/bin/update-secrets" = {
         source = ./files/update-secrets;
         executable = true;
@@ -335,14 +649,20 @@ in
       };
     }
 
+    {
+      ".cocoindex_code/global_settings.yml" = {
+        force = true;
+        text = ''
+          embedding:
+            provider: sentence-transformers
+            model: Snowflake/snowflake-arctic-embed-xs
+        '';
+      };
+    }
+
     (lib.mkIf pkgs.stdenv.isDarwin {
       ".config/sops" = {
         source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/Library/Application Support/sops";
-        force = true;
-      };
-
-      ".config/sops-nix/secrets" = {
-        source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/Library/Application Support/sops-nix/secrets";
         force = true;
       };
     })
@@ -366,4 +686,32 @@ in
       fi
     ''
   );
+
+  # If a local user override exists for opencode-serve.service, it can shadow the
+  # system-managed user unit (defined in NixOS) and break PATH/MCP startup.
+  home.activation.opencodeNyxCleanupUserUnit = lib.mkIf isNyx (
+    lib.hm.dag.entryAfter [ "reloadSystemd" ] ''
+      set -euo pipefail
+
+      unit="$HOME/.config/systemd/user/opencode-serve.service"
+      dropin_dir="$HOME/.config/systemd/user/opencode-serve.service.d"
+
+      if [ -e "$unit" ] || [ -d "$dropin_dir" ]; then
+        ${pkgs.systemd}/bin/systemctl --user stop opencode-serve.service 2>/dev/null || true
+        $DRY_RUN_CMD rm -f "$unit"
+        $DRY_RUN_CMD rm -rf "$dropin_dir"
+        ${pkgs.systemd}/bin/systemctl --user daemon-reload 2>/dev/null || true
+        ${pkgs.systemd}/bin/systemctl --user start opencode-serve.service 2>/dev/null || true
+      fi
+    ''
+  );
+
+  programs.zsh.initContent = lib.mkAfter shellSecretExports;
+
+  programs.bash.initExtra = lib.mkAfter shellSecretExports;
+
+  programs.opencode.settings = opencodeConfig;
+  xdg.configFile = lib.mkIf config.programs.opencode.enable {
+    "opencode/config.json".force = true;
+  };
 }

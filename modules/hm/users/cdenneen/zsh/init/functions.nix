@@ -80,7 +80,10 @@
       fi
     fi
 
-    [ -f ~/.secrets ] && source ~/.secrets
+    if [ -f ~/.secrets ]; then
+      source ~/.secrets
+      unset GITLAB_TOKEN GITLAB_ACCESS_TOKEN GITLAB_PERSONAL_ACCESS_TOKEN OAUTH_TOKEN 2>/dev/null || true
+    fi
   }
 
   _default_cache_root() {

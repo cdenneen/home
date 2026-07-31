@@ -1,15 +1,15 @@
 {
   config,
+  agentPkgs ? null,
   lib,
   pkgs,
-  system,
   osConfig,
-  opencode ? null,
-  unstablePkgs ? pkgs,
   ...
 }:
 let
   cfg = config.profiles;
+  opencodePkg = agentPkgs.opencode;
+  hostSystem = pkgs.stdenv.hostPlatform.system;
 in
 {
   imports = [
@@ -32,8 +32,8 @@ in
         ++ [
           "/run/wrappers/bin"
           "${config.home.homeDirectory}/.cargo/bin"
-          "${config.home.homeDirectory}/.local/bin"
           "${config.home.homeDirectory}/.bin"
+          "${config.home.homeDirectory}/.local/bin"
           "${config.home.homeDirectory}/bin"
           "${config.home.homeDirectory}/.nix-profile/bin"
           "/nix/profile/bin"
@@ -42,7 +42,7 @@ in
           "/run/current-system/sw/bin"
           "/nix/var/nix/profiles/default/bin"
         ]
-        ++ lib.optionals (system == "aarch64-darwin") [
+        ++ lib.optionals (hostSystem == "aarch64-darwin") [
           "/opt/homebrew/bin"
           "/opt/homebrew/sbin"
         ]
@@ -71,6 +71,10 @@ in
     # must live at the system level (NixOS / nix-darwin).
     # XDG config files managed by Home Manager
     xdg.configFile = { };
+    home.file.".bin/pnpm" = lib.mkIf pkgs.stdenv.isDarwin {
+      source = lib.getExe pkgs.pnpm;
+      executable = true;
+    };
     programs = {
       home-manager.enable = true;
       starship = {
@@ -197,12 +201,7 @@ in
       direnv.nix-direnv.enable = lib.mkDefault true;
 
       opencode.enable = lib.mkDefault true;
-      opencode.package = lib.mkDefault (
-        if opencode != null then
-          opencode.packages.${pkgs.stdenv.hostPlatform.system}.default
-        else
-          unstablePkgs.opencode
-      );
+      opencode.package = lib.mkDefault opencodePkg;
     };
     # Catppuccin program integrations (top-level module, not under programs)
     # Catppuccin program integrations (supported by the flake)
@@ -224,7 +223,10 @@ in
       pkgs.cachix
       pkgs.coreutils
       (pkgs.callPackage ../../../pkgs/hm-switch.nix { })
+      pkgs.jq
       pkgs.nerd-fonts.jetbrains-mono
+      pkgs.python3
+      pkgs.python3Packages.pip
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
       pkgs.pinentry-curses

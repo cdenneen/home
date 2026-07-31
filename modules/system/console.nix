@@ -42,6 +42,7 @@ in
             httpie
             jq
             just
+            nh
             kubectl
             lsof
             netcat

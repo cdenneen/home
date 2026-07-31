@@ -40,6 +40,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
+    axis = {
+      url = "git+ssh://git@gitlab.com/ghostspace/axis.git";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
     nix-darwin = {
@@ -55,13 +59,31 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
-    opencode.url = "github:anomalyco/opencode/dev";
+    opencode-src = {
+      url = "github:sst/opencode";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    codex-src = {
+      url = "github:sadjow/codex-cli-nix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    claude-src = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
+    fluxcdAgentSkills = {
+      url = "github:cdenneen/fluxcd-agent-skills";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nur.url = "github:nix-community/nur";
-    vimnix.url = "github:cdenneen/vimnix";
+    vimnix = {
+      url = "github:cdenneen/vimnix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     sops-nix.url = "github:Mic92/sops-nix";
     treefmt-nix.url = "github:numtide/treefmt-nix";
-    happier.url = "github:das-monki/nix-happier";
   };
 
   outputs =
@@ -107,9 +129,20 @@
               rust-analyzer-nightly =
                 if prev ? rust-analyzer-nightly then prev.rust-analyzer-nightly else prev.rust-analyzer;
 
+              # direnv 2.37.x on darwin builds with `-linkmode=external`,
+              # which requires cgo. Force cgo for this package until nixpkgs
+              # ships a fixed expression.
+              direnv = prev.direnv.overrideAttrs (
+                old:
+                prev.lib.optionalAttrs prev.stdenv.isDarwin {
+                  env = (old.env or { }) // {
+                    CGO_ENABLED = "1";
+                  };
+                }
+              );
+
             })
             nur.overlays.default
-            # (import ./overlays/opencode.nix) # temporarily disabled; use nixpkgs opencode
           ];
           config = {
             allowBroken = true;
@@ -150,6 +183,17 @@
           self',
           ...
         }:
+        let
+          direnvForShell =
+            if pkgs.stdenv.isDarwin then
+              pkgs.direnv.overrideAttrs (old: {
+                env = (old.env or { }) // {
+                  CGO_ENABLED = "1";
+                };
+              })
+            else
+              pkgs.direnv;
+        in
         {
           # Let flake-parts provide pkgs; do not override to avoid recursion
           # Let flake-parts manage pkgs; do not override with a manual nixpkgs import
@@ -167,10 +211,16 @@
             # Do not let formatters rewrite encrypted SOPS files.
             settings.global.excludes = [
               "secrets/secrets.yaml"
+              "secrets/ghost.yaml"
+              "secrets/axis.yaml"
+              "secrets/jarvis.yaml"
             ];
 
             settings.formatter.prettier.excludes = [
               "secrets/secrets.yaml"
+              "secrets/ghost.yaml"
+              "secrets/axis.yaml"
+              "secrets/jarvis.yaml"
             ];
           };
 
@@ -197,16 +247,14 @@
 
           devshells.default = {
             # Align devshell tooling with system/Home Manager pkgs
-            packages =
-              with pkgs;
-              [
-                git
-                ripgrep
-                direnv
-                fzf
-                eza
-              ]
-              ++ [ self'.packages.treefmt ];
+            packages = [
+              pkgs.git
+              pkgs.ripgrep
+              direnvForShell
+              pkgs.fzf
+              pkgs.eza
+              self'.packages.treefmt
+            ];
             commands = [
               {
                 package = self'.packages.setup-sops;
@@ -247,9 +295,7 @@
             let
               isCacheable = v: isDerivation v;
             in
-            mapAttrs' (n: nameValuePair "devShells-${n}") (
-              filterAttrs (n: v: isCacheable v) self'.devShells
-            );
+            mapAttrs' (n: nameValuePair "devShells-${n}") (filterAttrs (n: v: isCacheable v) self'.devShells);
         };
     };
 }
