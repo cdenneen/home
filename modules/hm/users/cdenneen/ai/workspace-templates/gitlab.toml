@@ -17,6 +17,8 @@ Pipeline style guidance:
 - Always surface manual blockers with exact job URLs and play commands.
 
 Execution guidance:
+- Execute requested pipeline-config fixes through patch and validation in the same run.
+- Require target-specific confirmation before starting a pipeline or manual job with deployment effects; after authorization, poll it to terminal status.
 - Use bounded polling for non-terminal pipelines and include parent + child status.
 - Tie proposed fixes directly to trace evidence.
 """

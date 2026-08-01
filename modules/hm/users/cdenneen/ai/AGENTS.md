@@ -1,5 +1,6 @@
 ## Table of Contents
 
+- General Execution Contract
 - GitLab IaC Pipelines (glab + Terraform/OpenTofu/Terragrunt + AWS OIDC)
 - Workspace Git Workflow (Cache + Worktrees)
 - Persistent Project Memory Requirements
@@ -8,21 +9,33 @@
 - Git Workflow
 - Response Style
 
+## General Execution Contract
+
+- Infer execution intent from the request. Questions, reviews, audits, research, and explicit planning requests are read-only. Requests to fix, implement, update, deploy, clean up, or "proceed" authorize the required edits and non-destructive validation.
+- For execution tasks, continue end-to-end in the current run: investigate, implement, validate, commit/push/open or merge a PR when requested, and verify the resulting automation. Do not stop after diagnosis, a plan, a progress update, or a delegated subagent result.
+- Progress updates communicate status; they are not approval checkpoints. Continue without waiting unless a material ambiguity changes correctness, a required credential or manual action is unavailable, or the next operation is destructive or an infrastructure apply that requires explicit confirmation.
+- When delegating, state whether the subagent should execute or review. The primary agent owns completion and must resume after the subagent returns.
+- Resolve routine blockers independently using available tools and bounded retries. If genuinely blocked, report the evidence and the single concrete user action required.
+- Preserve explicit safety gates for deleting data, rewriting shared history, production/cloud applies, and manual pipeline jobs.
+- An explicit request such as "deploy/apply to <named target>" satisfies the target confirmation gate. A generic request to fix code or configuration does not authorize remote mutation.
+
 ## GitLab IaC Pipelines (glab + Terraform/OpenTofu/Terragrunt + AWS OIDC)
+
+This section applies only when the task concerns a GitLab pipeline, job, artifact, child pipeline, or GitLab-driven infrastructure deployment. It does not impose output or stopping requirements on unrelated work.
 
 ### Quick Reference
 
 - Never claim ongoing monitoring; use bounded polling and finish in-run.
 - Always check pipeline + child pipelines + artifacts; report job URLs.
-- Manual job blocks = stop and request human action with exact `glab` command.
-- End every response with the “Run Summary” block.
+- Manual job blocks unless the current request explicitly names and authorizes that job; otherwise stop and request human action with the exact `glab` command.
+- End every GitLab pipeline/deployment response with the “Run Summary” block.
 
 ### 0) Execution Contract (NO fake monitoring)
 
 - The agent must NOT say: “I will monitor”, “I’ll keep an eye on it”, “I’ll report back later”.
 - The agent operates in single-run mode: it must do all polling/retries NOW, inside this run.
 - If a task requires waiting on external state (pipeline/jobs), the agent must implement a bounded polling loop (see §3).
-- If the pipeline is blocked on a manual job, the agent must stop polling and explicitly request the required human action with exact `glab` commands/URL.
+- If the pipeline is blocked on a manual job not explicitly named and authorized in the current request, stop polling and request the required human action with exact `glab` commands/URL. If it is pre-authorized, play it and continue polling.
 
 ### 1) Definition of Done (DoD)
 
@@ -80,7 +93,7 @@ The agent must never output "Next action: wait" without having executed the mini
 
 The agent must NOT end a run with pipeline status in {running, pending} unless:
 
-- the pipeline is blocked by a manual job (then exit as "Requires human action"), OR
+- the pipeline is blocked by a manual job not explicitly authorized in the current request (then exit as "Requires human action"), OR
 - the polling loop reached TIMEOUT and a Poll Log is printed.
 
 ### Example polling monitor (standalone script)
@@ -93,6 +106,7 @@ PROJECT_ID="${PROJECT_ID:-:id}"      # glab supports :id in many endpoints when 
 PIPELINE_ID="${1:?usage: $0 <pipeline_id>}"
 SLEEP="${SLEEP:-25}"
 MAX_POLLS="${MAX_POLLS:-30}"
+AUTHORIZED_MANUAL_JOBS="${AUTHORIZED_MANUAL_JOBS:-}" # comma-separated exact job names
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
@@ -111,8 +125,33 @@ get_jobs() {
     | jq -r '.[] | "\(.id)\t\(.name)\t\(.stage)\t\(.status)\t\(.web_url)"'
 }
 
-detect_manual_blockers() {
+manual_jobs() {
   get_jobs | awk -F'\t' '$4=="manual"{print}'
+}
+
+is_authorized_manual_job() {
+  [[ ",${AUTHORIZED_MANUAL_JOBS}," == *",$1,"* ]]
+}
+
+play_authorized_manual_jobs() {
+  played_authorized_manual_job=false
+  while IFS=$'\t' read -r id name stage status url; do
+    [[ -n "$id" ]] || continue
+    if is_authorized_manual_job "$name"; then
+      echo "PLAYING AUTHORIZED MANUAL JOB: $name ($url)"
+      glab api --method POST "projects/$PROJECT_ID/jobs/$id/play" >/dev/null
+      played_authorized_manual_job=true
+    fi
+  done < <(manual_jobs)
+}
+
+detect_manual_blockers() {
+  while IFS=$'\t' read -r id name stage status url; do
+    [[ -n "$id" ]] || continue
+    if ! is_authorized_manual_job "$name"; then
+      printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$stage" "$status" "$url"
+    fi
+  done < <(manual_jobs)
 }
 
 detect_failed_jobs() {
@@ -120,10 +159,11 @@ detect_failed_jobs() {
 }
 
 echo -e "poll\ttime\tparent_status\tchild_pipelines\tmanual_jobs\tfailed_jobs"
+played_authorized_manual_job=false
 
 for ((i=1;i<=MAX_POLLS;i++)); do
+  play_authorized_manual_jobs
   parent="$(get_pipeline_status || echo unknown)"
-
   child="$(get_child_pipelines | paste -sd',' -)"
   manual_cnt="$(detect_manual_blockers | wc -l | tr -d ' ')"
   failed_cnt="$(detect_failed_jobs | wc -l | tr -d ' ')"
@@ -142,6 +182,11 @@ for ((i=1;i<=MAX_POLLS;i++)); do
     exit 3
   fi
 
+  if [[ "$played_authorized_manual_job" == true ]]; then
+    sleep "$SLEEP"
+    continue
+  fi
+
   if [[ "$parent" =~ ^(success|failed|canceled|skipped)$ ]]; then
     exit 0
   fi
@@ -158,12 +203,13 @@ exit 4
 If any required job is manual:
 
 - Identify job name, stage, and URL.
+- If the current request explicitly names and authorizes the job, play it and continue through terminal verification.
 - Provide one of:
   - the exact “play” instruction (GitLab UI path), AND
   - the exact `glab` command (if supported in environment) OR the pipeline/job URL
 - Explain what will happen after the manual job is played (next stage/child pipeline).
 
-The agent must label the outcome as: “Requires human action” and stop.
+When the job is not pre-authorized, label the outcome as “Requires human action” and stop.
 
 ### 5) Debugging policy (multi-stage + artifacts + early-stage failures)
 
@@ -212,9 +258,9 @@ If logs include AssumeRoleWithWebIdentity/OIDC errors:
 
 Do not guess — cite exact log lines.
 
-### 9) Output format (required)
+### 9) Output format (required for GitLab pipeline/deployment tasks)
 
-Every response must end with a “Run Summary” block:
+Every GitLab pipeline/deployment response must end with a “Run Summary” block:
 
 - Pipeline: <id> <url>
 - Status: <success|failed|requires manual|timeout>
@@ -335,11 +381,11 @@ When a new session begins, read in this order:
 4. `.ai/DECISIONS.md` (fallback: `DECISIONS.md`)
 5. `.ai/NEXT_STEPS.md` (fallback: `NEXT_STEPS.md`)
 
-Then summarize understanding before making changes.
+Briefly summarize understanding in a progress update, then continue with the requested work without waiting for confirmation.
 
 ### Required Project Memory Files
 
-Maintain these files at all times under `.ai/`:
+Maintain these files under `.ai/` for execution sessions that modify project state. Explicitly read-only review/research tasks must not create or update them unless the user asks or a durable blocker/decision must be recorded:
 
 - `.ai/PROJECT_STATE.md`
 - `.ai/NEXT_STEPS.md`
@@ -376,6 +422,8 @@ The agent MUST update project memory when any of the following occur:
 - Before requesting user review.
 - Before any potentially disruptive refactor.
 - When context usage appears high.
+
+Read-only review/research tasks should not modify project memory unless they produce a durable decision, blocker, or explicit user-requested record.
 
 ### Context Pressure
 
@@ -484,7 +532,7 @@ Project memory files are local agent state, not normal source deliverables. Keep
 
 ### Shutdown Routine
 
-Before ending any substantial work session:
+Before ending any substantial execution session that modified code, state, tasks, or decisions:
 
 1. Update `.ai/TASKS.md`
 2. Update `.ai/PROJECT_STATE.md`
@@ -539,7 +587,7 @@ Before ending any substantial work session:
 ### MCP servers
 
 - MCP tools are available by default; use them automatically when relevant.
-- Prefer read-only tools unless the user explicitly asks to write or mutate.
+- Prefer read-only tools during discovery. When request intent authorizes execution, use the required write tools without asking again, subject to the safety gates above.
 - If a specific MCP is requested, use it explicitly.
 
 ### Skills
@@ -572,6 +620,6 @@ Before ending any substantial work session:
 
 ## Response Style
 
-- Always include 1 or 2 suggestions in responses.
+- Include suggestions only when useful work remains outside the completed request.
 - Keep suggestions simple, direct, and actionable.
 - Do not overcomplicate wording or steps.
