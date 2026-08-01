@@ -103,6 +103,23 @@
         "type": "github"
       }
     },
+    "brew-src_2": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769363988,
+        "narHash": "sha256-BiGPeulrDVetXP+tjxhMcGLUROZAtZIhU5m4MqawCfM=",
+        "owner": "Homebrew",
+        "repo": "brew",
+        "rev": "d01011cac6d72032c75fd2cd9489909e95d9faf2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Homebrew",
+        "ref": "5.0.12",
+        "repo": "brew",
+        "type": "github"
+      }
+    },
     "catppuccin": {
       "inputs": {
         "nixpkgs": "nixpkgs_2"
@@ -646,6 +663,25 @@
         "type": "github"
       }
     },
+    "nix-homebrew-mbair": {
+      "inputs": {
+        "brew-src": "brew-src_2"
+      },
+      "locked": {
+        "lastModified": 1774719116,
+        "narHash": "sha256-gGlivNEcsJBMV9/AsMqCeClcFyamfN4mXp2V+M8ivpI=",
+        "owner": "zhaofengli",
+        "repo": "nix-homebrew",
+        "rev": "0406ffd7d3a4e285b618a226a837f4fe9b1a36b7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "zhaofengli",
+        "repo": "nix-homebrew",
+        "rev": "0406ffd7d3a4e285b618a226a837f4fe9b1a36b7",
+        "type": "github"
+      }
+    },
     "nix-index-database": {
       "inputs": {
         "nixpkgs": [
@@ -1118,6 +1154,7 @@
         "nix-darwin": "nix-darwin_2",
         "nix-darwin-mbair": "nix-darwin-mbair",
         "nix-homebrew": "nix-homebrew",
+        "nix-homebrew-mbair": "nix-homebrew-mbair",
         "nix-index-database": "nix-index-database",
         "nixos-crostini": "nixos-crostini",
         "nixos-hardware": "nixos-hardware",

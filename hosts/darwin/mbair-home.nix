@@ -1,10 +1,30 @@
 {
+  config,
   lib,
   pkgs,
   ...
 }:
 {
   profiles.gui.enable = lib.mkForce false;
+
+  catppuccin = {
+    enable = lib.mkForce false;
+    bat.enable = lib.mkForce false;
+    fzf.enable = lib.mkForce false;
+    starship.enable = lib.mkForce false;
+    tmux.enable = lib.mkForce false;
+  };
+
+  home.file.".zshenv".text = lib.mkForce ''
+    # Environment variables
+    if [ -r "${config.home.sessionVariablesPackage}/etc/profile.d/hm-session-vars.sh" ]; then
+      . "${config.home.sessionVariablesPackage}/etc/profile.d/hm-session-vars.sh"
+    elif [ -r "${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh" ]; then
+      . "${config.home.profileDirectory}/etc/profile.d/hm-session-vars.sh"
+    fi
+
+    ${config.programs.zsh.envExtra}
+  '';
 
   home.packages = lib.mkForce (
     with pkgs;

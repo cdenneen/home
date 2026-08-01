@@ -164,6 +164,7 @@ let
       agentPkgs = if legacyBigSur then null else mkAgentPkgs system;
       homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
       nixDarwinInput = if legacyBigSur then inputs.nix-darwin-mbair else inputs.nix-darwin;
+      nixHomebrewInput = if legacyBigSur then inputs.nix-homebrew-mbair else inputs.nix-homebrew;
       sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
       homeStateVersion = if legacyBigSur then "25.05" else "25.11";
       hostHomeModules = sharedHomeModulesFor {
@@ -192,7 +193,7 @@ let
       modules = [
         ../modules/shared/users/cdenneen.nix
         homeManagerInput.darwinModules.default
-        inputs.nix-homebrew.darwinModules.nix-homebrew
+        nixHomebrewInput.darwinModules.nix-homebrew
       ]
       ++ nixpkgs.lib.optionals (!legacyBigSur) [
         mac-app-util.darwinModules.default

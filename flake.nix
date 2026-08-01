@@ -91,6 +91,7 @@
       inputs.home-manager.follows = "home-manager";
     };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+    nix-homebrew-mbair.url = "github:zhaofengli/nix-homebrew/0406ffd7d3a4e285b618a226a837f4fe9b1a36b7";
     sops-nix.url = "github:Mic92/sops-nix";
     sops-nix-mbair = {
       url = "github:Mic92/sops-nix/17eea6f3816ba6568b8c81db8a4e6ca438b30b7c";
