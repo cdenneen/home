@@ -290,11 +290,13 @@ let
         nixosModules ? [ ],
         darwinModules ? [ ],
         homeModules ? [ ],
+        legacyBigSur ? false,
       }:
       let
         defaultHomeModule =
           { pkgs, ... }:
           {
+            _module.args.nixHostName = hostName;
             home.username = "cdenneen";
             home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
             profiles.defaults.enable = true;
@@ -303,7 +305,7 @@ let
 
         homeConfigurations = {
           cdenneen = mkHomeConfiguration {
-            inherit system;
+            inherit system legacyBigSur;
             homeModules = [ defaultHomeModule ] ++ homeModules;
           };
         };
@@ -332,6 +334,7 @@ let
             inherit
               system
               homeModules
+              legacyBigSur
               ;
             darwinModules = [
               (
