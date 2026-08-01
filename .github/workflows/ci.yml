@@ -51,6 +51,8 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate Darwin (VNJTECMBCD)
         run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+      - name: Evaluate Darwin (mbair legacy stack)
+        run: nix eval --raw .#darwinConfigurations.mbair.system.drvPath --accept-flake-config
 
   flake-checks-full-linux:
     if: github.event_name == 'workflow_dispatch' && inputs.full_checks

@@ -49,6 +49,7 @@ let
       enableNixIndex ? true,
       enableNur ? true,
       enableOpnix ? true,
+      sopsNix ? sops-nix,
     }:
     [
       (
@@ -62,7 +63,7 @@ let
     ++ nixpkgs.lib.optional enableNur nur.modules.homeManager.default
     ++ [ self.homeModules.default ]
     ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
-    ++ [ sops-nix.homeManagerModules.sops ];
+    ++ [ sopsNix.homeManagerModules.sops ];
 
   sharedHomeModules = sharedHomeModulesFor { };
 
@@ -163,12 +164,14 @@ let
       agentPkgs = if legacyBigSur then null else mkAgentPkgs system;
       homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
       nixDarwinInput = if legacyBigSur then inputs.nix-darwin-mbair else inputs.nix-darwin;
+      sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
       homeStateVersion = if legacyBigSur then "25.05" else "25.11";
       hostHomeModules = sharedHomeModulesFor {
         enableCatppuccin = !legacyBigSur;
         enableNixIndex = !legacyBigSur;
         enableNur = !legacyBigSur;
         enableOpnix = !legacyBigSur;
+        sopsNix = sopsNixInput;
       };
       specialArgs = inputs // {
         inherit
@@ -198,7 +201,7 @@ let
       ]
       ++ [
         self.darwinModules.default
-        sops-nix.darwinModules.sops
+        sopsNixInput.darwinModules.sops
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
@@ -235,12 +238,14 @@ let
       unstablePkgs = pkgsSet.unstable;
       agentPkgs = if legacyBigSur then null else mkAgentPkgs system;
       homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
+      sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
       homeStateVersion = if legacyBigSur then "25.05" else "25.11";
       hostHomeModules = sharedHomeModulesFor {
         enableCatppuccin = !legacyBigSur;
         enableNixIndex = !legacyBigSur;
         enableNur = !legacyBigSur;
         enableOpnix = !legacyBigSur;
+        sopsNix = sopsNixInput;
       };
     in
     assert nixpkgs.lib.assertMsg (
@@ -285,11 +290,13 @@ let
         nixosModules ? [ ],
         darwinModules ? [ ],
         homeModules ? [ ],
+        legacyBigSur ? false,
       }:
       let
         defaultHomeModule =
           { pkgs, ... }:
           {
+            _module.args.nixHostName = hostName;
             home.username = "cdenneen";
             home.homeDirectory = if pkgs.stdenv.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
             profiles.defaults.enable = true;
@@ -298,7 +305,7 @@ let
 
         homeConfigurations = {
           cdenneen = mkHomeConfiguration {
-            inherit system;
+            inherit system legacyBigSur;
             homeModules = [ defaultHomeModule ] ++ homeModules;
           };
         };
@@ -327,6 +334,7 @@ let
             inherit
               system
               homeModules
+              legacyBigSur
               ;
             darwinModules = [
               (

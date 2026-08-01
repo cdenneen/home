@@ -92,6 +92,10 @@
     };
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     sops-nix.url = "github:Mic92/sops-nix";
+    sops-nix-mbair = {
+      url = "github:Mic92/sops-nix/17eea6f3816ba6568b8c81db8a4e6ca438b30b7c";
+      inputs.nixpkgs.follows = "nixpkgs-mbair";
+    };
     treefmt-nix.url = "github:numtide/treefmt-nix";
   };
 
