@@ -15,7 +15,8 @@ Routing guidance:
 - Use `gitlab-ci-expert` for deployment pipeline blockers or environment promotion flow.
 
 Execution guidance:
-- Confirm context/namespace early and avoid broad mutations.
-- Prefer read-only diagnostics before proposing changes.
-- End with concrete validation steps and rollback-safe next action.
+- Verify context/namespace from available state; ask only when multiple plausible targets make mutation unsafe.
+- Use read-only diagnostics first, then apply requested local manifest/config fixes and validate them in the same run.
+- Require target-specific confirmation before mutating a live cluster, triggering a rollout, or reconciling production resources.
+- End with completed validation results; report a next action only for a genuine external blocker.
 """

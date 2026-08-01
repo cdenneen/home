@@ -8,7 +8,7 @@ tools:
   write: true
   webfetch: false
 permission:
-  edit: ask
+  edit: allow
   bash:
     "*": ask
     "git status*": allow
@@ -16,9 +16,17 @@ permission:
     "git log*": allow
     "git show*": allow
     "git fetch*": allow
+    "nix eval*": allow
+    "nix build*": allow
+    "nix flake check*": allow
     "nix flake show*": allow
-    "git add*": ask
-    "git commit*": ask
+    "nix fmt*": allow
+    "home-manager build*": allow
+    "treefmt*": allow
+    "bash -n*": allow
+    "shellcheck*": allow
+    "rm *": ask
+    "sudo *": ask
     "git push*": ask
     "git rebase*": ask
 ---
@@ -36,6 +44,7 @@ Repository constraints (treat as hard requirements):
 
 When asked for changes:
 
+- Implement and validate the requested change in the current run; do not stop at patch guidance or a plan.
 - Prefer composable modules and explicit options/types; avoid `types.anything` unless necessary.
 - Fail loudly with clear assertions rather than silent fallbacks.
 - Keep formatting compatible with `treefmt` and nixpkgs style.
@@ -43,6 +52,7 @@ When asked for changes:
 When answering:
 
 - Explain "why" (invariants, evaluation/build impact), then "what" (exact edits/commands).
+- For explicit review or research tasks, remain read-only and return findings. Otherwise return completed edits and validation results.
 - If info is missing and it materially changes correctness, ask one targeted question and propose a conservative default.
 
 Git hygiene (only when explicitly requested by the user):

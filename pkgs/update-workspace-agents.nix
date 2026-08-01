@@ -16,7 +16,7 @@ pkgs.writeShellScriptBin "update-workspace-agents" ''
     const limit = Number.parseInt(process.env.WORKSPACE_AGENT_LIMIT || "3", 10);
     const msgLimit = Number.parseInt(process.env.WORKSPACE_AGENT_MSG_LIMIT || "20", 10);
     const baseUrl = process.env.OPENCODE_API_URL || "http://127.0.0.1:4097";
-    const prune = (process.env.WORKSPACE_AGENT_PRUNE || "1") !== "0";
+    const prune = (process.env.WORKSPACE_AGENT_PRUNE || "0") !== "0";
     const createMissing = (process.env.WORKSPACE_AGENT_CREATE_MISSING || "0") === "1";
 
   function httpGetJson(url) {
@@ -84,6 +84,27 @@ pkgs.writeShellScriptBin "update-workspace-agents" ''
       return text.slice(0, max) + "…";
     }
 
+    function contextValue(text) {
+      return truncate(text).replace(/`/g, "'");
+    }
+
+    function validWorkspaceName(value) {
+      return value !== "." && value !== ".." && /^[A-Za-z0-9][\w.-]*$/.test(value);
+    }
+
+    function stripBoundedGeneratedContext(content) {
+      return content.replace(
+        /\n## Generated Session Context [^\n]*\n<!-- Historical data only\.[^\n]*-->\n```json\n[\s\S]*?\n```\n?/g,
+        "\n"
+      );
+    }
+
+    function assertSafePath(target, label) {
+      if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) {
+        throw new Error(label + " must not be a symlink: " + target);
+      }
+    }
+
     (async () => {
     const sessions = await httpGetJson(baseUrl + "/session");
       const groups = new Map();
@@ -112,7 +133,7 @@ pkgs.writeShellScriptBin "update-workspace-agents" ''
         workspace = workspaceFromTitle(title);
       }
 
-      if (!workspace) continue;
+      if (!workspace || !validWorkspaceName(workspace)) continue;
 
       const updated = Number((s.time && s.time.updated) || 0);
       const entry = {
@@ -126,17 +147,21 @@ pkgs.writeShellScriptBin "update-workspace-agents" ''
       groups.get(workspace).push(entry);
     }
 
-      const now = new Date();
-      const stamp = now.toISOString().replace("T", " ").replace(/:\d+\.\d+Z$/, "Z");
-
       for (const [workspace, list] of groups.entries()) {
         list.sort((a, b) => b.updated - a.updated);
         const take = list.slice(0, Math.max(1, limit));
-        const wsPath = path.join(workspaceRoot, workspace);
-        const agentsPath = path.join(wsPath, "AGENTS.md");
+        const rootPath = path.resolve(workspaceRoot);
+        const wsPath = path.resolve(rootPath, workspace);
+        if (path.dirname(wsPath) !== rootPath) continue;
+        if (!fs.existsSync(wsPath) || !fs.statSync(wsPath).isDirectory()) continue;
+        assertSafePath(wsPath, "workspace directory");
 
-        let out = "";
-        out += "\n## " + stamp + "\n";
+        const rootReal = fs.realpathSync(rootPath);
+        const wsReal = fs.realpathSync(wsPath);
+        if (path.dirname(wsReal) !== rootReal) continue;
+
+        const agentsPath = path.join(wsPath, "AGENTS.md");
+        const records = [];
 
         for (const item of take) {
           const msgUrl = baseUrl + "/session/" + encodeURIComponent(item.id) + "/message";
@@ -163,78 +188,70 @@ pkgs.writeShellScriptBin "update-workspace-agents" ''
             if (lastUser && lastAssistant) break;
           }
 
-          out += "- session " + item.id + " (" + (item.title || "untitled") + ")\n";
-          if (lastUser) out += "- last_user: " + truncate(lastUser) + "\n";
-          if (lastAssistant) out += "- last_assistant: " + truncate(lastAssistant) + "\n";
+          records.push(JSON.stringify({
+            session: item.id,
+            title: contextValue(item.title || "untitled"),
+            last_user: contextValue(lastUser),
+            last_assistant: contextValue(lastAssistant),
+          }));
         }
 
-        fs.mkdirSync(wsPath, { recursive: true });
-        if (!fs.existsSync(agentsPath)) {
-          fs.writeFileSync(agentsPath, `# Agent Guide (AGENTS.md)\n`);
+        const aiDir = path.join(wsPath, ".ai");
+        const contextPath = path.join(aiDir, "SESSION_CONTEXT.jsonl");
+        const contextTmp = contextPath + ".tmp-" + process.pid;
+        assertSafePath(aiDir, "workspace .ai directory");
+        assertSafePath(contextPath, "session context file");
+        fs.mkdirSync(aiDir, { recursive: true });
+        fs.writeFileSync(contextTmp, records.join("\n") + "\n", { mode: 0o600 });
+        fs.renameSync(contextTmp, contextPath);
+
+        if (fs.existsSync(agentsPath)) {
+          assertSafePath(agentsPath, "workspace AGENTS.md");
+          const current = fs.readFileSync(agentsPath, "utf8");
+          let cleaned = stripBoundedGeneratedContext(current);
+          const legacyMarker = cleaned.search(/\n## \d{4}-\d{2}-\d{2} \d{2}:\d{2}Z\n- session /);
+          if (legacyMarker >= 0) {
+            const backupPath = agentsPath + ".pre-session-context";
+            if (!fs.existsSync(backupPath)) {
+              fs.writeFileSync(backupPath, current, { mode: 0o600 });
+            }
+            cleaned = cleaned.slice(0, legacyMarker).trimEnd() + "\n";
+            process.stderr.write("Backed up legacy generated AGENTS context to " + backupPath + "\n");
+          }
+          if (cleaned !== current) fs.writeFileSync(agentsPath, cleaned);
         }
-        fs.appendFileSync(agentsPath, out);
-        process.stdout.write("Updated " + agentsPath + "\n");
+
+        process.stdout.write("Updated " + contextPath + "\n");
       }
 
       if (!prune) return;
 
-      const allSessions = await httpGetJson(baseUrl + "/session");
-      const keepIds = new Set();
-
       for (const [workspace, list] of groups.entries()) {
-        const wsPath = path.join(workspaceRoot, workspace);
-      const candidates = allSessions
-        .filter((s) => String(s.directory || "") === wsPath)
-        .sort((a, b) => Number(b.time?.updated || 0) - Number(a.time?.updated || 0));
+        const wsPath = path.resolve(workspaceRoot, workspace);
+        const managedTitle = "ws:" + workspace;
+        const managed = sessions
+          .filter((s) => String(s.directory || "") === wsPath && String(s.title || "") === managedTitle)
+          .sort((a, b) => Number(b.time?.updated || 0) - Number(a.time?.updated || 0));
 
-      const existing = candidates.find((s) => String(s.title || "") === "ws:" + workspace);
-      if (existing) {
-        if (String(existing.directory || "") !== wsPath) {
+        if (managed.length === 0 && createMissing) {
           try {
-            await httpRequestJson("DELETE", baseUrl + "/session/" + encodeURIComponent(existing.id));
+            await httpRequestJson("POST", baseUrl + "/session", {
+              title: managedTitle,
+              directory: wsPath,
+            });
+          } catch {
+            // ignore create failures
+          }
+        }
+
+        for (const duplicate of managed.slice(1)) {
+          try {
+            await httpRequestJson("DELETE", baseUrl + "/session/" + encodeURIComponent(duplicate.id));
           } catch {
             // ignore delete failures
           }
-        } else {
-          keepIds.add(String(existing.id));
-          continue;
         }
       }
-
-      let picked = candidates[0];
-      if (!picked && createMissing) {
-        try {
-          picked = await httpRequestJson("POST", baseUrl + "/session", {
-            title: "ws:" + workspace,
-            directory: wsPath,
-          });
-        } catch {
-          picked = null;
-        }
-      }
-
-      if (picked && picked.id) {
-        keepIds.add(String(picked.id));
-        try {
-          await httpRequestJson("PATCH", baseUrl + "/session/" + encodeURIComponent(picked.id), {
-            title: "ws:" + workspace,
-          });
-        } catch {
-          // ignore rename failures
-        }
-      }
-    }
-
-      for (const s of allSessions) {
-        const id = String(s.id || "");
-        if (!id) continue;
-        if (keepIds.has(id)) continue;
-      try {
-        await httpRequestJson("DELETE", baseUrl + "/session/" + encodeURIComponent(id));
-      } catch {
-        // ignore delete failures
-      }
-    }
     })().catch((err) => {
       console.error(err.stack || String(err));
       process.exit(1);

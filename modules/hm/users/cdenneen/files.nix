@@ -32,8 +32,6 @@ let
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
 
   writableRoots = [
-    "/Users/cdenneen"
-    "/home/cdenneen"
     "/Users/cdenneen/code/workspace"
     "/home/cdenneen/src/workspace"
     "/tmp"
@@ -171,7 +169,7 @@ let
         "readonly-safe" = {
           filesystem = {
             ":minimal" = "read";
-            ":project_roots" = "read";
+            ":workspace_roots" = "read";
             ":tmpdir" = "write";
           };
           network = {
@@ -182,7 +180,7 @@ let
         "workspace-dev" = {
           filesystem = {
             ":minimal" = "read";
-            ":project_roots" = "write";
+            ":workspace_roots" = "write";
             ":tmpdir" = "write";
           };
           network = {
@@ -193,7 +191,7 @@ let
         "ci-runner" = {
           filesystem = {
             ":minimal" = "read";
-            ":project_roots" = "write";
+            ":workspace_roots" = "write";
             ":tmpdir" = "write";
             "${homeDir}/code/workspace" = "write";
             "${homeDir}/src/workspace" = "write";
@@ -536,7 +534,7 @@ in
   home.activation.codexWorkspaceConfigSeed = lib.hm.dag.entryAfter [ "codexConfigWrite" ] ''
     set -euo pipefail
 
-    seed_workspace_config() {
+    write_workspace_config() {
       local workspace_path="$1"
       local template_name="$2"
       local template="$HOME/.codex/templates/$template_name.toml"
@@ -549,17 +547,17 @@ in
 
       $DRY_RUN_CMD mkdir -p "$dst_dir"
 
-      if [ ! -f "$dst" ]; then
-        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$template" "$dst"
-      fi
+      # These workspace configs are fully managed by this flake so policy
+      # changes reach existing workspaces instead of only new ones.
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$template" "$dst"
     }
 
-    seed_workspace_config "$HOME/code/workspace/infra" infra
-    seed_workspace_config "$HOME/code/workspace/eks" eks
-    seed_workspace_config "$HOME/code/workspace/gitlab" gitlab
-    seed_workspace_config "$HOME/src/workspace/infra" infra
-    seed_workspace_config "$HOME/src/workspace/eks" eks
-    seed_workspace_config "$HOME/src/workspace/gitlab" gitlab
+    write_workspace_config "$HOME/code/workspace/infra" infra
+    write_workspace_config "$HOME/code/workspace/eks" eks
+    write_workspace_config "$HOME/code/workspace/gitlab" gitlab
+    write_workspace_config "$HOME/src/workspace/infra" infra
+    write_workspace_config "$HOME/src/workspace/eks" eks
+    write_workspace_config "$HOME/src/workspace/gitlab" gitlab
   '';
 
   home.activation.awsConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''

@@ -15,6 +15,7 @@ Routing guidance:
 - Use `gitlab-ci-expert` for parent/child pipeline architecture, DRY GitLab YAML, artifacts, and manual gates.
 
 Execution guidance:
+- Execute requested fixes through validation in the same run; progress updates are not stopping points.
 - Keep changes minimal and reversible.
 - Prefer evidence-backed triage and explicit validation commands.
 - For pipeline monitoring, use bounded polling with clear status summaries.
