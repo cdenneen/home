@@ -1,4 +1,5 @@
 {
+  homebrew-taps-mbair,
   lib,
   pkgs,
   ...
@@ -25,12 +26,43 @@
   nix-homebrew = {
     enable = true;
     user = "cdenneen";
-    mutableTaps = true;
+    mutableTaps = false;
+    taps."cdenneen/taps" = homebrew-taps-mbair;
     extraEnv = {
       HOMEBREW_NO_INSTALL_CLEANUP = "1";
       HOMEBREW_NO_ENV_HINTS = "1";
     };
   };
+
+  system.activationScripts.homebrew.text = lib.mkMerge [
+    (lib.mkOrder 400 ''
+      taps_dir="/usr/local/Homebrew/Library/Taps"
+      taps_backup="$taps_dir.pre-nix-homebrew"
+
+      if [ -d "$taps_dir" ] && [ ! -L "$taps_dir" ]; then
+        if [ -e "$taps_backup" ]; then
+          echo "error: cannot migrate mutable Homebrew taps; backup already exists at $taps_backup" >&2
+          exit 1
+        fi
+
+        echo "Migrating mutable Homebrew taps to $taps_backup..." >&2
+        mv "$taps_dir" "$taps_backup"
+      fi
+    '')
+    (lib.mkOrder 750 ''
+      old_cask_dir="/usr/local/Caskroom/tailscale-app@1.70.0"
+      if [ -d "$old_cask_dir" ]; then
+        brew="/usr/local/bin/brew"
+        if [ ! -x "$brew" ]; then
+          echo "error: cannot migrate Tailscale 1.70; $brew is unavailable" >&2
+          exit 1
+        fi
+
+        echo "Removing obsolete Tailscale 1.70 cask before declarative upgrade..." >&2
+        sudo --user=cdenneen --set-home "$brew" uninstall --cask --force "tailscale-app@1.70.0"
+      fi
+    '')
+  ];
 
   homebrew = {
     onActivation = {

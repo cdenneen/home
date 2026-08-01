@@ -558,6 +558,23 @@
         "type": "github"
       }
     },
+    "homebrew-taps-mbair": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785552329,
+        "narHash": "sha256-S+eMlvEu31hA/04ceS1tRbz1+z8vQlr3c5jqBT3180s=",
+        "owner": "cdenneen",
+        "repo": "homebrew-taps",
+        "rev": "e70bd4ea4ead556d801227946b9e33131d273466",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cdenneen",
+        "repo": "homebrew-taps",
+        "rev": "e70bd4ea4ead556d801227946b9e33131d273466",
+        "type": "github"
+      }
+    },
     "mac-app-util": {
       "inputs": {
         "cl-nix-lite": "cl-nix-lite",
@@ -1150,6 +1167,7 @@
         "fluxcdAgentSkills": "fluxcdAgentSkills",
         "home-manager": "home-manager",
         "home-manager-mbair": "home-manager-mbair",
+        "homebrew-taps-mbair": "homebrew-taps-mbair",
         "mac-app-util": "mac-app-util",
         "nix-darwin": "nix-darwin_2",
         "nix-darwin-mbair": "nix-darwin-mbair",
