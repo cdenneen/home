@@ -12,6 +12,7 @@ let
   isGhost = hostName == "ghost";
   enableOciGhostAutostart = false;
   cocoindexCodePkg = pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { };
+  tokensavePkg = pkgs.callPackage ../../../../pkgs/tokensave.nix { };
   sshDir = "${config.home.homeDirectory}/.ssh";
   # Prefer the macOS lemonade server over a local Linux server so SSH
   # remote forwarding to 127.0.0.1:2489 works without port conflicts.
@@ -80,6 +81,8 @@ let
 
     # Workspace / repo flow
     cocoindexCodePkg
+    cargo
+    tokensavePkg
     uv
     (pkgs.callPackage ../../../../pkgs/rtk.nix { })
     (pkgs.callPackage ../../../../pkgs/update-workspace-agents.nix { })
