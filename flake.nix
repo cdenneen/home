@@ -279,6 +279,7 @@
             workspace-init = pkgs.callPackage ./pkgs/workspace-init.nix { };
             setup-repo = pkgs.callPackage ./pkgs/setup-repo.nix { };
             update-workspace = pkgs.callPackage ./pkgs/update-workspace.nix { };
+            tokensave = pkgs.callPackage ./pkgs/tokensave.nix { };
           };
 
           devshells.default = {

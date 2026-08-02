@@ -34,6 +34,7 @@
       atuin
       bash
       bat
+      cargo
       coreutils
       direnv
       eza
