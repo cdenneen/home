@@ -18,3 +18,5 @@ TASKS.md
 # CocoIndex Code (ccc)
 /.cocoindex_code/*
 !/.cocoindex_code/settings.yml
+# Pi goal-loop runtime state
+/.pi-glla/
