@@ -3,6 +3,7 @@
   lib,
   options,
   pkgs,
+  ponytail-src,
   osConfig ? null,
   nixHostName ? null,
   ...
@@ -139,6 +140,7 @@ let
 
   opencodeConfig = {
     "$schema" = "https://opencode.ai/config.json";
+    plugin = [ "${ponytail-src}/.opencode/plugins/ponytail.mjs" ];
     provider = {
       gitlab = {
         options = {

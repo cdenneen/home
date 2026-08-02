@@ -1,10 +1,12 @@
 {
+  agentPkgs ? null,
   config,
   fluxcdAgentSkills,
   lib,
   osConfig ? null,
   nixHostName ? null,
   pkgs,
+  ponytail-src,
   ...
 }:
 
@@ -15,6 +17,54 @@ let
     builtins.toJSON cloudflareRouteInventory
   );
   cocoindexCodeExe = lib.getExe (pkgs.callPackage ../../../../pkgs/cocoindex-code.nix { });
+  piPluginsPkg = if agentPkgs != null then agentPkgs.pi-plugins else null;
+  ponytailVersion = (builtins.fromJSON (builtins.readFile "${ponytail-src}/package.json")).version;
+  enableAgentPlugins = agentPkgs != null;
+  piPackagePaths = [
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-mcp-adapter"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-subagents"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-simplify"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/@narumitw/pi-goal"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-hermes-memory"
+    # Keep alternate goal implementations packaged but disabled to avoid
+    # duplicate /goal command registration.
+    {
+      source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-list-loop-audit";
+      extensions = [ ];
+    }
+    # pi-rtk-optimizer 0.9.0 supports Pi only through 0.80.x.
+    {
+      source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-rtk-optimizer";
+      extensions = [ ];
+    }
+    {
+      source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-codex-goal";
+      extensions = [ ];
+    }
+    "${ponytail-src}"
+  ];
+  piPackagesJson = pkgs.writeText "pi-packages.json" (builtins.toJSON piPackagePaths);
+  piManagedPackageSources = map (
+    package: if builtins.isString package then package else package.source
+  ) piPackagePaths;
+  piManagedPackagesJson = pkgs.writeText "pi-managed-packages.json" (
+    builtins.toJSON piManagedPackageSources
+  );
+  emptyJsonArray = pkgs.writeText "empty-array.json" "[]";
+  piLegacyPackageSources = [
+    "npm:pi-mcp-adapter"
+    "npm:pi-subagents"
+    "npm:pi-simplify"
+    "npm:@narumitw/pi-goal"
+    "npm:pi-goal-list-loop-audit"
+    "npm:pi-hermes-memory"
+    "npm:pi-rtk-optimizer"
+    "npm:pi-codex-goal"
+    "git:github.com/DietrichGebert/ponytail"
+  ];
+  piLegacyPackagesJson = pkgs.writeText "pi-legacy-packages.json" (
+    builtins.toJSON piLegacyPackageSources
+  );
   homeDir = config.home.homeDirectory;
   hostName =
     if osConfig != null then
@@ -299,6 +349,13 @@ let
         "inherit" = "all";
         ignore_default_excludes = true;
       };
+    }
+    // lib.optionalAttrs enableAgentPlugins {
+      marketplaces.ponytail = {
+        source_type = "local";
+        source = "${ponytail-src}";
+      };
+      plugins."ponytail@ponytail".enabled = true;
     };
 
   codexProfileAttrs = {
@@ -513,6 +570,141 @@ in
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
   '';
+
+  home.activation.ponytailPluginCache = lib.mkIf enableAgentPlugins (
+    lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+      set -euo pipefail
+
+      for cache_dir in \
+        "$HOME/.codex/plugins/cache/ponytail/ponytail/${ponytailVersion}" \
+        "$HOME/.claude/plugins/cache/ponytail/ponytail/${ponytailVersion}"
+      do
+        if [ -e "$cache_dir" ] || [ -L "$cache_dir" ]; then
+          $DRY_RUN_CMD rm -rf "$cache_dir"
+        fi
+        $DRY_RUN_CMD mkdir -p "$cache_dir"
+        $DRY_RUN_CMD ${pkgs.xorg.lndir}/bin/lndir -silent "${ponytail-src}" "$cache_dir"
+      done
+    ''
+  );
+
+  home.activation.ponytailPluginState = lib.mkIf enableAgentPlugins (
+    lib.hm.dag.entryAfter [ "ponytailPluginCache" ] ''
+      set -euo pipefail
+
+      if [ -z "''${DRY_RUN_CMD:-}" ]; then
+
+      claude_dir="$HOME/.claude"
+      claude_settings="$claude_dir/settings.json"
+      claude_plugins="$claude_dir/plugins/installed_plugins.json"
+      claude_marketplaces="$claude_dir/plugins/known_marketplaces.json"
+      claude_install_path="$claude_dir/plugins/cache/ponytail/ponytail/${ponytailVersion}"
+      mkdir -p "$claude_dir/plugins"
+
+      if [ -f "$claude_settings" ]; then
+        claude_settings_json="$(${pkgs.coreutils}/bin/cat "$claude_settings")"
+      else
+        claude_settings_json='{}'
+      fi
+
+      settings_tmp="$(${pkgs.coreutils}/bin/mktemp "$claude_dir/settings.json.XXXXXX")"
+      printf '%s' "$claude_settings_json" | ${pkgs.jq}/bin/jq \
+        --arg source "${ponytail-src}" \
+        '.extraKnownMarketplaces.ponytail.source = {source: "directory", path: $source}
+         | .enabledPlugins["ponytail@ponytail"] = true' > "$settings_tmp"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$settings_tmp" "$claude_settings"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$settings_tmp"
+
+      if [ -f "$claude_plugins" ]; then
+        claude_plugins_json="$(${pkgs.coreutils}/bin/cat "$claude_plugins")"
+      else
+        claude_plugins_json='{"version":2,"plugins":{}}'
+      fi
+
+      plugins_tmp="$(${pkgs.coreutils}/bin/mktemp "$claude_dir/plugins/installed_plugins.json.XXXXXX")"
+      printf '%s' "$claude_plugins_json" | ${pkgs.jq}/bin/jq \
+        --arg installPath "$claude_install_path" \
+        --arg version "${ponytailVersion}" \
+        '(.plugins["ponytail@ponytail"][0] // {}) as $old
+         | .version = 2
+         | .plugins["ponytail@ponytail"] = [{
+             scope: "user",
+             installPath: $installPath,
+             version: $version,
+             installedAt: ($old.installedAt // "1970-01-01T00:00:00.000Z"),
+             lastUpdated: "1970-01-01T00:00:00.000Z"
+           }]' > "$plugins_tmp"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$plugins_tmp" "$claude_plugins"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$plugins_tmp"
+
+      if [ -f "$claude_marketplaces" ]; then
+        claude_marketplaces_json="$(${pkgs.coreutils}/bin/cat "$claude_marketplaces")"
+      else
+        claude_marketplaces_json='{}'
+      fi
+
+      marketplaces_tmp="$(${pkgs.coreutils}/bin/mktemp "$claude_dir/plugins/known_marketplaces.json.XXXXXX")"
+      printf '%s' "$claude_marketplaces_json" | ${pkgs.jq}/bin/jq \
+        --arg source "${ponytail-src}" \
+        '.ponytail = {
+           source: {source: "directory", path: $source},
+           installLocation: $source,
+           lastUpdated: "1970-01-01T00:00:00.000Z"
+         }' > "$marketplaces_tmp"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$marketplaces_tmp" "$claude_marketplaces"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$marketplaces_tmp"
+      else
+        echo "Would update Claude Ponytail plugin state"
+      fi
+    ''
+  );
+
+  home.activation.piSettingsWrite = lib.mkIf enableAgentPlugins (
+    lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+        set -euo pipefail
+
+        if [ -z "''${DRY_RUN_CMD:-}" ]; then
+
+      pi_dir="$HOME/.pi/agent"
+      settings="$pi_dir/settings.json"
+      managed_settings="$pi_dir/.nix-managed-packages.json"
+      mkdir -p "$pi_dir"
+
+        if [ -f "$settings" ]; then
+          settings_json="$(${pkgs.coreutils}/bin/cat "$settings")"
+      else
+        settings_json='{}'
+      fi
+
+      if [ -f "$managed_settings" ]; then
+        previous_managed="$managed_settings"
+      else
+        previous_managed="${emptyJsonArray}"
+      fi
+
+      tmp="$(${pkgs.coreutils}/bin/mktemp "$pi_dir/settings.json.XXXXXX")"
+      printf '%s' "$settings_json" | ${pkgs.jq}/bin/jq \
+        --slurpfile packages "${piPackagesJson}" \
+        --slurpfile managed "${piManagedPackagesJson}" \
+        --slurpfile previous "$previous_managed" \
+        --slurpfile legacy "${piLegacyPackagesJson}" \
+        'def package_source: if type == "string" then . else .source end;
+         (($managed[0] + $previous[0]) | unique) as $managed_sources
+         | .packages = (
+             [(.packages // [])[]
+              | select((package_source as $source
+                | (($managed_sources | index($source)) == null)
+                  and (($legacy[0] | index($source)) == null)))]
+             + $packages[0]
+           )' > "$tmp"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "${piManagedPackagesJson}" "$managed_settings"
+        else
+          echo "Would update Pi package settings"
+        fi
+    ''
+  );
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail

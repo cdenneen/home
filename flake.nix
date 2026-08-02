@@ -80,6 +80,10 @@
       url = "github:sadjow/claude-code-nix";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
+    ponytail-src = {
+      url = "github:DietrichGebert/ponytail/16f29800fd2681bdf24f3eb4ccffe38be3baec6b";
+      flake = false;
+    };
     fluxcdAgentSkills = {
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -280,6 +284,8 @@
             setup-repo = pkgs.callPackage ./pkgs/setup-repo.nix { };
             update-workspace = pkgs.callPackage ./pkgs/update-workspace.nix { };
             tokensave = pkgs.callPackage ./pkgs/tokensave.nix { };
+            pi-agent = pkgs.callPackage ./pkgs/pi-agent.nix { };
+            pi-plugins = pkgs.callPackage ./pkgs/pi-plugins.nix { };
           };
 
           devshells.default = {

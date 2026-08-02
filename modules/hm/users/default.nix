@@ -235,6 +235,9 @@ in
       pkgs.python3
       pkgs.python3Packages.pip
     ]
+    ++ lib.optionals (agentPkgs != null && agentPkgs ? pi) [
+      agentPkgs.pi
+    ]
     ++ lib.optionals pkgs.stdenv.isLinux [
       pkgs.pinentry-curses
       pkgs.clang
