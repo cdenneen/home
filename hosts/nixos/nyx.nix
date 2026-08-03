@@ -1056,12 +1056,53 @@ in
         fi
 
         now_ms="$(${pkgs.coreutils}/bin/date +%s%3N)"
+        delete_eligible_ids="$(${pkgs.jq}/bin/jq -c \
+          --argjson now "$now_ms" \
+          --argjson stale "$delete_age_ms" \
+          --argjson keep_per_dir "$keep_per_directory" '
+            [
+              (
+                sort_by([(.directory // "__global__"), (.time.updated // 0)])
+                | group_by(.directory // "__global__")[]
+                | sort_by(.time.updated // 0)
+                | reverse
+                | .[$keep_per_dir:][]
+                | select(($now - (.time.updated // 0)) > $stale)
+              )
+            ]
+            | sort_by(.time.updated // 0)
+            | map(.id)
+          ' <<<"$sessions_json" 2>/dev/null || printf '[]')"
+        delete_candidates="$(${pkgs.jq}/bin/jq -r \
+          --argjson max "$delete_limit" \
+          '.[:$max][]' <<<"$delete_eligible_ids" 2>/dev/null || true)"
+
+        if [ -z "$delete_candidates" ]; then
+          echo "$timestamp no stale deletions total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
+        else
+          deleted=0
+          for sid in $delete_candidates; do
+            if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
+              -X DELETE "http://127.0.0.1:4097/session/$sid" >/dev/null; then
+              echo "$timestamp delete failed session=$sid" >> "$log_file"
+            else
+              deleted=$((deleted + 1))
+            fi
+          done
+
+          echo "$timestamp deleted stale_sessions=$deleted total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
+        fi
+
         sessions="$(${pkgs.jq}/bin/jq -r \
           --argjson now "$now_ms" \
           --argjson stale "$stale_age_ms" \
+          --argjson delete_age "$delete_age_ms" \
           --argjson overflow "$overflow_limit" \
           --argjson max "$max_compactions" '
-            (sort_by(.time.updated // 0)) as $sorted
+            ([
+              sort_by(.time.updated // 0)[]
+              | select(($now - (.time.updated // 0)) <= $delete_age)
+            ]) as $sorted
             | [ $sorted[] | select(($now - (.time.updated // 0)) >= $stale) | .id ] as $stale_ids
             | if ($stale_ids | length) > 0 then
                 $stale_ids[:$max]
@@ -1091,44 +1132,6 @@ in
 
           echo "$timestamp compacted sessions=$compacted total_sessions=$total_sessions stale_age_ms=$stale_age_ms overflow_limit=$overflow_limit" >> "$log_file"
         fi
-
-        delete_candidates="$(${pkgs.jq}/bin/jq -r \
-          --argjson now "$now_ms" \
-          --argjson stale "$delete_age_ms" \
-          --argjson keep_per_dir "$keep_per_directory" \
-          --argjson max "$delete_limit" '
-            [
-              (
-                sort_by([(.directory // "__global__"), (.time.updated // 0)])
-                | group_by(.directory // "__global__")[]
-                | sort_by(.time.updated // 0)
-                | reverse
-                | .[$keep_per_dir:][]
-                | select(($now - (.time.updated // 0)) > $stale)
-              )
-            ]
-            | sort_by(.time.updated // 0)
-            | .[:$max]
-            | .[]
-            | .id
-          ' <<<"$sessions_json" 2>/dev/null || true)"
-
-        if [ -z "$delete_candidates" ]; then
-          echo "$timestamp no stale deletions total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
-          exit 0
-        fi
-
-        deleted=0
-        for sid in $delete_candidates; do
-          if ! ${pkgs.curl}/bin/curl --connect-timeout 5 --max-time 15 -sS -u "$auth" \
-            -X DELETE "http://127.0.0.1:4097/session/$sid" >/dev/null; then
-            echo "$timestamp delete failed session=$sid" >> "$log_file"
-          else
-            deleted=$((deleted + 1))
-          fi
-        done
-
-        echo "$timestamp deleted stale_sessions=$deleted total_sessions=$total_sessions delete_age_ms=$delete_age_ms keep_per_directory=$keep_per_directory" >> "$log_file"
       '';
     in
     {
@@ -1136,7 +1139,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         ExecStart = run;
-        TimeoutStartSec = "3min";
+        TimeoutStartSec = "10min";
       };
     };
 
