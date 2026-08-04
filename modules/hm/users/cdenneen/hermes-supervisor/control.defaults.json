@@ -1,0 +1,29 @@
+{
+  "schema": "axis.external-development-supervisor.control",
+  "schema_version": "1.0.0",
+  "version": 2,
+  "mode": "observing",
+  "kill_switch": false,
+  "allow_repository_mutation": false,
+  "max_active_assignments": 1,
+  "max_delegated_assignments": 0,
+  "lease_seconds": 1200,
+  "minimum_free_disk_gib": 15,
+  "daily_worker_cycle_limit": 144,
+  "report_heartbeat_minutes": 90,
+  "gitlab_host": "gitlab.com",
+  "gitlab_group": "ghostspace",
+  "cron_job_id": null,
+  "report_cron_job_id": null,
+  "cron_generation": 1,
+  "repository_allowlist": [
+    "ghostspace/axis",
+    "ghostspace/axis-governance",
+    "ghostspace/axis-lab"
+  ],
+  "owned_branch_prefixes": ["hermes/"],
+  "owned_worktree_root": "~/.hermes/supervisor/axis-development-supervisor/worktrees",
+  "product_owner_usernames": ["cdenneen"],
+  "slack_delivery": "slack:C0BHLUXQ4EB",
+  "operator": "cdenneen"
+}

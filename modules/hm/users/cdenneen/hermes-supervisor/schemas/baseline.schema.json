@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.baseline",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "converged",
+    "repositories",
+    "authority_blockers"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.baseline" },
+    "schema_version": { "const": "1.0.0" },
+    "converged": { "type": "boolean" },
+    "verified_at": { "type": ["string", "null"] },
+    "repositories": { "type": "object" },
+    "authority_blockers": { "type": "array" }
+  },
+  "additionalProperties": true
+}

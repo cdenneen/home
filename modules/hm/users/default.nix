@@ -17,6 +17,7 @@ in
 {
   imports = [
     ./cdenneen/default.nix
+    ./cdenneen/hermes-supervisor/default.nix
   ];
 
   options.profiles = {

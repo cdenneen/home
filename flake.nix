@@ -84,6 +84,10 @@
       url = "github:DietrichGebert/ponytail/16f29800fd2681bdf24f3eb4ccffe38be3baec6b";
       flake = false;
     };
+    hermes-src = {
+      url = "github:NousResearch/hermes-agent/f5be9236e00ddf2f2a412697f267078fc4ee068e";
+      inputs.nixpkgs.follows = "nixpkgs-unstable";
+    };
     fluxcdAgentSkills = {
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -338,7 +342,28 @@
             let
               isCacheable = v: isDerivation v;
             in
-            mapAttrs' (n: nameValuePair "devShells-${n}") (filterAttrs (n: v: isCacheable v) self'.devShells);
+            mapAttrs' (n: nameValuePair "devShells-${n}") (filterAttrs (n: v: isCacheable v) self'.devShells)
+            // {
+              hermes-supervisor =
+                pkgs.runCommand "hermes-supervisor-check"
+                  {
+                    nativeBuildInputs = [
+                      pkgs.check-jsonschema
+                      pkgs.python3Packages.pytest
+                      pkgs.ruff
+                    ];
+                  }
+                  ''
+                    cp -R ${./modules/hm/users/cdenneen/hermes-supervisor} source
+                    chmod -R u+w source
+                    ruff check source/scripts source/tests
+                    pytest -q source/tests
+                    check-jsonschema --check-metaschema source/schemas/*.schema.json
+                    check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
+                    check-jsonschema --schemafile source/schemas/baseline.schema.json source/baseline.defaults.json
+                    touch "$out"
+                  '';
+            };
         };
     };
 }

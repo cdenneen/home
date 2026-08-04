@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.report",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "report_id",
+    "kind",
+    "generated_at",
+    "source",
+    "snapshot",
+    "po_decision",
+    "confidence"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.report" },
+    "schema_version": { "const": "1.0.0" },
+    "kind": { "enum": ["change", "alert", "heartbeat", "recovery"] },
+    "source": { "type": "object" },
+    "snapshot": { "type": "object" },
+    "po_decision": { "type": "object" },
+    "confidence": { "type": "object" }
+  },
+  "additionalProperties": true
+}

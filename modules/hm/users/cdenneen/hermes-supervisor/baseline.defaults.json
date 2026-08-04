@@ -1,0 +1,10 @@
+{
+  "schema": "axis.external-development-supervisor.baseline",
+  "schema_version": "1.0.0",
+  "version": 1,
+  "converged": false,
+  "verified_at": null,
+  "repositories": {},
+  "authority_blockers": [],
+  "note": "Derived noncanonical bootstrap baseline. Reconcile from live sources before mutation."
+}
