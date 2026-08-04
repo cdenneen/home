@@ -146,16 +146,18 @@ def authority_from_text(
             for digest in re.findall(r"sha256:[0-9a-f]{64}", body, flags=re.I)
         )
     )
-    record_match = re.search(r"(?:^|\n)\s{0,2}digest:\s*(sha256:[0-9a-f]{64})", text, re.I)
-    record_digest = record_match.group(1).lower() if record_match else None
-    if record_digest is None:
-        for body in note_bodies or []:
-            if "PlanningRecord" not in body or body in approval_notes:
-                continue
-            match = re.search(r"(?:Digest|digest):\s*`?(sha256:[0-9a-f]{64})", body, re.I)
-            if match:
-                record_digest = match.group(1).lower()
-                break
+    record_digest = None
+    for body in note_bodies or []:
+        if body in approval_notes or not re.search(
+            r"immutable PlanningRecord|PlanningRecord v1.*immutable revision",
+            body,
+            re.I | re.S,
+        ):
+            continue
+        match = re.search(r"(?:Digest|digest):\s*`?(sha256:[0-9a-f]{64})", body, re.I)
+        if match:
+            record_digest = match.group(1).lower()
+            break
     approval = bool(approval_notes and approval_digests)
     approval_matches_record = bool(
         approval

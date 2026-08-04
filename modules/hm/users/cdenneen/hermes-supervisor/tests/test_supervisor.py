@@ -32,11 +32,15 @@ def control(**overrides):
 
 def test_authority_requires_exact_approval_digest():
     reconcile = load_module("reconcile", ROOT / "scripts" / "axis_supervisor" / "collector.py")
-    record = "planning_record:\n  digest: sha256:" + "a" * 64
+    record = "Immutable PlanningRecord\nDigest: `sha256:" + "a" * 64 + "`"
     matching = ["Product Owner approval — Approve exact digest sha256:" + "a" * 64]
     mismatch = ["Product Owner approval — Approve exact digest sha256:" + "b" * 64]
-    assert reconcile.authority_from_text(record, matching, matching)["approval_matches_record"]
-    assert reconcile.authority_from_text(record, mismatch, mismatch)["approval_mismatch"]
+    assert reconcile.authority_from_text("", [record, *matching], matching)[
+        "approval_matches_record"
+    ]
+    assert reconcile.authority_from_text("", [record, *mismatch], mismatch)[
+        "approval_mismatch"
+    ]
     assert not reconcile.authority_from_text("", matching, matching)["approval_matches_record"]
 
 

@@ -182,39 +182,52 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 ["git", "switch", "--detach", "origin/main"], cwd=worktree, check=True
             )
             test_results = []
-            for command in assignment.get("required_tests") or []:
-                completed = subprocess.run(
-                    test_command_argv(command),
-                    cwd=worktree,
-                    text=True,
-                    capture_output=True,
-                    timeout=600,
-                )
-                test_results.append(
-                    {"command": command, "returncode": completed.returncode}
-                )
-                if completed.returncode != 0:
-                    raise RuntimeError(f"post-merge test failed: {command}")
             branch = (assignment.get("worker") or {}).get("branch")
-            subprocess.run(
-                ["git", "worktree", "remove", str(worktree)], cwd=repo, check=True
-            )
-            subprocess.run(["git", "branch", "-d", branch], cwd=repo, check=True)
+            verification_error = None
+            try:
+                for command in assignment.get("required_tests") or []:
+                    completed = subprocess.run(
+                        test_command_argv(command),
+                        cwd=worktree,
+                        text=True,
+                        capture_output=True,
+                        timeout=600,
+                    )
+                    test_results.append(
+                        {"command": command, "returncode": completed.returncode}
+                    )
+                    if completed.returncode != 0:
+                        raise RuntimeError(f"post-merge test failed: {command}")
+            except Exception as exc:
+                verification_error = f"{type(exc).__name__}: {exc}"
+            finally:
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree)],
+                    cwd=repo,
+                    check=False,
+                )
+                subprocess.run(["git", "branch", "-D", branch], cwd=repo, check=False)
+                subprocess.run(
+                    [
+                        sys.executable,
+                        supervisorctl,
+                        "release",
+                        assignment["assignment_id"],
+                        "--token",
+                        assignment["lease"]["fencing_token"],
+                    ],
+                    check=False,
+                )
             integration["verified_mr"] = inspection["mr"].get("web_url")
             integration["post_merge_tests"] = test_results
-            assignment["state"] = "complete"
-            assignment["phase"] = "integrated"
-            subprocess.run(
-                [
-                    sys.executable,
-                    supervisorctl,
-                    "release",
-                    assignment["assignment_id"],
-                    "--token",
-                    assignment["lease"]["fencing_token"],
-                ],
-                check=True,
-            )
+            if verification_error:
+                assignment["state"] = "blocked"
+                assignment["phase"] = "failed"
+                assignment["error"] = verification_error
+                result = "post-merge-verification-failed"
+            else:
+                assignment["state"] = "complete"
+                assignment["phase"] = "integrated"
         else:
             assignment["state"] = "waiting" if result == "waiting" else "active"
         save(path, assignment)
