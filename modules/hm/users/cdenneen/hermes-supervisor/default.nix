@@ -25,11 +25,13 @@ in
   options.profiles.hermesSupervisor.enable = lib.mkEnableOption "temporary Hermes Development Supervisor";
 
   config = lib.mkIf (gatewayEnabled || supervisorEnabled) {
-    home.packages = lib.mkIf supervisorEnabled [
-      supervisorCtl
-      supervisorHealth
-      supervisorCronCtl
-    ];
+    home.packages =
+      lib.optionals gatewayEnabled [ agentPkgs.hermes ]
+      ++ lib.optionals supervisorEnabled [
+        supervisorCtl
+        supervisorHealth
+        supervisorCronCtl
+      ];
     home.file = lib.mkIf supervisorEnabled {
       ".hermes/skills/axis-development-supervisor/SKILL.md".source = ./skill/SKILL.md;
       ".hermes/scripts/axis-development-supervisor-preflight.py" = {
