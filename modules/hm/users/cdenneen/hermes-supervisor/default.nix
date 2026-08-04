@@ -33,31 +33,6 @@ in
         supervisorCronCtl
       ];
     home.file = lib.mkIf supervisorEnabled {
-      ".hermes/skills/axis-development-supervisor/SKILL.md".source = ./skill/SKILL.md;
-      ".hermes/scripts/axis-development-supervisor-preflight.py" = {
-        source = ./scripts/preflight.py;
-        executable = true;
-      };
-      ".hermes/scripts/axis-development-supervisor-reconcile.py" = {
-        source = ./scripts/reconcile.py;
-        executable = true;
-      };
-      ".hermes/scripts/axis-development-supervisor-report.py" = {
-        source = ./scripts/report.py;
-        executable = true;
-      };
-      ".hermes/scripts/axis-development-supervisorctl.py" = {
-        source = ./scripts/supervisorctl.py;
-        executable = true;
-      };
-      ".hermes/scripts/axis-development-supervisor-health.py" = {
-        source = ./scripts/health.py;
-        executable = true;
-      };
-      ".hermes/scripts/axis-development-supervisor-cronctl.py" = {
-        source = ./scripts/cronctl.py;
-        executable = true;
-      };
       ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt".source = ./worker-prompt.txt;
       ".hermes/supervisor/axis-development-supervisor/docs" = {
         source = ./docs;
@@ -149,6 +124,23 @@ in
 
     home.activation.hermesSupervisorState = lib.mkIf supervisorEnabled (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p \
+          "$HOME/.hermes/skills/axis-development-supervisor" \
+          "$HOME/.hermes/scripts"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 644 -T \
+          "${./skill/SKILL.md}" "$HOME/.hermes/skills/axis-development-supervisor/SKILL.md"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/preflight.py}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/reconcile.py}" "$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/report.py}" "$HOME/.hermes/scripts/axis-development-supervisor-report.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/supervisorctl.py}" "$HOME/.hermes/scripts/axis-development-supervisorctl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/health.py}" "$HOME/.hermes/scripts/axis-development-supervisor-health.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/cronctl.py}" "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py"
         $DRY_RUN_CMD mkdir -p \
           "${runtimeRoot}/assignments" \
           "${runtimeRoot}/leases" \
