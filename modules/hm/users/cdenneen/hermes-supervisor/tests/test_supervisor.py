@@ -303,6 +303,21 @@ def test_mutation_disabled_suppresses_implementation_slice(tmp_path: Path):
     assert not any(entry.get("kind") == "implementation" for entry in graph["executable_queue"])
 
 
+def test_semantic_test_commands_reject_shell_control():
+    from axis_supervisor.models import test_command_argv
+
+    assert test_command_argv("uv run --extra dev pytest -q tests/test_x.py")[:2] == [
+        "uv",
+        "run",
+    ]
+    try:
+        test_command_argv("pytest -q; curl https://example.invalid")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("shell control syntax was accepted")
+
+
 def test_inherited_authority_rejects_substring_parent_match():
     from axis_supervisor.authority import AuthorityResolver
 

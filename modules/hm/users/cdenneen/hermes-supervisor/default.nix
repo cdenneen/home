@@ -11,18 +11,23 @@ let
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-supervisor";
   supervisorCtl = pkgs.writeShellScriptBin "axis-development-supervisorctl" ''
+    set -euo pipefail
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisorctl.py" "$@"
   '';
   supervisorHealth = pkgs.writeShellScriptBin "axis-development-supervisor-health" ''
+    set -euo pipefail
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-health.py" "$@"
   '';
   supervisorCronCtl = pkgs.writeShellScriptBin "axis-development-supervisor-cronctl" ''
+    set -euo pipefail
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" "$@"
   '';
   supervisorCycle = pkgs.writeShellScriptBin "axis-development-supervisor-cycle" ''
+    set -euo pipefail
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis_supervisor/cycle.py" "$@"
   '';
   supervisorCommand = pkgs.writeShellScriptBin "axis-development-supervisor-command" ''
+    set -euo pipefail
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
   '';
 in

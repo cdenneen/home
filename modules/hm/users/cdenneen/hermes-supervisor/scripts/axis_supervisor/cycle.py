@@ -14,6 +14,7 @@ from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.workers import HermesWorkerManager
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.models import validate_assignment
+from axis_supervisor.models import test_command_argv
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 
@@ -183,7 +184,11 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             test_results = []
             for command in assignment.get("required_tests") or []:
                 completed = subprocess.run(
-                    ["bash", "-lc", command], cwd=worktree, text=True, capture_output=True
+                    test_command_argv(command),
+                    cwd=worktree,
+                    text=True,
+                    capture_output=True,
+                    timeout=600,
                 )
                 test_results.append(
                     {"command": command, "returncode": completed.returncode}

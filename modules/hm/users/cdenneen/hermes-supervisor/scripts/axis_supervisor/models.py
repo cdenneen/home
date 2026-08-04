@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import shlex
 from typing import Any
 
 
@@ -13,6 +14,33 @@ SEMANTIC_CLASSES = {
     "Invalid",
     "Revalidation",
     "Unknown",
+}
+SLICE_CATEGORIES = {
+    "research",
+    "audit",
+    "preparation",
+    "tests",
+    "fixtures",
+    "instrumentation",
+    "documentation",
+    "ci",
+    "convergence",
+    "benchmark",
+    "negative-test",
+    "compatibility",
+    "migration-rehearsal",
+    "evidence",
+    "implementation",
+}
+ALLOWED_TEST_PREFIXES = {
+    ("pytest",),
+    ("ruff", "check"),
+    ("uv", "run", "pytest"),
+    ("uv", "run", "ruff", "check"),
+    ("uv", "run", "--extra", "dev", "pytest"),
+    ("uv", "run", "--extra", "dev", "ruff", "check"),
+    ("nix", "build"),
+    ("nix", "flake", "check"),
 }
 
 
@@ -32,6 +60,17 @@ def require_list(value: Any, field: str) -> list:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be a list")
     return value
+
+
+def test_command_argv(command: str) -> list[str]:
+    if any(value in command for value in ("\n", ";", "|", "&", ">", "<", "$", "`")):
+        raise ValueError("test command contains shell control syntax")
+    argv = shlex.split(command)
+    if not argv:
+        raise ValueError("test command is empty")
+    if not any(tuple(argv[: len(prefix)]) == prefix for prefix in ALLOWED_TEST_PREFIXES):
+        raise ValueError(f"test command is not allowlisted: {command}")
+    return argv
 
 
 def validate_semantic_record(value: dict) -> dict:
@@ -78,6 +117,10 @@ def validate_semantic_record(value: dict) -> dict:
             raise ValueError("candidate slice has invalid result")
         if not candidate.get("slice_id") or not candidate.get("rationale"):
             raise ValueError("candidate slice requires slice_id and rationale")
+        if candidate.get("category") not in SLICE_CATEGORIES:
+            raise ValueError("candidate slice has invalid category")
+        for command in require_list(candidate.get("required_tests") or [], "required_tests"):
+            test_command_argv(command)
     resolution = value.get("authority_resolution")
     if not isinstance(resolution, dict):
         raise ValueError("authority_resolution must be an object")

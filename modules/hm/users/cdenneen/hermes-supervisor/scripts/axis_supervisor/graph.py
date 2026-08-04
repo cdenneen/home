@@ -69,17 +69,9 @@ class ExecutionGraphBuilder:
                 for candidate in semantic.get("candidate_slices") or []:
                     if candidate.get("result") != "Executable":
                         continue
-                    category = candidate.get("category")
-                    mutating = category in {"implementation", "ci", "convergence"}
                     if not control.get("allow_repository_mutation"):
                         continue
-                    if mutating and authority["state"] not in {"direct", "inherited"}:
-                        continue
-                    if not mutating and authority["state"] not in {
-                        "direct",
-                        "inherited",
-                        "preparation-only",
-                    }:
+                    if authority["state"] not in {"direct", "inherited"}:
                         continue
                     executable_candidates += 1
                     queue.append(
