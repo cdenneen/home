@@ -72,6 +72,9 @@ def main() -> int:
                     PROMPT.read_text(encoding="utf-8").strip(),
                 ],
             )
+            control["cron_job_id"] = worker_id
+            control["cron_generation"] = 1
+            write_atomic(CONTROL, control)
         else:
             worker_id = str(worker["id"])
             desired_prompt = PROMPT.read_text(encoding="utf-8").strip()
@@ -119,6 +122,9 @@ def main() -> int:
                     "every 15m",
                 ],
             )
+            control["report_cron_job_id"] = reporter_id
+            control["cron_generation"] = 1
+            write_atomic(CONTROL, control)
         else:
             reporter_id = str(reporter["id"])
             expected = {

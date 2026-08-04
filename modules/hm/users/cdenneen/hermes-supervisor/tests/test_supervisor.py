@@ -58,6 +58,14 @@ def test_waiting_decomposition_is_recorded():
     assert value["open_acceptance_ids"] == ["AC-1"]
 
 
+def test_paginated_gitlab_arrays_are_fully_decoded():
+    reconcile = load_module("reconcile_pages", ROOT / "scripts" / "reconcile.py")
+    assert reconcile.decode_json_stream('[{"id":1}]\n[{"id":2}]\n') == [
+        {"id": 1},
+        {"id": 2},
+    ]
+
+
 def test_kill_switch_suppresses_before_reconciliation(tmp_path: Path):
     root = tmp_path / "runtime"
     root.mkdir()

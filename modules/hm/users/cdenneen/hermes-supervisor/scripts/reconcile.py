@@ -396,7 +396,10 @@ def main() -> int:
         previous_inventory = load(INVENTORY)
     except Exception:
         previous_inventory = {}
-    projects = glab(f"groups/{quote(GROUP, safe='')}/projects?include_subgroups=true&archived=false&per_page=100")
+    projects = glab(
+        f"groups/{quote(GROUP, safe='')}/projects?include_subgroups=true&archived=false&per_page=100",
+        paginate=True,
+    )
     projects = [project for project in projects if str(project.get("path", "")).startswith("axis")]
     projects.sort(key=lambda project: project["path_with_namespace"])
 
