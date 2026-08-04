@@ -468,6 +468,13 @@ def main() -> int:
                         f"projects/{encoded}/issues/{issue['iid']}/notes?per_page=100",
                         paginate=True,
                     )
+                    notes.sort(
+                        key=lambda note: (
+                            str(note.get("created_at") or ""),
+                            int(note.get("id") or 0),
+                        ),
+                        reverse=True,
+                    )
                 except Exception as exc:
                     retrieval_errors.append(f"notes: {type(exc).__name__}")
                 try:

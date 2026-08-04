@@ -44,6 +44,24 @@ def test_authority_requires_exact_approval_digest():
     assert not reconcile.authority_from_text("", matching, matching)["approval_matches_record"]
 
 
+def test_latest_immutable_record_supersedes_older_approval():
+    reconcile = load_module(
+        "reconcile_latest_record", ROOT / "scripts" / "axis_supervisor" / "collector.py"
+    )
+    old_digest = "sha256:" + "a" * 64
+    new_digest = "sha256:" + "b" * 64
+    newest_record_first = [
+        f"Immutable PlanningRecord\nDigest: `{new_digest}`",
+        f"Product Owner approval — Approve exact digest {old_digest}",
+        f"Immutable PlanningRecord\nDigest: `{old_digest}`",
+    ]
+    approval = [newest_record_first[1]]
+    result = reconcile.authority_from_text("", newest_record_first, approval)
+    assert result["record_digest"] == new_digest
+    assert result["approval_matches_record"] is False
+    assert result["approval_mismatch"] is True
+
+
 def test_ready_label_does_not_bypass_authority():
     reconcile = load_module("reconcile_ready", ROOT / "scripts" / "axis_supervisor" / "collector.py")
     issue = {"state": "opened", "labels": ["ready"], "title": "Ungoverned"}
