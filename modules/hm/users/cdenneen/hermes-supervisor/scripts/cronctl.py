@@ -67,7 +67,7 @@ def main() -> int:
                     "--skill", "axis-development-supervisor",
                     "--script", "axis-development-supervisor-preflight.py",
                     "--provider", "openai-api",
-                    "--model", "gpt-5.5",
+                    "--model", "gpt-5.4",
                     "every 10m",
                     PROMPT.read_text(encoding="utf-8").strip(),
                 ],
@@ -81,8 +81,6 @@ def main() -> int:
             expected = {
                 "schedule_display": "every 10m",
                 "script": "axis-development-supervisor-preflight.py",
-                "provider": "openai-api",
-                "model": "gpt-5.5",
                 "deliver": None,
                 "skill": "axis-development-supervisor",
                 "workdir": "/home/cdenneen/src/workspace/personal/work",
@@ -94,7 +92,11 @@ def main() -> int:
                     continue
                 if actual != value:
                     raise RuntimeError(f"worker cron drift: {key}={actual!r}, expected {value!r}")
-            if worker.get("prompt") != desired_prompt:
+            if (
+                worker.get("prompt") != desired_prompt
+                or worker.get("provider") != "openai-api"
+                or worker.get("model") != "gpt-5.4"
+            ):
                 subprocess.run(
                     [
                         args.hermes,
@@ -104,7 +106,7 @@ def main() -> int:
                         "--provider",
                         "openai-api",
                         "--model",
-                        "gpt-5.5",
+                        "gpt-5.4",
                         "--prompt",
                         desired_prompt,
                     ],
@@ -116,8 +118,7 @@ def main() -> int:
                 args.hermes,
                 [
                     "--name", "axis-development-supervisor-report",
-                    "--deliver", str(control.get("slack_delivery")),
-                    "--script", "axis-development-supervisor-report.py",
+                    "--script", "axis-development-supervisor-slack.py",
                     "--no-agent",
                     "every 15m",
                 ],
@@ -129,15 +130,33 @@ def main() -> int:
             reporter_id = str(reporter["id"])
             expected = {
                 "schedule_display": "every 15m",
-                "script": "axis-development-supervisor-report.py",
-                "deliver": str(control.get("slack_delivery")),
+                "script": "axis-development-supervisor-slack.py",
+                "deliver": None,
                 "no_agent": True,
             }
+            drift = []
             for key, value in expected.items():
-                if reporter.get(key) != value:
-                    raise RuntimeError(
-                        f"reporter cron drift: {key}={reporter.get(key)!r}, expected {value!r}"
-                    )
+                actual = reporter.get(key)
+                if key == "deliver" and actual in {None, "local"}:
+                    continue
+                if actual != value:
+                    drift.append(f"{key}={actual!r}, expected {value!r}")
+            if drift:
+                subprocess.run([args.hermes, "cron", "pause", reporter_id], check=False)
+                subprocess.run([args.hermes, "cron", "remove", reporter_id], check=True)
+                reporter_id = create(
+                    args.hermes,
+                    [
+                        "--name",
+                        "axis-development-supervisor-report",
+                        "--script",
+                        "axis-development-supervisor-slack.py",
+                        "--no-agent",
+                        "every 15m",
+                    ],
+                )
+                control["report_cron_job_id"] = reporter_id
+                write_atomic(CONTROL, control)
         control["cron_job_id"] = worker_id
         control["report_cron_job_id"] = reporter_id
         control["cron_generation"] = 1

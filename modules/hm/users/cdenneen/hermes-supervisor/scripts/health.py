@@ -27,6 +27,7 @@ def main() -> int:
     gateway = load(GATEWAY)
     jobs = load(JOBS)
     inventory = load(ROOT / "inventory.json")
+    graph = load(ROOT / "execution-graph.json")
     control = load(ROOT / "control.json")
 
     if gateway.get("gateway_state") != "running":
@@ -132,7 +133,9 @@ def main() -> int:
         "enabled_jobs": sorted(actual_jobs),
         "inventory_generation_id": inventory.get("generation_id"),
         "inventory_generated_at": generated,
-        "queue_depth": inventory.get("queue_depth"),
+        "classifier_queue_depth": inventory.get("queue_depth"),
+        "governed_queue_depth": graph.get("queue_depth"),
+        "governed_queue_zero_proven": graph.get("governed_queue_zero_proven"),
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1

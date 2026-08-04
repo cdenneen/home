@@ -24,6 +24,15 @@
   "owned_branch_prefixes": ["hermes/"],
   "owned_worktree_root": "~/.hermes/supervisor/axis-development-supervisor/worktrees",
   "product_owner_usernames": ["cdenneen"],
+  "semantic_priority_refs": [
+    "ghostspace/axis#66",
+    "ghostspace/axis#41",
+    "ghostspace/axis#88",
+    "ghostspace/axis#120",
+    "ghostspace/axis#115",
+    "ghostspace/axis#116"
+  ],
   "slack_delivery": "slack:C0BHLUXQ4EB",
+  "slack_user_id": "U0B7ZGP6M43",
   "operator": "cdenneen"
 }

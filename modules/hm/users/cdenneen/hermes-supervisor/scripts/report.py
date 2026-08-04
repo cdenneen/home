@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 INVENTORY = ROOT / "inventory.json"
+GRAPH = ROOT / "execution-graph.json"
 CONTROL = ROOT / "control.json"
 STATE = ROOT / "report-delivery-state.json"
 PENDING = ROOT / "report-delivery-pending.json"
@@ -64,6 +65,7 @@ def main() -> int:
     if inventory.get("schema_version") != "1.0.0":
         raise ValueError("unsupported inventory schema_version")
     inventory_sha256 = hashlib.sha256(inventory_bytes).hexdigest()
+    graph = load(GRAPH)
     control = load(CONTROL)
     if control.get("schema") != "axis.external-development-supervisor.control":
         raise ValueError("unsupported control schema")
@@ -71,17 +73,15 @@ def main() -> int:
         raise ValueError("unsupported control schema_version")
     counts = inventory.get("classification_counts") or {}
     waiting = inventory.get("waiting_reason_counts") or {}
-    queue = inventory.get("executable_queue") or []
+    queue = graph.get("executable_queue") or []
     timeline = inventory.get("activity_timeline") or []
     confidence = inventory.get("roadmap_confidence") or {}
     idle = inventory.get("idle_proof") or {}
     assignments = inventory.get("supervisor_assignments") or []
     leases = inventory.get("active_leases") or []
     open_mrs = inventory.get("open_merge_requests") or []
-    if int(inventory.get("queue_depth", -1)) != len(queue):
-        raise ValueError("inventory queue_depth does not match executable_queue length")
-    if int(counts.get("Executable", -1)) != len(queue):
-        raise ValueError("Executable classification count does not match queue length")
+    if int(graph.get("queue_depth", -1)) != len(queue):
+        raise ValueError("execution graph queue_depth does not match executable_queue length")
     if inventory.get("invariant", {}).get("unknown_count", 0) != counts.get("Unknown", 0) + waiting.get("Unknown", 0):
         raise ValueError("inventory Unknown counts are inconsistent")
 
@@ -113,6 +113,8 @@ def main() -> int:
             for item in leases
         ),
         "idle_proof": idle,
+        "semantic_decomposition_pending": graph.get("semantic_decomposition_pending"),
+        "governed_queue_zero_proven": graph.get("governed_queue_zero_proven"),
         "confidence": confidence.get("percent"),
     }
     fingerprint = hashlib.sha256(json.dumps(fingerprint_payload, sort_keys=True).encode()).hexdigest()
@@ -188,7 +190,10 @@ def main() -> int:
     if current_focus:
         summary = f"{summary_change} I am continuing with {current_focus['title']}."
     else:
-        summary = f"{summary_change} No governed executable item remains after full classification and decomposition review."
+        if graph.get("governed_queue_zero_proven"):
+            summary = f"{summary_change} No governed executable item remains after semantic authority and decomposition review."
+        else:
+            summary = f"{summary_change} The classifier queue is empty, but governed queue-zero is not yet proven."
 
     print("🟢 AXIS Development Supervisor\n")
     print("Summary")
@@ -252,10 +257,10 @@ def main() -> int:
     )
     print(
         f"Integrated: {counts.get('Integrated', 0)} | Completed: {counts.get('Completed', 0)} | "
-        f"Superseded: {counts.get('Superseded', 0)} | Invalid: {counts.get('Invalid', 0)} | "
+        f"Revalidation: {counts.get('Revalidation', 0)} | Superseded: {counts.get('Superseded', 0)} | Invalid: {counts.get('Invalid', 0)} | "
         f"Unknown: {counts.get('Unknown', 0)}"
     )
-    print(f"Queue depth: {inventory.get('queue_depth', 0)}")
+    print(f"Governed queue depth: {graph.get('queue_depth', 0)}")
     active_assignments = [item for item in assignments if item.get("state") not in {"complete", "completed", "cancelled"}]
     print(f"Assignments: {len(active_assignments)} active | Leases: {len(leases)}")
     print()
@@ -278,13 +283,19 @@ def main() -> int:
     )
     print()
 
-    if inventory.get("queue_depth", 0) == 0:
-        print("Why I Am Currently Idle")
+    if graph.get("queue_depth", 0) == 0:
+        print(
+            "Why Governed Queue Zero Is Proven"
+            if graph.get("governed_queue_zero_proven")
+            else "Why Governed Queue Zero Is Not Yet Proven"
+        )
         print(
             f"Inspected {idle.get('repositories_inspected', 0)} repositories and "
-            f"{inventory.get('work_items_discovered', 0)} work items; evaluated "
-            f"{idle.get('dependency_queries', 0)} dependency sets and every Waiting item for decomposition. "
-            f"Unknown={idle.get('unknown_count', 0)}; Queue-zero proven={idle.get('queue_zero_proven', False)}."
+            f"{inventory.get('work_items_discovered', 0)} work items; checked "
+            f"{idle.get('dependency_queries', 0)} dependency sets. "
+            f"Semantic decompositions pending={graph.get('semantic_decomposition_pending', 0)}; "
+            f"Classifier queue empty={graph.get('classifier_queue_empty', False)}; "
+            f"Governed queue-zero proven={graph.get('governed_queue_zero_proven', False)}."
         )
         print()
 
@@ -297,7 +308,9 @@ def main() -> int:
 
     print("Engineering Decisions")
     print("- Queue contains every currently Executable item; blocked/running/completed work is excluded.")
-    print(f"- Waiting decomposition evaluated: {inventory.get('decomposition', {}).get('waiting_items_evaluated', 0)} items.")
+    print(
+        f"- Semantic decomposition records pending: {graph.get('semantic_decomposition_pending', 0)}."
+    )
     print()
 
     print("--- Technical Details ---")
@@ -310,7 +323,7 @@ def main() -> int:
     print(f"Worktrees/Branches/Leases: {len(active_assignments)} active assignments; {len(leases)} active leases")
     print(
         f"Evidence: inventory generated {inventory.get('generated_at')} sha256:{inventory_sha256}; "
-        f"queue-zero proven={idle.get('queue_zero_proven', False)}"
+        f"graph generation={graph.get('generation_id')}; governed queue-zero proven={graph.get('governed_queue_zero_proven', False)}"
     )
 
     report_record = {
@@ -327,7 +340,7 @@ def main() -> int:
         "snapshot": {
             "classifications": counts,
             "waiting_by_reason": waiting,
-            "queue_depth": inventory.get("queue_depth", 0),
+            "queue_depth": graph.get("queue_depth", 0),
             "active_assignments": len(active_assignments),
             "active_leases": len(leases),
         },
@@ -335,7 +348,12 @@ def main() -> int:
             "required": need_po,
             "affected_refs": blockers["Human"],
         },
-        "idle_proof": idle,
+        "idle_proof": {
+            **idle,
+            "classifier_queue_empty": graph.get("classifier_queue_empty"),
+            "governed_queue_zero_proven": graph.get("governed_queue_zero_proven"),
+            "semantic_decomposition_pending": graph.get("semantic_decomposition_pending"),
+        },
         "confidence": confidence,
         "evidence": [
             item.get("web_url") for item in open_mrs if item.get("web_url")

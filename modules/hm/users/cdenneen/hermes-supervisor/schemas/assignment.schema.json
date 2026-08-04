@@ -15,12 +15,20 @@
   "properties": {
     "assignment_id": { "type": "string", "minLength": 1 },
     "state": {
-      "enum": ["ready", "active", "waiting", "blocked", "complete", "cancelled"]
+      "enum": [
+        "ready",
+        "active",
+        "waiting",
+        "blocked",
+        "complete",
+        "cancelled",
+        "failed"
+      ]
     },
     "project": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
     "work_item": { "type": "string", "minLength": 1 },
     "planning_record": {
-      "type": "object",
+      "type": ["object", "null"],
       "required": ["revision", "digest", "approval_note"],
       "properties": {
         "revision": { "type": "integer", "minimum": 1 },
@@ -31,22 +39,23 @@
     },
     "phase": {
       "enum": [
+        "semantic",
+        "semantic-complete",
         "implementation",
         "awaiting-integration",
         "integration",
         "integrated",
-        "failed"
+        "failed",
+        "recovery"
       ]
     },
     "allowed_paths": {
       "type": "array",
-      "items": { "type": "string" },
-      "minItems": 1
+      "items": { "type": "string" }
     },
     "required_tests": {
       "type": "array",
-      "items": { "type": "string" },
-      "minItems": 1
+      "items": { "type": "string" }
     }
   },
   "additionalProperties": true

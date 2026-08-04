@@ -48,10 +48,21 @@ token. Integration uses a fresh session and current GitLab state.
 
 ## Inventory and queue
 
-The deterministic reconciler is the sole inventory writer. Retrieval failures
-fail closed to Unknown. Queue zero requires fresh configured sources, all items
-classified, zero Unknown, every Waiting item decomposition-reviewed, no active
-assignment/lease, and no Executable item.
+The deterministic Collector is the sole raw-inventory writer. Retrieval
+failures fail closed to Unknown. `classifier_queue_empty` means only that the
+deterministic classifier found no direct executable item. Governed queue zero
+requires fresh configured sources, semantic authority resolution, valid
+decomposition/revalidation records for every Waiting/Blocked/closed item,
+repository convergence disposition, zero Unknown, no active assignment/lease,
+and no executable child slice in the execution graph.
+
+## Workers and integration
+
+Hermes-native workers are the default. GPT-5.4 performs semantic supervision,
+authority/decomposition, planning, and integration review. GPT-5.3-Codex
+performs bounded implementation/testing/refactoring/CI work. Each disposable
+worker has one assignment, lease, branch/worktree where applicable, Prompt
+Factory context, timeout, and WWWHH handoff. The supervisor owns continuity.
 
 ## Stop and recovery
 

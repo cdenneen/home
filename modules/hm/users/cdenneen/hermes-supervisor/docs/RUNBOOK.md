@@ -7,9 +7,10 @@ and cron jobs. Begin observing before enabling mutation.
 
 ## Cycle
 
-Guard -> recover leases/runs -> reconcile live sources -> validate inventory ->
-recover/claim assignment -> execute bounded work -> publish evidence -> fresh
-integration -> verify main -> cleanup -> deterministic report.
+Guard -> collect live sources -> validate inventory -> resolve semantic
+authority/decomposition -> rebuild graph -> dispatch -> claim lease -> generate
+bounded prompt -> launch fresh Hermes worker -> ingest handoff -> fresh
+integration -> verify main -> cleanup -> graph rebuild -> deterministic report.
 
 ## Incident
 

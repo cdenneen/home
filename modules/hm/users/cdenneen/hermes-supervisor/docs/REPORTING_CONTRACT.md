@@ -2,7 +2,8 @@
 
 Version: 1.0.0
 
-The deterministic no-agent reporter is the only Slack report producer. Worker
+The deterministic no-agent Block Kit projection is the only Slack report
+producer. It updates one persistent Product Owner DM message in place. Worker
 output remains local audit evidence.
 
 Reports contain a human briefing followed by technical evidence. Human order:

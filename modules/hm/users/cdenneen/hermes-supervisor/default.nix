@@ -19,6 +19,12 @@ let
   supervisorCronCtl = pkgs.writeShellScriptBin "axis-development-supervisor-cronctl" ''
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" "$@"
   '';
+  supervisorCycle = pkgs.writeShellScriptBin "axis-development-supervisor-cycle" ''
+    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis_supervisor/cycle.py" "$@"
+  '';
+  supervisorCommand = pkgs.writeShellScriptBin "axis-development-supervisor-command" ''
+    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
+  '';
 in
 {
   options.profiles.hermesGateway.enable = lib.mkEnableOption "managed Hermes messaging gateway";
@@ -31,6 +37,8 @@ in
         supervisorCtl
         supervisorHealth
         supervisorCronCtl
+        supervisorCycle
+        supervisorCommand
       ];
     home.file = lib.mkIf supervisorEnabled {
       ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt".source = ./worker-prompt.txt;
@@ -89,12 +97,16 @@ in
         migration_backup="$HOME/.hermes/supervisor/axis-development-supervisor/migration-backup-1.0.0"
         for relative in \
           ".hermes/skills/axis-development-supervisor/SKILL.md" \
+          ".hermes/skills/axis-supervisor-operations/SKILL.md" \
           ".hermes/scripts/axis-development-supervisor-preflight.py" \
           ".hermes/scripts/axis-development-supervisor-reconcile.py" \
           ".hermes/scripts/axis-development-supervisor-report.py" \
           ".hermes/scripts/axis-development-supervisorctl.py" \
           ".hermes/scripts/axis-development-supervisor-health.py" \
           ".hermes/scripts/axis-development-supervisor-cronctl.py" \
+          ".hermes/scripts/axis-development-supervisor-slack.py" \
+          ".hermes/scripts/axis-development-supervisor-command.py" \
+          ".hermes/scripts/axis_supervisor" \
           ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt" \
           ".hermes/supervisor/axis-development-supervisor/docs" \
           ".hermes/supervisor/axis-development-supervisor/schemas" \
@@ -126,9 +138,12 @@ in
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p \
           "$HOME/.hermes/skills/axis-development-supervisor" \
+          "$HOME/.hermes/skills/axis-supervisor-operations" \
           "$HOME/.hermes/scripts"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 644 -T \
           "${./skill/SKILL.md}" "$HOME/.hermes/skills/axis-development-supervisor/SKILL.md"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 644 -T \
+          "${./slack-skill/SKILL.md}" "$HOME/.hermes/skills/axis-supervisor-operations/SKILL.md"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/preflight.py}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
@@ -141,6 +156,14 @@ in
           "${./scripts/health.py}" "$HOME/.hermes/scripts/axis-development-supervisor-health.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/cronctl.py}" "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/slack_projection.py}" "$HOME/.hermes/scripts/axis-development-supervisor-slack.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/commands.py}" "$HOME/.hermes/scripts/axis-development-supervisor-command.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "$HOME/.hermes/scripts/axis_supervisor"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp -R \
+          "${./scripts/axis_supervisor}" "$HOME/.hermes/scripts/axis_supervisor"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod -R u=rwX,go= "$HOME/.hermes/scripts/axis_supervisor"
         $DRY_RUN_CMD mkdir -p \
           "${runtimeRoot}/assignments" \
           "${runtimeRoot}/leases" \
@@ -187,7 +210,11 @@ in
         hermes_config="$HOME/.hermes/config.yaml"
         if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
           config_tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.hermes/config.yaml.XXXXXX")"
-          ${pkgs.yq-go}/bin/yq '.agent.restart_drain_timeout = 120' "$hermes_config" > "$config_tmp"
+          ${pkgs.yq-go}/bin/yq '
+            .agent.restart_drain_timeout = 120
+            | .agent.reasoning_overrides."gpt-5.4" = "medium"
+            | .agent.reasoning_overrides."gpt-5.3-codex" = "medium"
+          ' "$hermes_config" > "$config_tmp"
           ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$hermes_config"
           ${pkgs.coreutils}/bin/rm -f "$config_tmp"
         fi
