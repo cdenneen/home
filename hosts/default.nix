@@ -49,6 +49,7 @@ let
       name = "ghost";
       system = "aarch64-linux";
       modules = [ ./nixos/ghost.nix ];
+      homeModules = [ ./nixos/ghost-home.nix ];
       tags = [ "qemu-guest" ];
     }
     {

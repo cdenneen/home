@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.control",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "mode",
+    "kill_switch",
+    "allow_repository_mutation",
+    "repository_allowlist",
+    "daily_worker_cycle_limit"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.control" },
+    "schema_version": { "const": "1.0.0" },
+    "mode": {
+      "enum": [
+        "disabled",
+        "observing",
+        "enabled",
+        "draining",
+        "stopped",
+        "decommissioned"
+      ]
+    },
+    "kill_switch": { "type": "boolean" },
+    "allow_repository_mutation": { "type": "boolean" },
+    "max_active_assignments": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "daily_worker_cycle_limit": { "type": "integer", "minimum": 0 },
+    "cron_job_id": { "type": ["string", "null"] },
+    "report_cron_job_id": { "type": ["string", "null"] },
+    "repository_allowlist": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": true
+}

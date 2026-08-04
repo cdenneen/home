@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.assignment",
+  "type": "object",
+  "required": [
+    "assignment_id",
+    "state",
+    "phase",
+    "project",
+    "work_item",
+    "planning_record",
+    "allowed_paths",
+    "required_tests"
+  ],
+  "properties": {
+    "assignment_id": { "type": "string", "minLength": 1 },
+    "state": {
+      "enum": ["ready", "active", "waiting", "blocked", "complete", "cancelled"]
+    },
+    "project": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "work_item": { "type": "string", "minLength": 1 },
+    "planning_record": {
+      "type": "object",
+      "required": ["revision", "digest", "approval_note"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "approval_note": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": true
+    },
+    "phase": {
+      "enum": [
+        "implementation",
+        "awaiting-integration",
+        "integration",
+        "integrated",
+        "failed"
+      ]
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "required_tests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": true
+}

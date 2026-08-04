@@ -39,6 +39,7 @@ let
     claude-code = inputs.claude-src.packages.${system}.claude-code;
     codex = inputs.codex-src.packages.${system}.codex;
     opencode = inputs.opencode-src.packages.${system}.opencode;
+    hermes = inputs.hermes-src.packages.${system}.messaging;
     pi = self.packages.${system}.pi-agent;
     pi-plugins = self.packages.${system}.pi-plugins;
   };
