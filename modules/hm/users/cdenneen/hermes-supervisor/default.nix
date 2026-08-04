@@ -100,7 +100,8 @@ in
     home.activation.hermesSupervisorLegacyCleanup = lib.mkIf gatewayEnabled (
       lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
         migration_backup="$HOME/.hermes/supervisor/axis-development-supervisor/migration-backup-1.0.0"
-        for relative in \
+        if [ ! -d "$migration_backup" ]; then
+          for relative in \
           ".hermes/skills/axis-development-supervisor/SKILL.md" \
           ".hermes/skills/axis-supervisor-operations/SKILL.md" \
           ".hermes/scripts/axis-development-supervisor-preflight.py" \
@@ -116,14 +117,15 @@ in
           ".hermes/supervisor/axis-development-supervisor/docs" \
           ".hermes/supervisor/axis-development-supervisor/schemas" \
           ".hermes/supervisor/axis-development-supervisor/VERSION"
-        do
-          target="$HOME/$relative"
-          if [ -e "$target" ] && [ ! -L "$target" ]; then
-            backup="$migration_backup/$relative"
-            $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$backup")"
-            $DRY_RUN_CMD ${pkgs.coreutils}/bin/mv -f "$target" "$backup"
-          fi
-        done
+          do
+            target="$HOME/$relative"
+            if [ -e "$target" ] && [ ! -L "$target" ]; then
+              backup="$migration_backup/$relative"
+              $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$backup")"
+              $DRY_RUN_CMD ${pkgs.coreutils}/bin/mv -f "$target" "$backup"
+            fi
+          done
+        fi
         if [ -f "$HOME/.config/systemd/user/hermes-gateway.service" ] \
           && [ ! -L "$HOME/.config/systemd/user/hermes-gateway.service" ]; then
           $DRY_RUN_CMD mv -f \
