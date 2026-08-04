@@ -29,6 +29,7 @@ SUPERVISORCTL = Path(
         Path.home() / ".hermes" / "scripts" / "axis-development-supervisorctl.py",
     )
 )
+CYCLE = Path.home() / ".hermes" / "scripts" / "axis_supervisor" / "cycle.py"
 INVENTORY_LOCK = ROOT / "inventory.lock"
 
 
@@ -275,6 +276,13 @@ def main() -> int:
             capture_output=True,
             timeout=240,
         )
+        subprocess.run(
+            [sys.executable, str(CYCLE), "rebuild"],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
     except Exception as exc:
         return skip(
             run_id,
@@ -302,6 +310,7 @@ def main() -> int:
     if assignment_path is not None and assignment is not None:
         assignment = reconcile_proof_assignment(assignment_path, assignment, control, now)
     inventory = load(ROOT / "inventory.json")
+    execution_graph = load(ROOT / "execution-graph.json")
     idle_proof = inventory.get("idle_proof") or {}
     if not idle_proof.get("all_configured_repositories_inspected"):
         return skip(run_id, mode, "configured repository discovery is incomplete")
@@ -312,13 +321,13 @@ def main() -> int:
     active_assignments = [
         item
         for item in (inventory.get("supervisor_assignments") or [])
-        if item.get("state") not in {"complete", "completed", "cancelled"}
+        if item.get("state") not in {"complete", "completed", "cancelled", "failed"}
     ]
     if mode == "observing":
         return skip(run_id, mode, "observing mode performs reconciliation without model execution")
     if mode == "draining" and not active_assignments:
         return skip(run_id, mode, "draining mode has no active assignment")
-    if not inventory.get("executable_queue") and not active_assignments:
+    if not execution_graph.get("executable_queue") and not active_assignments:
         return skip(run_id, control.get("mode"), "no executable or active assignment after fresh reconciliation")
 
     run_record = {
@@ -366,6 +375,29 @@ def main() -> int:
             "activity_timeline": inventory.get("activity_timeline"),
             "reconcile_error": None,
         },
+        "execution_graph_summary": {
+            "generation_id": execution_graph.get("generation_id"),
+            "queue_depth": execution_graph.get("queue_depth"),
+            "semantic_decomposition_pending": execution_graph.get(
+                "semantic_decomposition_pending"
+            ),
+            "classifier_queue_empty": execution_graph.get("classifier_queue_empty"),
+            "governed_queue_zero_proven": execution_graph.get(
+                "governed_queue_zero_proven"
+            ),
+            "top_executable": (execution_graph.get("executable_queue") or [])[:5],
+        },
+        "cycle_command": [
+            sys.executable,
+            str(CYCLE),
+            "run-next",
+            "--run-id",
+            run_id,
+            "--hermes",
+            shutil.which("hermes") or "/home/cdenneen/.nix-profile/bin/hermes",
+            "--supervisorctl",
+            str(SUPERVISORCTL),
+        ],
         "runs_path": str(RUNS),
         "run_record": str(run_path),
         "instruction": "Run one bounded cycle using axis-development-supervisor. Hermes cron owns singleton execution and durable completion output.",

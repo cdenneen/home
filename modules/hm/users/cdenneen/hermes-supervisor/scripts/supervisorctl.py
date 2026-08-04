@@ -102,7 +102,7 @@ def claim(args: argparse.Namespace) -> int:
     control = load_control()
     if control.get("kill_switch") or control.get("mode") != "enabled":
         raise RuntimeError("supervisor is not enabled")
-    if not control.get("allow_repository_mutation"):
+    if not control.get("allow_repository_mutation") and not args.read_only:
         raise RuntimeError("repository mutation is disabled")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.assignment_id):
         raise RuntimeError("invalid assignment_id")
@@ -144,6 +144,7 @@ def claim(args: argparse.Namespace) -> int:
             "fencing_token": token,
             "resources": resources,
             "phase": args.phase,
+            "read_only": bool(args.read_only),
             "acquired_at_epoch": now,
             "heartbeat_at_epoch": now,
             "expires_at_epoch": now + ttl,
@@ -217,6 +218,7 @@ def main() -> int:
     claim_parser.add_argument("--phase", default="implementation")
     claim_parser.add_argument("--resource", action="append", default=[], required=True)
     claim_parser.add_argument("--ttl", type=int)
+    claim_parser.add_argument("--read-only", action="store_true")
     claim_parser.set_defaults(handler=claim)
 
     heartbeat_parser = subparsers.add_parser("heartbeat")

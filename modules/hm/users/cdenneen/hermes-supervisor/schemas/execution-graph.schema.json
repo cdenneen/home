@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.execution-graph",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generation_id",
+    "inventory_generation_id",
+    "nodes",
+    "edges",
+    "executable_queue",
+    "classifier_queue_empty",
+    "governed_queue_zero_proven"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.execution-graph"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "nodes": { "type": "array" },
+    "edges": { "type": "array" },
+    "executable_queue": { "type": "array" },
+    "classifier_queue_empty": { "type": "boolean" },
+    "governed_queue_zero_proven": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}
