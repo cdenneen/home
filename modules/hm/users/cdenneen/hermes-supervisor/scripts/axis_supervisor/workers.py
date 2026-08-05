@@ -731,7 +731,10 @@ class HermesWorkerManager:
             completed = run_isolated_test(worktree, command)
             test_results.append({"command": command, "returncode": completed.returncode})
             if completed.returncode != 0:
-                raise RuntimeError(f"implementation test failed: {command}")
+                raise RuntimeError(
+                    f"implementation test failed: {command}; "
+                    f"stdout={completed.stdout[-2000:]}; stderr={completed.stderr[-2000:]}"
+                )
         if subprocess.check_output(
             ["git", "diff", "--cached"], cwd=worktree, text=True, timeout=60
         ) != planned_diff:
