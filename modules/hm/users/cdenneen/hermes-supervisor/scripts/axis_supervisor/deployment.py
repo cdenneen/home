@@ -100,13 +100,25 @@ def _command(home: Path, target: str) -> list[str]:
             "--flake",
             f"{home}#ghost",
         ]
-    remote = "VNJTECMBCD" if target == "desktop" else "nyx"
-    rebuild = "darwin-rebuild" if target == "desktop" else "nixos-rebuild"
-    selector = "VNJTECMBCD" if target == "desktop" else "nyx"
-    remote_home = "/Users/cdenneen/code/workspace/nix/home" if target == "desktop" else "/home/cdenneen/src/workspace/nix/home"
+    remote = {
+        "macbookpro": "VNJTECMBCD",
+        "mbair": "100.79.172.12",
+        "nyx": "nyx",
+    }[target]
+    rebuild = "darwin-rebuild" if target in {"macbookpro", "mbair"} else "nixos-rebuild"
+    selector = {
+        "macbookpro": "VNJTECMBCD",
+        "mbair": "mbair",
+        "nyx": "nyx",
+    }[target]
+    remote_home = {
+        "macbookpro": "/Users/cdenneen/code/workspace/nix/home",
+        "mbair": "/Users/cdenneen/code/workspace/nix/home-mbair",
+        "nyx": "/home/cdenneen/src/workspace/nix/home",
+    }[target]
     post_activation = (
-        f" && nix eval --raw {remote_home}#darwinConfigurations.VNJTECMBCD.config.system.activationScripts.axisDeploymentIdentity.text | sudo -n /bin/bash"
-        if target == "desktop"
+        f" && nix eval --raw {remote_home}#darwinConfigurations.{selector}.config.system.activationScripts.axisDeploymentIdentity.text | sudo -n /bin/bash"
+        if target in {"macbookpro", "mbair"}
         else ""
     )
     remote_deployment = (
@@ -136,7 +148,11 @@ def _identity(target: str, path: str) -> dict:
                 ["sudo", "-n", "cat", path], text=True, timeout=10
             )
         )
-    remote = "VNJTECMBCD" if target == "desktop" else "nyx"
+    remote = {
+        "macbookpro": "VNJTECMBCD",
+        "mbair": "100.79.172.12",
+        "nyx": "nyx",
+    }[target]
     return json.loads(
         subprocess.check_output(
             ["ssh", "-o", "BatchMode=yes", remote, "cat", path],
@@ -146,33 +162,34 @@ def _identity(target: str, path: str) -> dict:
     )
 
 
-def _smoke(target: str, capabilities: list[str]) -> dict:
+def _smoke(target: str, capabilities: list[str], runtime: dict) -> dict:
     if target == "ghost":
         subprocess.run(["systemctl", "is-active", "axis.service"], check=True)
         if "Web Presentation" in capabilities:
             subprocess.run(["systemctl", "is-active", "axis-web.service"], check=True)
         with urlopen("http://127.0.0.1:8780/health", timeout=30) as response:
             output = response.read().decode()
-    elif target == "nyx":
-        output = subprocess.check_output(
-            [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "nyx",
-                "systemctl is-active axis.service >/dev/null && curl -fsS http://127.0.0.1:8780/health",
-            ],
-            text=True,
-            timeout=120,
-        )
     else:
+        remote = {
+            "macbookpro": "VNJTECMBCD",
+            "mbair": "100.79.172.12",
+            "nyx": "nyx",
+        }[target]
+        binary = "axis-node" if target == "nyx" else "axis-desktop"
+        service_url = runtime["service_url"]
+        token_path = runtime["token_path"]
         output = subprocess.check_output(
             [
                 "ssh",
                 "-o",
                 "BatchMode=yes",
-                "VNJTECMBCD",
-                "launchctl print system/org.nixos.axis >/dev/null && curl -fsS http://127.0.0.1:8780/health",
+                remote,
+                (
+                    f"command -v {binary} >/dev/null && "
+                    f"token=$(cat {token_path}) && "
+                    f"curl -fsS -H \"Authorization: Bearer $token\" "
+                    f"{service_url}/health"
+                ),
             ],
             text=True,
             timeout=120,
@@ -216,9 +233,13 @@ def _write_verified_identity(
             check=True,
         )
     else:
-        remote = "VNJTECMBCD" if target == "desktop" else "nyx"
-        owner = "cdenneen:staff" if target == "desktop" else "axis:axis"
-        prefix = "" if target == "desktop" else "sudo -n "
+        remote = {
+            "macbookpro": "VNJTECMBCD",
+            "mbair": "100.79.172.12",
+            "nyx": "nyx",
+        }[target]
+        owner = "cdenneen:staff" if target in {"macbookpro", "mbair"} else "cdenneen:users"
+        prefix = ""
         subprocess.run(
             [
                 "ssh",
@@ -302,7 +323,9 @@ def execute_deployment_assignment(
         ]:
             raise RuntimeError("runtime identity does not match expected revision")
         health = _smoke(
-            target, assignment["source_item"]["affected_capabilities"]
+            target,
+            assignment["source_item"]["affected_capabilities"],
+            matrix["runtimes"][target],
         )
         identity = _write_verified_identity(
             target,

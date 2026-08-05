@@ -12,6 +12,7 @@ let
   axisWebDashboardPasswordFile = config.sops.secrets.axis_web_dashboard_password.path;
   axisWebSessionSecretFile = config.sops.secrets.axis_web_session_secret.path;
   axisWebTokenFile = "/run/axis-web/token";
+  axisApiBearerTokenFile = config.sops.secrets.axis_remote_client_token.path;
   axisRevision = axis.rev or "unknown";
   supervisorRevision =
     if config.system.configurationRevision != null then
@@ -39,6 +40,54 @@ let
     ' "$contexts_file" > "$token_tmp"
     ${pkgs.coreutils}/bin/chmod 0600 "$token_tmp"
     ${pkgs.coreutils}/bin/mv -f "$token_tmp" "${axisWebTokenFile}"
+  '';
+  axisApiProxy = pkgs.writeText "axis-api-auth-proxy.py" ''
+    import hmac
+    import http.client
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    TOKEN_FILE = ${builtins.toJSON axisApiBearerTokenFile}
+
+    class Handler(BaseHTTPRequestHandler):
+        def _proxy(self):
+            with open(TOKEN_FILE, "r", encoding="utf-8") as handle:
+                expected = handle.read().strip()
+            supplied = self.headers.get("Authorization", "")
+            if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", "Bearer")
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length else None
+            upstream = http.client.HTTPConnection("127.0.0.1", 8780, timeout=30)
+            headers = {
+                key: value
+                for key, value in self.headers.items()
+                if key.lower() not in {"host", "content-length", "connection"}
+            }
+            upstream.request(self.command, self.path, body=body, headers=headers)
+            response = upstream.getresponse()
+            payload = response.read()
+            self.send_response(response.status)
+            for key, value in response.getheaders():
+                if key.lower() not in {"transfer-encoding", "connection"}:
+                    self.send_header(key, value)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            upstream.close()
+
+        do_GET = _proxy
+        do_POST = _proxy
+        do_PUT = _proxy
+        do_PATCH = _proxy
+        do_DELETE = _proxy
+
+        def log_message(self, format, *args):
+            return
+
+    ThreadingHTTPServer(("127.0.0.1", 8781), Handler).serve_forever()
   '';
   pepsApiHost = "peps-api.denneen.net";
   pepsWebHost = "peps.denneen.net";
@@ -209,6 +258,18 @@ in
       port = 8780;
     };
 
+    caddy = {
+      enable = true;
+      virtualHosts."http://127.0.0.1:3002".extraConfig = ''
+        handle_path /api/* {
+          reverse_proxy 127.0.0.1:8781
+        }
+        handle {
+          reverse_proxy 127.0.0.1:3001
+        }
+      '';
+    };
+
     tailscale = {
       enable = true;
       openFirewall = true;
@@ -270,7 +331,7 @@ in
           "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
           "ai-dev.denneen.net" = "http://127.0.0.1:3000";
-          "ai.denneen.net" = "http://127.0.0.1:3001";
+          "ai.denneen.net" = "http://127.0.0.1:3002";
         };
         default = "http_status:404";
         originRequest = {
@@ -368,6 +429,13 @@ in
     group = "axis";
     mode = "0400";
     restartUnits = [ "axis-web.service" ];
+  };
+  sops.secrets.axis_remote_client_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "caddy";
+    group = "caddy";
+    mode = "0440";
+    restartUnits = [ "axis-api-auth-proxy.service" ];
   };
   sops.secrets.cdenneen_ed25519_2024 = {
     owner = "cdenneen";
@@ -494,6 +562,22 @@ in
       DynamicUser = lib.mkForce false;
       User = "gitlab-runner";
       Group = "gitlab-runner";
+    };
+  };
+
+  systemd.services.axis-api-auth-proxy = {
+    description = "Authenticated AXIS API proxy";
+    after = [ "axis.service" ];
+    requires = [ "axis.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      User = "caddy";
+      Group = "caddy";
+      ExecStart = "${pkgs.python3}/bin/python ${axisApiProxy}";
+      Restart = "on-failure";
+      RestartSec = 2;
+      NoNewPrivileges = true;
+      PrivateTmp = true;
     };
   };
 
@@ -1461,9 +1545,15 @@ in
     };
 
   systemd.services."cloudflared-tunnel-${ghostTunnelId}" = {
-    requires = [ "cloudflared-credentials-ghost.service" ];
+    requires = [
+      "axis-api-auth-proxy.service"
+      "caddy.service"
+      "cloudflared-credentials-ghost.service"
+    ];
     after = [
+      "axis-api-auth-proxy.service"
       "axis-web.service"
+      "caddy.service"
       "cloudflared-credentials-ghost.service"
     ];
   };

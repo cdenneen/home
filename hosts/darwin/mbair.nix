@@ -1,4 +1,5 @@
 {
+  axis,
   homebrew-taps-mbair,
   lib,
   pkgs,
@@ -89,5 +90,22 @@
     pkgs.jq
     pkgs.ripgrep
     pkgs.sops
+    axis.packages.${pkgs.system}.axis
   ];
+
+  sops.secrets.axis_remote_client_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "cdenneen";
+    mode = "0400";
+  };
+
+  system.activationScripts.axisDeploymentIdentity.text = ''
+    /bin/mkdir -p /Users/cdenneen/.local/share/axis
+    deployed_at="$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
+    cat > /Users/cdenneen/.local/share/axis/deployment-identity.json <<EOF
+    {"runtime":"mbair","runtime_kind":"axis-desktop","ring":1,"runtime_revision":"${axis.rev or "unknown"}","supervisor_revision":"unknown","deployment_time":"$deployed_at","service_url":"https://ai.denneen.net/api","verification_status":"deployment-recorded","health":"pending-runtime-verification"}
+    EOF
+    /usr/sbin/chown cdenneen:staff /Users/cdenneen/.local/share/axis/deployment-identity.json
+    /bin/chmod 0640 /Users/cdenneen/.local/share/axis/deployment-identity.json
+  '';
 }

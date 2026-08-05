@@ -29,6 +29,10 @@ class CapabilityConvergenceProjector:
         path = str(runtime["identity_path"])
         try:
             if runtime["host"] == "local":
+                try:
+                    return json.loads(Path(path).read_text(encoding="utf-8")), None
+                except (OSError, PermissionError):
+                    pass
                 completed = subprocess.run(
                     ["sudo", "-n", "cat", path],
                     text=True,
@@ -81,7 +85,7 @@ class CapabilityConvergenceProjector:
             )
         runtime_records = []
         assignments = []
-        ring_failures = set()
+        blocked_capabilities: set[str] = set()
         for runtime_name, runtime in sorted(
             matrix["runtimes"].items(), key=lambda value: int(value[1]["ring"])
         ):
@@ -93,9 +97,13 @@ class CapabilityConvergenceProjector:
                 if runtime_name in (definition.get("runtimes") or [])
             ]
             behind = []
+            observed_capability_revisions = (identity or {}).get(
+                "capability_revisions"
+            ) or {}
             for capability in projected:
                 expected = expected_by_capability[capability]
-                if not running_revision:
+                observed_revision = observed_capability_revisions.get(capability)
+                if not running_revision or not observed_revision:
                     behind.append(capability)
                     continue
                 contained = (
@@ -105,7 +113,7 @@ class CapabilityConvergenceProjector:
                             "merge-base",
                             "--is-ancestor",
                             expected,
-                            running_revision,
+                            observed_revision,
                         ],
                         cwd=repository,
                         stdout=subprocess.DEVNULL,
@@ -116,12 +124,19 @@ class CapabilityConvergenceProjector:
                 )
                 if not contained:
                     behind.append(capability)
-            prior_failed = any(ring < int(runtime["ring"]) for ring in ring_failures)
             verification_pending = (identity or {}).get("verification_status") != "verified"
             deployment_capabilities = behind or (projected if verification_pending else [])
+            blocked_by_prior_ring = sorted(
+                set(deployment_capabilities) & blocked_capabilities
+            )
+            deployable_capabilities = [
+                capability
+                for capability in deployment_capabilities
+                if capability not in blocked_capabilities
+            ]
             status = (
                 "blocked-by-prior-ring"
-                if prior_failed and deployment_capabilities
+                if blocked_by_prior_ring and not deployable_capabilities
                 else "deployment-required"
                 if error == "identity-missing"
                 else "unknown"
@@ -130,8 +145,8 @@ class CapabilityConvergenceProjector:
                 if not deployment_capabilities
                 else "deployment-required"
             )
-            if status == "unknown":
-                ring_failures.add(int(runtime["ring"]))
+            if status != "converged":
+                blocked_capabilities.update(deployment_capabilities)
             runtime_records.append(
                 {
                     "runtime": runtime_name,
@@ -141,6 +156,8 @@ class CapabilityConvergenceProjector:
                     "running_revision": running_revision,
                     "expected_repository_revision": expected_repository_revision,
                     "capabilities_behind": behind,
+                    "observed_capability_revisions": observed_capability_revisions,
+                    "capabilities_blocked_by_prior_ring": blocked_by_prior_ring,
                     "capability_lag": len(behind),
                     "status": status,
                     "health": (identity or {}).get("health"),
@@ -151,17 +168,17 @@ class CapabilityConvergenceProjector:
                     "identity_error": error,
                 }
             )
-            if deployment_capabilities:
+            if deployable_capabilities:
                 assignments.append(
                     {
                         "assignment_id": f"deployment-{expected_repository_revision[:12]}-{runtime_name}",
                         "assignment_type": "capability-deployment",
                         "target_runtime": runtime_name,
                         "ring": runtime["ring"],
-                        "affected_capabilities": deployment_capabilities,
+                        "affected_capabilities": deployable_capabilities,
                         "expected_capability_revisions": {
                             capability: expected_by_capability[capability]
-                            for capability in deployment_capabilities
+                            for capability in deployable_capabilities
                         },
                         "expected_revision": expected_repository_revision,
                         "deployment_target": runtime["deployment_target"],
@@ -173,7 +190,7 @@ class CapabilityConvergenceProjector:
                             repository_convergence.get("convergence_digest"),
                             *[
                                 f"{capability}:{expected_by_capability[capability]}"
-                                for capability in deployment_capabilities
+                                for capability in deployable_capabilities
                             ],
                         ],
                     }

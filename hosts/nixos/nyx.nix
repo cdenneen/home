@@ -204,8 +204,6 @@ let
       "unknown";
 in
 {
-  imports = [ axis.nixosModules.default ];
-
   networking.hostName = "nyx";
   networking.extraHosts = ''
     100.80.58.4 nyx.tail0e55.ts.net
@@ -217,54 +215,39 @@ in
     openFirewall = true;
   };
 
-  services.axis = {
-    enable = true;
-    dataRoot = "/var/lib/axis";
-    host = "127.0.0.1";
-    port = 8780;
+  environment.systemPackages = lib.mkAfter [ axis.packages.${pkgs.system}.axis ];
+
+  sops.secrets.axis_remote_client_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+    restartUnits = [ "axis-node-deployment-identity.service" ];
   };
 
-  environment.etc."axis/identity-seed.json".source = "${axis}/examples/first_run/identity-seed.json";
-
-  systemd.services.axis-bootstrap = {
-    description = "Initialize Nyx AXIS runtime state once";
-    before = [ "axis.service" ];
-    requiredBy = [ "axis.service" ];
-    serviceConfig = {
-      Type = "oneshot";
-      User = "axis";
-      Group = "axis";
-    };
-    script = ''
-      if [ ! -f /var/lib/axis/runtime.db ]; then
-        ${axis.packages.${pkgs.system}.axis}/bin/axis \
-          --data-root /var/lib/axis \
-          init \
-          --seed-file /etc/axis/identity-seed.json \
-          --node-alias Nyx
-        ${axis.packages.${pkgs.system}.axis}/bin/axis \
-          --data-root /var/lib/axis stop || true
-      fi
-    '';
-  };
-
-  systemd.services.axis-deployment-identity = {
-    description = "Record Nyx AXIS deployment identity";
-    after = [ "axis.service" ];
-    requires = [ "axis.service" ];
+  systemd.services.axis-node-deployment-identity = {
+    description = "Verify and record Nyx axis-node projection identity";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
       RemainAfterExit = true;
     };
     script = ''
-      install -d -m 0750 -o axis -g axis /var/lib/axis
+      token="$(${pkgs.coreutils}/bin/cat ${config.sops.secrets.axis_remote_client_token.path})"
+      ${pkgs.curl}/bin/curl --fail --silent \
+        --header "Authorization: Bearer $token" \
+        https://ai.denneen.net/api/health \
+        | ${pkgs.jq}/bin/jq -e '.runtime.state == "ready"' >/dev/null
+      install -d -m 0700 /home/cdenneen/.local/state/axis-node
       deployed_at="$(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
-      cat > /var/lib/axis/deployment-identity.json <<EOF
-      {"runtime":"nyx","ring":2,"runtime_revision":"${axisRevision}","supervisor_revision":"${supervisorRevision}","deployment_time":"$deployed_at","verification_status":"deployment-recorded","health":"pending-runtime-verification"}
+      cat > /home/cdenneen/.local/state/axis-node/deployment-identity.json <<EOF
+      {"runtime":"nyx","runtime_kind":"axis-node","ring":2,"runtime_revision":"${axisRevision}","supervisor_revision":"${supervisorRevision}","deployment_time":"$deployed_at","service_url":"https://ai.denneen.net/api","verification_status":"deployment-recorded","health":"pending-runtime-verification"}
       EOF
-      chown axis:axis /var/lib/axis/deployment-identity.json
-      chmod 0640 /var/lib/axis/deployment-identity.json
+      chmod 0600 /home/cdenneen/.local/state/axis-node/deployment-identity.json
     '';
   };
 

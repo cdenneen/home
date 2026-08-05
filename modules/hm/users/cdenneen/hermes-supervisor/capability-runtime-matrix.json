@@ -5,7 +5,7 @@
   "capabilities": {
     "Runtime Kernel": {
       "paths": ["src/axis_kernel", "src/axis_runtime/runtime.py"],
-      "runtimes": ["ghost", "desktop", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Scheduler": {
       "paths": [
@@ -13,18 +13,18 @@
         "src/axis_runtime/execution_budget.py",
         "src/axis_runtime/node_operations.py"
       ],
-      "runtimes": ["ghost", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Service Plane": {
       "paths": [
         "src/axis_runtime/service_plane.py",
         "src/axis_product/service_plane"
       ],
-      "runtimes": ["ghost", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Provider Runtime": {
       "paths": ["src/axis_runtime/provider", "src/axis_kernel/provider.py"],
-      "runtimes": ["ghost", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Cognition": {
       "paths": [
@@ -32,11 +32,11 @@
         "src/axis_kernel/cognition.py",
         "src/axis_kernel/executive_organization.py"
       ],
-      "runtimes": ["ghost", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Memory": {
       "paths": ["src/axis_runtime/memory.py", "src/axis_kernel/memory.py"],
-      "runtimes": ["ghost", "desktop", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Knowledge": {
       "paths": [
@@ -44,14 +44,14 @@
         "src/axis_runtime/knowledge_projection.py",
         "src/axis_kernel/knowledge.py"
       ],
-      "runtimes": ["ghost", "desktop", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Plugin Runtime": {
       "paths": [
         "src/axis_runtime/plugin_host.py",
         "src/axis_kernel/plugin_lifecycle.py"
       ],
-      "runtimes": ["ghost", "desktop", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Skills": {
       "paths": [
@@ -60,11 +60,11 @@
         "src/axis_kernel/skills.py",
         "packs"
       ],
-      "runtimes": ["ghost", "desktop", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Desktop Presentation": {
       "paths": ["apps/axis-desktop", "src/axis_desktop"],
-      "runtimes": ["desktop"]
+      "runtimes": ["macbookpro", "mbair"]
     },
     "Web Presentation": {
       "paths": ["apps/axis-web", "src/axis_web"],
@@ -72,15 +72,15 @@
     },
     "HUD": {
       "paths": ["packages/axis-ui-hud"],
-      "runtimes": ["ghost", "desktop"]
+      "runtimes": ["ghost", "macbookpro", "mbair"]
     },
     "Neural Map": {
       "paths": ["packages/axis-ui-neural-map"],
-      "runtimes": ["ghost", "desktop"]
+      "runtimes": ["ghost", "macbookpro", "mbair"]
     },
     "CLI": {
       "paths": ["src/axis/cli.py", "src/axis/cli"],
-      "runtimes": ["desktop", "nyx"]
+      "runtimes": ["macbookpro", "mbair", "nyx"]
     },
     "Node Runtime": {
       "paths": [
@@ -93,14 +93,14 @@
     },
     "Installer": {
       "paths": ["nix", "scripts/install", "src/axis_runtime/installation"],
-      "runtimes": ["ghost", "desktop", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Observability": {
       "paths": [
         "src/axis_kernel/observability.py",
         "src/axis_runtime/observability"
       ],
-      "runtimes": ["ghost", "nyx"]
+      "runtimes": ["ghost"]
     },
     "Documentation": { "paths": ["docs"], "runtimes": [] }
   },
@@ -112,18 +112,31 @@
       "identity_path": "/var/lib/axis/deployment-identity.json",
       "deployment_target": "nixosConfigurations.ghost"
     },
-    "desktop": {
+    "macbookpro": {
       "ring": 1,
-      "display_name": "Desktop",
+      "display_name": "macbookpro",
       "host": "VNJTECMBCD",
       "identity_path": "/Users/cdenneen/.local/share/axis/deployment-identity.json",
+      "service_url": "https://ai.denneen.net/api",
+      "token_path": "/run/secrets/axis_remote_client_token",
       "deployment_target": "darwinConfigurations.VNJTECMBCD"
+    },
+    "mbair": {
+      "ring": 1,
+      "display_name": "mbair",
+      "host": "100.79.172.12",
+      "identity_path": "/Users/cdenneen/.local/share/axis/deployment-identity.json",
+      "service_url": "https://ai.denneen.net/api",
+      "token_path": "/run/secrets/axis_remote_client_token",
+      "deployment_target": "darwinConfigurations.mbair"
     },
     "nyx": {
       "ring": 2,
       "display_name": "Nyx",
       "host": "nyx",
-      "identity_path": "/var/lib/axis/deployment-identity.json",
+      "identity_path": "/home/cdenneen/.local/state/axis-node/deployment-identity.json",
+      "service_url": "https://ai.denneen.net/api",
+      "token_path": "/run/secrets/axis_remote_client_token",
       "deployment_target": "nixosConfigurations.nyx"
     }
   }

@@ -960,9 +960,10 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
     identity.write_text(
         json.dumps(
             {
-                "runtime_revision": current,
-                "health": "healthy",
-                "verification_status": "verified",
+                    "runtime_revision": current,
+                    "health": "healthy",
+                    "verification_status": "verified",
+                    "capability_revisions": {"Service": current},
             }
         ),
         encoding="utf-8",
