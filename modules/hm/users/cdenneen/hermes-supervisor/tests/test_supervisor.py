@@ -524,6 +524,7 @@ def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
     assert output == '{"result":"ok"}'
     assert prompt not in captured["command"]
     assert captured["input"] == prompt
+    assert captured["kwargs"]["stdin"] is workers.subprocess.PIPE
     assert captured["command"][1].endswith("oneshot_stdin.py")
     assert captured["command"][-2:] == ["--toolsets", ""]
     persisted = json.loads(
