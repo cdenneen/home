@@ -79,11 +79,11 @@
         "rev": "951460c040e53f4c8a0f5cb4ee3b858fce1d85d7",
         "revCount": 392,
         "type": "git",
-        "url": "ssh://git@gitlab.com/ghostspace/axis.git"
+        "url": "https://gitlab.com/ghostspace/axis.git"
       },
       "original": {
         "type": "git",
-        "url": "ssh://git@gitlab.com/ghostspace/axis.git"
+        "url": "https://gitlab.com/ghostspace/axis.git"
       }
     },
     "brew-src": {

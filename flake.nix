@@ -45,7 +45,7 @@
     };
     apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
     axis = {
-      url = "git+ssh://git@gitlab.com/ghostspace/axis.git";
+      url = "git+https://gitlab.com/ghostspace/axis.git";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixos-crostini.url = "github:aldur/nixos-crostini";
