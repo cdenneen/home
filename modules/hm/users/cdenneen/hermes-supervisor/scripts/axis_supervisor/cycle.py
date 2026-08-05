@@ -17,7 +17,6 @@ from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.lifecycle import is_completed, is_integrable, set_lifecycle
 from axis_supervisor.models import validate_assignment
-from axis_supervisor.models import test_command_argv
 from axis_supervisor.mutation import (
     GateDecision,
     MutationGate,
@@ -26,7 +25,7 @@ from axis_supervisor.mutation import (
 )
 from axis_supervisor.schema_registry import read_record, validate_record, write_record
 from axis_supervisor.verification import completion_receipt
-from axis_supervisor.workers import HermesWorkerManager
+from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 
@@ -570,13 +569,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             }
             try:
                 for command in assignment.get("required_tests") or []:
-                    completed = subprocess.run(
-                        test_command_argv(command),
-                        cwd=worktree,
-                        text=True,
-                        capture_output=True,
-                        timeout=600,
-                    )
+                    completed = run_isolated_test(worktree, command)
                     test_results.append(
                         {"command": command, "returncode": completed.returncode}
                     )
