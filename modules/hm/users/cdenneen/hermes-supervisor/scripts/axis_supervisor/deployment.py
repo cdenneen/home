@@ -276,15 +276,24 @@ def execute_deployment_assignment(
         if local_head != remote_head:
             raise RuntimeError("deployment source is not pushed to origin/main")
         started = time.time()
-        completed = subprocess.run(
-            _command(home, target), text=True, capture_output=True, timeout=3600
-        )
-        if completed.returncode != 0:
-            raise RuntimeError(
-                f"deployment command failed: {(completed.stderr or completed.stdout)[-4000:]}"
-            )
         matrix = json.loads((root / "capability-runtime-matrix.json").read_text())
-        identity = _identity(target, matrix["runtimes"][target]["identity_path"])
+        identity_path = matrix["runtimes"][target]["identity_path"]
+        try:
+            identity = _identity(target, identity_path)
+        except Exception:
+            identity = {}
+        already_deployed = identity.get("runtime_revision") == assignment[
+            "source_item"
+        ]["expected_revision"]
+        if already_deployed:
+            completed = subprocess.CompletedProcess(
+                args=["already-deployed"], returncode=0, stdout="", stderr=""
+            )
+        else:
+            completed = subprocess.run(
+                _command(home, target), text=True, capture_output=True, timeout=3600
+            )
+            identity = _identity(target, identity_path)
         if identity.get("runtime_revision") != assignment["source_item"][
             "expected_revision"
         ]:
@@ -294,7 +303,7 @@ def execute_deployment_assignment(
         )
         identity = _write_verified_identity(
             target,
-            matrix["runtimes"][target]["identity_path"],
+            identity_path,
             identity,
             assignment,
         )
@@ -303,6 +312,13 @@ def execute_deployment_assignment(
             "identity": identity,
             "health": health,
             "command_stdout_tail": completed.stdout[-4000:],
+            "command_stderr_tail": completed.stderr[-4000:],
+            "command_returncode": completed.returncode,
+            "activation_warning": (
+                "system activation returned nonzero but affected AXIS capabilities verified"
+                if completed.returncode != 0
+                else None
+            ),
         }
         assignment["result_state"] = "runtime-converged"
         assignment["work_item_disposition"] = "canonical-complete"

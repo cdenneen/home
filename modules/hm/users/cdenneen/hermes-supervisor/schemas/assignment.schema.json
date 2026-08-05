@@ -82,6 +82,7 @@
         "runtime-convergence-pending",
         "runtime-converged",
         "canonical-complete",
+        "deployment-failed",
         "completed",
         "waiting",
         "blocked",

@@ -765,7 +765,17 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             (
                 value
                 for value in existing
-                if value.get("lifecycle_state") == "ready-implementation"
+                if value.get("lifecycle_state")
+                in {"ready-implementation", "running-implementation"}
+                and (
+                    not value.get("lease_id")
+                    or not (
+                        ROOT
+                        / "leases"
+                        / str(value.get("lease_id"))
+                        / "lease.json"
+                    ).exists()
+                )
             ),
             None,
         )
