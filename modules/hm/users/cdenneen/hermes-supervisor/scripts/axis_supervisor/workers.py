@@ -30,6 +30,13 @@ def run_isolated_test(worktree: Path, command: str) -> subprocess.CompletedProce
     bwrap = shutil.which("bwrap")
     if not bwrap:
         raise RuntimeError("bubblewrap is required for isolated supervisor tests")
+    worktree = worktree.resolve()
+    parent_dirs = []
+    current = worktree.parent
+    while current != Path("/"):
+        parent_dirs.append(str(current))
+        current = current.parent
+    directory_args = [arg for path in reversed(parent_dirs) for arg in ("--dir", path)]
     return subprocess.run(
         [
             bwrap,
@@ -48,14 +55,13 @@ def run_isolated_test(worktree: Path, command: str) -> subprocess.CompletedProce
             "/dev",
             "--tmpfs",
             "/tmp",
-            "--dir",
-            "/workspace",
+            *directory_args,
             "--bind",
             str(worktree),
-            "/workspace",
+            str(worktree),
             "--ro-bind",
             str(worktree / ".git"),
-            "/workspace/.git",
+            str(worktree / ".git"),
             "--setenv",
             "HOME",
             "/tmp",
@@ -66,7 +72,7 @@ def run_isolated_test(worktree: Path, command: str) -> subprocess.CompletedProce
             "LANG",
             "C.UTF-8",
             "--chdir",
-            "/workspace",
+            str(worktree),
             *test_command_argv(command),
         ],
         text=True,
