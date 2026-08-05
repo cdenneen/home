@@ -104,6 +104,11 @@ def _command(home: Path, target: str) -> list[str]:
     rebuild = "darwin-rebuild" if target == "desktop" else "nixos-rebuild"
     selector = "VNJTECMBCD" if target == "desktop" else "nyx"
     remote_home = "/Users/cdenneen/code/workspace/nix/home" if target == "desktop" else "/home/cdenneen/src/workspace/nix/home"
+    post_activation = (
+        f" && nix eval --raw {remote_home}#darwinConfigurations.VNJTECMBCD.config.system.activationScripts.axisDeploymentIdentity.text | sudo -n /bin/bash"
+        if target == "desktop"
+        else ""
+    )
     return [
         "ssh",
         "-o",
@@ -114,6 +119,7 @@ def _command(home: Path, target: str) -> list[str]:
             f"git -C {remote_home} pull --rebase && "
             f"sudo -n env NIXPKGS_ALLOW_INSECURE=1 {rebuild} switch "
             f"{'--impure ' if target == 'nyx' else ''}--flake {remote_home}#{selector}"
+            f"{post_activation}"
         ),
     ]
 
