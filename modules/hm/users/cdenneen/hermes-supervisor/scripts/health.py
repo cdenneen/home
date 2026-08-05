@@ -95,6 +95,13 @@ def main() -> int:
     ]
     active_grants = []
     for path in (ROOT / "mutation-grants").glob("*/grant.json"):
+        try:
+            raw_grant = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"invalid mutation grant record {path.name}: {exc}")
+            continue
+        if raw_grant.get("status") != "active":
+            continue
         grant = validated(
             path,
             "axis.external-development-supervisor.mutation-grant",
