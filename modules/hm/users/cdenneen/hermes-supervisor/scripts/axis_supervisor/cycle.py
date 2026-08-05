@@ -23,6 +23,7 @@ from axis_supervisor.mutation import (
     OperationClass,
     load_canonical_lease,
 )
+from axis_supervisor.observability import record_event
 from axis_supervisor.schema_registry import (
     CorruptRecordError,
     read_record,
@@ -111,6 +112,19 @@ def publish_implementation(
             "pipeline_id": None,
             "pipeline_url": None,
         }
+    )
+    record_event(
+        ROOT,
+        "mr_created",
+        assignment=assignment,
+        details={
+            "mr_iid": mr.get("iid"),
+            "mr_url": mr.get("web_url"),
+            "commit": result.get("commit"),
+            "branch": branch,
+            "integration_state": "awaiting-pipeline",
+        },
+        source="cycle",
     )
     return result
 
@@ -353,6 +367,19 @@ def execute_new_assignment(
         set_lifecycle(assignment, "failed")
         assignment["error"] = f"lease claim failed: {type(exc).__name__}: {exc}"
         save(path, assignment, gate)
+        record_event(
+            ROOT,
+            "assignment_disposition",
+            assignment=assignment,
+            details={
+                "disposition": "failed",
+                "failed_gate": "lease-claim",
+                "failure_classification": type(exc).__name__,
+                "corrective_action": "await next governed recovery cycle",
+                "unsafe_branch_published": False,
+            },
+            source="cycle",
+        )
         if (assignment.get("authority") or {}).get("state") == "canary":
             expire_grant(ROOT, "failed")
         raise
@@ -367,6 +394,26 @@ def execute_new_assignment(
         else "running-implementation",
     )
     save(path, assignment, gate)
+    record_event(
+        ROOT,
+        "worker_started",
+        assignment=assignment,
+        details={
+            "model": "gpt-5.4"
+            if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}
+            else "gpt-5.3-codex",
+            "lease_id": lease["lease_id"],
+            "branch": f"hermes/{assignment['assignment_id']}"
+            if assignment["kind"] not in {"semantic-decomposition", "technical-revalidation"}
+            else None,
+            "worktree": str(ROOT / "worktrees" / assignment["assignment_id"]),
+            "grant": (assignment.get("authority") or {}).get("grant_id"),
+            "expected_next_phase": "awaiting-integration"
+            if assignment["kind"] not in {"semantic-decomposition", "technical-revalidation"}
+            else "completed",
+        },
+        source="cycle",
+    )
     try:
         token = load_canonical_lease(ROOT, assignment)["fencing_token"]
         if assignment["kind"] == "semantic-decomposition":
@@ -417,6 +464,20 @@ def execute_new_assignment(
             result = manager.implementation(
                 assignment, repo, repository_decision, model_decision
             )
+            record_event(
+                ROOT,
+                "implementation_completed",
+                assignment=assignment,
+                details={
+                    "files_changed": result.get("changed_paths") or [],
+                    "tests": (result.get("handoff") or {}).get("tests") or [],
+                    "commit": result.get("commit"),
+                    "branch": result.get("branch"),
+                    "worktree": result.get("worktree"),
+                    "expected_next_phase": "MR creation",
+                },
+                source="cycle",
+            )
             gitlab_decision = gate.decide(
                 OperationClass.GITLAB,
                 assignment=assignment,
@@ -446,6 +507,20 @@ def execute_new_assignment(
                 ],
                 check=True,
             )
+            assignment["lease_id"] = None
+            assignment["lease_uri"] = None
+            save(path, assignment, gate)
+            record_event(
+                ROOT,
+                "assignment_disposition",
+                assignment=assignment,
+                details={
+                    "disposition": "completed",
+                    "cleanup": {"lease_removed": True},
+                    "next_scheduled_work": "recompute governed frontier",
+                },
+                source="cycle",
+            )
         rebuild()
         return {
             "result": assignment["lifecycle_state"],
@@ -454,6 +529,18 @@ def execute_new_assignment(
     except Exception as exc:
         assignment["error"] = f"{type(exc).__name__}: {exc}"
         release_failed_assignment(assignment, path, supervisorctl, gate)
+        record_event(
+            ROOT,
+            "assignment_disposition",
+            assignment=assignment,
+            details={
+                "disposition": "failed",
+                "failure_classification": type(exc).__name__,
+                "corrective_action": "bounded recovery required",
+                "unsafe_branch_published": False,
+            },
+            source="cycle",
+        )
         if (assignment.get("authority") or {}).get("state") == "canary":
             expire_grant(ROOT, "failed")
         raise
@@ -557,6 +644,19 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if inspection["mr"].get("state") != "merged":
                 raise RuntimeError("gated integration did not produce a merged MR")
             merged_mr = inspection["mr"]
+            record_event(
+                ROOT,
+                "mr_merged",
+                assignment=assignment,
+                details={
+                    "mr_iid": iid,
+                    "mr_url": merged_mr.get("web_url"),
+                    "merge_commit_sha": merged_mr.get("merge_commit_sha"),
+                    "pipeline": inspection.get("pipeline"),
+                    "expected_next_phase": "post-main verification",
+                },
+                source="cycle",
+            )
             repository_decision = gate.decide(
                 OperationClass.REPOSITORY,
                 assignment=assignment,
@@ -694,6 +794,19 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             integration["verified_mr"] = inspection["mr"].get("web_url")
             integration["post_merge_tests"] = test_results
             if not verification_error:
+                record_event(
+                    ROOT,
+                    "post_main_verified",
+                    assignment=assignment,
+                    details={
+                        "tests": test_results,
+                        "cleanup": cleanup,
+                        "mr_url": inspection["mr"].get("web_url"),
+                        "expected_next_phase": "issue closure and lease release",
+                    },
+                    source="cycle",
+                )
+            if not verification_error:
                 try:
                     close_work_item(
                         assignment,
@@ -719,6 +832,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 check=False,
             )
             cleanup["lease_removed"] = released.returncode == 0
+            if cleanup["lease_removed"]:
+                assignment["lease_id"] = None
+                assignment["lease_uri"] = None
             if verification_error:
                 set_lifecycle(assignment, "blocked")
                 assignment["error"] = verification_error
@@ -739,9 +855,31 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 result = "integrated"
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "consumed")
+                    record_event(
+                        ROOT,
+                        "grant_consumed",
+                        assignment=assignment,
+                        details={
+                            "grant_id": (assignment.get("authority") or {}).get("grant_id"),
+                            "status": "consumed",
+                            "global_mutation_enabled": False,
+                        },
+                        source="cycle",
+                    )
         else:
             if result == "waiting":
                 set_lifecycle(assignment, "awaiting-integration")
+                record_event(
+                    ROOT,
+                    "assignment_disposition",
+                    assignment=assignment,
+                    details={
+                        "disposition": "awaiting-integration",
+                        "mr_url": (assignment.get("worker") or {}).get("handoff", {}).get("mr_url"),
+                        "expected_next_phase": integration["result"].get("next") or "next scheduled integration check",
+                    },
+                    source="cycle",
+                )
             else:
                 set_lifecycle(assignment, "blocked")
                 subprocess.run(
@@ -760,6 +898,22 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "failed")
         save(path, assignment, gate)
+        if assignment.get("lifecycle_state") in {"completed", "blocked", "failed", "cancelled"}:
+            record_event(
+                ROOT,
+                "assignment_disposition",
+                assignment=assignment,
+                details={
+                    "disposition": assignment.get("lifecycle_state"),
+                    "post_main_verification": integration.get("post_merge_tests") or [],
+                    "lease_state": "released" if assignment.get("lease_id") is None else "active",
+                    "grant_state": "consumed"
+                    if result == "integrated" and (assignment.get("authority") or {}).get("state") == "canary"
+                    else None,
+                    "next_scheduled_work": "recompute governed frontier",
+                },
+                source="cycle",
+            )
         rebuild()
         return {"result": result, "assignment": assignment["assignment_id"]}
     scheduler = graph.get("scheduler_state") or {}
@@ -846,6 +1000,13 @@ def main() -> int:
         )
     else:
         result = run_next(args.run_id, args.hermes, args.supervisorctl)
+    record_event(
+        ROOT,
+        "cycle_completed",
+        details={"run_id": args.run_id, "result": result},
+        source="cycle",
+        notify=False,
+    )
     print(json.dumps(result, sort_keys=True))
     return 0
 

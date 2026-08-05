@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.operational-event",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "event_id",
+    "event_type",
+    "created_at",
+    "created_at_epoch",
+    "assignment_id",
+    "work_item",
+    "repository",
+    "lifecycle_state",
+    "details"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.operational-event"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "event_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "event_type": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_at_epoch": { "type": "integer", "minimum": 1 },
+    "assignment_id": { "type": ["string", "null"] },
+    "work_item": { "type": ["string", "null"] },
+    "repository": { "type": ["string", "null"] },
+    "lifecycle_state": { "type": ["string", "null"] },
+    "details": { "type": "object" }
+  },
+  "additionalProperties": false
+}

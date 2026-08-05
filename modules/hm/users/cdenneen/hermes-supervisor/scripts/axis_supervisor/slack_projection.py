@@ -5,10 +5,17 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .reporting import COMPOSITION, build_roadmap_semantics
 from .lifecycle import is_terminal
+from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
-from .schema_registry import validate_record, write_record
+from .observability import (
+    DELIVERY_STAGES,
+    OUTBOX_SCHEMA,
+    OperationalEventLog,
+    utc_now,
+)
+from .reporting import COMPOSITION, build_roadmap_semantics
+from .schema_registry import read_record, validate_record, write_record
 
 
 class SlackProjection:
@@ -44,6 +51,175 @@ class SlackProjection:
         if not value.get("ok"):
             raise RuntimeError(f"Slack {method} failed: {value.get('error')}")
         return value
+
+    @staticmethod
+    def advance(record: dict, stage: str) -> None:
+        if stage not in DELIVERY_STAGES:
+            raise ValueError(f"unsupported Slack delivery stage: {stage}")
+        record["current_stage"] = stage
+        record.setdefault("stage_history", []).append({"stage": stage, "at": utc_now()})
+        record["stage_history"] = record["stage_history"][-100:]
+
+    def verify_message(
+        self, token: str, channel: str, ts: str, expected_text: str
+    ) -> dict:
+        response = self.api(
+            token,
+            "conversations.history",
+            {"channel": channel, "oldest": ts, "inclusive": True, "limit": 5},
+        )
+        message = next(
+            (
+                item
+                for item in response.get("messages") or []
+                if str(item.get("ts")) == str(ts)
+            ),
+            None,
+        )
+        if not message or message.get("text") != expected_text:
+            raise RuntimeError("Slack message readback did not match expected channel/ts/text")
+        return message
+
+    def load_outbox(self) -> dict:
+        path = self.root / "slack-outbox.json"
+        if path.exists():
+            return read_record(path, OUTBOX_SCHEMA)
+        return {
+            "schema": OUTBOX_SCHEMA,
+            "schema_version": "1.0.0",
+            "notifications": [],
+            "updated_at": utc_now(),
+        }
+
+    def write_outbox(self, outbox: dict) -> None:
+        outbox["updated_at"] = utc_now()
+        decision = self.gate.decide(OperationClass.RECONCILIATION)
+        self.gate.require(decision, OperationClass.RECONCILIATION)
+        write_record(self.root / "slack-outbox.json", outbox, OUTBOX_SCHEMA)
+
+    def live_assignments(self) -> list[dict]:
+        values = []
+        for path in sorted((self.root / "assignments").glob("*.json")):
+            try:
+                values.append(
+                    validate_assignment(
+                        json.loads(path.read_text(encoding="utf-8")), self.root
+                    )
+                )
+            except Exception:
+                continue
+        return values
+
+    def cron_jobs(self) -> list[dict]:
+        path = Path.home() / ".hermes" / "cron" / "jobs.json"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        return value.get("jobs") or []
+
+    @staticmethod
+    def render_event(event: dict) -> str:
+        details = event.get("details") or {}
+        event_type = str(event.get("event_type") or "unknown")
+        headings: dict[str, str] = {
+            "assignment_selected": "Assignment selected",
+            "worker_started": "Worker started",
+            "assignment_retry": "Retry / recovery",
+            "implementation_completed": "Implementation completed",
+            "mr_created": "Merge request created",
+            "mr_merged": "Merge completed",
+            "post_main_verified": "Post-main verification completed",
+            "grant_consumed": "Canary grant consumed",
+            "assignment_disposition": "Assignment disposition",
+            "observability_recovered": "Slack observability recovered",
+        }
+        heading = headings.get(event_type, event_type.replace("_", " ").title())
+        lines = [f"*AXIS Supervisor — {heading}*"]
+        for label, value in (
+            ("Work item", event.get("work_item")),
+            ("Assignment", event.get("assignment_id")),
+            ("Repository", event.get("repository")),
+            ("Lifecycle", event.get("lifecycle_state")),
+            ("Model", details.get("model")),
+            ("Retry", details.get("retry")),
+            ("Failed gate", details.get("failed_gate")),
+            ("Failure", details.get("failure_classification")),
+            ("Corrective action", details.get("corrective_action")),
+            ("Branch", details.get("branch")),
+            ("Worktree", details.get("worktree")),
+            ("Commit", details.get("commit")),
+            ("MR", details.get("mr_url")),
+            ("Disposition", details.get("disposition")),
+            ("Next", details.get("expected_next_phase") or details.get("next_scheduled_work")),
+        ):
+            if value is not None and value != "" and value != []:
+                lines.append(f"*{label}:* `{value}`" if not isinstance(value, str) or " " not in value else f"*{label}:* {value}")
+        if details.get("files_changed"):
+            lines.append(f"*Files:* `{', '.join(details['files_changed'])}`")
+        tests = details.get("tests") or []
+        if tests:
+            passed = sum(int(item.get("returncode", 1)) == 0 for item in tests)
+            lines.append(f"*Tests:* {passed}/{len(tests)} passed")
+        if details.get("unsafe_branch_published") is False:
+            lines.append("*Safety:* no unsafe branch was published")
+        lines.append(f"*Recorded:* {event.get('created_at')}")
+        return "\n".join(lines)
+
+    def process_outbox(self, token: str, channel: str) -> dict:
+        outbox = self.load_outbox()
+        now = int(time.time())
+        pending = [
+            item
+            for item in outbox["notifications"]
+            if item["current_stage"] != "Slack_message_verified"
+            and int(item.get("next_attempt_epoch") or 0) <= now
+        ]
+        if not pending:
+            return outbox
+        recovery = any(item["current_stage"] == "delivery_failed" for item in pending)
+        groups = [pending[:20]] if recovery else [[item] for item in pending[:10]]
+        for group in groups:
+            if recovery:
+                event_names = ", ".join(item["event"]["event_type"] for item in group)
+                text = (
+                    f"*AXIS Supervisor — Recovered missed activity*\n"
+                    f"Recovered {len(group)} queued event(s): {event_names}\n"
+                    f"Latest: {self.render_event(group[-1]['event'])}"
+                )
+            else:
+                text = self.render_event(group[0]["event"])
+            for item in group:
+                item["attempts"] += 1
+                self.advance(item, "notification_send_attempted")
+            self.write_outbox(outbox)
+            try:
+                response = self.api(token, "chat.postMessage", {"channel": channel, "text": text})
+                response_channel = str(response.get("channel") or "")
+                response_ts = str(response.get("ts") or "")
+                if response_channel != channel or not response_ts:
+                    raise RuntimeError("Slack API response omitted expected channel or timestamp")
+                for item in group:
+                    self.advance(item, "Slack_API_accepted")
+                    self.advance(item, "Slack_message_created")
+                    item["channel"] = response_channel
+                    item["ts"] = response_ts
+                    item["recovery_summary"] = recovery
+                self.write_outbox(outbox)
+                self.verify_message(token, channel, response_ts, text)
+                for item in group:
+                    self.advance(item, "Slack_message_verified")
+                    item["last_error"] = None
+                    item["next_attempt_epoch"] = 0
+                self.write_outbox(outbox)
+            except Exception as exc:
+                for item in group:
+                    self.advance(item, "delivery_failed")
+                    item["last_error"] = f"{type(exc).__name__}: {exc}"
+                    item["next_attempt_epoch"] = now + min(300, 10 * (2 ** min(item["attempts"], 5)))
+                self.write_outbox(outbox)
+                raise
+        return outbox
 
     @staticmethod
     def bar(value: int, total: int, width: int = 20) -> str:
@@ -88,6 +264,8 @@ class SlackProjection:
         graph: dict,
         control: dict,
         semantics: dict | None = None,
+        state: dict | None = None,
+        outbox: dict | None = None,
     ) -> tuple[str, list[dict], str]:
         semantics = semantics or build_roadmap_semantics(
             inventory, graph, control, self.deployed_revision()
@@ -99,7 +277,9 @@ class SlackProjection:
         blocked = int(composition["blocked"]["count"])
         waiting = int(composition["waiting"]["count"])
         supervisor_work = semantics["supervisor_work"]
-        assignments = inventory.get("supervisor_assignments") or []
+        state = state or {}
+        outbox = outbox or self.load_outbox()
+        assignments = self.live_assignments() or inventory.get("supervisor_assignments") or []
         active = [item for item in assignments if not is_terminal(item)]
         leases = inventory.get("active_leases") or []
         classification_counts = graph.get("classification_counts") or {}
@@ -119,6 +299,35 @@ class SlackProjection:
             and int(collection.get("retrieval_error_count", 0)) == 0
             else "degraded"
         )
+        jobs = self.cron_jobs()
+        worker_job = next(
+            (item for item in jobs if item.get("name") == "axis-development-supervisor-worker"),
+            {},
+        )
+        reporter_job = next(
+            (item for item in jobs if item.get("name") == "axis-development-supervisor-report"),
+            {},
+        )
+        events = OperationalEventLog(self.root, "reporter").events(limit=50)
+        meaningful = [event for event in events if event.get("event_type") not in {"cycle_completed", "reconciliation_completed"}]
+        last_progress = meaningful[-1] if meaningful else None
+        pending_notifications = [
+            item
+            for item in outbox.get("notifications") or []
+            if item.get("current_stage") != "Slack_message_verified"
+        ]
+        scheduling_state = "green" if worker_job.get("enabled") and reporter_job.get("enabled") else "red"
+        execution_state = "green" if not collection.get("state_record_errors") else "red"
+        integration_state = "amber" if any(a.get("lifecycle_state") == "awaiting-integration" for a in active) else "green"
+        gitlab_state = "green" if int(collection.get("retrieval_error_count", 0)) == 0 else "red"
+        slack_state = (
+            "green"
+            if state.get("delivery_stage") == "Slack_message_verified" and not pending_notifications
+            else "red"
+            if state.get("delivery_stage") == "delivery_failed" or any(item.get("current_stage") == "delivery_failed" for item in pending_notifications)
+            else "amber"
+        )
+        overall_operability = "green" if {scheduling_state, execution_state, integration_state, gitlab_state, slack_state} == {"green"} else "amber"
         icon = "🟢" if health == "healthy" else "🟡"
 
         fallback = (
@@ -127,6 +336,7 @@ class SlackProjection:
             f"work-remaining={supervisor_work['supervisor_work_remaining']}; "
             f"ready-queue={supervisor_work['ready_work_total']}; blocked={blocked}; waiting={waiting}; "
             f"confidence={confidence.get('percent', 0)}%"
+            f"; observability={slack_state}; last-event={(last_progress or {}).get('event_type', 'none')}"
         )
         composition_lines = []
         for key, _label in COMPOSITION:
@@ -157,6 +367,22 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
                     {"type": "mrkdwn", "text": f"*Confidence*\n{confidence.get('percent', 0)}%"},
                 ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Operational Loop*\n"
+                    f"Scheduling: *{scheduling_state}* | Execution: *{execution_state}* | "
+                    f"Integration: *{integration_state}* | GitLab: *{gitlab_state}* | Slack: *{slack_state}*\n"
+                    f"Overall unattended operability: *{overall_operability}*\n"
+                    f"Last successful worker cron: `{worker_job.get('last_run_at') or 'none'}` ({worker_job.get('last_status') or 'unknown'})\n"
+                    f"Last meaningful progress: `{(last_progress or {}).get('event_type') or 'none'}` at `{(last_progress or {}).get('created_at') or 'none'}`\n"
+                    f"Active assignments: {len(active)}/{control.get('max_active_assignments', 1)} | Integrator: {'awaiting MR' if integration_state == 'amber' else 'idle'}\n"
+                    f"Pending Slack events: {len(pending_notifications)} | Last Slack verification: `{state.get('last_verified_at') or 'unverified'}`\n"
+                    f"Next worker cycle: `{worker_job.get('next_run_at') or 'unknown'}` | Next status cycle: `{reporter_job.get('next_run_at') or 'unknown'}`",
+                },
             },
             {"type": "divider"},
             {
@@ -369,10 +595,45 @@ class SlackProjection:
         user_id = str(control.get("slack_user_id") or "")
         if not user_id:
             raise ValueError("slack_user_id is not configured")
+        state = self.load_state()
+        now = utc_now()
+        state = {
+            "schema": "axis.external-development-supervisor.slack-state",
+            "schema_version": "1.1.0",
+            "delivery_stage": state.get("delivery_stage") or "delivery_unknown",
+            "delivery_history": state.get("delivery_history") or [],
+            "last_attempt_at": now,
+            "semantic_revision": state.get("semantic_revision") or "pending",
+            "source_revision": state.get("source_revision") or {},
+            "record_schema": "axis.external-development-supervisor.roadmap-semantics",
+            "record_schema_version": state.get("record_schema_version") or "1.2.0",
+            "last_delivery_error": state.get("last_delivery_error"),
+            "workspace_id": state.get("workspace_id"),
+            "workspace_name": state.get("workspace_name"),
+            "bot_user_id": state.get("bot_user_id"),
+            "authorized_user_id": user_id,
+            "channel": state.get("channel"),
+            "ts": state.get("ts"),
+            "previous_ts": state.get("previous_ts"),
+            "fingerprint": state.get("fingerprint"),
+            "message_operation": state.get("message_operation"),
+            "last_verified_at": state.get("last_verified_at"),
+            "last_successful_update_at": state.get("last_successful_update_at"),
+            "last_successful_update_epoch": state.get("last_successful_update_epoch"),
+            "updated_at_epoch": state.get("updated_at_epoch"),
+            "last_api_response": state.get("last_api_response"),
+        }
+
+        def state_stage(stage: str) -> None:
+            if stage not in DELIVERY_STAGES:
+                raise ValueError(f"unsupported Slack delivery stage: {stage}")
+            state["delivery_stage"] = stage
+            state["delivery_history"].append({"stage": stage, "at": utc_now()})
+            state["delivery_history"] = state["delivery_history"][-100:]
+
         semantics = build_roadmap_semantics(
             inventory, graph, control, self.deployed_revision()
         )
-        fallback, blocks, fingerprint = self.render(inventory, graph, control, semantics)
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)
         write_record(
@@ -380,120 +641,153 @@ class SlackProjection:
             semantics,
             "axis.external-development-supervisor.roadmap-semantics",
         )
-        state = self.load_state()
-        now = datetime.now(timezone.utc).isoformat()
-        if state.get("fingerprint") == fingerprint:
-            new_state = state | {
-                "delivery_status": "unchanged",
-                "last_attempt_at": now,
-                "last_successful_update_at": now,
-                "last_successful_update_epoch": int(time.time()),
-                "semantic_revision": semantics["semantic_revision"],
-                "source_revision": (semantics.get("source") or {}).get(
-                    "deployed_revision"
-                )
-                or {},
-                "schema": "axis.external-development-supervisor.slack-state",
-                "schema_version": "1.0.0",
-                "record_schema": semantics["schema"],
-                "record_schema_version": semantics["schema_version"],
-                "last_delivery_error": None,
-            }
-            self.write_state(new_state)
-            return {
-                "updated": False,
-                "channel": state.get("channel"),
-                "ts": state.get("ts"),
-                "delivery_status": "unchanged",
-            }
         try:
-            channel = state.get("channel")
+            auth = self.api(token, "auth.test", {})
+            if not auth.get("team_id") or not auth.get("user_id"):
+                raise RuntimeError("Slack auth.test omitted workspace or bot identity")
+            state["workspace_id"] = auth["team_id"]
+            state["workspace_name"] = auth.get("team")
+            state["bot_user_id"] = auth["user_id"]
+            opened = self.api(token, "conversations.open", {"users": user_id})
+            channel = str((opened.get("channel") or {}).get("id") or "")
             if not channel:
-                channel = self.api(token, "conversations.open", {"users": user_id})[
-                    "channel"
-                ]["id"]
+                raise RuntimeError("Slack conversations.open omitted DM channel")
+            if state.get("channel") and state["channel"] != channel:
+                raise RuntimeError("Slack DM channel does not match persisted Product Owner route")
+            state["channel"] = channel
+            outbox = self.process_outbox(token, channel)
+            fallback, blocks, fingerprint = self.render(
+                inventory, graph, control, semantics, state, outbox
+            )
             ts = state.get("ts")
+            if state.get("fingerprint") == fingerprint and ts:
+                self.verify_message(token, channel, ts, fallback)
+                state_stage("Slack_message_verified")
+                state["message_operation"] = "verified"
+                state["last_verified_at"] = utc_now()
+                state["last_delivery_error"] = None
+                state["semantic_revision"] = semantics["semantic_revision"]
+                state["source_revision"] = (semantics.get("source") or {}).get(
+                    "deployed_revision"
+                ) or {}
+                state["last_successful_update_at"] = state["last_verified_at"]
+                state["last_successful_update_epoch"] = int(time.time())
+                state["updated_at_epoch"] = int(time.time())
+                self.write_state(state)
+                return {
+                    "updated": False,
+                    "channel": channel,
+                    "ts": ts,
+                    "delivery_stage": state["delivery_stage"],
+                    "message_operation": "verified",
+                    "workspace_id": state["workspace_id"],
+                }
             payload = {"channel": channel, "text": fallback, "blocks": blocks}
+            state_stage("notification_created")
+            state_stage("notification_queued")
+            state_stage("notification_send_attempted")
+            self.write_state(state)
             try:
                 if ts:
                     response = self.api(token, "chat.update", payload | {"ts": ts})
+                    operation_stage = "Slack_message_updated"
+                    operation = "updated"
                 else:
                     response = self.api(token, "chat.postMessage", payload)
+                    operation_stage = "Slack_message_created"
+                    operation = "created"
             except RuntimeError as exc:
                 if "message_not_found" not in str(exc):
                     raise
                 response = self.api(token, "chat.postMessage", payload)
+                operation_stage = "Slack_message_created"
+                operation = "created"
+            response_channel = str(response.get("channel") or "")
+            response_ts = str(response.get("ts") or "")
+            if response_channel != channel or not response_ts:
+                raise RuntimeError("Slack API response omitted expected DM channel or timestamp")
+            state_stage("Slack_API_accepted")
+            state_stage(operation_stage)
+            state["channel"] = response_channel
+            state["ts"] = response_ts
+            state["last_api_response"] = {
+                "ok": bool(response.get("ok")),
+                "channel": response_channel,
+                "ts": response_ts,
+            }
+            state["message_operation"] = operation
+            self.write_state(state)
+            self.verify_message(token, channel, response_ts, fallback)
+            state_stage("Slack_message_verified")
         except Exception as delivery_exc:
-            self.write_state(
-                state
-                | {
-                    "delivery_status": "failed",
-                    "last_attempt_at": now,
-                    "last_delivery_error": str(delivery_exc),
-                    "semantic_revision": semantics["semantic_revision"],
-                    "source_revision": (semantics.get("source") or {}).get(
-                        "deployed_revision"
-                    )
-                    or {},
-                    "schema": "axis.external-development-supervisor.slack-state",
-                    "schema_version": "1.0.0",
-                    "record_schema": semantics["schema"],
-                    "record_schema_version": semantics["schema_version"],
-                }
-            )
-            raise
-        new_state = {
-            "channel": channel,
-            "ts": response["ts"],
-            "fingerprint": fingerprint,
-            "updated_at_epoch": int(time.time()),
-            "delivery_status": "delivered",
-            "last_attempt_at": now,
-            "last_successful_update_at": now,
-            "last_successful_update_epoch": int(time.time()),
-            "semantic_revision": semantics["semantic_revision"],
-            "source_revision": (semantics.get("source") or {}).get(
+            state_stage("delivery_failed")
+            state["last_delivery_error"] = f"{type(delivery_exc).__name__}: {delivery_exc}"
+            state["semantic_revision"] = semantics["semantic_revision"]
+            state["source_revision"] = (semantics.get("source") or {}).get(
                 "deployed_revision"
-            )
-            or {},
-            "schema": "axis.external-development-supervisor.slack-state",
-            "schema_version": "1.0.0",
-            "record_schema": semantics["schema"],
-            "record_schema_version": semantics["schema_version"],
-            "last_delivery_error": None,
+            ) or {}
+            self.write_state(state)
+            raise
+        verified_at = utc_now()
+        state["fingerprint"] = fingerprint
+        state["updated_at_epoch"] = int(time.time())
+        state["last_verified_at"] = verified_at
+        state["last_successful_update_at"] = verified_at
+        state["last_successful_update_epoch"] = int(time.time())
+        state["semantic_revision"] = semantics["semantic_revision"]
+        state["source_revision"] = (semantics.get("source") or {}).get(
+            "deployed_revision"
+        ) or {}
+        state["record_schema"] = semantics["schema"]
+        state["record_schema_version"] = semantics["schema_version"]
+        state["last_delivery_error"] = None
+        self.write_state(state)
+        return {
+            "updated": True,
+            "channel": state["channel"],
+            "ts": state["ts"],
+            "delivery_stage": state["delivery_stage"],
+            "message_operation": state["message_operation"],
+            "workspace_id": state["workspace_id"],
+            "last_verified_at": state["last_verified_at"],
         }
-        self.write_state(new_state)
-        return {"updated": True, **new_state}
 
     def load_state(self) -> dict:
         if not self.state_path.exists():
             return {}
         value = json.loads(self.state_path.read_text(encoding="utf-8"))
-        if value.get("schema") != "axis.external-development-supervisor.slack-state":
+        if value.get("schema_version") != "1.1.0":
             timestamp = datetime.fromtimestamp(
                 int(value.get("updated_at_epoch") or time.time()), timezone.utc
             ).isoformat()
-            value = value | {
+            value = {
                 "schema": "axis.external-development-supervisor.slack-state",
-                "schema_version": "1.0.0",
-                "delivery_status": value.get("delivery_status") or "delivered",
+                "schema_version": "1.1.0",
+                "delivery_stage": "delivery_unknown",
+                "delivery_history": [
+                    {"stage": "delivery_unknown", "at": timestamp}
+                ],
                 "last_attempt_at": value.get("last_attempt_at") or timestamp,
-                "last_successful_update_at": value.get("last_successful_update_at")
-                or timestamp,
-                "last_successful_update_epoch": int(
-                    value.get("last_successful_update_epoch")
-                    or value.get("updated_at_epoch")
-                    or time.time()
-                ),
                 "semantic_revision": value.get("semantic_revision") or "legacy",
                 "source_revision": value.get("source_revision") or {},
-                "record_schema": value.get("record_schema")
-                or value.get("schema")
-                or "axis.external-development-supervisor.roadmap-semantics",
+                "record_schema": value.get("record_schema") or "axis.external-development-supervisor.roadmap-semantics",
                 "record_schema_version": value.get("record_schema_version")
-                or value.get("schema_version")
                 or "1.1.0",
                 "last_delivery_error": value.get("last_delivery_error"),
+                "workspace_id": None,
+                "workspace_name": None,
+                "bot_user_id": None,
+                "authorized_user_id": None,
+                "channel": value.get("channel"),
+                "ts": None,
+                "previous_ts": value.get("ts"),
+                "fingerprint": None,
+                "message_operation": None,
+                "last_verified_at": None,
+                "last_successful_update_at": value.get("last_successful_update_at"),
+                "last_successful_update_epoch": value.get("last_successful_update_epoch"),
+                "updated_at_epoch": value.get("updated_at_epoch"),
+                "last_api_response": None,
             }
         return validate_record(
             value,

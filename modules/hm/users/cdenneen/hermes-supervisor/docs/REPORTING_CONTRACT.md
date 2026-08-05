@@ -1,11 +1,16 @@
 # Supervisor Reporting Contract
 
-Version: 1.2.0
+Version: 1.2.1
 
-`SlackProjection` is the sole report producer. The deterministic no-agent cron
-invokes it directly and it updates one persistent Product Owner DM message in
-place. There is no intermediate text reporter, report delivery queue, or
-reports directory. Worker output remains local audit evidence.
+`SlackProjection` is the sole Slack transport owner. The deterministic no-agent
+cron invokes it directly. It updates one persistent Product Owner DM status
+message in place and drains the bounded lifecycle notification outbox. Worker
+output remains local audit evidence.
+
+Assignment and worker transitions are append-only records in
+`operational-events.jsonl`. Product Owner-visible transitions are also persisted
+in `slack-outbox.json` before any Slack request. The outbox preserves failures,
+uses bounded retry backoff, and emits a concise recovery summary after an outage.
 
 Reports contain a human briefing followed by technical evidence. Human order:
 Summary, Since Last Update, Completed, Current Focus, Why This Work, categorized
@@ -72,11 +77,21 @@ corrective implementation. Tier D isolates reserved human authority. Every item
 retains its own assignment, evidence fingerprint, verification record, and
 failure disposition; batching never weakens the nine-check standard.
 
-The projection refreshes the semantic record every run. It calls Slack only when
-the rendered semantic fingerprint changes, records `delivered`, `unchanged`, or
-`failed` in `slack-overview-state.json`, and retains the last successful update
-timestamp and deployed source revision. Failed delivery does not advance the
-successful fingerprint.
+The projection refreshes the semantic record every run. Operational worker,
+retry, commit, test, MR, merge, lease, grant, and disposition transitions are
+meaningful even when roadmap classification totals do not change. The status
+projection reads live assignments plus the event ledger rather than relying
+only on the last inventory snapshot.
+
+Delivery stages are explicit: `notification_created`, `notification_queued`,
+`notification_send_attempted`, `Slack_API_accepted`,
+`Slack_message_created`, `Slack_message_updated`,
+`Slack_message_verified`, `delivery_failed`, and `delivery_unknown`.
+Success requires a Slack response with the expected DM channel and timestamp,
+followed by message readback from that channel. Formatter success, local state
+writes, gateway connectivity, or an intermediate HTTP success are not delivery.
+Failures remain queued, affect observability and overall health, and never
+advance the successful fingerprint.
 
 Live commands generate a new semantic record from one matching current
 inventory/graph/control tuple. They never compose with the persisted overview.

@@ -23,6 +23,7 @@ class Attempt:
     run: str
     assignment: str
     attempt: int
+    prompt_digest: str | None
 
 
 class AccountingLedger:
@@ -97,6 +98,7 @@ class AccountingLedger:
         run: str,
         assignment: str,
         limit: int,
+        prompt_digest: str | None = None,
     ) -> Attempt:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         now = int(time.time())
@@ -122,6 +124,7 @@ class AccountingLedger:
                 run=run,
                 assignment=assignment,
                 attempt=attempt_number,
+                prompt_digest=prompt_digest,
             )
             self._append(handle, attempt, "started", now)
             fcntl.flock(handle, fcntl.LOCK_UN)
@@ -166,6 +169,8 @@ class AccountingLedger:
         }
         if usage is not None:
             record["usage"] = usage
+        if attempt.prompt_digest:
+            record["prompt_digest"] = attempt.prompt_digest
         if error:
             record["error"] = error
         validate_record(

@@ -242,6 +242,18 @@ def local_repository_state(project: dict) -> dict:
         remote_ref = f"refs/heads/{project.get('default_branch') or 'main'}"
         remote_lines = run([GIT, "ls-remote", "origin", remote_ref], path).splitlines()
         remote_head = remote_lines[0].split()[0] if remote_lines else None
+        if remote_head and remote_head != state["default_remote_head"]:
+            subprocess.run(
+                [GIT, "fetch", "--prune", "origin"],
+                cwd=path,
+                text=True,
+                capture_output=True,
+                check=True,
+                timeout=120,
+            )
+            state["default_remote_head"] = run(
+                [GIT, "rev-parse", default_remote], path
+            ).strip()
         state["remote_fresh"] = remote_head == state["default_remote_head"]
         state["observed_remote_head"] = remote_head
         state["head"] = run([GIT, "rev-parse", "HEAD"], path).strip()

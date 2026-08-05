@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import re
 import signal
@@ -13,6 +14,7 @@ from .accounting import AccountingLedger
 from .decomposition import SemanticDecompositionEngine
 from .models import test_command_argv, validate_allowed_path
 from .mutation import GateDecision, MutationGate, OperationClass, load_canonical_lease
+from .observability import record_event
 from .prompt_factory import PromptFactory
 from .schema_registry import read_record
 
@@ -165,7 +167,26 @@ class HermesWorkerManager:
             run=str(assignment.get("created_by_run") or "unknown-run"),
             assignment=assignment["assignment_id"],
             limit=int(control.get("daily_model_call_limit", 0)),
+            prompt_digest=f"sha256:{hashlib.sha256(prompt.encode('utf-8')).hexdigest()}",
         )
+        attempt_number = int(getattr(attempt, "attempt", 1))
+        if attempt_number > 1 or "repair" in role:
+            record_event(
+                self.root,
+                "assignment_retry",
+                assignment=assignment,
+                details={
+                    "retry": attempt_number,
+                    "failed_gate": "model-output-contract"
+                    if "repair" in role
+                    else "prior-model-attempt",
+                    "failure_classification": role,
+                    "corrective_action": "bounded model retry with unchanged authority scope",
+                    "unsafe_branch_published": False,
+                    "model": model,
+                },
+                source="worker",
+            )
         stop_heartbeat = threading.Event()
 
         def heartbeat() -> None:

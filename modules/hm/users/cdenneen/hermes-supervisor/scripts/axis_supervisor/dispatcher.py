@@ -6,6 +6,7 @@ from pathlib import Path
 from .lifecycle import is_terminal
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
+from .observability import record_event
 from .schema_registry import write_record
 
 
@@ -80,4 +81,17 @@ class Dispatcher:
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)
         write_record(path, assignment, "axis.external-development-supervisor.assignment")
+        record_event(
+            self.root,
+            "assignment_selected",
+            assignment=assignment,
+            details={
+                "model": "gpt-5.4"
+                if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}
+                else "gpt-5.3-codex",
+                "authority": assignment.get("authority"),
+                "expected_next_phase": assignment["lifecycle_state"],
+            },
+            source="dispatcher",
+        )
         return assignment

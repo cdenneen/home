@@ -5,32 +5,105 @@
   "required": [
     "schema",
     "schema_version",
-    "delivery_status",
+    "delivery_stage",
+    "delivery_history",
     "last_attempt_at",
     "semantic_revision",
     "source_revision",
     "record_schema",
     "record_schema_version",
-    "last_delivery_error"
+    "last_delivery_error",
+    "workspace_id",
+    "workspace_name",
+    "bot_user_id",
+    "authorized_user_id",
+    "channel",
+    "ts",
+    "previous_ts",
+    "fingerprint",
+    "message_operation",
+    "last_verified_at",
+    "last_successful_update_at",
+    "last_successful_update_epoch",
+    "updated_at_epoch",
+    "last_api_response"
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.slack-state" },
-    "schema_version": { "const": "1.0.0" },
-    "channel": { "type": "string", "minLength": 1 },
-    "ts": { "type": "string", "minLength": 1 },
-    "fingerprint": { "type": "string", "minLength": 1 },
-    "updated_at_epoch": { "type": "integer", "minimum": 1 },
-    "delivery_status": { "enum": ["delivered", "unchanged", "failed"] },
+    "schema_version": { "const": "1.1.0" },
+    "delivery_stage": {
+      "enum": [
+        "notification_created",
+        "notification_queued",
+        "notification_send_attempted",
+        "Slack_API_accepted",
+        "Slack_message_created",
+        "Slack_message_updated",
+        "Slack_message_verified",
+        "delivery_failed",
+        "delivery_unknown"
+      ]
+    },
+    "delivery_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage", "at"],
+        "properties": {
+          "stage": {
+            "enum": [
+              "notification_created",
+              "notification_queued",
+              "notification_send_attempted",
+              "Slack_API_accepted",
+              "Slack_message_created",
+              "Slack_message_updated",
+              "Slack_message_verified",
+              "delivery_failed",
+              "delivery_unknown"
+            ]
+          },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "last_attempt_at": { "type": "string", "format": "date-time" },
-    "last_successful_update_at": { "type": "string", "format": "date-time" },
-    "last_successful_update_epoch": { "type": "integer", "minimum": 1 },
     "semantic_revision": { "type": "string", "minLength": 1 },
     "source_revision": { "type": "object" },
     "record_schema": {
       "const": "axis.external-development-supervisor.roadmap-semantics"
     },
     "record_schema_version": { "type": "string", "minLength": 1 },
-    "last_delivery_error": { "type": ["string", "null"] }
+    "last_delivery_error": { "type": ["string", "null"] },
+    "workspace_id": { "type": ["string", "null"] },
+    "workspace_name": { "type": ["string", "null"] },
+    "bot_user_id": { "type": ["string", "null"] },
+    "authorized_user_id": { "type": ["string", "null"] },
+    "channel": { "type": ["string", "null"] },
+    "ts": { "type": ["string", "null"] },
+    "previous_ts": { "type": ["string", "null"] },
+    "fingerprint": { "type": ["string", "null"] },
+    "message_operation": { "enum": ["created", "updated", "verified", null] },
+    "last_verified_at": { "type": ["string", "null"], "format": "date-time" },
+    "last_successful_update_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "last_successful_update_epoch": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "updated_at_epoch": { "type": ["integer", "null"], "minimum": 1 },
+    "last_api_response": {
+      "type": ["object", "null"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "channel": { "type": "string" },
+        "ts": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

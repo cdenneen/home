@@ -13,6 +13,7 @@ from pathlib import Path
 from axis_supervisor.accounting import AccountingLedger
 from axis_supervisor.lifecycle import is_terminal
 from axis_supervisor.mutation import MutationGate, OperationClass
+from axis_supervisor.observability import record_event
 from axis_supervisor.schema_registry import read_record, write_record
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
@@ -250,6 +251,26 @@ def main() -> int:
     execution_graph = read_record(
         ROOT / "execution-graph.json",
         "axis.external-development-supervisor.execution-graph",
+    )
+    record_event(
+        ROOT,
+        "reconciliation_completed",
+        details={
+            "run_id": run_id,
+            "mode": mode,
+            "inventory_generation_id": inventory.get("generation_id"),
+            "graph_generation_id": execution_graph.get("generation_id"),
+            "queue_depth": execution_graph.get("queue_depth"),
+            "selected_batch": (execution_graph.get("scheduler_state") or {}).get(
+                "selected_batch"
+            )
+            or [],
+            "expected_next_phase": "observing-status"
+            if mode == "observing"
+            else "semantic-supervisor-cycle",
+        },
+        source="preflight",
+        notify=False,
     )
     collection = inventory.get("collection_status") or {}
     if not collection.get("all_configured_repositories_inspected"):

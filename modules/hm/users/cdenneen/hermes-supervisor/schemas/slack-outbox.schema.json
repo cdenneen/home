@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.slack-outbox",
+  "type": "object",
+  "required": ["schema", "schema_version", "notifications", "updated_at"],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.slack-outbox" },
+    "schema_version": { "const": "1.0.0" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "notifications": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "notification_id",
+          "event_id",
+          "event",
+          "current_stage",
+          "stage_history",
+          "attempts",
+          "next_attempt_epoch",
+          "last_error",
+          "channel",
+          "ts",
+          "recovery_summary"
+        ],
+        "properties": {
+          "notification_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+          "event_id": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+          "event": {
+            "$ref": "axis.external-development-supervisor.operational-event"
+          },
+          "current_stage": {
+            "enum": [
+              "notification_created",
+              "notification_queued",
+              "notification_send_attempted",
+              "Slack_API_accepted",
+              "Slack_message_created",
+              "Slack_message_updated",
+              "Slack_message_verified",
+              "delivery_failed",
+              "delivery_unknown"
+            ]
+          },
+          "stage_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["stage", "at"],
+              "properties": {
+                "stage": {
+                  "enum": [
+                    "notification_created",
+                    "notification_queued",
+                    "notification_send_attempted",
+                    "Slack_API_accepted",
+                    "Slack_message_created",
+                    "Slack_message_updated",
+                    "Slack_message_verified",
+                    "delivery_failed",
+                    "delivery_unknown"
+                  ]
+                },
+                "at": { "type": "string", "format": "date-time" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "attempts": { "type": "integer", "minimum": 0 },
+          "next_attempt_epoch": { "type": "integer", "minimum": 0 },
+          "last_error": { "type": ["string", "null"] },
+          "channel": { "type": ["string", "null"] },
+          "ts": { "type": ["string", "null"] },
+          "recovery_summary": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

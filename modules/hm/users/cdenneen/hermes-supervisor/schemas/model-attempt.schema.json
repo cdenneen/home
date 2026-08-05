@@ -27,6 +27,7 @@
     "attempt": { "type": "integer", "minimum": 1 },
     "result": { "enum": ["started", "succeeded", "failed"] },
     "recorded_at_epoch": { "type": "integer", "minimum": 1 },
+    "prompt_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "usage": { "type": "object" },
     "error": { "type": "string" }
   },

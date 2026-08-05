@@ -1114,18 +1114,39 @@ def test_concurrent_claims_are_serialized(tmp_path: Path):
 
 
 def test_slack_projection_updates_persistent_overview(tmp_path: Path):
+    import pytest
+
+    from axis_supervisor.observability import record_event
     from axis_supervisor.slack_projection import SlackProjection
     from axis_supervisor.verification import verification_for
 
     projection = SlackProjection(tmp_path)
     projection.env_file = lambda: {"SLACK_BOT_TOKEN": "redacted"}
     calls = []
+    messages = {}
+    post_count = 0
 
     def api(_token, method, payload):
+        nonlocal post_count
         calls.append((method, payload))
+        if method == "auth.test":
+            return {
+                "ok": True,
+                "team": "Test",
+                "team_id": "T1",
+                "user_id": "UBOT",
+            }
         if method == "conversations.open":
-            return {"channel": {"id": "D1"}}
-        return {"ts": "123.456"}
+            return {"ok": True, "channel": {"id": "D1"}}
+        if method in {"chat.postMessage", "chat.update"}:
+            if method == "chat.postMessage":
+                post_count += 1
+            ts = str(payload.get("ts") or f"123.{455 + post_count}")
+            messages[ts] = {"ts": ts, "text": payload["text"]}
+            return {"ok": True, "channel": "D1", "ts": ts}
+        if method == "conversations.history":
+            return {"ok": True, "messages": list(messages.values())}
+        raise AssertionError(method)
 
     projection.api = api
     verified, assignment = verified_item_and_assignment()
@@ -1191,20 +1212,31 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     )
     first = projection.update(inventory, graph, control_value)
     assert first["updated"] is True
-    assert [method for method, _ in calls] == ["conversations.open", "chat.postMessage"]
+    assert first["delivery_stage"] == "Slack_message_verified"
+    assert [method for method, _ in calls] == [
+        "auth.test",
+        "conversations.open",
+        "chat.postMessage",
+        "conversations.history",
+    ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
     assert "queue=1" in fallback
     assert blocks[0]["type"] == "header"
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
     record = json.loads((tmp_path / "slack-overview-record.json").read_text())
     state = json.loads((tmp_path / "slack-overview-state.json").read_text())
-    assert state["schema"] == "axis.external-development-supervisor.slack-state"
+    assert state["schema_version"] == "1.1.0"
+    assert state["delivery_stage"] == "Slack_message_verified"
     assert record["composition"]["verified_complete"]["count"] == 1
     assert sum(value["count"] for value in record["composition"].values()) == 2
     calls.clear()
     second = projection.update(inventory, graph, control_value)
-    assert second["updated"] is False
-    assert calls == []
+    assert second["updated"] is True
+    assert second["ts"] == first["ts"]
+    assert [method for method, _ in calls][-2:] == [
+        "chat.update",
+        "conversations.history",
+    ]
     graph["queue_depth"] = 2
     graph["executable_queue"].append(
         {
@@ -1216,7 +1248,82 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     )
     third = projection.update(inventory, graph, control_value)
     assert third["updated"] is True
-    assert calls[0][0] == "chat.update"
+    assert third["ts"] == first["ts"]
+    assert any(method == "chat.update" for method, _ in calls)
+
+    live = {
+        "schema": "axis.external-development-supervisor.assignment",
+        "schema_version": "1.0.0",
+        "assignment_id": "assignment-live",
+        "lifecycle_state": "running-semantic",
+        "kind": "semantic-decomposition",
+        "project": "ghostspace/axis",
+        "work_item": "ghostspace/axis#2",
+        "target_ref": "ghostspace/axis#2",
+        "planning_record": None,
+        "allowed_paths": [],
+        "required_tests": [],
+        "authority": {"state": "preparation-only"},
+        "created_by_run": "run-live",
+        "worker": None,
+    }
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    live_path = assignments / "assignment-live.json"
+    live_path.write_text(json.dumps(live), encoding="utf-8")
+    calls.clear()
+    worker_change = projection.update(inventory, graph, control_value)
+    assert worker_change["updated"] is True
+    assert worker_change["ts"] == first["ts"]
+    assert any(
+        "running-semantic" in json.dumps(call[1].get("blocks", []))
+        for call in calls
+    )
+
+    record_event(
+        tmp_path,
+        "assignment_retry",
+        assignment=live,
+        details={
+            "retry": 2,
+            "failed_gate": "response-contract",
+            "failure_classification": "invalid-json",
+            "corrective_action": "bounded repair",
+            "unsafe_branch_published": False,
+        },
+        source="worker",
+    )
+    fail_events = True
+    successful_api = projection.api
+
+    def outage_api(token, method, payload):
+        if (
+            fail_events
+            and method == "chat.postMessage"
+            and "Retry / recovery" in payload.get("text", "")
+        ):
+            raise RuntimeError("simulated Slack outage")
+        return successful_api(token, method, payload)
+
+    projection.api = outage_api
+    with pytest.raises(RuntimeError, match="simulated Slack outage"):
+        projection.update(inventory, graph, control_value)
+    failed_state = json.loads((tmp_path / "slack-overview-state.json").read_text())
+    failed_outbox = json.loads((tmp_path / "slack-outbox.json").read_text())
+    assert failed_state["delivery_stage"] == "delivery_failed"
+    assert failed_outbox["notifications"][0]["current_stage"] == "delivery_failed"
+
+    fail_events = False
+    failed_outbox["notifications"][0]["next_attempt_epoch"] = 0
+    (tmp_path / "slack-outbox.json").write_text(
+        json.dumps(failed_outbox), encoding="utf-8"
+    )
+    recovered = projection.update(inventory, graph, control_value)
+    recovered_outbox = json.loads((tmp_path / "slack-outbox.json").read_text())
+    assert recovered["delivery_stage"] == "Slack_message_verified"
+    assert recovered_outbox["notifications"][0]["current_stage"] == "Slack_message_verified"
+    assert recovered_outbox["notifications"][0]["recovery_summary"] is True
+    assert any("Recovered missed activity" in message["text"] for message in messages.values())
 
 
 def load_supervisor_slack_plugin():

@@ -67,6 +67,16 @@ def main() -> int:
         "axis.external-development-supervisor.slack-state",
         errors,
     )
+    outbox_path = ROOT / "slack-outbox.json"
+    outbox = (
+        validated(
+            outbox_path,
+            "axis.external-development-supervisor.slack-outbox",
+            errors,
+        )
+        if outbox_path.exists()
+        else {"notifications": []}
+    )
     deployed_revision = load(ROOT / "deployed-source-revision.json")
 
     if gateway.get("gateway_state") != "running":
@@ -145,23 +155,23 @@ def main() -> int:
         except ValueError as exc:
             errors.append(str(exc))
 
-    delivery_status = overview_state.get("delivery_status")
-    if delivery_status not in {"delivered", "unchanged"}:
-        errors.append(f"Slack overview delivery status is {delivery_status or 'missing'}")
+    delivery_stage = overview_state.get("delivery_stage")
+    if delivery_stage != "Slack_message_verified":
+        errors.append(f"Slack overview delivery stage is {delivery_stage or 'missing'}")
     if overview_state.get("last_delivery_error"):
         errors.append(
             f"Slack overview delivery failed: {overview_state['last_delivery_error']}"
         )
-    last_successful_update = overview_state.get("last_successful_update_at")
+    last_successful_update = overview_state.get("last_verified_at")
     if not last_successful_update:
-        errors.append("Slack overview has no successful update timestamp")
+        errors.append("Slack overview has no verified readback timestamp")
     else:
         try:
             success_age = now - timestamp_epoch(
-                last_successful_update, "Slack overview last_successful_update_at"
+                last_successful_update, "Slack overview last_verified_at"
             )
             if success_age > overview_freshness_seconds:
-                errors.append(f"Slack overview last successful update is stale ({success_age}s)")
+                errors.append(f"Slack overview last verified readback is stale ({success_age}s)")
         except ValueError as exc:
             errors.append(str(exc))
 
@@ -176,6 +186,20 @@ def main() -> int:
         errors.append("Slack overview state source revision does not match deployed source")
     if overview_state.get("semantic_revision") != overview.get("semantic_revision"):
         errors.append("Slack overview state and semantic revisions do not match")
+    failed_notifications = [
+        item
+        for item in outbox.get("notifications") or []
+        if item.get("current_stage") == "delivery_failed"
+    ]
+    pending_notifications = [
+        item
+        for item in outbox.get("notifications") or []
+        if item.get("current_stage") != "Slack_message_verified"
+    ]
+    if failed_notifications:
+        errors.append(f"Slack outbox has {len(failed_notifications)} failed notification(s)")
+    elif pending_notifications:
+        warnings.append(f"Slack outbox has {len(pending_notifications)} queued notification(s)")
 
     schema_compatible = bool(overview)
     schema_validator = "registry"
@@ -207,6 +231,45 @@ def main() -> int:
     if recovery_leases:
         errors.append(f"{recovery_leases} lease(s) require canonical recovery")
 
+    def relevant(values: list[str], terms: tuple[str, ...]) -> list[str]:
+        return [value for value in values if any(term in value.lower() for term in terms)]
+
+    scheduling_issues = relevant(errors + warnings, ("cron", "ticker", "job"))
+    observability_issues = relevant(
+        errors + warnings,
+        ("slack", "overview", "outbox", "delivery", "readback"),
+    )
+    integration_issues = relevant(errors + warnings, ("lease", "integration"))
+    gitlab_issues = relevant(
+        errors + warnings,
+        ("retrieval", "dependency", "gitlab"),
+    )
+    worker_issues = [
+        value
+        for value in errors + warnings
+        if value
+        not in set(
+            scheduling_issues
+            + observability_issues
+            + integration_issues
+            + gitlab_issues
+        )
+    ]
+
+    def subsystem_state(issues: list[str]) -> str:
+        if any(issue in errors for issue in issues):
+            return "red"
+        return "amber" if issues else "green"
+
+    subsystem_health = {
+        "scheduling": {"state": subsystem_state(scheduling_issues), "issues": scheduling_issues},
+        "worker_execution": {"state": subsystem_state(worker_issues), "issues": worker_issues},
+        "integration": {"state": subsystem_state(integration_issues), "issues": integration_issues},
+        "gitlab": {"state": subsystem_state(gitlab_issues), "issues": gitlab_issues},
+        "slack_observability": {"state": subsystem_state(observability_issues), "issues": observability_issues},
+    }
+    subsystem_states = {value["state"] for value in subsystem_health.values()}
+    overall_operability = "red" if "red" in subsystem_states and subsystem_health["worker_execution"]["state"] == "red" else "amber" if "red" in subsystem_states or "amber" in subsystem_states else "green"
     status = "healthy" if not errors and not warnings else "degraded" if not errors else "unhealthy"
     print(json.dumps({
         "status": status,
@@ -218,14 +281,18 @@ def main() -> int:
         "inventory_generation_id": inventory.get("generation_id"),
         "inventory_generated_at": generated,
         "overview_generated_at": overview_generated_at,
-        "overview_delivery_status": delivery_status,
-        "overview_last_successful_update_at": last_successful_update,
+        "overview_delivery_stage": delivery_stage,
+        "overview_last_verified_at": last_successful_update,
         "overview_semantic_revision": overview.get("semantic_revision"),
         "overview_source_revision": source.get("deployed_revision"),
         "overview_schema_compatible": schema_compatible,
         "overview_schema_validator": schema_validator,
         "governed_queue_depth": graph.get("queue_depth"),
         "governed_queue_zero_proven": graph.get("governed_queue_zero_proven"),
+        "pending_slack_notifications": len(pending_notifications),
+        "failed_slack_notifications": len(failed_notifications),
+        "subsystem_health": subsystem_health,
+        "overall_unattended_operability": overall_operability,
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1

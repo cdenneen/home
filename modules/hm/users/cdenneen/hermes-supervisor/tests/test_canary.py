@@ -180,7 +180,7 @@ def test_canary_gate_denies_expired_stale_and_second_assignment(
 
 def test_canary_gate_allows_exact_merged_recovery(monkeypatch, tmp_path: Path):
     from axis_supervisor import canary
-    from axis_supervisor.canary import load_grant, write_grant
+    from axis_supervisor.canary import write_grant
     from axis_supervisor.mutation import MutationDenied, MutationGate, OperationClass
 
     grant, assignment = setup_canary(tmp_path)

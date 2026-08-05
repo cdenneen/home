@@ -16,10 +16,12 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.inventory": "inventory.schema.json",
     "axis.external-development-supervisor.lease": "lease.schema.json",
     "axis.external-development-supervisor.model-attempt": "model-attempt.schema.json",
+    "axis.external-development-supervisor.operational-event": "operational-event.schema.json",
     "axis.external-development-supervisor.roadmap-semantics": "roadmap-semantics.schema.json",
     "axis.external-development-supervisor.run": "run.schema.json",
     "axis.external-development-supervisor.semantic-record": "semantic-record.schema.json",
     "axis.external-development-supervisor.slack-state": "slack-state.schema.json",
+    "axis.external-development-supervisor.slack-outbox": "slack-outbox.schema.json",
     "axis.external-development-supervisor.verification": "verification.schema.json",
 }
 SOURCE_SCHEMAS = Path(__file__).resolve().parents[2] / "schemas"
