@@ -213,6 +213,48 @@ def close_work_item(
         raise RuntimeError("integrated assignment has no GitLab work item ref")
     project, iid = target.rsplit("#", 1)
     encoded = quote(project, safe="")
+    current_issue = json.loads(
+        subprocess.check_output(
+            [
+                glab,
+                "api",
+                "--hostname",
+                "gitlab.com",
+                f"projects/{encoded}/issues/{int(iid)}",
+            ],
+            text=True,
+            timeout=120,
+        )
+    )
+    description = str(current_issue.get("description") or "")
+    completed_description = description.replace("- [ ]", "- [x]")
+    if "## Supervisor completion evidence" not in completed_description:
+        completed_description += (
+            "\n\n## Supervisor completion evidence\n"
+            + "\n".join(f"- {ref}" for ref in evidence if ref)
+        )
+    gate.require(
+        evidence_decision,
+        OperationClass.GITLAB,
+        assignment=assignment,
+        repository=project,
+        effect="record-evidence" if assignment.get("mutation_grant_id") else None,
+    )
+    subprocess.check_output(
+        [
+            glab,
+            "api",
+            "--hostname",
+            "gitlab.com",
+            "--method",
+            "PUT",
+            "--field",
+            f"description={completed_description}",
+            f"projects/{encoded}/issues/{int(iid)}",
+        ],
+        text=True,
+        timeout=120,
+    )
     gate.require(
         close_decision,
         OperationClass.GITLAB,
