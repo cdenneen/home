@@ -12,6 +12,12 @@ let
   axisWebDashboardPasswordFile = config.sops.secrets.axis_web_dashboard_password.path;
   axisWebSessionSecretFile = config.sops.secrets.axis_web_session_secret.path;
   axisWebTokenFile = "/run/axis-web/token";
+  axisRevision = axis.rev or "unknown";
+  supervisorRevision =
+    if config.system.configurationRevision != null then
+      config.system.configurationRevision
+    else
+      "unknown";
   axisWebTokenSetup = pkgs.writeShellScript "axis-web-token-setup" ''
     set -euo pipefail
 
@@ -489,6 +495,26 @@ in
       User = "gitlab-runner";
       Group = "gitlab-runner";
     };
+  };
+
+  systemd.services.axis-deployment-identity = {
+    description = "Record Ghost AXIS deployment identity";
+    after = [ "axis.service" ];
+    requires = [ "axis.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      install -d -m 0750 -o axis -g axis /var/lib/axis
+      deployed_at="$(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
+      cat > /var/lib/axis/deployment-identity.json <<EOF
+      {"runtime":"ghost","ring":0,"runtime_revision":"${axisRevision}","supervisor_revision":"${supervisorRevision}","deployment_time":"$deployed_at","verification_status":"deployment-recorded","health":"pending-runtime-verification"}
+      EOF
+      chown axis:axis /var/lib/axis/deployment-identity.json
+      chmod 0640 /var/lib/axis/deployment-identity.json
+    '';
   };
 
   systemd.services.axis-web = {

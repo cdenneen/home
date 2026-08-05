@@ -9,7 +9,15 @@ LIFECYCLE_STATES = frozenset(
         "ready-implementation",
         "running-semantic",
         "running-implementation",
+        "implementation-complete",
         "awaiting-integration",
+        "integrated-post-main-verified",
+        "repository-convergence-pending",
+        "repository-converged",
+        "runtime-convergence-pending",
+        "runtime-converged",
+        "canonical-complete",
+        "deployment-failed",
         "completed",
         "waiting",
         "blocked",
@@ -19,7 +27,18 @@ LIFECYCLE_STATES = frozenset(
     }
 )
 TERMINAL_STATES = frozenset(
-    {"completed", "waiting", "blocked", "failed", "cancelled", "recovery-required"}
+    {
+        "completed",
+        "repository-converged",
+        "runtime-converged",
+        "canonical-complete",
+        "deployment-failed",
+        "waiting",
+        "blocked",
+        "failed",
+        "cancelled",
+        "recovery-required",
+    }
 )
 
 

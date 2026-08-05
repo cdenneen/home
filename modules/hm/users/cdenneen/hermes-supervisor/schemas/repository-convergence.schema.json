@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.repository-convergence",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at",
+    "inventory_generation_id",
+    "convergence_digest",
+    "status",
+    "counts",
+    "repositories",
+    "branches",
+    "orphan_worktrees",
+    "invariants",
+    "disposition_history"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.repository-convergence"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "inventory_generation_id": { "type": "string" },
+    "convergence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "status": { "enum": ["green", "amber", "red"] },
+    "counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "repositories": { "type": "array", "items": { "type": "object" } },
+    "branches": { "type": "array", "items": { "type": "object" } },
+    "orphan_worktrees": { "type": "array", "items": { "type": "object" } },
+    "invariants": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "disposition_history": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}

@@ -1,5 +1,6 @@
 {
   agentPkgs,
+  axis,
   lib,
   pkgs,
   config,
@@ -195,8 +196,16 @@ let
   wellnessSupabaseSecretKeyFile = config.sops.secrets.wellness_supabase_secret_key.path;
   wellnessSupabaseDbUrlFile = config.sops.secrets.wellness_supabase_db_url.path;
   supabaseAccessTokenFile = config.sops.secrets.supabase_access_token.path;
+  axisRevision = axis.rev or "unknown";
+  supervisorRevision =
+    if config.system.configurationRevision != null then
+      config.system.configurationRevision
+    else
+      "unknown";
 in
 {
+  imports = [ axis.nixosModules.default ];
+
   networking.hostName = "nyx";
   networking.extraHosts = ''
     100.80.58.4 nyx.tail0e55.ts.net
@@ -206,6 +215,32 @@ in
   services.tailscale = {
     enable = true;
     openFirewall = true;
+  };
+
+  services.axis = {
+    enable = true;
+    dataRoot = "/var/lib/axis";
+    host = "127.0.0.1";
+    port = 8780;
+  };
+
+  systemd.services.axis-deployment-identity = {
+    description = "Record Nyx AXIS deployment identity";
+    after = [ "axis.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      install -d -m 0750 -o axis -g axis /var/lib/axis
+      deployed_at="$(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
+      cat > /var/lib/axis/deployment-identity.json <<EOF
+      {"runtime":"nyx","ring":2,"runtime_revision":"${axisRevision}","supervisor_revision":"${supervisorRevision}","deployment_time":"$deployed_at","verification_status":"deployment-recorded","health":"pending-runtime-verification"}
+      EOF
+      chown axis:axis /var/lib/axis/deployment-identity.json
+      chmod 0640 /var/lib/axis/deployment-identity.json
+    '';
   };
 
   services.amazon-cloudwatch-agent = {

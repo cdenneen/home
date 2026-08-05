@@ -167,7 +167,35 @@ def claim(args: argparse.Namespace) -> int:
     if not args.read_only:
         authority_state = (assignment.get("authority") or {}).get("state")
         bounded_grant = False
-        if authority_state == "canary":
+        if assignment.get("assignment_type") == "capability-deployment":
+            repository_convergence = read_record(
+                ROOT / "repository-convergence.json",
+                "axis.external-development-supervisor.repository-convergence",
+            )
+            capability_convergence = read_record(
+                ROOT / "capability-convergence.json",
+                "axis.external-development-supervisor.capability-convergence",
+            )
+            plan = assignment.get("deployment_plan") or {}
+            expected = next(
+                (
+                    value
+                    for value in capability_convergence.get(
+                        "deployment_assignments"
+                    )
+                    or []
+                    if value.get("assignment_id") == plan.get("assignment_id")
+                ),
+                None,
+            )
+            if repository_convergence.get("status") != "green" or expected != plan:
+                raise RuntimeError(
+                    "capability deployment is not authorized by current convergence state"
+                )
+            if args.resource != f"runtime:{plan.get('target_runtime')}":
+                raise RuntimeError("capability deployment runtime resource mismatch")
+            bounded_grant = True
+        elif authority_state == "canary":
             merged_mr = None
             if args.merged_mr_json:
                 merged_mr = json.loads(args.merged_mr_json)

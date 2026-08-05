@@ -340,8 +340,12 @@ def record_engineering_retrospective(
         "analysis-completed",
         "no-op-verification-completed",
         "implementation-commit-created",
+        "implementation-complete",
         "awaiting-integration",
         "integrated-post-main-verified",
+        "repository-converged",
+        "runtime-converged",
+        "canonical-complete",
     }
     integration = assignment.get("integration") or {}
     pipeline = integration.get("pipeline") or {}

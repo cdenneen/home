@@ -18,7 +18,12 @@ from axis_supervisor.assignment_grants import (
 )
 from axis_supervisor.canary import bind_mr as bind_canary_mr
 from axis_supervisor.canary import expire_grant
+from axis_supervisor.capability_convergence import CapabilityConvergenceProjector
 from axis_supervisor.dispatcher import Dispatcher
+from axis_supervisor.deployment import (
+    create_deployment_assignment,
+    execute_deployment_assignment,
+)
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.lifecycle import is_completed, is_integrable, set_lifecycle
@@ -35,6 +40,7 @@ from axis_supervisor.observability import (
     record_event,
 )
 from axis_supervisor.roadmap_quality import RoadmapQualityProjector
+from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
 from axis_supervisor.schema_registry import (
     CorruptRecordError,
     read_record,
@@ -430,6 +436,8 @@ def rebuild() -> dict:
         },
     )
     RoadmapQualityProjector(ROOT).build(inventory, graph)
+    repository_convergence = RepositoryConvergenceProjector(ROOT).build(inventory)
+    CapabilityConvergenceProjector(ROOT).build(repository_convergence)
     return graph
 
 
@@ -609,7 +617,8 @@ def execute_new_assignment(
             result = manager.implementation(
                 assignment, repo, repository_decision, model_decision
             )
-            assignment["result_state"] = "implementation-commit-created"
+            set_lifecycle(assignment, "implementation-complete")
+            assignment["result_state"] = "implementation-complete"
             assignment["work_item_disposition"] = "requires-integration"
             record_event(
                 ROOT,
@@ -721,6 +730,37 @@ def execute_new_assignment(
 
 def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     graph = rebuild()
+    capability_convergence = read_record(
+        ROOT / "capability-convergence.json",
+        "axis.external-development-supervisor.capability-convergence",
+    )
+    deployment_plans = sorted(
+        (
+            value
+            for value in capability_convergence.get("deployment_assignments") or []
+            if value.get("status") == "deployment-required"
+        ),
+        key=lambda value: int(value.get("ring") or 0),
+    )
+    if deployment_plans:
+        plan = deployment_plans[0]
+        existing = []
+        for assignment_path in (ROOT / "assignments").glob("*.json"):
+            value = validate_assignment(
+                json.loads(assignment_path.read_text(encoding="utf-8")), ROOT
+            )
+            if (
+                value.get("assignment_type") == "capability-deployment"
+                and value.get("source_fingerprint") == plan["assignment_id"]
+                and value.get("lifecycle_state")
+                not in {"deployment-failed", "failed", "cancelled"}
+            ):
+                existing.append(value)
+        if not existing:
+            deployment_assignment = create_deployment_assignment(ROOT, plan, run_id)
+            return execute_deployment_assignment(
+                ROOT, deployment_assignment, supervisorctl
+            )
     dispatcher = Dispatcher(ROOT)
     active = dispatcher.active()
     gate = MutationGate(ROOT, source="cycle")
@@ -1104,7 +1144,20 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     )
                 shutil.rmtree(worktree, ignore_errors=True)
                 cleanup["worktree_removed"] = not worktree.exists()
-                cleanup["local_branch_deleted"] = True
+                cleanup["local_branch_deleted"] = (
+                    subprocess.run(
+                        [
+                            "git",
+                            "show-ref",
+                            "--verify",
+                            "--quiet",
+                            f"refs/heads/{branch}",
+                        ],
+                        cwd=repo,
+                        timeout=30,
+                    ).returncode
+                    != 0
+                )
                 cleanup["remote_source_branch_absent"] = (
                     subprocess.run(
                         ["git", "ls-remote", "--exit-code", "--heads", "origin", branch],
@@ -1115,9 +1168,26 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     ).returncode
                     != 0
                 )
+            if not all(
+                cleanup[key]
+                for key in (
+                    "worktree_removed",
+                    "local_branch_deleted",
+                    "remote_source_branch_absent",
+                )
+            ):
+                verification_error = (
+                    "repository convergence incomplete after post-main verification: "
+                    + json.dumps(cleanup, sort_keys=True)
+                )
             integration["verified_mr"] = inspection["mr"].get("web_url")
             integration["post_merge_tests"] = test_results
             if not verification_error:
+                set_lifecycle(assignment, "integrated-post-main-verified")
+                assignment["result_state"] = "integrated-post-main-verified"
+                assignment["work_item_disposition"] = (
+                    "requires-repository-convergence"
+                )
                 record_event(
                     ROOT,
                     "post_main_verified",
@@ -1180,10 +1250,10 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     cleanup,
                     fresh_cycle_recognition=False,
                 )
-                set_lifecycle(assignment, "completed")
-                assignment["result_state"] = "integrated-post-main-verified"
+                set_lifecycle(assignment, "repository-converged")
+                assignment["result_state"] = "repository-converged"
                 assignment["work_item_disposition"] = (
-                    "evidence-recorded-awaiting-fresh-recognition"
+                    "requires-runtime-convergence"
                 )
                 result = "integrated"
                 if (assignment.get("authority") or {}).get("state") == "canary":

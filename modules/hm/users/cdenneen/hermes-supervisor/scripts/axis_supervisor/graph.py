@@ -152,7 +152,13 @@ def _flow_state(
         assignment
         for assignment in assignments
         if assignment.get("work_item") == item.get("ref")
-        and assignment.get("result_state") == "integrated-post-main-verified"
+        and assignment.get("result_state")
+        in {
+            "integrated-post-main-verified",
+            "repository-converged",
+            "runtime-converged",
+            "canonical-complete",
+        }
     ]
     if completion_assignments:
         return "verification", [

@@ -801,6 +801,171 @@ def test_roadmap_quality_projection_is_advisory_and_provenance_bound(
     )
 
 
+def test_repository_convergence_requires_disposition_for_human_remote_branch(
+    tmp_path: Path,
+):
+    from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
+    from axis_supervisor.schema_registry import write_record
+
+    write_record(
+        tmp_path / "control.json",
+        control(),
+        "axis.external-development-supervisor.control",
+    )
+    inventory_value = {
+        "generation_id": "inventory-1",
+        "repositories": {
+            "ghostspace/axis": {
+                "default_branch": "main",
+                "local_facts": {
+                    "path": "/tmp/axis",
+                    "dirty": False,
+                    "branch": "main",
+                    "head": "a" * 40,
+                    "default_remote_head": "a" * 40,
+                    "remote_fresh": True,
+                    "worktrees": [
+                        {
+                            "path": "/tmp/axis",
+                            "branch": "main",
+                            "head": "a" * 40,
+                            "is_root": True,
+                        }
+                    ],
+                    "local_branches": [
+                        {"name": "main", "head": "a" * 40}
+                    ],
+                    "remote_branches": [
+                        {
+                            "name": "human/topic",
+                            "head": "b" * 40,
+                            "merge_base": "a" * 40,
+                            "ahead": 1,
+                            "behind": 0,
+                            "integrated_into_default": False,
+                            "changed_paths": ["src/example.py"],
+                            "owned_by_supervisor": False,
+                            "active_worktree": None,
+                            "merge_request": None,
+                        }
+                    ],
+                },
+            }
+        },
+        "supervisor_assignments": [],
+        "active_leases": [],
+    }
+    projector = RepositoryConvergenceProjector(tmp_path)
+    ambiguous = projector.build(inventory_value)
+    assert ambiguous["status"] == "red"
+    assert ambiguous["counts"]["ambiguous_branches"] == 1
+    (tmp_path / "branch-dispositions.json").write_text(
+        json.dumps(
+            {
+                "branches": [
+                    {
+                        "repository": "ghostspace/axis",
+                        "branch": "human/topic",
+                        "status": "retained",
+                        "disposition": "intentionally-retained",
+                        "owner": "owner",
+                        "blocker": "active review",
+                        "expiry": "2026-09-01",
+                        "next_action": "complete review",
+                        "evidence": ["https://example.test/issue/1"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    retained = projector.build(inventory_value)
+    assert retained["status"] == "green"
+    assert retained["counts"]["retained_branches"] == 1
+
+
+def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
+    from axis_supervisor.capability_convergence import CapabilityConvergenceProjector
+    from axis_supervisor.schema_registry import write_record
+
+    write_record(
+        tmp_path / "control.json",
+        control(),
+        "axis.external-development-supervisor.control",
+    )
+    repository = tmp_path / "axis"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.test"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repository, check=True
+    )
+    (repository / "src").mkdir()
+    (repository / "src/service.py").write_text("v1\n", encoding="utf-8")
+    (repository / "docs").mkdir()
+    (repository / "docs/readme.md").write_text("docs\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repository, check=True)
+    first = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    (repository / "src/service.py").write_text("v2\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "service"], cwd=repository, check=True)
+    current = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+    ).strip()
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", current],
+        cwd=repository,
+        check=True,
+    )
+    identity = tmp_path / "identity.json"
+    identity.write_text(
+        json.dumps({"runtime_revision": first, "health": "healthy"}),
+        encoding="utf-8",
+    )
+    matrix = {
+        "schema_version": "1.0.0",
+        "repository": "ghostspace/axis",
+        "repository_path": str(repository),
+        "capabilities": {
+            "Service": {"paths": ["src/service.py"], "runtimes": ["ghost"]},
+            "Documentation": {"paths": ["docs"], "runtimes": []},
+        },
+        "runtimes": {
+            "ghost": {
+                "ring": 0,
+                "display_name": "Ghost",
+                "host": "local",
+                "identity_path": str(identity),
+                "deployment_target": "nixosConfigurations.ghost",
+            }
+        },
+    }
+    projector = CapabilityConvergenceProjector(tmp_path)
+    projector.matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+    repository_state = {
+        "status": "green",
+        "convergence_digest": "sha256:" + "a" * 64,
+    }
+    lagging = projector.build(repository_state)
+    assert lagging["deployment_assignments"][0]["affected_capabilities"] == [
+        "Service"
+    ]
+    identity.write_text(
+        json.dumps({"runtime_revision": current, "health": "healthy"}),
+        encoding="utf-8",
+    )
+    converged = projector.build(repository_state)
+    assert converged["deployment_assignments"] == []
+    assert converged["runtimes"][0]["status"] == "converged"
+
+
 @pytest.mark.parametrize(
     "path",
     ["/home/cdenneen/.ssh/id_ed25519", "../secret", ".git/config", "src/../secret"],

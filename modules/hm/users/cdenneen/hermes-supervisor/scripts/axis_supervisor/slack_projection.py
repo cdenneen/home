@@ -301,6 +301,25 @@ class SlackProjection:
         )
         quality_metrics = roadmap_quality.get("metrics") or {}
         quality_trend = roadmap_quality.get("trend") or {}
+        convergence_path = self.root / "repository-convergence.json"
+        repository_convergence = (
+            read_record(
+                convergence_path,
+                "axis.external-development-supervisor.repository-convergence",
+            )
+            if convergence_path.exists()
+            else {}
+        )
+        convergence_counts = repository_convergence.get("counts") or {}
+        capability_path = self.root / "capability-convergence.json"
+        capability_convergence = (
+            read_record(
+                capability_path,
+                "axis.external-development-supervisor.capability-convergence",
+            )
+            if capability_path.exists()
+            else {}
+        )
         assignments = self.live_assignments() or inventory.get("supervisor_assignments") or []
         active = [item for item in assignments if not is_terminal(item)]
         analysis_workers = [
@@ -482,6 +501,45 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
                     {"type": "mrkdwn", "text": f"*Confidence*\n{confidence.get('percent', 0)}%"},
                 ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Capability Deployment Rings*\n"
+                    + (
+                        "\n".join(
+                            f"• Ring {value.get('ring')} {value.get('display_name')}: *{value.get('status')}* — running `{str(value.get('running_revision') or 'unknown')[:12]}` — {value.get('capability_lag', 0)} capability lag — {', '.join(value.get('capabilities_behind') or []) or 'converged'}"
+                            for value in capability_convergence.get("runtimes") or []
+                        )
+                        or "Runtime capability identity has not been projected yet."
+                    )
+                    + f"\nPromotion: `{json.dumps(capability_convergence.get('promotion_status') or {}, sort_keys=True)}`",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Repository Convergence*\n"
+                    f"Status: *{repository_convergence.get('status', 'unknown')}* | "
+                    f"Active {convergence_counts.get('active_branches', 0)} | "
+                    f"Merge-ready {convergence_counts.get('merge_ready_branches', 0)} | "
+                    f"Cleanup-ready {convergence_counts.get('cleanup_ready_branches', 0)} | "
+                    f"Retained {convergence_counts.get('retained_branches', 0)} | "
+                    f"Ambiguous {convergence_counts.get('ambiguous_branches', 0)} | "
+                    f"Orphan {convergence_counts.get('orphan_branches', 0)} | "
+                    f"Orphan worktrees {convergence_counts.get('orphan_worktrees', 0)}\n"
+                    + (
+                        "\n".join(
+                            f"• `{value.get('repository')}:{value.get('branch')}` — {value.get('status')} — {value.get('next_action')}"
+                            for value in (repository_convergence.get("branches") or [])[:8]
+                        )
+                        or "All configured repositories expose only canonical main."
+                    ),
+                },
             },
             {"type": "divider"},
             {

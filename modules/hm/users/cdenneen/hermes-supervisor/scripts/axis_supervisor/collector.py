@@ -255,7 +255,7 @@ def approval_note_url(
     return None
 
 
-def local_repository_state(project: dict) -> dict:
+def local_repository_state(project: dict, merge_requests: list[dict] | None = None) -> dict:
     path = WORKSPACE / project["path"]
     state = {
         "path": str(path),
@@ -265,6 +265,14 @@ def local_repository_state(project: dict) -> dict:
     if not state["present"]:
         return state
     try:
+        subprocess.run(
+            [GIT, "fetch", "--prune", "origin"],
+            cwd=path,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=120,
+        )
         default_remote = f"origin/{project.get('default_branch') or 'main'}"
         state["default_remote"] = default_remote
         state["default_remote_head"] = run([GIT, "rev-parse", default_remote], path).strip()
@@ -357,6 +365,99 @@ def local_repository_state(project: dict) -> dict:
                 }
             )
         state["local_branches"] = local_branches
+        remote_raw = run(
+            [
+                GIT,
+                "for-each-ref",
+                "--format=%(refname:short)|%(objectname)",
+                "refs/remotes/origin",
+            ],
+            path,
+        )
+        mr_by_branch = {}
+        for mr in sorted(
+            merge_requests or [], key=lambda value: int(value.get("iid") or 0)
+        ):
+            source_branch = str(mr.get("source_branch") or "")
+            if source_branch:
+                mr_by_branch[source_branch] = mr
+        remote_branches = []
+        default_branch = str(project.get("default_branch") or "main")
+        for line in remote_raw.splitlines():
+            if "|" not in line:
+                continue
+            remote_name, head = line.split("|", 1)
+            branch = remote_name.removeprefix("origin/")
+            if branch in {"HEAD", default_branch}:
+                continue
+            merge_base = run(
+                [GIT, "merge-base", default_remote, remote_name], path
+            ).strip()
+            behind, ahead = (
+                run(
+                    [
+                        GIT,
+                        "rev-list",
+                        "--left-right",
+                        "--count",
+                        f"{default_remote}...{remote_name}",
+                    ],
+                    path,
+                )
+                .strip()
+                .split()
+            )
+            integrated = (
+                subprocess.run(
+                    [GIT, "merge-base", "--is-ancestor", head, default_remote],
+                    cwd=str(path),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                ).returncode
+                == 0
+            )
+            changed_paths = [
+                value
+                for value in run(
+                    [GIT, "diff", "--name-only", f"{merge_base}..{remote_name}"],
+                    path,
+                ).splitlines()
+                if value
+            ]
+            mr = mr_by_branch.get(branch) or {}
+            remote_branches.append(
+                {
+                    "name": branch,
+                    "head": head,
+                    "merge_base": merge_base,
+                    "ahead": int(ahead),
+                    "behind": int(behind),
+                    "integrated_into_default": integrated,
+                    "changed_paths": changed_paths,
+                    "owned_by_supervisor": branch.startswith("hermes/"),
+                    "active_worktree": next(
+                        (
+                            value.get("path")
+                            for value in worktrees
+                            if value.get("branch") == branch
+                        ),
+                        None,
+                    ),
+                    "merge_request": {
+                        "iid": mr.get("iid"),
+                        "state": mr.get("state"),
+                        "sha": mr.get("sha"),
+                        "web_url": mr.get("web_url"),
+                        "pipeline_status": (mr.get("head_pipeline") or {}).get(
+                            "status"
+                        ),
+                    }
+                    if mr
+                    else None,
+                }
+            )
+        state["remote_branches"] = remote_branches
     except Exception as exc:
         state["error"] = f"{type(exc).__name__}: {exc}"
     return state
@@ -457,7 +558,7 @@ def main() -> int:
             "project_id": project_id,
             "default_branch": project.get("default_branch"),
             "web_url": project.get("web_url"),
-            "local_facts": local_repository_state(project),
+            "local_facts": local_repository_state(project, mrs),
         }
 
         for issue in issues:

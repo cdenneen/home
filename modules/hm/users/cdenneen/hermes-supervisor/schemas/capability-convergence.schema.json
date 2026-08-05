@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.capability-convergence",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at",
+    "convergence_digest",
+    "repository_convergence_digest",
+    "expected_repository_revision",
+    "capabilities",
+    "runtimes",
+    "deployment_assignments",
+    "promotion_status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.capability-convergence"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "convergence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "repository_convergence_digest": { "type": "string" },
+    "expected_repository_revision": { "type": "string" },
+    "capabilities": { "type": "array", "items": { "type": "object" } },
+    "runtimes": { "type": "array", "items": { "type": "object" } },
+    "deployment_assignments": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "promotion_status": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -27,6 +27,7 @@
         "governance-document-mutation",
         "code-implementation",
         "ci-integration-repair",
+        "capability-deployment",
         "repository-convergence",
         "no-op-verification"
       ]
@@ -37,8 +38,15 @@
         "analysis-completed",
         "no-op-verification-completed",
         "implementation-commit-created",
+        "implementation-complete",
         "awaiting-integration",
         "integrated-post-main-verified",
+        "repository-convergence-pending",
+        "repository-converged",
+        "runtime-convergence-pending",
+        "runtime-converged",
+        "canonical-complete",
+        "deployment-failed",
         "waiting",
         "blocked",
         "failed",
@@ -54,7 +62,10 @@
         "requires-implementation",
         "requires-human-decision",
         "requires-integration",
-        "evidence-recorded-awaiting-fresh-recognition"
+        "evidence-recorded-awaiting-fresh-recognition",
+        "requires-repository-convergence",
+        "requires-runtime-convergence",
+        "canonical-complete"
       ]
     },
     "lifecycle_state": {
@@ -63,7 +74,14 @@
         "ready-implementation",
         "running-semantic",
         "running-implementation",
+        "implementation-complete",
         "awaiting-integration",
+        "integrated-post-main-verified",
+        "repository-convergence-pending",
+        "repository-converged",
+        "runtime-convergence-pending",
+        "runtime-converged",
+        "canonical-complete",
         "completed",
         "waiting",
         "blocked",

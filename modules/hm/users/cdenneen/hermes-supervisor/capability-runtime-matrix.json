@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0.0",
+  "repository": "ghostspace/axis",
+  "repository_path": "/home/cdenneen/src/workspace/personal/work/axis",
+  "capabilities": {
+    "Runtime Kernel": {
+      "paths": ["src/axis_kernel", "src/axis_runtime/runtime.py"],
+      "runtimes": ["ghost", "desktop", "nyx"]
+    },
+    "Scheduler": {
+      "paths": [
+        "src/axis_runtime/scheduler",
+        "src/axis_kernel/execution.py",
+        "src/axis_runtime/execution.py"
+      ],
+      "runtimes": ["ghost", "nyx"]
+    },
+    "Service Plane": {
+      "paths": [
+        "src/axis_runtime/service_plane.py",
+        "src/axis_product/service_plane"
+      ],
+      "runtimes": ["ghost", "nyx"]
+    },
+    "Provider Runtime": {
+      "paths": ["src/axis_runtime/provider", "src/axis_kernel/provider.py"],
+      "runtimes": ["ghost", "nyx"]
+    },
+    "Cognition": {
+      "paths": ["src/axis_runtime/cognition", "src/axis_runtime/executive"],
+      "runtimes": ["ghost", "nyx"]
+    },
+    "Memory": {
+      "paths": ["src/axis_runtime/memory", "src/axis_kernel/memory"],
+      "runtimes": ["ghost", "desktop", "nyx"]
+    },
+    "Knowledge": {
+      "paths": ["src/axis_runtime/knowledge", "src/axis_kernel/knowledge"],
+      "runtimes": ["ghost", "desktop", "nyx"]
+    },
+    "Plugin Runtime": {
+      "paths": ["src/axis_runtime/plugin", "src/axis_kernel/plugin"],
+      "runtimes": ["ghost", "desktop", "nyx"]
+    },
+    "Skills": {
+      "paths": ["src/axis_runtime/skill", "src/axis_kernel/skill", "packs"],
+      "runtimes": ["ghost", "desktop", "nyx"]
+    },
+    "Desktop Presentation": {
+      "paths": ["apps/axis-desktop", "src/axis_desktop"],
+      "runtimes": ["desktop"]
+    },
+    "Web Presentation": {
+      "paths": ["apps/axis-web", "src/axis_web"],
+      "runtimes": ["ghost"]
+    },
+    "HUD": {
+      "paths": ["packages/axis-ui-hud"],
+      "runtimes": ["ghost", "desktop"]
+    },
+    "Neural Map": {
+      "paths": ["packages/axis-ui-neural-map"],
+      "runtimes": ["ghost", "desktop"]
+    },
+    "CLI": {
+      "paths": ["src/axis/cli.py", "src/axis/cli"],
+      "runtimes": ["desktop", "nyx"]
+    },
+    "Node Runtime": {
+      "paths": ["src/axis_runtime/node", "src/axis_kernel/node"],
+      "runtimes": ["nyx"]
+    },
+    "Installer": {
+      "paths": ["nix", "scripts/install", "src/axis_runtime/installation"],
+      "runtimes": ["ghost", "desktop", "nyx"]
+    },
+    "Observability": {
+      "paths": [
+        "src/axis_kernel/observability.py",
+        "src/axis_runtime/observability"
+      ],
+      "runtimes": ["ghost", "nyx"]
+    },
+    "Documentation": { "paths": ["docs"], "runtimes": [] }
+  },
+  "runtimes": {
+    "ghost": {
+      "ring": 0,
+      "display_name": "Ghost",
+      "host": "local",
+      "identity_path": "/var/lib/axis/deployment-identity.json",
+      "deployment_target": "nixosConfigurations.ghost"
+    },
+    "desktop": {
+      "ring": 1,
+      "display_name": "Desktop",
+      "host": "VNJTECMBCD",
+      "identity_path": "/Users/cdenneen/.local/share/axis/deployment-identity.json",
+      "deployment_target": "darwinConfigurations.VNJTECMBCD"
+    },
+    "nyx": {
+      "ring": 2,
+      "display_name": "Nyx",
+      "host": "nyx",
+      "identity_path": "/var/lib/axis/deployment-identity.json",
+      "deployment_target": "nixosConfigurations.nyx"
+    }
+  }
+}

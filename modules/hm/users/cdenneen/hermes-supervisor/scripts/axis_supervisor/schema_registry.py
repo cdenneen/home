@@ -20,6 +20,8 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.operational-event": "operational-event.schema.json",
     "axis.external-development-supervisor.roadmap-semantics": "roadmap-semantics.schema.json",
     "axis.external-development-supervisor.roadmap-quality": "roadmap-quality.schema.json",
+    "axis.external-development-supervisor.repository-convergence": "repository-convergence.schema.json",
+    "axis.external-development-supervisor.capability-convergence": "capability-convergence.schema.json",
     "axis.external-development-supervisor.run": "run.schema.json",
     "axis.external-development-supervisor.semantic-record": "semantic-record.schema.json",
     "axis.external-development-supervisor.slack-state": "slack-state.schema.json",

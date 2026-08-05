@@ -89,6 +89,26 @@ def main() -> int:
         if roadmap_quality_path.exists()
         else {}
     )
+    repository_convergence_path = ROOT / "repository-convergence.json"
+    repository_convergence = (
+        validated(
+            repository_convergence_path,
+            "axis.external-development-supervisor.repository-convergence",
+            errors,
+        )
+        if repository_convergence_path.exists()
+        else {}
+    )
+    capability_convergence_path = ROOT / "capability-convergence.json"
+    capability_convergence = (
+        validated(
+            capability_convergence_path,
+            "axis.external-development-supervisor.capability-convergence",
+            errors,
+        )
+        if capability_convergence_path.exists()
+        else {}
+    )
     deployed_revision = load(ROOT / "deployed-source-revision.json")
     assignments = []
     for path in (ROOT / "assignments").glob("*.json"):
@@ -277,6 +297,36 @@ def main() -> int:
             errors.append("roadmap quality source graph revision is not current")
     else:
         warnings.append("roadmap quality projection is not available")
+    if repository_convergence:
+        if repository_convergence.get("inventory_generation_id") != inventory.get(
+            "generation_id"
+        ):
+            errors.append("repository convergence inventory revision is not current")
+        if repository_convergence.get("status") != "green":
+            errors.append(
+                "repository convergence is "
+                + str(repository_convergence.get("status") or "unknown")
+            )
+    else:
+        warnings.append("repository convergence projection is not available")
+    if capability_convergence:
+        runtime_unknown = [
+            value.get("display_name")
+            for value in capability_convergence.get("runtimes") or []
+            if value.get("status") == "unknown"
+        ]
+        deployments = capability_convergence.get("deployment_assignments") or []
+        if runtime_unknown:
+            errors.append(
+                "runtime capability identity unavailable: "
+                + ", ".join(str(value) for value in runtime_unknown)
+            )
+        elif deployments:
+            warnings.append(
+                f"{len(deployments)} capability deployment assignment(s) pending"
+            )
+    else:
+        warnings.append("capability convergence projection is not available")
     failed_notifications = [
         item
         for item in outbox.get("notifications") or []
@@ -457,6 +507,22 @@ def main() -> int:
         "roadmap_quality": roadmap_quality.get("metrics") or {},
         "roadmap_quality_trend": roadmap_quality.get("trend") or {},
         "critical_path_status": roadmap_quality.get("critical_path_status") or {},
+        "repository_convergence": {
+            "status": repository_convergence.get("status"),
+            "counts": repository_convergence.get("counts") or {},
+            "invariants": repository_convergence.get("invariants") or {},
+        },
+        "capability_convergence": {
+            "expected_repository_revision": capability_convergence.get(
+                "expected_repository_revision"
+            ),
+            "runtimes": capability_convergence.get("runtimes") or [],
+            "deployment_assignments": capability_convergence.get(
+                "deployment_assignments"
+            )
+            or [],
+            "promotion_status": capability_convergence.get("promotion_status") or {},
+        },
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1
