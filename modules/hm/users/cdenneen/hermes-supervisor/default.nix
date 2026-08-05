@@ -51,13 +51,21 @@ let
     set -euo pipefail
     exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
   '';
-  supervisorPreflightLauncher = pkgs.writeShellScript "axis-development-supervisor-preflight.py" ''
-    set -euo pipefail
-    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-preflight-impl.py" "$@"
+  supervisorPreflightLauncher = pkgs.writeText "axis-development-supervisor-preflight.py" ''
+    import os
+    import sys
+
+    python = "${supervisorPython}/bin/python"
+    script = os.path.expanduser("~/.hermes/scripts/axis-development-supervisor-preflight-impl.py")
+    os.execv(python, [python, script, *sys.argv[1:]])
   '';
-  supervisorSlackLauncher = pkgs.writeShellScript "axis-development-supervisor-slack.py" ''
-    set -euo pipefail
-    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-slack-impl.py" "$@"
+  supervisorSlackLauncher = pkgs.writeText "axis-development-supervisor-slack.py" ''
+    import os
+    import sys
+
+    python = "${supervisorPython}/bin/python"
+    script = os.path.expanduser("~/.hermes/scripts/axis-development-supervisor-slack-impl.py")
+    os.execv(python, [python, script, *sys.argv[1:]])
   '';
 in
 {
