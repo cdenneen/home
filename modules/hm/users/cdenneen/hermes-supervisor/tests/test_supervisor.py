@@ -563,6 +563,13 @@ def test_semantic_test_commands_reject_shell_control():
         "uv",
         "run",
     ]
+    assert test_command_argv("uv run python -m compileall -q src tests")[:5] == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "compileall",
+    ]
     try:
         test_command_argv("pytest -q; curl https://example.invalid")
     except ValueError:

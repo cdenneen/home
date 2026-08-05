@@ -32,6 +32,7 @@ ALLOWED_TEST_PREFIXES = {
     ("uv", "run", "--extra", "dev", "pytest"),
     ("uv", "run", "--extra", "dev", "ruff", "check"),
     ("uv", "run", "python", "scripts/validate_repo.py"),
+    ("uv", "run", "python", "-m", "compileall"),
     ("nix", "build"),
     ("nix", "flake", "check"),
 }
