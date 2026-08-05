@@ -821,7 +821,28 @@ class HermesWorkerManager:
             OperationClass.MODEL_CALL,
             toolsets="",
         )
-        handoff = self.extract_json(output)
+        try:
+            handoff = self.extract_json(output)
+        except ValueError:
+            output = self.run_model(
+                "gpt-5.3-codex",
+                (
+                    "Your prior response violated the JSON-only implementation contract. "
+                    "Return exactly one JSON object with keys patch and wwwhh, no prose or "
+                    "markdown. Preserve the approved scope and changed hypothesis from the "
+                    "assignment.\n\n"
+                    + prompt
+                    + "\n\nPrior invalid output tail:\n"
+                    + output[-4_000:]
+                ),
+                900,
+                assignment,
+                "implementation-response-repair",
+                model_decision,
+                OperationClass.MODEL_CALL,
+                toolsets="",
+            )
+            handoff = self.extract_json(output)
         patch = str(handoff.get("patch") or "")
         if not patch.strip():
             raise RuntimeError("implementation planner returned an empty patch")
