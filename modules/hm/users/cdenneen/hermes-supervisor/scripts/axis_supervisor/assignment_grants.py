@@ -41,6 +41,7 @@ def immutable_scope(grant: dict) -> dict:
         key: grant[key]
         for key in (
             "assignment_id",
+            "assignment_type",
             "work_item",
             "repository",
             "source_sha",
@@ -95,9 +96,15 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     authority_facts = (assignment.get("source_item") or {}).get(
         "authority_facts"
     ) or {}
+    approved_assignment_type = authority_facts.get("approved_assignment_type")
+    assignment_type_matches = approved_assignment_type == assignment[
+        "assignment_type"
+    ] or (
+        approved_assignment_type == "code-implementation"
+        and assignment["assignment_type"] == "ci-integration-repair"
+    )
     if authority_state == "direct" and (
-        authority_facts.get("approved_assignment_type")
-        != assignment["assignment_type"]
+        not assignment_type_matches
         or sorted(authority_facts.get("approved_allowed_paths") or [])
         != allowed_paths
         or list(authority_facts.get("approved_required_tests") or [])
@@ -117,6 +124,7 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
         "scope_digest": "sha256:" + "0" * 64,
         "status": "active",
         "assignment_id": assignment_id,
+        "assignment_type": assignment["assignment_type"],
         "work_item": assignment["work_item"],
         "repository": assignment["project"],
         "source_sha": source_sha,
@@ -247,6 +255,8 @@ def validate_grant(
         raise AssignmentGrantDenied("mutation grant is inactive or expired")
     if grant["assignment_id"] != assignment.get("assignment_id"):
         raise AssignmentGrantDenied("mutation grant assignment mismatch")
+    if grant["assignment_type"] != assignment.get("assignment_type"):
+        raise AssignmentGrantDenied("mutation grant assignment type mismatch")
     if grant["work_item"] != assignment.get("work_item"):
         raise AssignmentGrantDenied("mutation grant work item mismatch")
     if grant["repository"] != repository or repository != assignment.get("project"):

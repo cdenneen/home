@@ -91,6 +91,41 @@ class Dispatcher:
             "mutation_grant_id": None,
             "mutation_grant_uri": None,
         }
+        if assignment["assignment_type"] == "code-implementation":
+            prior_failures = []
+            for prior_path in self.assignments.glob("*.json"):
+                prior = validate_assignment(
+                    json.loads(prior_path.read_text(encoding="utf-8")), self.root
+                )
+                if (
+                    prior.get("work_item") == assignment["work_item"]
+                    and prior.get("assignment_type")
+                    in {"code-implementation", "ci-integration-repair"}
+                    and prior.get("lifecycle_state") == "failed"
+                ):
+                    prior_failures.append(prior)
+            if prior_failures:
+                prior = max(
+                    prior_failures,
+                    key=lambda value: int(value.get("created_at_epoch") or 0),
+                )
+                patch_path = (
+                    self.root
+                    / "recovery"
+                    / f"{prior['assignment_id']}.planned.patch"
+                )
+                assignment["assignment_type"] = "ci-integration-repair"
+                assignment["recovery_context"] = {
+                    "prior_assignment_id": prior["assignment_id"],
+                    "failure": str(prior.get("error") or "")[-12_000:],
+                    "prior_patch": patch_path.read_text(encoding="utf-8")[-50_000:]
+                    if patch_path.exists()
+                    else None,
+                    "changed_hypothesis": (
+                        "Preserve participant-visible success paths; apply current-control "
+                        "denial only when current controls fail."
+                    ),
+                }
         path = self.assignments / f"{assignment_id}.json"
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)

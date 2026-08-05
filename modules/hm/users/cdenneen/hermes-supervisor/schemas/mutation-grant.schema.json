@@ -9,6 +9,7 @@
     "scope_digest",
     "status",
     "assignment_id",
+    "assignment_type",
     "work_item",
     "repository",
     "source_sha",
@@ -46,6 +47,13 @@
       "enum": ["active", "consumed", "failed", "expired", "revoked"]
     },
     "assignment_id": { "type": "string", "minLength": 1 },
+    "assignment_type": {
+      "enum": [
+        "governance-document-mutation",
+        "code-implementation",
+        "ci-integration-repair"
+      ]
+    },
     "work_item": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
     "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
