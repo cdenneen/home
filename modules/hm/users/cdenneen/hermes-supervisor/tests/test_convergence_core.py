@@ -187,8 +187,10 @@ def test_current_and_historical_completion_use_one_verification_shape(tmp_path: 
         fresh_cycle_recognition=False,
     )
     current["completion_receipt"] = receipt
+    fresh_item = item()
+    fresh_item["classification"] = "Revalidation"
     result = verification_for(
-        item(),
+        fresh_item,
         [current],
         current_inventory_generation_id="inventory-after",
         current_source_fingerprint="source-after",

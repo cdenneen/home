@@ -280,7 +280,11 @@ def verification_for(
                     and current_source_fingerprint
                     and assignment.get("source_fingerprint")
                     != current_source_fingerprint
-                    and item.get("classification") in {"Integrated", "Completed"}
+                    and all(
+                        value
+                        for name, value in result["checks"].items()
+                        if name != "fresh_cycle_recognition"
+                    )
                 ):
                     result = recognize_fresh_cycle(result)
                 source = "completion-receipt"
