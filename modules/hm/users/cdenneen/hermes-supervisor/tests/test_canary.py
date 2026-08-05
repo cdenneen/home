@@ -178,6 +178,61 @@ def test_canary_gate_denies_expired_stale_and_second_assignment(
         )
 
 
+def test_canary_gate_allows_exact_merged_recovery(monkeypatch, tmp_path: Path):
+    from axis_supervisor import canary
+    from axis_supervisor.canary import load_grant, write_grant
+    from axis_supervisor.mutation import MutationDenied, MutationGate, OperationClass
+
+    grant, assignment = setup_canary(tmp_path)
+    grant["mr_iid"] = 17
+    grant["events"].append(
+        {
+            "event": "merge-request-bound",
+            "iid": 17,
+            "sha": "e" * 40,
+            "recorded_at_epoch": int(time.time()),
+        }
+    )
+    write_grant(tmp_path, grant)
+    assignment["worker"] = {
+        "commit": "e" * 40,
+        "handoff": {"mr_iid": 17},
+    }
+    merged_mr = {
+        "iid": 17,
+        "state": "merged",
+        "target_branch": "main",
+        "source_branch": grant["branch"],
+        "sha": "e" * 40,
+        "merge_commit_sha": "d" * 40,
+        "diff_refs": {"base_sha": grant["source_sha"]},
+    }
+    monkeypatch.setattr(canary, "current_main_sha", lambda _repo: "d" * 40)
+    gate = MutationGate(tmp_path, source="cycle")
+    decision = gate.decide(
+        OperationClass.REPOSITORY,
+        assignment=assignment,
+        repository=assignment["project"],
+        fencing_token="c" * 32,
+        merged_mr=merged_mr,
+    )
+    gate.require(
+        decision,
+        OperationClass.REPOSITORY,
+        assignment=assignment,
+        repository=assignment["project"],
+    )
+
+    with pytest.raises(MutationDenied, match="stale"):
+        gate.decide(
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment["project"],
+            fencing_token="c" * 32,
+            merged_mr=merged_mr | {"sha": "f" * 40},
+        )
+
+
 def test_merge_readiness_fails_closed_before_successful_pipeline():
     from axis_supervisor.integrator import Integrator
 

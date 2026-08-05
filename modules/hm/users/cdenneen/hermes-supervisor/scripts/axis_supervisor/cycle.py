@@ -515,19 +515,34 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         assignment["integration"] = integration
         result = integration["result"].get("result")
         if result in {"integrate", "integrated-existing"}:
-            gitlab_decision = gate.decide(
-                OperationClass.GITLAB,
-                assignment=assignment,
-                repository=assignment["project"],
-                fencing_token=lease["fencing_token"],
-            )
             if result == "integrate":
+                gitlab_decision = gate.decide(
+                    OperationClass.GITLAB,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                    fencing_token=lease["fencing_token"],
+                )
                 integrator.merge_mr(
                     assignment["project"], iid, assignment, gate, gitlab_decision
                 )
             inspection = integrator.inspect_mr(assignment["project"], iid)
             if inspection["mr"].get("state") != "merged":
                 raise RuntimeError("gated integration did not produce a merged MR")
+            merged_mr = inspection["mr"]
+            repository_decision = gate.decide(
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment["project"],
+                fencing_token=lease["fencing_token"],
+                merged_mr=merged_mr,
+            )
+            gitlab_decision = gate.decide(
+                OperationClass.GITLAB,
+                assignment=assignment,
+                repository=assignment["project"],
+                fencing_token=lease["fencing_token"],
+                merged_mr=merged_mr,
+            )
             worker_record = assignment.get("worker") or {}
             worktree_value = worker_record.get("worktree")
             branch = worker_record.get("branch")
@@ -537,12 +552,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
                 "project"
             ].split("/")[-1]
-            repository_decision = gate.decide(
-                OperationClass.REPOSITORY,
-                assignment=assignment,
-                repository=assignment["project"],
-                fencing_token=lease["fencing_token"],
-            )
             gate.require(
                 repository_decision,
                 OperationClass.REPOSITORY,

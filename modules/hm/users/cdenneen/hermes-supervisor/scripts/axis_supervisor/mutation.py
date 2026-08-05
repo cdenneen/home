@@ -38,6 +38,7 @@ class GateDecision:
     governance_state: str | None
     canary_grant_id: str | None
     _issuer: str
+    _merged_mr: dict | None
 
 
 def canonical_lease_path(root: Path, assignment: dict) -> Path:
@@ -81,6 +82,7 @@ class MutationGate:
         assignment: dict | None = None,
         repository: str | None = None,
         fencing_token: str | None = None,
+        merged_mr: dict | None = None,
     ) -> GateDecision:
         if not isinstance(operation, OperationClass):
             raise MutationDenied(f"unknown operation class: {operation}")
@@ -172,7 +174,11 @@ class MutationGate:
         if authority_state == "canary":
             try:
                 canary = validate_canary(
-                    self.root, assignment, operation.value, repository
+                    self.root,
+                    assignment,
+                    operation.value,
+                    repository,
+                    merged_mr=merged_mr,
                 )
             except CanaryDenied as exc:
                 raise MutationDenied(str(exc)) from exc
@@ -188,7 +194,14 @@ class MutationGate:
         lease = self._validate_lease(
             assignment, repository, fencing_token, allow_read_only=False
         )
-        return self._decision(operation, repository, assignment, lease, canary)
+        return self._decision(
+            operation,
+            repository,
+            assignment,
+            lease,
+            canary,
+            merged_mr=merged_mr,
+        )
 
     def _validate_lease(
         self,
@@ -222,6 +235,7 @@ class MutationGate:
         assignment: dict | None,
         lease: dict | None = None,
         canary: dict | None = None,
+        merged_mr: dict | None = None,
     ) -> GateDecision:
         decision = GateDecision(
             operation=operation,
@@ -235,6 +249,7 @@ class MutationGate:
             or ((assignment or {}).get("candidate") or {}).get("result"),
             canary_grant_id=(canary or {}).get("grant_id"),
             _issuer=self._issuer,
+            _merged_mr=merged_mr,
         )
         if canary:
             append_event(
@@ -289,6 +304,7 @@ class MutationGate:
                         assignment,
                         operation.value,
                         repository or assignment.get("project"),
+                        merged_mr=decision._merged_mr,
                     )
                 except CanaryDenied as exc:
                     raise MutationDenied(str(exc)) from exc

@@ -46,11 +46,38 @@ def current_main_sha(repository: str) -> str:
     return output[0].split()[0]
 
 
+def merged_recovery_matches(
+    grant: dict, assignment: dict, mr: dict | None, main_sha: str
+) -> bool:
+    if not mr or grant.get("mr_iid") is None:
+        return False
+    worker = assignment.get("worker") or {}
+    handoff = worker.get("handoff") or {}
+    bound_shas = {
+        event.get("sha")
+        for event in grant.get("events") or []
+        if event.get("event") == "merge-request-bound"
+        and int(event.get("iid") or 0) == int(grant["mr_iid"])
+    }
+    return bool(
+        mr.get("state") == "merged"
+        and int(mr.get("iid") or 0) == int(grant["mr_iid"])
+        and int(handoff.get("mr_iid") or 0) == int(grant["mr_iid"])
+        and mr.get("target_branch") == "main"
+        and mr.get("source_branch") == grant["branch"]
+        and mr.get("sha") == worker.get("commit")
+        and mr.get("sha") in bound_shas
+        and (mr.get("diff_refs") or {}).get("base_sha") == grant["source_sha"]
+        and mr.get("merge_commit_sha") == main_sha
+    )
+
+
 def validate_canary(
     root: Path,
     assignment: dict,
     operation: str,
     repository: str | None,
+    merged_mr: dict | None = None,
 ) -> dict:
     grant = load_grant(root)
     now = int(time.time())
@@ -64,7 +91,10 @@ def validate_canary(
         raise CanaryDenied("canary grant target mismatch")
     if grant["source_sha"] != assignment.get("source_main_sha"):
         raise CanaryDenied("canary grant source SHA mismatch")
-    if current_main_sha(grant["repository"]) != grant["source_sha"]:
+    main_sha = current_main_sha(grant["repository"])
+    if main_sha != grant["source_sha"] and not merged_recovery_matches(
+        grant, assignment, merged_mr, main_sha
+    ):
         raise CanaryDenied("canary source SHA is stale")
     if grant["branch"] != assignment.get("canary_branch"):
         raise CanaryDenied("canary branch mismatch")
