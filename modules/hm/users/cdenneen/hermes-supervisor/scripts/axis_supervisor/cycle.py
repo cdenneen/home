@@ -761,6 +761,16 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             return execute_deployment_assignment(
                 ROOT, deployment_assignment, supervisorctl
             )
+        resumable = next(
+            (
+                value
+                for value in existing
+                if value.get("lifecycle_state") == "ready-implementation"
+            ),
+            None,
+        )
+        if resumable is not None:
+            return execute_deployment_assignment(ROOT, resumable, supervisorctl)
     dispatcher = Dispatcher(ROOT)
     active = dispatcher.active()
     gate = MutationGate(ROOT, source="cycle")

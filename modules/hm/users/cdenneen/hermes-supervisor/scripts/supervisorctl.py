@@ -192,7 +192,7 @@ def claim(args: argparse.Namespace) -> int:
                 raise RuntimeError(
                     "capability deployment is not authorized by current convergence state"
                 )
-            if args.resource != f"runtime:{plan.get('target_runtime')}":
+            if args.resource != [f"runtime:{plan.get('target_runtime')}"]:
                 raise RuntimeError("capability deployment runtime resource mismatch")
             bounded_grant = True
         elif authority_state == "canary":
@@ -243,16 +243,25 @@ def claim(args: argparse.Namespace) -> int:
     if ttl <= 0:
         raise RuntimeError("lease TTL must be positive")
     resources = sorted(set(args.resource))
-    allowlist = set(control.get("repository_allowlist") or [])
-    parsed_resources = [RESOURCE_PATTERN.fullmatch(resource) for resource in resources]
-    if (
-        not resources
-        or any(match is None for match in parsed_resources)
-        or any(match.group(2) not in allowlist for match in parsed_resources if match)
-    ):
-        raise RuntimeError("lease resources must identify an allowlisted repository")
-    if any(match.group(2) != assignment.get("project") for match in parsed_resources if match):
-        raise RuntimeError("lease resources must match the assignment project")
+    if assignment.get("assignment_type") == "capability-deployment":
+        expected_resource = f"runtime:{(assignment.get('deployment_plan') or {}).get('target_runtime')}"
+        if resources != [expected_resource]:
+            raise RuntimeError("deployment lease must identify the exact runtime")
+    else:
+        allowlist = set(control.get("repository_allowlist") or [])
+        parsed_resources = [RESOURCE_PATTERN.fullmatch(resource) for resource in resources]
+        if (
+            not resources
+            or any(match is None for match in parsed_resources)
+            or any(match.group(2) not in allowlist for match in parsed_resources if match)
+        ):
+            raise RuntimeError("lease resources must identify an allowlisted repository")
+        if any(
+            match.group(2) != assignment.get("project")
+            for match in parsed_resources
+            if match
+        ):
+            raise RuntimeError("lease resources must match the assignment project")
 
     acquire_controller(now)
     try:
