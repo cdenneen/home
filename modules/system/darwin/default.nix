@@ -156,7 +156,7 @@
             [ -n "$gitlab_token" ] && access_tokens="gitlab.com=$gitlab_token"
             [ -n "$github_token" ] && access_tokens="$access_tokens github.com=$github_token"
             if [ -n "$access_tokens" ]; then
-              printf 'access-tokens =%s\n' "$access_tokens" >> "$tmp_file"
+              printf 'access-tokens = %s\n' "$access_tokens" >> "$tmp_file"
             fi
 
             ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
