@@ -171,7 +171,7 @@ class ExecutionGraphBuilder:
             "axis.external-development-supervisor.control",
         )
         semantic_priority = {
-            ref: 500 - index
+            ref: 100_000 - index
             for index, ref in enumerate(control.get("semantic_priority_refs") or [])
         }
         raw_source_items = sorted(
