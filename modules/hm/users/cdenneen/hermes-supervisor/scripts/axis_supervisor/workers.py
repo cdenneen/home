@@ -773,6 +773,28 @@ class HermesWorkerManager:
                 check=True,
                 timeout=600,
             )
+        elif (worktree / "pyproject.toml").is_file():
+            uv = shutil.which("uv") or "/etc/profiles/per-user/cdenneen/bin/uv"
+            self.gate.require(
+                decision("provision-test-environment"),
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment.get("project"),
+                effect="provision-test-environment" if bounded_grant else None,
+            )
+            subprocess.run(
+                [
+                    uv,
+                    "sync",
+                    "--extra",
+                    "dev",
+                    "--python",
+                    sys.executable,
+                ],
+                cwd=worktree,
+                check=True,
+                timeout=600,
+            )
         allowed = set(assignment.get("allowed_paths") or [])
         source_files = {}
         rationale = str((assignment.get("candidate") or {}).get("rationale") or "")

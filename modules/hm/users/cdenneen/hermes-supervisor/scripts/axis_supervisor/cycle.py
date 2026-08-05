@@ -850,6 +850,29 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     check=True,
                     timeout=600,
                 )
+            elif recreated_worktree and (worktree / "pyproject.toml").is_file():
+                gate.require(
+                    post_merge_repository_decision("provision-test-environment"),
+                    OperationClass.REPOSITORY,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                    effect="provision-test-environment"
+                    if assignment.get("mutation_grant_id")
+                    else None,
+                )
+                subprocess.run(
+                    [
+                        shutil.which("uv") or "/etc/profiles/per-user/cdenneen/bin/uv",
+                        "sync",
+                        "--extra",
+                        "dev",
+                        "--python",
+                        sys.executable,
+                    ],
+                    cwd=worktree,
+                    check=True,
+                    timeout=600,
+                )
             test_results = []
             verification_error = None
             cleanup = {
