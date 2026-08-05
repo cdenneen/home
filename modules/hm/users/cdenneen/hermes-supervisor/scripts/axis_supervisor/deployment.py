@@ -119,7 +119,11 @@ def _command(home: Path, target: str) -> list[str]:
 
 def _identity(target: str, path: str) -> dict:
     if target == "ghost":
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+        return json.loads(
+            subprocess.check_output(
+                ["sudo", "-n", "cat", path], text=True, timeout=10
+            )
+        )
     remote = "VNJTECMBCD" if target == "desktop" else "nyx"
     return json.loads(
         subprocess.check_output(
