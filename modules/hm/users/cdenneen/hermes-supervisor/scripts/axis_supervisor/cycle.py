@@ -23,7 +23,12 @@ from axis_supervisor.mutation import (
     OperationClass,
     load_canonical_lease,
 )
-from axis_supervisor.schema_registry import read_record, validate_record, write_record
+from axis_supervisor.schema_registry import (
+    CorruptRecordError,
+    read_record,
+    validate_record,
+    write_record,
+)
 from axis_supervisor.verification import completion_receipt
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
 
@@ -469,20 +474,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "assignment": assignment["assignment_id"],
                 "lifecycle_state": assignment.get("lifecycle_state"),
             }
-        lease = load_canonical_lease(ROOT, assignment)
-        subprocess.run(
-            [
-                sys.executable,
-                supervisorctl,
-                "heartbeat",
-                assignment["assignment_id"],
-                "--token",
-                lease["fencing_token"],
-                "--ttl",
-                "3600",
-            ],
-            check=True,
-        )
         handoff = (assignment.get("worker") or {}).get("handoff") or {}
         iid = int(handoff.get("mr_iid") or 0)
         integrator = Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
@@ -492,6 +483,43 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             expected_source_branch=(assignment.get("worker") or {}).get("branch"),
             expected_sha=(assignment.get("worker") or {}).get("commit"),
         )
+        try:
+            lease = load_canonical_lease(ROOT, assignment)
+            subprocess.run(
+                [
+                    sys.executable,
+                    supervisorctl,
+                    "heartbeat",
+                    assignment["assignment_id"],
+                    "--token",
+                    lease["fencing_token"],
+                    "--ttl",
+                    "3600",
+                ],
+                check=True,
+            )
+        except CorruptRecordError:
+            if inspection["mr"].get("state") != "merged":
+                raise
+            output = subprocess.check_output(
+                [
+                    sys.executable,
+                    supervisorctl,
+                    "claim",
+                    assignment["assignment_id"],
+                    "--run-id",
+                    assignment["created_by_run"],
+                    "--resource",
+                    f"repo:{assignment['project']}",
+                    "--ttl",
+                    "3600",
+                    "--merged-mr-json",
+                    json.dumps(inspection["mr"], sort_keys=True),
+                ],
+                text=True,
+                timeout=120,
+            )
+            lease = json.loads(output)
         pipeline_status = str((inspection.get("pipeline") or {}).get("status") or "")
         integration_result = (
             "integrated-existing"
@@ -552,6 +580,37 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
                 "project"
             ].split("/")[-1]
+            recreated_worktree = not worktree.exists()
+            if recreated_worktree:
+                gate.require(
+                    repository_decision,
+                    OperationClass.REPOSITORY,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                )
+                remote_url = subprocess.check_output(
+                    ["git", "remote", "get-url", "origin"],
+                    cwd=repo,
+                    text=True,
+                    timeout=30,
+                ).strip()
+                subprocess.run(
+                    ["git", "clone", "--no-hardlinks", str(repo), str(worktree)],
+                    check=True,
+                    timeout=120,
+                )
+                gate.require(
+                    repository_decision,
+                    OperationClass.REPOSITORY,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                )
+                subprocess.run(
+                    ["git", "remote", "set-url", "origin", remote_url],
+                    cwd=worktree,
+                    check=True,
+                    timeout=30,
+                )
             gate.require(
                 repository_decision,
                 OperationClass.REPOSITORY,
@@ -568,6 +627,27 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             subprocess.run(
                 ["git", "switch", "--detach", "origin/main"], cwd=worktree, check=True
             )
+            if recreated_worktree and (worktree / "uv.lock").is_file():
+                gate.require(
+                    repository_decision,
+                    OperationClass.REPOSITORY,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                )
+                subprocess.run(
+                    [
+                        shutil.which("uv") or "/etc/profiles/per-user/cdenneen/bin/uv",
+                        "sync",
+                        "--locked",
+                        "--group",
+                        "dev",
+                        "--python",
+                        sys.executable,
+                    ],
+                    cwd=worktree,
+                    check=True,
+                    timeout=600,
+                )
             test_results = []
             verification_error = None
             cleanup = {
@@ -611,20 +691,34 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     ).returncode
                     != 0
                 )
-                released = subprocess.run(
-                    [
-                        sys.executable,
-                        supervisorctl,
-                        "release",
-                        assignment["assignment_id"],
-                        "--token",
-                        lease["fencing_token"],
-                    ],
-                    check=False,
-                )
-                cleanup["lease_removed"] = released.returncode == 0
             integration["verified_mr"] = inspection["mr"].get("web_url")
             integration["post_merge_tests"] = test_results
+            if not verification_error:
+                try:
+                    close_work_item(
+                        assignment,
+                        "/etc/profiles/per-user/cdenneen/bin/glab",
+                        gate,
+                        gitlab_decision,
+                        [
+                            str(inspection["mr"].get("web_url") or ""),
+                            str((inspection.get("pipeline") or {}).get("web_url") or ""),
+                        ],
+                    )
+                except Exception as exc:
+                    verification_error = f"{type(exc).__name__}: {exc}"
+            released = subprocess.run(
+                [
+                    sys.executable,
+                    supervisorctl,
+                    "release",
+                    assignment["assignment_id"],
+                    "--token",
+                    lease["fencing_token"],
+                ],
+                check=False,
+            )
+            cleanup["lease_removed"] = released.returncode == 0
             if verification_error:
                 set_lifecycle(assignment, "blocked")
                 assignment["error"] = verification_error
@@ -632,16 +726,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "failed")
             else:
-                close_work_item(
-                    assignment,
-                    "/etc/profiles/per-user/cdenneen/bin/glab",
-                    gate,
-                    gitlab_decision,
-                    [
-                        str(inspection["mr"].get("web_url") or ""),
-                        str((inspection.get("pipeline") or {}).get("web_url") or ""),
-                    ],
-                )
                 assignment["source_item"]["source_state"] = "closed"
                 assignment["source_item"]["state"] = "closed"
                 assignment["completion_receipt"] = completion_receipt(

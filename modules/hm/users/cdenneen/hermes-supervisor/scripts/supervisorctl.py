@@ -166,9 +166,18 @@ def claim(args: argparse.Namespace) -> int:
     if not args.read_only:
         authority_state = (assignment.get("authority") or {}).get("state")
         if authority_state == "canary":
+            merged_mr = None
+            if args.merged_mr_json:
+                merged_mr = json.loads(args.merged_mr_json)
+                if not isinstance(merged_mr, dict):
+                    raise RuntimeError("merged MR recovery evidence must be an object")
             try:
                 validate_canary(
-                    ROOT, assignment, "repository-mutation", assignment.get("project")
+                    ROOT,
+                    assignment,
+                    "repository-mutation",
+                    assignment.get("project"),
+                    merged_mr=merged_mr,
                 )
             except CanaryDenied as exc:
                 raise RuntimeError(str(exc)) from exc
@@ -300,6 +309,7 @@ def main() -> int:
     claim_parser.add_argument("--resource", action="append", default=[], required=True)
     claim_parser.add_argument("--ttl", type=int)
     claim_parser.add_argument("--read-only", action="store_true")
+    claim_parser.add_argument("--merged-mr-json")
     claim_parser.set_defaults(handler=claim)
 
     heartbeat_parser = subparsers.add_parser("heartbeat")
