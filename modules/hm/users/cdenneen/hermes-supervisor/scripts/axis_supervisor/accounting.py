@@ -73,10 +73,18 @@ class AccountingLedger:
         current = int(now or time.time())
         count = 0
         for path in (self.root / "runs").glob("*.json"):
-            record = read_record(path, "axis.external-development-supervisor.run")
-            if record["status"] == "preflight-test":
+            try:
+                record = read_record(
+                    path, "axis.external-development-supervisor.run"
+                )
+            except Exception:
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+            if record.get("status") == "preflight-test":
                 continue
-            if self._day(int(record["started_at_epoch"])) == self._day(current):
+            if self._day(int(record.get("started_at_epoch") or 0)) == self._day(current):
                 count += 1
         return count
 

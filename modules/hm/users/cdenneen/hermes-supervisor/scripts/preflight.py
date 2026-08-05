@@ -83,7 +83,28 @@ def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
     outputs = list(output_dir.glob("*.md")) if job_id else []
 
     for run_path in RUNS.glob("*.json"):
-        record = read_record(run_path, "axis.external-development-supervisor.run")
+        try:
+            record = read_record(
+                run_path, "axis.external-development-supervisor.run"
+            )
+        except Exception:
+            record = json.loads(run_path.read_text(encoding="utf-8"))
+            if record.get("schema") or record.get("status") != "started":
+                continue
+            record = {
+                "schema": "axis.external-development-supervisor.run",
+                "schema_version": "1.0.0",
+                "run_id": str(record.get("run_id") or run_path.stem),
+                "status": "started",
+                "host": str(record.get("host") or "legacy"),
+                "started_at_epoch": int(record.get("started_at_epoch") or 1),
+                "mode": str(record.get("mode") or "observing"),
+                "allow_repository_mutation": bool(
+                    record.get("allow_repository_mutation")
+                ),
+                "inventory_generation_id": record.get("inventory_generation_id"),
+                "model_calls_remaining": int(record.get("model_calls_remaining") or 0),
+            }
         if record.get("status") != "started":
             continue
 
