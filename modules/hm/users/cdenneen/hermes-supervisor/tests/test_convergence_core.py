@@ -614,6 +614,62 @@ def test_large_implementation_context_requires_and_uses_source_ranges():
         )
 
 
+def test_operational_metrics_measure_verified_throughput(tmp_path: Path):
+    from axis_supervisor.observability import OperationalEventLog
+    from axis_supervisor.schema_registry import write_record
+
+    write_record(
+        tmp_path / "control.json",
+        control(),
+        "axis.external-development-supervisor.control",
+    )
+    log = OperationalEventLog(tmp_path, "cycle")
+    analysis = {
+        "assignment_id": "analysis-1",
+        "work_item": "ghostspace/axis#1",
+        "project": "ghostspace/axis",
+        "lifecycle_state": "completed",
+    }
+    implementation = analysis | {
+        "assignment_id": "implementation-1",
+        "lifecycle_state": "completed",
+    }
+    log.emit(
+        "assignment_selected",
+        assignment=analysis,
+        details={"assignment_type": "read-only-analysis"},
+        notify=False,
+    )
+    log.emit(
+        "assignment_disposition",
+        assignment=analysis,
+        details={
+            "assignment_type": "read-only-analysis",
+            "disposition": "analysis-completed",
+            "work_item_disposition": "requires-implementation",
+        },
+        notify=False,
+    )
+    log.emit(
+        "assignment_selected",
+        assignment=implementation,
+        details={"assignment_type": "code-implementation"},
+        notify=False,
+    )
+    for event_type in (
+        "implementation_completed",
+        "mr_merged",
+        "post_main_verified",
+        "grant_consumed",
+    ):
+        log.emit(event_type, assignment=implementation, notify=False)
+    metrics = log.throughput_metrics(int(time.time()) - 60, int(time.time()) + 60)
+    assert metrics["analysis_to_implementation_percent"] == 100
+    assert metrics["implementation_to_merge_percent"] == 100
+    assert metrics["merge_to_verified_percent"] == 100
+    assert metrics["post_main_verified"] == 1
+
+
 @pytest.mark.parametrize(
     "path",
     ["/home/cdenneen/.ssh/id_ed25519", "../secret", ".git/config", "src/../secret"],

@@ -498,7 +498,8 @@ def test_semantic_worker_cannot_self_grant_inherited_authority(tmp_path: Path):
         )
     )
     graph = ExecutionGraphBuilder(tmp_path).build(
-        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}}
+        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}},
+        {"available_model_call_budget": 10},
     )
     assert graph["executable_queue"] == []
     assert graph["semantic_authority_unresolved"] == 1
@@ -548,12 +549,77 @@ def test_global_mutation_disabled_keeps_grant_eligible_implementation_slice(tmp_
     record["evidence_fingerprint"] = engine.save_evidence(item["ref"], {"fixture": True})
     engine.save(record)
     graph = ExecutionGraphBuilder(tmp_path).build(
-        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}}
+        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}},
+        {"available_model_call_budget": 10},
     )
     implementation = next(
         entry for entry in graph["executable_queue"] if entry.get("kind") == "implementation"
     )
     assert implementation["assignment_type"] == "code-implementation"
+    assert graph["scheduler_state"]["selected_batch"][0]["assignment_type"] == (
+        "code-implementation"
+    )
+    assert graph["scheduler_state"]["limiting_constraint"] == "implementation-ready"
+
+
+def test_dispatcher_reuses_capacity_only_across_independent_repositories(tmp_path: Path):
+    from axis_supervisor.dispatcher import Dispatcher
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(max_active_assignments=2)), encoding="utf-8"
+    )
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    active = {
+        "schema": "axis.external-development-supervisor.assignment",
+        "schema_version": "1.0.0",
+        "assignment_id": "active-axis",
+        "assignment_type": "code-implementation",
+        "result_state": "awaiting-integration",
+        "work_item_disposition": "requires-integration",
+        "lifecycle_state": "awaiting-integration",
+        "kind": "implementation",
+        "project": "ghostspace/axis",
+        "work_item": "ghostspace/axis#1",
+        "planning_record": None,
+        "allowed_paths": [],
+        "required_tests": [],
+        "created_by_run": "run-active",
+        "lease_id": None,
+        "lease_uri": None,
+        "mutation_grant_id": None,
+        "mutation_grant_uri": None,
+    }
+    (assignments / "active-axis.json").write_text(
+        json.dumps(active), encoding="utf-8"
+    )
+    dispatcher = Dispatcher(tmp_path)
+    same_project = {
+        "ref": "semantic-decomposition:ghostspace/axis#2",
+        "target_ref": "ghostspace/axis#2",
+        "kind": "semantic-decomposition",
+        "assignment_type": "read-only-analysis",
+        "project": "ghostspace/axis",
+        "title": "same repository",
+        "classification": "Executable",
+        "authority": {"state": "preparation-only"},
+        "source_item": {},
+        "source_fingerprint": "same",
+        "ranking_score": 10,
+    }
+    graph = {"inventory_generation_id": "g1", "executable_queue": [same_project]}
+    assert dispatcher.dispatch(graph, "run-next", same_project) is None
+
+    independent = same_project | {
+        "ref": "semantic-decomposition:ghostspace/axis-governance#2",
+        "target_ref": "ghostspace/axis-governance#2",
+        "project": "ghostspace/axis-governance",
+        "title": "independent repository",
+        "source_fingerprint": "independent",
+    }
+    created = dispatcher.dispatch(graph, "run-next", independent)
+    assert created is not None
+    assert created["project"] == "ghostspace/axis-governance"
 
 
 def test_semantic_test_commands_reject_shell_control():

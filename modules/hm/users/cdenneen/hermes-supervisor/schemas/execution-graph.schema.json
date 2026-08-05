@@ -116,7 +116,10 @@
         "project": { "type": ["string", "null"] },
         "milestone": { "type": ["string", "null"] },
         "ranking_score": { "type": "integer" },
-        "revalidation_tier": { "enum": ["A", "B", "C", "D", null] }
+        "revalidation_tier": { "enum": ["A", "B", "C", "D", null] },
+        "assignment_type": { "type": ["string", "null"] },
+        "selection_rationale": { "type": ["string", "null"] },
+        "ranking_factors": { "type": ["object", "null"] }
       },
       "additionalProperties": false
     }
@@ -207,7 +210,8 @@
             "configured-batch-ceiling",
             "tier-a-independence",
             "single-item-dispatch",
-            "queue-depth"
+            "queue-depth",
+            "implementation-ready"
           ]
         }
       },

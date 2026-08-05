@@ -154,6 +154,137 @@ class OperationalEventLog:
                 ) from exc
         return values[-limit:]
 
+    def throughput_metrics(self, start_epoch: int, end_epoch: int) -> dict[str, Any]:
+        values = [
+            event
+            for event in self.events(limit=100_000)
+            if start_epoch
+            <= int(event.get("created_at_epoch") or 0)
+            <= end_epoch
+        ]
+        selected = {
+            event.get("assignment_id"): event
+            for event in values
+            if event.get("event_type") == "assignment_selected"
+            and event.get("assignment_id")
+        }
+        dispositions = {
+            event.get("assignment_id"): event
+            for event in values
+            if event.get("event_type") == "assignment_disposition"
+            and event.get("assignment_id")
+        }
+        implementation_selected = {
+            assignment_id
+            for assignment_id, event in selected.items()
+            if (event.get("details") or {}).get("assignment_type")
+            in {
+                "governance-document-mutation",
+                "code-implementation",
+                "ci-integration-repair",
+            }
+        }
+        analysis_selected = {
+            assignment_id
+            for assignment_id, event in selected.items()
+            if (event.get("details") or {}).get("assignment_type")
+            in {"read-only-analysis", "no-op-verification"}
+        }
+        analysis_completed = {
+            assignment_id
+            for assignment_id, event in dispositions.items()
+            if (event.get("details") or {}).get("disposition")
+            in {"analysis-completed", "no-op-verification-completed"}
+        }
+        implementation_completed = {
+            event.get("assignment_id")
+            for event in values
+            if event.get("event_type") == "implementation_completed"
+            and event.get("assignment_id")
+        }
+        post_main_verified = {
+            event.get("assignment_id")
+            for event in values
+            if event.get("event_type") == "post_main_verified"
+            and event.get("assignment_id")
+        }
+        merged = {
+            event.get("assignment_id")
+            for event in values
+            if event.get("event_type") == "mr_merged"
+            and event.get("assignment_id")
+        }
+        retries = sum(event.get("event_type") == "assignment_retry" for event in values)
+        grants_consumed = sum(
+            event.get("event_type") == "grant_consumed" for event in values
+        )
+        blocked = sum(
+            (event.get("details") or {}).get("disposition")
+            in {"blocked", "failed", "recovery-required"}
+            for event in dispositions.values()
+        )
+
+        def average_duration(end_event_type: str) -> int | None:
+            ends = {
+                event.get("assignment_id"): int(event.get("created_at_epoch") or 0)
+                for event in values
+                if event.get("event_type") == end_event_type
+                and event.get("assignment_id")
+            }
+            durations = [
+                ends[assignment_id]
+                - int(event.get("created_at_epoch") or ends[assignment_id])
+                for assignment_id, event in selected.items()
+                if assignment_id in ends
+            ]
+            return round(sum(durations) / len(durations)) if durations else None
+
+        analysis_work_items = {
+            selected[assignment_id].get("work_item")
+            for assignment_id in analysis_completed
+            if assignment_id in selected
+        }
+        implementation_work_items = {
+            selected[assignment_id].get("work_item")
+            for assignment_id in implementation_selected
+            if assignment_id in selected
+        }
+
+        def percent(numerator: int, denominator: int) -> int:
+            return round(numerator * 100 / denominator) if denominator else 0
+
+        return {
+            "start_epoch": start_epoch,
+            "end_epoch": end_epoch,
+            "assignments_selected": len(selected),
+            "analysis_selected": len(analysis_selected),
+            "analysis_completed": len(analysis_completed),
+            "implementation_selected": len(implementation_selected),
+            "implementation_commits": len(implementation_completed),
+            "merged": len(merged),
+            "post_main_verified": len(post_main_verified),
+            "blocked_or_failed": blocked,
+            "retries": retries,
+            "grants_consumed": grants_consumed,
+            "analysis_to_implementation_percent": percent(
+                len(analysis_work_items & implementation_work_items),
+                len(analysis_work_items),
+            ),
+            "implementation_to_merge_percent": percent(
+                len(merged), len(implementation_selected)
+            ),
+            "merge_to_verified_percent": percent(
+                len(post_main_verified), len(merged)
+            ),
+            "retry_rate_percent": percent(retries, len(selected)),
+            "average_implementation_seconds": average_duration(
+                "implementation_completed"
+            ),
+            "average_integration_seconds": average_duration(
+                "post_main_verified"
+            ),
+        }
+
 
 def record_event(
     root: Path,

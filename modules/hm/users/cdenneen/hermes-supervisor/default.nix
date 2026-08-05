@@ -267,10 +267,11 @@ in
             .[1] as $existing
             | (.[0] * $existing)
             | if (($existing.schema // "") != "axis.external-development-supervisor.control"
-                  or ($existing.version // 0) < 3)
+                  or ($existing.version // 0) < 4)
               then .mode = "observing"
                    | .allow_repository_mutation = false
-                   | .version = 3
+                    | .version = 4
+                    | .max_active_assignments = 2
                    | .overview_freshness_minutes = ($existing.overview_freshness_minutes // $existing.report_heartbeat_minutes // 90)
                    | del(.proof_assignment_id, .max_delegated_assignments, .report_heartbeat_minutes,
                          .gitlab_host, .gitlab_group, .slack_delivery, .operator,

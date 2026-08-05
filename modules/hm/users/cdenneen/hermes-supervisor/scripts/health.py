@@ -7,6 +7,7 @@ from pathlib import Path
 
 from axis_supervisor.schema_registry import read_record
 from axis_supervisor.models import validate_assignment
+from axis_supervisor.observability import OperationalEventLog
 
 HOME = Path.home()
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", HOME / ".hermes" / "supervisor" / "axis-development-supervisor"))
@@ -143,6 +144,9 @@ def main() -> int:
                 and now - int(event.get("created_at_epoch") or 0) <= 86400
             ):
                 recent_integrated += 1
+    engineering_metrics = OperationalEventLog(ROOT, "reporter").throughput_metrics(
+        now - 86_400, now
+    )
 
     if gateway.get("gateway_state") != "running":
         errors.append("gateway is not running")
@@ -419,6 +423,7 @@ def main() -> int:
         "coding_workers": len(coding_workers),
         "integration_workers": len(integration_workers),
         "post_main_verified_last_24h": recent_integrated,
+        "engineering_metrics_24h": engineering_metrics,
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1

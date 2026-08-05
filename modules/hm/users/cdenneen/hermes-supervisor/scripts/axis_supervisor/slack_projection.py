@@ -350,7 +350,13 @@ class SlackProjection:
             (item for item in jobs if item.get("name") == "axis-development-supervisor-report"),
             {},
         )
-        events = OperationalEventLog(self.root, "reporter").events(limit=50)
+        event_log = OperationalEventLog(self.root, "reporter")
+        events = event_log.events(limit=50)
+        now_epoch = int(time.time())
+        daily_metrics = event_log.throughput_metrics(now_epoch - 86_400, now_epoch)
+        weekly_metrics = event_log.throughput_metrics(
+            now_epoch - 7 * 86_400, now_epoch
+        )
         meaningful = [event for event in events if event.get("event_type") not in {"cycle_completed", "reconciliation_completed"}]
         last_progress = meaningful[-1] if meaningful else None
         implemented_since_update = sum(
@@ -436,6 +442,26 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
                     {"type": "mrkdwn", "text": f"*Confidence*\n{confidence.get('percent', 0)}%"},
                 ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Engineering Throughput — rolling 24h / 7d*\n"
+                    f"Post-main verified: *{daily_metrics['post_main_verified']} / {weekly_metrics['post_main_verified']}* | "
+                    f"Merged: *{daily_metrics['merged']} / {weekly_metrics['merged']}* | "
+                    f"Implementation commits: *{daily_metrics['implementation_commits']} / {weekly_metrics['implementation_commits']}*\n"
+                    f"Analysis completed: {daily_metrics['analysis_completed']} / {weekly_metrics['analysis_completed']} | "
+                    f"Blocked/failed: {daily_metrics['blocked_or_failed']} / {weekly_metrics['blocked_or_failed']} | "
+                    f"Retries: {daily_metrics['retries']} / {weekly_metrics['retries']}\n"
+                    f"Analysis→implementation: *{daily_metrics['analysis_to_implementation_percent']}%* | "
+                    f"Implementation→merge: *{daily_metrics['implementation_to_merge_percent']}%* | "
+                    f"Merge→verified: *{daily_metrics['merge_to_verified_percent']}%*\n"
+                    f"Average implementation: `{daily_metrics['average_implementation_seconds'] or 'n/a'}s` | "
+                    f"Average integration: `{daily_metrics['average_integration_seconds'] or 'n/a'}s` | "
+                    f"Retry rate: `{daily_metrics['retry_rate_percent']}%`",
+                },
             },
             {"type": "divider"},
             {
@@ -545,7 +571,9 @@ class SlackProjection:
                         f"*Observed scheduler focus:* "
                         f"`{focus.get('target_ref') or focus.get('ref') or 'none'}`\n"
                         f"*Selected:* `{self.scheduler_refs(selected)}`\n"
+                        f"*Why selected now:* `{(selected[0] if selected else {}).get('selection_rationale') or 'no executable selection'}`\n"
                         f"*Deferred:* `{self.scheduler_refs(deferred)}`\n"
+                        f"*First deferred reason:* `{(deferred[0] if deferred else {}).get('selection_rationale') or 'none'}`\n"
                         f"*Available model-call budget:* `{budget}`\n"
                         f"*Limiting constraint:* `{constraint or 'none'}`\n\n"
                         + "\n".join(

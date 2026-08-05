@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -676,8 +677,92 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     active = dispatcher.active()
     gate = MutationGate(ROOT, source="cycle")
     manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
+
+    def dispatch_first_available(current_graph: dict) -> dict | None:
+        queue_by_ref = {
+            item.get("ref"): item
+            for item in current_graph.get("executable_queue") or []
+        }
+        ordered = [
+            queue_by_ref[item.get("ref")]
+            for item in (current_graph.get("scheduler_state") or {}).get(
+                "selected_batch"
+            )
+            or []
+            if item.get("ref") in queue_by_ref
+        ]
+        selected_refs = {item.get("ref") for item in ordered}
+        ordered.extend(
+            item
+            for item in current_graph.get("executable_queue") or []
+            if item.get("ref") not in selected_refs
+        )
+        for item in ordered:
+            dispatched = dispatcher.dispatch(current_graph, run_id, item)
+            if dispatched is not None:
+                return dispatched
+        return None
+
+    def execute_with_continuation(assignment: dict) -> dict:
+        first = execute_new_assignment(
+            assignment, manager, supervisorctl, gate
+        )
+        if (
+            assignment.get("assignment_type")
+            not in {"read-only-analysis", "no-op-verification"}
+            or assignment.get("work_item_disposition")
+            != "requires-implementation"
+        ):
+            return first
+        continuation_graph = rebuild()
+        continuation = next(
+            (
+                item
+                for item in continuation_graph.get("executable_queue") or []
+                if item.get("target_ref") == assignment.get("work_item")
+                and item.get("assignment_type")
+                in {
+                    "governance-document-mutation",
+                    "code-implementation",
+                    "ci-integration-repair",
+                }
+                and (item.get("authority") or {}).get("state")
+                in {"direct", "inherited"}
+            ),
+            None,
+        )
+        if continuation is None:
+            return first
+        continuation = dict(continuation)
+        continuation["selection_rationale"] = (
+            "immediate authorized continuation from analysis; implementation-ready "
+            "work preempts unrelated analysis"
+        )
+        next_assignment = dispatcher.dispatch(
+            continuation_graph, run_id, continuation
+        )
+        if next_assignment is None:
+            return first
+        second = execute_new_assignment(
+            next_assignment, manager, supervisorctl, gate
+        )
+        return {
+            "result": "analysis-to-implementation-continuation",
+            "analysis": first,
+            "implementation": second,
+        }
+
     if active:
-        assignment = validate_assignment(active[0])
+        integrable = [value for value in active if is_integrable(value)]
+        if not integrable:
+            return {
+                "result": "active-assignment-not-integrable",
+                "assignments": [value["assignment_id"] for value in active],
+                "lifecycle_states": [
+                    value.get("lifecycle_state") for value in active
+                ],
+            }
+        assignment = validate_assignment(integrable[0])
         path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
         if not is_integrable(assignment):
             return {
@@ -752,6 +837,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             }
         }
         assignment["integration"] = integration
+        assignment["last_integration_check_epoch"] = int(time.time())
         result = integration["result"].get("result")
         if result in {"integrate", "integrated-existing"}:
             if result == "integrate":
@@ -1134,8 +1220,15 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 },
                 source="cycle",
             )
-        rebuild()
-        return {"result": result, "assignment": assignment["assignment_id"]}
+        current_graph = rebuild()
+        response = {"result": result, "assignment": assignment["assignment_id"]}
+        if result == "waiting":
+            capacity_assignment = dispatch_first_available(current_graph)
+            if capacity_assignment is not None:
+                response["capacity_reused_by"] = execute_with_continuation(
+                    capacity_assignment
+                )
+        return response
     scheduler = graph.get("scheduler_state") or {}
     if scheduler.get("limiting_constraint") == "model-call-budget-exhausted":
         return {"result": "model-call-budget-exhausted", "remaining": 0}
@@ -1155,7 +1248,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 break
             try:
                 results.append(
-                    execute_new_assignment(assignment, manager, supervisorctl, gate)
+                    execute_with_continuation(assignment)
                 )
             except Exception as exc:
                 return {
@@ -1175,7 +1268,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     assignment = dispatcher.dispatch(graph, run_id, selected)
     if assignment is None:
         return {"result": "no-assignment", "queue_depth": graph["queue_depth"]}
-    return execute_new_assignment(assignment, manager, supervisorctl, gate)
+    return execute_with_continuation(assignment)
 
 
 def run_canary(

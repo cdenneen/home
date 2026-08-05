@@ -23,7 +23,7 @@
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.control" },
     "schema_version": { "const": "1.0.0" },
-    "version": { "const": 3 },
+    "version": { "const": 4 },
     "mode": {
       "enum": [
         "disabled",
@@ -37,7 +37,7 @@
     "kill_switch": { "type": "boolean" },
     "allow_repository_mutation": { "type": "boolean" },
     "allow_technical_revalidation": { "type": "boolean" },
-    "max_active_assignments": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "max_active_assignments": { "type": "integer", "minimum": 0, "maximum": 3 },
     "lease_seconds": { "type": "integer", "minimum": 1 },
     "minimum_free_disk_gib": { "type": "integer", "minimum": 0 },
     "overview_freshness_minutes": { "type": "integer", "minimum": 1 },

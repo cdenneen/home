@@ -26,12 +26,25 @@ class Dispatcher:
             )
             if not is_terminal(value):
                 values.append(value)
-        return values
+        return sorted(
+            values,
+            key=lambda value: (
+                int(value.get("last_integration_check_epoch") or 0),
+                int(value.get("created_at_epoch") or 0),
+                str(value.get("assignment_id") or ""),
+            ),
+        )
 
     def dispatch(self, graph: dict, run_id: str, selected: dict | None = None) -> dict | None:
-        if self.active() or (selected is None and not graph.get("executable_queue")):
+        active = self.active()
+        control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
+        if len(active) >= int(control.get("max_active_assignments", 1)) or (
+            selected is None and not graph.get("executable_queue")
+        ):
             return None
         item = selected or graph["executable_queue"][0]
+        if any(value.get("project") == item.get("project") for value in active):
+            return None
         source_item = item.get("source_item") or {}
         authority_facts = source_item.get("authority_facts") or {}
         planning_record = None
@@ -83,6 +96,8 @@ class Dispatcher:
             "source_inventory_generation_id": graph.get("inventory_generation_id"),
             "revalidation_tier": item.get("revalidation_tier"),
             "ranking_factors": item.get("ranking_factors"),
+            "selection_rationale": item.get("selection_rationale")
+            or "highest deterministic eligible queue entry",
             "created_by_run": run_id,
             "created_at_epoch": int(time.time()),
             "lease_id": None,
@@ -134,7 +149,6 @@ class Dispatcher:
             "code-implementation",
             "ci-integration-repair",
         }:
-            control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
             create_grant(self.root, assignment, control)
         validate_assignment(assignment)
         write_record(path, assignment, "axis.external-development-supervisor.assignment")
@@ -149,6 +163,7 @@ class Dispatcher:
                 "authority": assignment.get("authority"),
                 "assignment_type": assignment["assignment_type"],
                 "mutation_grant_id": assignment.get("mutation_grant_id"),
+                "selection_rationale": assignment["selection_rationale"],
                 "expected_next_phase": assignment["lifecycle_state"],
             },
             source="dispatcher",

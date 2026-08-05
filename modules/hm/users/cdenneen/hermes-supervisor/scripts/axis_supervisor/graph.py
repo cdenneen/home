@@ -73,10 +73,52 @@ def _rank_queue_entry(entry: dict, authority: dict) -> None:
     entry["ranking_factors"] = factors
 
 
+MUTATING_ASSIGNMENT_TYPES = {
+    "governance-document-mutation",
+    "code-implementation",
+    "ci-integration-repair",
+}
+
+
+def _execution_order(item: dict) -> int:
+    assignment_type = item.get("assignment_type")
+    if assignment_type in MUTATING_ASSIGNMENT_TYPES:
+        return 0
+    if assignment_type == "repository-convergence":
+        return 1
+    if assignment_type == "no-op-verification":
+        return 2
+    return 3
+
+
+def _selection_rationale(item: dict) -> str:
+    factors = item.get("ranking_factors") or {}
+    assignment_type = item.get("assignment_type") or item.get("kind")
+    if assignment_type in MUTATING_ASSIGNMENT_TYPES:
+        policy = "implementation-ready work preempts additional analysis"
+    elif assignment_type == "repository-convergence":
+        policy = "repository convergence removes an execution blocker"
+    elif item.get("target_ref"):
+        policy = "analysis selected to produce a governed downstream action"
+    else:
+        policy = "highest deterministic queue rank"
+    return (
+        f"{policy}; score={int(item.get('ranking_score') or 0)}; "
+        f"dependency_unlocks={int(factors.get('dependency_unlock_count') or 0)}; "
+        f"authority={((item.get('authority') or {}).get('state') or 'unknown')}"
+    )
+
+
 def _scheduler_state(
     queue: list[dict], control: dict, scheduler_context: dict | None
 ) -> dict:
-    ceiling = max(1, int(control.get("tier_a_batch_size", 2)))
+    ceiling = max(
+        1,
+        min(
+            int(control.get("tier_a_batch_size", 2)),
+            int(control.get("max_active_assignments", 1)),
+        ),
+    )
     context = scheduler_context or {}
     budget_present = scheduler_context is not None and (
         "model_calls_remaining" in context
@@ -88,6 +130,8 @@ def _scheduler_state(
     budget = max(0, int(budget_value)) if budget_present and budget_value is not None else None
     next_work = queue[0] if queue else None
 
+    implementation_selected = False
+    limiting_constraint = "queue-depth"
     if not queue:
         selected = []
         limiting_constraint = "no-executable-work"
@@ -102,13 +146,32 @@ def _scheduler_state(
             "model-call-budget-exhausted" if not selected else "configured-batch-ceiling"
         )
     else:
+        implementation_candidates = [
+            item
+            for item in queue
+            if item.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
+        ]
+        selected = []
+        selected_projects = set()
+        for item in implementation_candidates:
+            project = item.get("project")
+            if project in selected_projects:
+                continue
+            selected.append(item)
+            selected_projects.add(project)
+            if len(selected) >= min(ceiling, budget):
+                break
+        if selected:
+            implementation_selected = True
+            limiting_constraint = "implementation-ready"
         priority_refs = list(control.get("semantic_priority_refs") or [])
         priority_order = {ref: index for index, ref in enumerate(priority_refs)}
         priority_candidates = sorted(
             [item for item in queue if item.get("target_ref") in priority_order],
             key=lambda item: priority_order[item["target_ref"]],
         )
-        selected = priority_candidates[:1]
+        if not selected:
+            selected = priority_candidates[:1]
         if not selected:
             selected = select_tier_a_batch(queue, ceiling, budget)
         if not selected:
@@ -116,7 +179,9 @@ def _scheduler_state(
         tier_a_candidates = [
             item for item in queue if item.get("revalidation_tier") == "A"
         ]
-        if len(selected) >= budget and budget < ceiling:
+        if implementation_selected:
+            pass
+        elif len(selected) >= budget and budget < ceiling:
             limiting_constraint = "available-model-call-budget"
         elif len(selected) >= ceiling and len(queue) > len(selected):
             limiting_constraint = "configured-batch-ceiling"
@@ -143,6 +208,9 @@ def _scheduler_state(
                 "milestone",
                 "ranking_score",
                 "revalidation_tier",
+                "assignment_type",
+                "selection_rationale",
+                "ranking_factors",
             )
         }
 
@@ -389,8 +457,14 @@ class ExecutionGraphBuilder:
                     _rank_queue_entry(entry, authority)
                     queue.append(entry)
 
+        for entry in queue:
+            entry["selection_rationale"] = _selection_rationale(entry)
         queue.sort(
-            key=lambda entry: (-int(entry.get("ranking_score") or 0), entry["ref"])
+            key=lambda entry: (
+                _execution_order(entry),
+                -int(entry.get("ranking_score") or 0),
+                entry["ref"],
+            )
         )
         nodes.sort(key=lambda node: node["ref"])
         classification_counts = Counter(node["classification"] for node in nodes)
