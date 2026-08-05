@@ -2,14 +2,16 @@ import hashlib
 import json
 import time
 import urllib.request
-from collections import Counter
 from pathlib import Path
+
+from .reporting import COMPOSITION, build_roadmap_semantics
 
 
 class SlackProjection:
     def __init__(self, root: Path):
         self.root = root
         self.state_path = root / "slack-overview-state.json"
+        self.record_path = root / "slack-overview-record.json"
 
     @staticmethod
     def env_file() -> dict[str, str]:
@@ -43,40 +45,78 @@ class SlackProjection:
         filled = round(width * value / total) if total else 0
         return "█" * filled + "░" * (width - filled)
 
-    def render(self, inventory: dict, graph: dict, control: dict) -> tuple[str, list[dict], str]:
-        counts = Counter(inventory.get("classification_counts") or {})
-        total = sum(counts.values()) or 1
-        verified_refs = {
-            node.get("ref")
-            for node in graph.get("nodes") or []
-            if node.get("classification") in {"Integrated", "Completed"}
-            and node.get("semantic_record")
-        }
-        verified = len(verified_refs)
-        closed_unverified = max(
-            0,
-            counts["Integrated"]
-            + counts["Completed"]
-            + counts["Revalidation"]
-            - verified,
+    @staticmethod
+    def percent_text(value: dict) -> str:
+        count = int(value.get("count") or 0)
+        denominator = int(value.get("denominator") or 0)
+        percent = float(value.get("percent") or 0)
+        if count and denominator and percent < 1:
+            return "<1%"
+        return f"{percent:g}%"
+
+    @staticmethod
+    def milestone_icon(status: str) -> str:
+        return {
+            "verified": "✅",
+            "progressing": "🟢",
+            "running": "🔵",
+            "waiting": "🟡",
+            "blocked": "🔴",
+            "future": "⚪",
+            "completed": "✅",
+            "closed-pending-audit": "🟡",
+            "execution-frontier": "🟣",
+            "parallel-execution": "🟢",
+            "critical-path": "🔴",
+        }.get(status, "⚪")
+
+    def render(
+        self,
+        inventory: dict,
+        graph: dict,
+        control: dict,
+        semantics: dict | None = None,
+    ) -> tuple[str, list[dict], str]:
+        semantics = semantics or build_roadmap_semantics(
+            inventory, graph, control, self.deployed_revision()
         )
-        running = counts["Running"]
-        executable = int(graph.get("queue_depth") or 0)
-        waiting = counts["Waiting"] + counts["Revalidation"]
-        blocked = counts["Blocked"]
-        inactive = counts["Invalid"] + counts["Superseded"]
+        total = int(semantics["total_governed_items"])
+        composition = semantics["composition"]
+        coverage = semantics["coverage"]
+        verified = int(composition["verified_complete"]["count"])
+        blocked = int(composition["blocked"]["count"])
+        waiting = int(composition["waiting"]["count"])
+        supervisor_work = semantics["supervisor_work"]
         assignments = inventory.get("supervisor_assignments") or []
         active = [item for item in assignments if item.get("state") not in {"complete", "completed", "cancelled", "failed"}]
         leases = inventory.get("active_leases") or []
         confidence = inventory.get("roadmap_confidence") or {}
+        revision = (semantics.get("source") or {}).get("deployed_revision") or {}
         health = "healthy" if inventory.get("invariant", {}).get("unknown_count", 1) == 0 else "degraded"
         icon = "🟢" if health == "healthy" else "🟡"
 
         fallback = (
             f"AXIS Build Supervisor — {health}; mode={control.get('mode')}; "
-            f"active={len(active)}; queue={executable}; blocked={blocked}; waiting={waiting}; "
+            f"governed-items={total}; verified={verified}; active={len(active)}; "
+            f"work-remaining={supervisor_work['supervisor_work_remaining']}; "
+            f"ready-queue={supervisor_work['ready_work_total']}; blocked={blocked}; waiting={waiting}; "
             f"confidence={confidence.get('percent', 0)}%"
         )
+        composition_lines = []
+        for key, _label in COMPOSITION:
+            value = composition[key]
+            composition_lines.append(
+                f"{value['label']:<36} `{self.bar(value['count'], value['denominator'], 12)}` "
+                f"{value['count']} / {value['denominator']}  {self.percent_text(value)}"
+            )
+        coverage_lines = [
+            f"{value['label']:<31} {value['count']} / {value['denominator']}  {self.percent_text(value)}"
+            for value in coverage.values()
+        ]
+        source_lines = [
+            f"{value['label']}: {value['count']}"
+            for value in semantics["executable_sources"].values()
+        ]
         blocks = [
             {"type": "header", "text": {"type": "plain_text", "text": f"{icon} AXIS Build Supervisor"}},
             {
@@ -86,7 +126,9 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Mode*\n{control.get('mode')}"},
                     {"type": "mrkdwn", "text": f"*Workers*\n{len(active)}/{control.get('max_active_assignments', 1)}"},
                     {"type": "mrkdwn", "text": f"*Integrator*\n{'Active' if any(a.get('phase') == 'awaiting-integration' for a in active) else 'Idle'}"},
-                    {"type": "mrkdwn", "text": f"*Governed queue*\n{executable}"},
+                    {"type": "mrkdwn", "text": f"*Governed items*\n{total}"},
+                    {"type": "mrkdwn", "text": f"*Supervisor work remaining*\n{supervisor_work['supervisor_work_remaining']}"},
+                    {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
                     {"type": "mrkdwn", "text": f"*Confidence*\n{confidence.get('percent', 0)}%"},
                 ],
             },
@@ -95,49 +137,138 @@ class SlackProjection:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*Roadmap*\n"
-                    f"Verified             `{self.bar(verified, total)}` {verified * 100 // total:>3}%\n"
-                    f"Closed unverified    `{self.bar(closed_unverified, total)}` {closed_unverified * 100 // total:>3}%\n"
-                    f"Running              `{self.bar(running, total)}` {running * 100 // total:>3}%\n"
-                    f"Executable           `{self.bar(executable, total)}` {executable * 100 // total:>3}%\n"
-                    f"Waiting/Revalidation `{self.bar(waiting, total)}` {waiting * 100 // total:>3}%\n"
-                    f"Blocked              `{self.bar(blocked, total)}` {blocked * 100 // total:>3}%\n"
-                    f"Invalid/Superseded   `{self.bar(inactive, total)}` {inactive * 100 // total:>3}%",
+                    "text": "*Roadmap Composition — mutually exclusive*\n"
+                    + "\n".join(composition_lines)
+                    + f"\n*Total* {sum(value['count'] for value in composition.values())} / {total}",
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Audit and Readiness Coverage — not roadmap progress*\n"
+                    + "\n".join(coverage_lines),
+                },
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*{semantics['verification_standard']['label']}*\n{semantics['verification_standard']['definition']}",
+                    }
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Current Revalidation Plan*\n"
+                    f"Closed pending: {semantics['revalidation_plan']['total_closed_pending']} | "
+                    f"Revalidation remaining: {semantics['revalidation_plan']['revalidation_remaining']}\n"
+                    f"Tier A evidence-only: {semantics['revalidation_plan']['tier_a_automatic_evidence']} | "
+                    f"Tier B technical: {semantics['revalidation_plan']['tier_b_active_technical']} | "
+                    f"Tier C corrective: {semantics['revalidation_plan']['tier_c_corrective_implementation']} | "
+                    f"Tier D authority: {semantics['revalidation_plan']['tier_d_human_authority']}\n"
+                    f"Active milestone impact: {semantics['revalidation_plan']['milestone_impact']['active_milestone_closed_pending']} | "
+                    "Rate: 1 item per successful 10-minute semantic cycle; "
+                    f"configured ceiling {semantics['revalidation_plan']['rate']['configured_daily_cycle_ceiling'] or 'unset'}/day.\n"
+                    "Priority: active-milestone unlocks, durable proof receipts, merged-MR evidence review, then remaining historical risk.",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Supervisor Work — unambiguous queue terms*\n"
+                    f"Governed roadmap items: {supervisor_work['governed_roadmap_items']}\n"
+                    f"Supervisor work remaining: {supervisor_work['supervisor_work_remaining']}\n"
+                    f"Ready work queue: {supervisor_work['ready_work_total']} tasks across "
+                    f"{supervisor_work['ready_work_item_count']} items\n"
+                    f"Revalidation-ready: {supervisor_work['revalidation_ready']} | "
+                    f"Governance reconciliation-ready: {supervisor_work['governance_reconciliation_ready']} | "
+                    f"Repository convergence-ready: {supervisor_work['repository_convergence_ready']}\n"
+                    f"Implementation-executable: {supervisor_work['implementation_executable']} | "
+                    f"Other ready: {supervisor_work['other_ready']} | "
+                    f"Waiting/blocked/other not ready: {supervisor_work['waiting_blocked_or_other_not_ready']}\n"
+                    f"Need Product Owner now? *{supervisor_work['need_product_owner_now']}*\n"
+                    f"_{supervisor_work['baseline_clarification']}_\n\n"
+                    + "Source partition: "
+                    + " | ".join(source_lines)
+                    + (
+                        "\n\n" + semantics["ready_queue"]["explanation"]
+                        if semantics["ready_queue"].get("explanation")
+                        else ""
+                    ),
                 },
             },
         ]
 
-        milestones = []
-        for milestone in inventory.get("milestones") or []:
-            if milestone.get("state") != "active":
-                continue
-            title = milestone.get("title") or "Unnamed milestone"
-            members = [item for item in inventory.get("work_items") or [] if item.get("milestone") == title]
-            member_counts = Counter(item.get("classification") for item in members)
-            completed = sum(1 for item in members if item.get("ref") in verified_refs)
-            percent = completed * 100 // len(members) if members else 0
-            rag = (
-                "⚪"
-                if not members
-                else "🔴"
-                if member_counts["Blocked"]
-                else "🟡"
-                if member_counts["Waiting"] or member_counts["Revalidation"]
-                else "🔵"
-                if member_counts["Running"]
-                else "🟢"
+        focus = semantics["current_supervisor_focus"]
+        blocks.extend(
+            [
+                {"type": "divider"},
+                {"type": "header", "text": {"type": "plain_text", "text": "Active Execution"}},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Current execution frontier:* {semantics['current_execution_frontier'] or 'none'}\n"
+                        f"*Current supervisor focus:* {focus.get('milestone') or 'unmilestoned'} — "
+                        f"{focus.get('kind')} — {', '.join(focus.get('work_items') or []) or 'none'}\n\n"
+                        + "\n".join(
+                            f"{index}. *{milestone['key']}* — queued {milestone['queued_tasks']} "
+                            f"(audit {milestone['queue_breakdown']['semantic_audit']}, implementation {milestone['queue_breakdown']['implementation']}); "
+                            f"lifecycle executable {milestone['executable']}; health {milestone['health']}"
+                            for index, milestone in enumerate(semantics["active_execution"], 1)
+                        ),
+                    },
+                },
+                {"type": "divider"},
+                {"type": "header", "text": {"type": "plain_text", "text": "Strategic Programs"}},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "_Cross-cutting, non-exclusive execution streams._\n"
+                        + "\n".join(
+                            f"*{program['title']}* — items {program['total']} | queued {program['queued_tasks']} | "
+                            f"executable {program['executable']} | waiting {program['waiting']} | blocked {program['blocked']} | "
+                            f"confidence {self.percent_text(program['confidence'])}"
+                            for program in semantics["strategic_programs"]
+                        ),
+                    },
+                },
+            ]
+        )
+
+        if semantics["complete_roadmap"]:
+            blocks.extend([{"type": "divider"}, {"type": "header", "text": {"type": "plain_text", "text": "Complete Roadmap — M4 to Endpoint"}}])
+        for milestone in semantics["complete_roadmap"]:
+            reason = (
+                f"\n*Reason executable is zero:* {milestone['zero_executable_reason']}"
+                if milestone.get("zero_executable_reason")
+                else ""
             )
-            milestones.append((title, rag, percent, len(members), member_counts))
-        if milestones:
-            lines = []
-            for title, rag, percent, member_total, member_counts in milestones[:3]:
-                lines.append(
-                    f"{rag} *{title} — {percent}%*\n"
-                    f"Completed {member_counts['Integrated'] + member_counts['Completed']}/{member_total} | "
-                    f"Running {member_counts['Running']} | Executable {member_counts['Executable']} | "
-                    f"Blocked {member_counts['Blocked']}"
-                )
-            blocks.extend([{"type": "divider"}, {"type": "section", "text": {"type": "mrkdwn", "text": "*Active Milestones*\n" + "\n\n".join(lines)}}])
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{self.milestone_icon(milestone['status'])} *{milestone['key']} — {milestone['title']}*\n"
+                        f"Status: {milestone['status']} | Health: {milestone['health']} | "
+                        f"Confidence: {milestone['confidence']['count']}/{milestone['confidence']['denominator']} "
+                        f"({self.percent_text(milestone['confidence'])})\n"
+                        f"Progress: {milestone['progress']['count']}/{milestone['progress']['denominator']} "
+                        f"({self.percent_text(milestone['progress'])}) | Verified: {milestone['verified_complete']}/{milestone['total']}\n"
+                        f"Running {milestone['running']} | Implementation-executable {milestone['executable']} | "
+                        f"Revalidation-ready {milestone['revalidation_ready']} | Waiting {milestone['waiting']} | Blocked {milestone['blocked']}\n"
+                        f"Highlights: {', '.join(milestone['highlights']) or 'none'}"
+                        + reason,
+                    },
+                }
+            )
 
         for assignment in active[:3]:
             worker = assignment.get("worker") or {}
@@ -189,7 +320,7 @@ class SlackProjection:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Inventory {inventory.get('generation_id')} • {inventory.get('generated_at')} • Leases {len(leases)}",
+                        "text": f"Source {str(revision.get('revision') or 'unknown')[:12]}{' dirty' if revision.get('dirty') else ''} • Inventory {inventory.get('generation_id')} • Graph {graph.get('generation_id')} • Technical record {self.record_path} • Leases {len(leases)}",
                     }
                 ],
             }
@@ -204,7 +335,14 @@ class SlackProjection:
         user_id = str(control.get("slack_user_id") or "")
         if not user_id:
             raise ValueError("slack_user_id is not configured")
-        fallback, blocks, fingerprint = self.render(inventory, graph, control)
+        semantics = build_roadmap_semantics(
+            inventory, graph, control, self.deployed_revision()
+        )
+        fallback, blocks, fingerprint = self.render(inventory, graph, control, semantics)
+        record_tmp = self.record_path.with_suffix(".json.tmp")
+        record_tmp.write_text(json.dumps(semantics, indent=2) + "\n", encoding="utf-8")
+        record_tmp.chmod(0o600)
+        record_tmp.replace(self.record_path)
         try:
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
         except Exception:
@@ -236,3 +374,12 @@ class SlackProjection:
         tmp.chmod(0o600)
         tmp.replace(self.state_path)
         return {"updated": True, **new_state}
+
+    def deployed_revision(self) -> dict:
+        try:
+            value = json.loads(
+                (self.root / "deployed-source-revision.json").read_text(encoding="utf-8")
+            )
+        except Exception:
+            return {}
+        return value if isinstance(value, dict) else {}

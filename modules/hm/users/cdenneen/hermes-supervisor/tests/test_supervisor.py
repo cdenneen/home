@@ -123,6 +123,54 @@ def semantic_record(
     }
 
 
+def verified_item_and_assignment():
+    item = {
+        "ref": "ghostspace/axis#119",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "state": "closed",
+        "classification": "Integrated",
+        "acceptance_criteria_present": True,
+        "repository_head": "current-main",
+        "merge_requests": [
+            {"iid": 146, "state": "merged", "web_url": "https://example.test/mr/146"}
+        ],
+        "dependencies": [],
+        "retrieval_errors": [],
+        "milestone": None,
+    }
+    assignment = {
+        "assignment_id": "axis119-hermes-proof-1",
+        "work_item": item["ref"],
+        "state": "complete",
+        "phase": "integrated",
+        "planning_record": {
+            "digest": "sha256:" + "a" * 64,
+            "approval_note": "https://example.test/approval",
+        },
+        "acceptance": ["bounded custody"],
+        "required_tests": ["pytest tests/test_public_release_bundle.py"],
+        "merge_request": {
+            "state": "merged",
+            "merge_commit_sha": "merge-sha",
+            "url": "https://example.test/mr/146",
+        },
+        "pipeline": {"status": "success", "url": "https://example.test/pipeline/1"},
+        "evidence": [
+            {"kind": "implementation-wwwhh", "ref": "https://example.test/implementation"},
+            {"kind": "integration-wwwhh", "ref": "https://example.test/integration"},
+            {"kind": "post-merge-verification", "ref": "origin/main@merge-sha"},
+        ],
+        "cleanup": {
+            "worktree_removed": True,
+            "local_branch_deleted": True,
+            "remote_source_branch_absent": True,
+            "lease_removed": True,
+        },
+    }
+    return item, assignment
+
+
 def test_missing_semantic_record_creates_decomposition_assignment(tmp_path: Path):
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -226,6 +274,100 @@ def test_inherited_authority_semantic_slice_becomes_executable(tmp_path: Path):
         item for item in graph["executable_queue"] if item["kind"] == "implementation"
     )
     assert implementation["authority"]["state"] == "inherited"
+
+
+def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Path):
+    from axis_supervisor.decomposition import SemanticDecompositionEngine
+    from axis_supervisor.graph import ExecutionGraphBuilder
+    from axis_supervisor.verification import CHECK_NAMES, VERIFICATION_STANDARD
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(
+            control(
+                semantic_priority_refs=[],
+                allow_repository_mutation=True,
+                allow_technical_revalidation=True,
+            )
+        ),
+        encoding="utf-8",
+    )
+    parent = {
+        "ref": "parent#1",
+        "kind": "issue",
+        "classification": "Integrated",
+        "authority": {
+            "approval_matches_record": True,
+            "record_digest": "sha256:" + "a" * 64,
+        },
+        "dependencies": [],
+    }
+    item = {
+        "ref": "ghostspace/axis#2",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "Technical revalidation",
+        "state": "closed",
+        "classification": "Integrated",
+        "authority": {},
+        "dependencies": [],
+        "source_evidence": {"description": "Controlled by parent#1"},
+    }
+    engine = SemanticDecompositionEngine(tmp_path)
+    fingerprint = engine.source_fingerprint(item)
+    evidence = engine.save_evidence(item["ref"], {"fixture": True})
+    checks = {name: True for name in CHECK_NAMES}
+    checks["required_tests_rechecked"] = False
+    record = semantic_record(
+        item["ref"],
+        [
+            {
+                "slice_id": "rerun-tests",
+                "title": "Rerun focused tests",
+                "category": "tests",
+                "result": "Executable",
+                "rationale": "current test evidence is missing",
+                "project": "ghostspace/axis",
+                "allowed_paths": [],
+                "required_tests": ["pytest -q tests/test_example.py"],
+            },
+            {
+                "slice_id": "rerun-more-tests",
+                "title": "Rerun another focused test",
+                "category": "negative-test",
+                "result": "Executable",
+                "rationale": "additional current test evidence is missing",
+                "project": "ghostspace/axis",
+                "allowed_paths": [],
+                "required_tests": ["pytest -q tests/test_other.py"],
+            },
+        ],
+        source_fingerprint=fingerprint,
+        evidence_fingerprint=evidence,
+    )
+    record["verification_result"] = {
+        "standard": VERIFICATION_STANDARD,
+        "tier": "A",
+        "disposition": "active-technical-revalidation",
+        "checks": checks,
+        "evidence": ["https://example.test/mr"],
+        "failed_checks": ["required_tests_rechecked"],
+        "failure_disposition": "focused tests must be rerun",
+    }
+    engine.save(record)
+    graph = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "g1",
+            "work_items": [parent, item],
+            "supervisor_assignments": [],
+            "executable_queue": [],
+            "execution_graph": {"edges": []},
+            "idle_proof": {},
+        }
+    )
+    target_entries = [
+        entry for entry in graph["executable_queue"] if entry.get("target_ref") == item["ref"]
+    ]
+    assert [entry["kind"] for entry in target_entries] == ["technical-revalidation"]
 
 
 def test_semantic_worker_cannot_self_grant_inherited_authority(tmp_path: Path):
@@ -340,6 +482,306 @@ def test_semantic_test_commands_reject_shell_control():
         raise AssertionError("shell control syntax was accepted")
 
 
+def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
+    from axis_supervisor import workers
+
+    captured = {}
+
+    class Process:
+        pid = 123
+        returncode = 0
+
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+
+        def communicate(self, input=None, timeout=None):
+            captured["input"] = input
+            captured["timeout"] = timeout
+            return ('{"result":"ok"}', None)
+
+    monkeypatch.setattr(workers.subprocess, "Popen", Process)
+    (tmp_path / "control.json").write_text(
+        json.dumps({"max_semantic_prompt_bytes": 200_000}), encoding="utf-8"
+    )
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "assignment-large-prompt.json").write_text("{}", encoding="utf-8")
+    manager = workers.HermesWorkerManager(tmp_path, "/bin/hermes", "/bin/supervisorctl")
+    manager.hermes_python = lambda: sys.executable
+    prompt = "evidence" * 10_000
+    output = manager.run_model(
+        "gpt-5.4",
+        prompt,
+        900,
+        {
+            "assignment_id": "assignment-large-prompt",
+            "lease": {"fencing_token": "token"},
+        },
+        toolsets="",
+    )
+
+    assert output == '{"result":"ok"}'
+    assert prompt not in captured["command"]
+    assert captured["input"] == prompt
+    assert captured["command"][1].endswith("oneshot_stdin.py")
+    assert captured["command"][-2:] == ["--toolsets", ""]
+    persisted = json.loads(
+        (assignments / "assignment-large-prompt.json").read_text(encoding="utf-8")
+    )
+    assert persisted["model_attempts"] == 1
+    assert len(persisted["model_attempt_log"]) == 1
+
+
+def test_axis119_proof_is_verified_complete():
+    from axis_supervisor.verification import verification_for
+
+    item, assignment = verified_item_and_assignment()
+    verification = verification_for(item, [assignment])
+    assert verification["state"] == "verified-complete"
+    assert verification["failed_checks"] == []
+    assert verification["proof_assignment_id"] == "axis119-hermes-proof-1"
+
+
+def test_verified_item_is_removed_from_supervisor_queue(tmp_path: Path):
+    from axis_supervisor.graph import ExecutionGraphBuilder
+
+    item, assignment = verified_item_and_assignment()
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(semantic_priority_refs=[])), encoding="utf-8"
+    )
+    graph = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "g1",
+            "work_items": [item],
+            "supervisor_assignments": [assignment],
+            "executable_queue": [],
+            "execution_graph": {"edges": []},
+            "idle_proof": {},
+        }
+    )
+    assert graph["queue_depth"] == 0
+    assert graph["semantic_decomposition_pending"] == 0
+    assert graph["nodes"][0]["verification"]["state"] == "verified-complete"
+
+
+def test_roadmap_composition_is_exclusive_and_queue_is_separate():
+    from axis_supervisor.reporting import build_roadmap_semantics
+
+    verified, assignment = verified_item_and_assignment()
+    items = [
+        verified,
+        {
+            "ref": "ghostspace/axis#1",
+            "kind": "issue",
+            "project": "ghostspace/axis",
+            "state": "closed",
+            "classification": "Revalidation",
+            "dependencies": [],
+            "retrieval_errors": [],
+            "milestone": None,
+        },
+        {
+            "ref": "ghostspace/axis#2",
+            "kind": "issue",
+            "project": "ghostspace/axis",
+            "state": "opened",
+            "classification": "Waiting",
+            "dependencies": [],
+            "retrieval_errors": [],
+            "milestone": "AX-M14",
+        },
+        {
+            "ref": "ghostspace/axis#3",
+            "kind": "issue",
+            "project": "ghostspace/axis",
+            "state": "opened",
+            "classification": "Blocked",
+            "dependencies": [],
+            "retrieval_errors": [],
+            "milestone": None,
+        },
+        {
+            "ref": "ghostspace/axis#4",
+            "kind": "issue",
+            "project": "ghostspace/axis",
+            "state": "opened",
+            "classification": "Integrated",
+            "dependencies": [],
+            "retrieval_errors": [],
+            "milestone": None,
+        },
+    ]
+    inventory = {
+        "generation_id": "inventory-1",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "work_items": items,
+        "supervisor_assignments": [assignment],
+        "milestones": [{"title": "AX-M14", "state": "active"}],
+    }
+    graph = {
+        "generation_id": "graph-1",
+        "nodes": [{"ref": item["ref"], "semantic_record": None} for item in items],
+        "executable_queue": [
+            {
+                "ref": "semantic-decomposition:ghostspace/axis#1",
+                "target_ref": "ghostspace/axis#1",
+                "kind": "semantic-decomposition",
+                "project": "ghostspace/axis",
+            }
+        ],
+    }
+    semantics = build_roadmap_semantics(inventory, graph)
+    assert sum(value["count"] for value in semantics["composition"].values()) == 5
+    assert semantics["composition"]["verified_complete"]["count"] == 1
+    assert semantics["composition"]["closed_pending_revalidation"]["count"] == 1
+    assert semantics["composition"]["executable"]["count"] == 0
+    assert semantics["ready_queue"]["count"] == 1
+    assert "None are lifecycle-executable" in semantics["ready_queue"]["explanation"]
+    assert semantics["complete_roadmap"][0]["zero_executable_reason"]
+
+
+def test_complete_roadmap_is_numeric_and_execution_relevance_is_separate():
+    from axis_supervisor.reporting import build_roadmap_semantics
+
+    milestones = [
+        {"title": title, "state": "active"}
+        for title in ("AX-M14 End", "AX-M10 Deploy", "AX-M9.4 RC", "AX-M5 Execute", "AX-M4 Memory")
+    ]
+    items = []
+    for number in (14, 10, "9.4", 5, 4):
+        items.append(
+            {
+                "ref": f"ghostspace/axis#{str(number).replace('.', '')}",
+                "kind": "issue",
+                "project": "ghostspace/axis",
+                "state": "opened",
+                "classification": "Waiting",
+                "dependencies": [],
+                "retrieval_errors": [],
+                "labels": [f"roadmap::AX-M{number}"],
+                "confidence": "high",
+            }
+        )
+    queue = [
+        {
+            "ref": "semantic-decomposition:ghostspace/axis#5",
+            "target_ref": "ghostspace/axis#5",
+            "kind": "semantic-decomposition",
+            "project": "ghostspace/axis",
+        },
+        {
+            "ref": "semantic-decomposition:ghostspace/axis#4",
+            "target_ref": "ghostspace/axis#4",
+            "kind": "semantic-decomposition",
+            "project": "ghostspace/axis",
+        },
+    ]
+    inventory = {
+        "generation_id": "inventory",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "work_items": items,
+        "supervisor_assignments": [],
+        "milestones": milestones,
+    }
+    graph = {
+        "generation_id": "graph",
+        "nodes": [{"ref": item["ref"], "semantic_record": None} for item in items],
+        "executable_queue": queue,
+    }
+    semantics = build_roadmap_semantics(inventory, graph)
+    assert [item["key"] for item in semantics["complete_roadmap"]] == [
+        "AX-M4",
+        "AX-M5",
+        "AX-M9.4",
+        "AX-M10",
+        "AX-M14",
+    ]
+    assert semantics["current_execution_frontier"] == "AX-M4"
+    assert semantics["current_supervisor_focus"]["milestone"] == "AX-M5"
+    assert [item["key"] for item in semantics["active_execution"][:2]] == [
+        "AX-M5",
+        "AX-M4",
+    ]
+    assert semantics["complete_roadmap"][-1]["status"] == "future"
+
+
+def test_revalidation_tiers_are_exclusive():
+    from axis_supervisor.revalidation import revalidation_tier
+
+    verification = {"state": "pending-current-revalidation"}
+    base = {
+        "state": "closed",
+        "classification": "Integrated",
+        "authority": {},
+        "merge_requests": [{"state": "merged"}],
+    }
+    assert revalidation_tier(base, None, verification) == "A"
+    assert revalidation_tier(base | {"merge_requests": []}, None, verification) == "B"
+    corrective = {
+        "verification_result": {"disposition": "corrective-implementation-required"}
+    }
+    assert revalidation_tier(base, corrective, verification) == "C"
+    technical = {
+        "verification_result": {"disposition": "active-technical-revalidation"}
+    }
+    assert revalidation_tier(base, technical, verification) == "B"
+    authority = base | {"authority": {"approval_required": True}}
+    assert revalidation_tier(authority, None, verification) == "D"
+    assert revalidation_tier(authority, corrective, verification) == "D"
+    assert revalidation_tier(base, None, {"state": "verified-complete"}) is None
+
+
+def test_semantic_verification_requires_all_nine_checks():
+    from axis_supervisor.models import validate_semantic_record
+    from axis_supervisor.verification import CHECK_NAMES, VERIFICATION_STANDARD
+
+    record = semantic_record("ghostspace/axis#1", [])
+    record["verification_result"] = {
+        "standard": VERIFICATION_STANDARD,
+        "tier": "A",
+        "disposition": "verified-complete",
+        "checks": {name: True for name in CHECK_NAMES},
+        "evidence": ["current-main"],
+        "failed_checks": [],
+        "failure_disposition": "",
+    }
+    assert validate_semantic_record(record) is record
+    invalid_evidence = json.loads(json.dumps(record))
+    invalid_evidence["verification_result"]["evidence"] = [None]
+    try:
+        validate_semantic_record(invalid_evidence)
+    except ValueError as exc:
+        assert "source-linked references" in str(exc)
+    else:
+        raise AssertionError("non-source-linked verification evidence was accepted")
+    del record["verification_result"]["checks"][CHECK_NAMES[0]]
+    try:
+        validate_semantic_record(record)
+    except ValueError as exc:
+        assert "all nine checks" in str(exc)
+    else:
+        raise AssertionError("incomplete nine-check verification was accepted")
+
+
+def test_tier_a_batch_is_bounded_and_repository_independent():
+    from axis_supervisor.revalidation import select_tier_a_batch
+
+    queue = [
+        {"ref": "a1", "project": "ghostspace/axis", "revalidation_tier": "A"},
+        {"ref": "a2", "project": "ghostspace/axis", "revalidation_tier": "A"},
+        {
+            "ref": "g1",
+            "project": "ghostspace/axis-governance",
+            "revalidation_tier": "A",
+        },
+        {"ref": "b1", "project": "ghostspace/axis-lab", "revalidation_tier": "B"},
+    ]
+    selected = select_tier_a_batch(queue, batch_size=2, model_calls_remaining=2)
+    assert [item["ref"] for item in selected] == ["a1", "g1"]
+    assert select_tier_a_batch(queue, batch_size=2, model_calls_remaining=0) == []
+
+
 def test_inherited_authority_rejects_substring_parent_match():
     from axis_supervisor.authority import AuthorityResolver
 
@@ -393,6 +835,48 @@ def test_daily_budget_suppresses_before_reconciliation(tmp_path: Path):
     (root / "assignments").mkdir()
     (root / "control.json").write_text(
         json.dumps(control(minimum_free_disk_gib=0, daily_worker_cycle_limit=0)),
+        encoding="utf-8",
+    )
+    env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "preflight.py")],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["wakeAgent"] is False
+    assert "daily worker cycle limit" in payload["reason"]
+
+
+def test_daily_model_budget_suppresses_before_reconciliation(tmp_path: Path):
+    import time
+
+    root = tmp_path / "runtime"
+    (root / "runs").mkdir(parents=True)
+    assignments = root / "assignments"
+    assignments.mkdir()
+    (root / "control.json").write_text(
+        json.dumps(
+            control(
+                minimum_free_disk_gib=0,
+                daily_worker_cycle_limit=10,
+                daily_model_call_limit=1,
+            )
+        ),
+        encoding="utf-8",
+    )
+    (assignments / "used.json").write_text(
+        json.dumps(
+            {
+                "created_at_epoch": 0,
+                "model_attempts": 1,
+                "model_attempt_log": [
+                    {"started_at_epoch": int(time.time()), "model": "gpt-5.4"}
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
@@ -735,28 +1219,42 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         return {"ts": "123.456"}
 
     projection.api = api
+    verified, assignment = verified_item_and_assignment()
+    waiting = {
+        "ref": "ghostspace/axis#2",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "state": "opened",
+        "classification": "Waiting",
+        "dependencies": [],
+        "retrieval_errors": [],
+        "milestone": None,
+    }
     inventory = {
         "generation_id": "g1",
         "generated_at": "2026-01-01T00:00:00Z",
-        "classification_counts": {
-            "Integrated": 1,
-            "Completed": 1,
-            "Running": 0,
-            "Waiting": 1,
-            "Revalidation": 1,
-            "Blocked": 1,
-            "Invalid": 0,
-            "Superseded": 0,
-        },
         "roadmap_confidence": {"percent": 80},
-        "supervisor_assignments": [],
+        "supervisor_assignments": [assignment],
         "active_leases": [],
         "milestones": [],
-        "work_items": [],
+        "work_items": [verified, waiting],
+        "invariant": {"unknown_count": 0},
     }
     graph = {
+        "generation_id": "graph-1",
         "queue_depth": 1,
-        "nodes": [],
+        "executable_queue": [
+            {
+                "ref": "semantic-decomposition:ghostspace/axis#2",
+                "target_ref": "ghostspace/axis#2",
+                "kind": "semantic-decomposition",
+                "project": "ghostspace/axis",
+            }
+        ],
+        "nodes": [
+            {"ref": verified["ref"], "semantic_record": None},
+            {"ref": waiting["ref"], "semantic_record": None},
+        ],
     }
     control_value = {"mode": "enabled", "max_active_assignments": 1, "slack_user_id": "U1"}
     first = projection.update(inventory, graph, control_value)
@@ -766,11 +1264,22 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     assert "queue=1" in fallback
     assert blocks[0]["type"] == "header"
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
+    record = json.loads((tmp_path / "slack-overview-record.json").read_text())
+    assert record["composition"]["verified_complete"]["count"] == 1
+    assert sum(value["count"] for value in record["composition"].values()) == 2
     calls.clear()
     second = projection.update(inventory, graph, control_value)
     assert second["updated"] is False
     assert calls == []
     graph["queue_depth"] = 2
+    graph["executable_queue"].append(
+        {
+            "ref": "semantic-decomposition:ghostspace/axis#3",
+            "target_ref": "ghostspace/axis#3",
+            "kind": "semantic-decomposition",
+            "project": "ghostspace/axis",
+        }
+    )
     third = projection.update(inventory, graph, control_value)
     assert third["updated"] is True
     assert calls[0][0] == "chat.update"

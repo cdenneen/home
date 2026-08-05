@@ -65,7 +65,7 @@ def skip(run_id: str, mode: str | None, reason: str) -> int:
     return 0
 
 
-def model_calls_today(now: int) -> int:
+def worker_cycles_today(now: int) -> int:
     day = datetime.fromtimestamp(now, timezone.utc).date()
     count = 0
     for path in RUNS.glob("*.json"):
@@ -79,6 +79,31 @@ def model_calls_today(now: int) -> int:
             continue
         if datetime.fromtimestamp(started, timezone.utc).date() == day:
             count += 1
+    return count
+
+
+def model_calls_today(now: int) -> int:
+    day = datetime.fromtimestamp(now, timezone.utc).date()
+    count = 0
+    for path in ASSIGNMENTS.glob("*.json"):
+        try:
+            assignment = load(path)
+        except Exception:
+            continue
+        attempts = assignment.get("model_attempt_log") or []
+        if attempts:
+            count += sum(
+                1
+                for attempt in attempts
+                if datetime.fromtimestamp(
+                    int(attempt.get("started_at_epoch", 0)), timezone.utc
+                ).date()
+                == day
+            )
+            continue
+        created = int(assignment.get("created_at_epoch", 0))
+        if datetime.fromtimestamp(created, timezone.utc).date() == day:
+            count += int(assignment.get("model_attempts") or 0)
     return count
 
 
@@ -241,12 +266,20 @@ def main() -> int:
         )
 
     daily_limit = int(control.get("daily_worker_cycle_limit", 24))
-    calls_today = model_calls_today(now)
-    if calls_today >= daily_limit:
+    cycles_today = worker_cycles_today(now)
+    if cycles_today >= daily_limit:
         return skip(
             run_id,
             control.get("mode"),
-            f"daily model call limit reached: {calls_today}/{daily_limit}",
+            f"daily worker cycle limit reached: {cycles_today}/{daily_limit}",
+        )
+    model_limit = int(control.get("daily_model_call_limit", daily_limit))
+    calls_today = model_calls_today(now)
+    if calls_today >= model_limit:
+        return skip(
+            run_id,
+            control.get("mode"),
+            f"daily model call limit reached: {calls_today}/{model_limit}",
         )
 
     reconcile_prior_runs(control, now)
@@ -341,6 +374,7 @@ def main() -> int:
         "proof_assignment_id": proof_assignment_id or None,
         "inventory_generation_id": inventory.get("generation_id"),
         "contract_sha256": contract_sha256,
+        "model_calls_remaining": max(0, model_limit - calls_today),
     }
     run_path = RUNS / f"{run_id}.json"
     run_tmp = run_path.with_suffix(".json.tmp")

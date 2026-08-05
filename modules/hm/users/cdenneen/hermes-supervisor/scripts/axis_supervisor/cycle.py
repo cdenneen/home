@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -15,6 +16,7 @@ from axis_supervisor.workers import HermesWorkerManager
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.models import test_command_argv
+from axis_supervisor.revalidation import select_tier_a_batch
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 
@@ -132,6 +134,105 @@ def rebuild() -> dict:
     return ExecutionGraphBuilder(ROOT).build(inventory)
 
 
+def model_attempts_today() -> int:
+    day = datetime.now(timezone.utc).date()
+    total = 0
+    for path in (ROOT / "assignments").glob("*.json"):
+        try:
+            assignment = load(path)
+        except Exception:
+            continue
+        attempts = assignment.get("model_attempt_log") or []
+        if attempts:
+            total += sum(
+                1
+                for attempt in attempts
+                if datetime.fromtimestamp(
+                    int(attempt.get("started_at_epoch", 0)), timezone.utc
+                ).date()
+                == day
+            )
+            continue
+        created = int(assignment.get("created_at_epoch", 0))
+        if datetime.fromtimestamp(created, timezone.utc).date() == day:
+            total += int(assignment.get("model_attempts") or 0)
+    return total
+
+
+def execute_new_assignment(
+    assignment: dict,
+    manager: HermesWorkerManager,
+    supervisorctl: str,
+) -> dict:
+    path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
+    resource = f"repo:{assignment.get('project') or 'ghostspace/axis'}"
+    claim_command = [
+        sys.executable,
+        supervisorctl,
+        "claim",
+        assignment["assignment_id"],
+        "--run-id",
+        assignment["created_by_run"],
+        "--resource",
+        resource,
+        "--ttl",
+        "1200" if assignment["kind"] == "semantic-decomposition" else "3600",
+    ]
+    if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}:
+        claim_command.append("--read-only")
+    try:
+        lease_output = subprocess.check_output(claim_command, text=True, timeout=30)
+    except Exception as exc:
+        assignment["state"] = "failed"
+        assignment["error"] = f"lease claim failed: {type(exc).__name__}: {exc}"
+        save(path, assignment)
+        raise
+    assignment["lease"] = json.loads(lease_output)
+    assignment["state"] = "active"
+    save(path, assignment)
+    try:
+        if assignment["kind"] == "semantic-decomposition":
+            result = manager.semantic(assignment)
+            assignment["state"] = "complete"
+            assignment["phase"] = "semantic-complete"
+        elif assignment["kind"] == "technical-revalidation":
+            result = manager.technical_revalidation(assignment)
+            assignment["state"] = "complete"
+            assignment["phase"] = "semantic-complete"
+        else:
+            repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
+                "project"
+            ].split("/")[-1]
+            result = manager.implementation(assignment, repo)
+            result = publish_implementation(
+                assignment,
+                result,
+                "/etc/profiles/per-user/cdenneen/bin/glab",
+            )
+            assignment["state"] = "active"
+            assignment["phase"] = "awaiting-integration"
+        assignment["worker"] = result
+        save(path, assignment)
+        if assignment["state"] == "complete":
+            subprocess.run(
+                [
+                    sys.executable,
+                    supervisorctl,
+                    "release",
+                    assignment["assignment_id"],
+                    "--token",
+                    assignment["lease"]["fencing_token"],
+                ],
+                check=True,
+            )
+        rebuild()
+        return {"result": assignment["phase"], "assignment": assignment["assignment_id"]}
+    except Exception as exc:
+        assignment["error"] = f"{type(exc).__name__}: {exc}"
+        release_failed_assignment(assignment, path, supervisorctl)
+        raise
+
+
 def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     graph = rebuild()
     dispatcher = Dispatcher(ROOT)
@@ -233,74 +334,44 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         save(path, assignment)
         rebuild()
         return {"result": result, "assignment": assignment["assignment_id"]}
+    control = load(ROOT / "control.json")
+    model_remaining = max(
+        0,
+        int(control.get("daily_model_call_limit", 144)) - model_attempts_today(),
+    )
+    if model_remaining <= 0:
+        return {"result": "model-call-budget-exhausted", "remaining": 0}
+    tier_a_candidates = select_tier_a_batch(
+        graph.get("executable_queue") or [],
+        int(control.get("tier_a_batch_size", 2)),
+        model_remaining,
+    )
+    if tier_a_candidates:
+        results = []
+        for item in tier_a_candidates:
+            assignment = dispatcher.dispatch(graph, run_id, item)
+            if assignment is None:
+                break
+            try:
+                results.append(execute_new_assignment(assignment, manager, supervisorctl))
+            except Exception as exc:
+                return {
+                    "result": "tier-a-batch-partial",
+                    "completed": results,
+                    "failed_assignment": assignment["assignment_id"],
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            graph = rebuild()
+        return {
+            "result": "tier-a-batch-complete",
+            "batch_size": len(results),
+            "assignments": results,
+        }
+
     assignment = dispatcher.dispatch(graph, run_id)
     if assignment is None:
         return {"result": "no-assignment", "queue_depth": graph["queue_depth"]}
-    path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
-    resource = f"repo:{assignment.get('project') or 'ghostspace/axis'}"
-    claim_command = [
-            sys.executable,
-            supervisorctl,
-            "claim",
-            assignment["assignment_id"],
-            "--run-id",
-            run_id,
-            "--resource",
-            resource,
-            "--ttl",
-            "1200" if assignment["kind"] == "semantic-decomposition" else "3600",
-        ]
-    if assignment["kind"] == "semantic-decomposition":
-        claim_command.append("--read-only")
-    try:
-        lease_output = subprocess.check_output(
-            claim_command,
-            text=True,
-            timeout=30,
-        )
-    except Exception as exc:
-        assignment["state"] = "failed"
-        assignment["error"] = f"lease claim failed: {type(exc).__name__}: {exc}"
-        save(path, assignment)
-        raise
-    assignment["lease"] = json.loads(lease_output)
-    assignment["state"] = "active"
-    save(path, assignment)
-    try:
-        if assignment["kind"] == "semantic-decomposition":
-            result = manager.semantic(assignment)
-            assignment["state"] = "complete"
-            assignment["phase"] = "semantic-complete"
-        else:
-            repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment["project"].split("/")[-1]
-            result = manager.implementation(assignment, repo)
-            result = publish_implementation(
-                assignment,
-                result,
-                "/etc/profiles/per-user/cdenneen/bin/glab",
-            )
-            assignment["state"] = "active"
-            assignment["phase"] = "awaiting-integration"
-        assignment["worker"] = result
-        save(path, assignment)
-        if assignment["state"] == "complete":
-            subprocess.run(
-                [
-                    sys.executable,
-                    supervisorctl,
-                    "release",
-                    assignment["assignment_id"],
-                    "--token",
-                    assignment["lease"]["fencing_token"],
-                ],
-                check=True,
-            )
-        rebuild()
-        return {"result": assignment["phase"], "assignment": assignment["assignment_id"]}
-    except Exception as exc:
-        assignment["error"] = f"{type(exc).__name__}: {exc}"
-        release_failed_assignment(assignment, path, supervisorctl)
-        raise
+    return execute_new_assignment(assignment, manager, supervisorctl)
 
 
 def main() -> int:

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.roadmap-semantics",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at",
+    "source",
+    "verification_standard",
+    "verification_scope",
+    "total_governed_items",
+    "composition",
+    "coverage",
+    "complete_roadmap",
+    "active_execution",
+    "strategic_programs",
+    "roadmap_endpoint",
+    "current_execution_frontier",
+    "current_supervisor_focus",
+    "supervisor_work",
+    "executable_sources",
+    "ready_queue",
+    "verified_items",
+    "revalidation_plan"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.roadmap-semantics"
+    },
+    "schema_version": { "const": "1.1.0" },
+    "generated_at": { "type": ["string", "null"] },
+    "source": {
+      "type": "object",
+      "required": ["inventory_generation_id", "graph_generation_id"]
+    },
+    "verification_standard": {
+      "type": "object",
+      "required": ["label", "definition"]
+    },
+    "verification_scope": { "type": "object" },
+    "total_governed_items": { "type": "integer", "minimum": 0 },
+    "composition": {
+      "type": "object",
+      "properties": {
+        "verified_complete": { "$ref": "#/$defs/metric" },
+        "closed_pending_revalidation": { "$ref": "#/$defs/metric" },
+        "running": { "$ref": "#/$defs/metric" },
+        "executable": { "$ref": "#/$defs/metric" },
+        "waiting": { "$ref": "#/$defs/metric" },
+        "blocked": { "$ref": "#/$defs/metric" },
+        "invalid_superseded": { "$ref": "#/$defs/metric" },
+        "integrated_historical": { "$ref": "#/$defs/metric" },
+        "other": { "$ref": "#/$defs/metric" }
+      },
+      "required": [
+        "verified_complete",
+        "closed_pending_revalidation",
+        "running",
+        "executable",
+        "waiting",
+        "blocked",
+        "invalid_superseded",
+        "integrated_historical",
+        "other"
+      ],
+      "additionalProperties": false
+    },
+    "coverage": { "type": "object" },
+    "complete_roadmap": { "type": "array" },
+    "active_execution": { "type": "array" },
+    "strategic_programs": { "type": "array" },
+    "roadmap_endpoint": { "type": ["string", "null"] },
+    "current_execution_frontier": { "type": ["string", "null"] },
+    "current_supervisor_focus": { "type": "object" },
+    "supervisor_work": { "type": "object" },
+    "executable_sources": { "type": "object" },
+    "ready_queue": { "type": "object" },
+    "verified_items": { "type": "array" },
+    "revalidation_plan": { "type": "object" }
+  },
+  "$defs": {
+    "metric": {
+      "type": "object",
+      "required": ["label", "count", "denominator", "percent"],
+      "properties": {
+        "label": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "percent": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

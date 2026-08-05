@@ -23,17 +23,19 @@ class Dispatcher:
                 values.append(value)
         return values
 
-    def dispatch(self, graph: dict, run_id: str) -> dict | None:
-        if self.active() or not graph.get("executable_queue"):
+    def dispatch(self, graph: dict, run_id: str, selected: dict | None = None) -> dict | None:
+        if self.active() or (selected is None and not graph.get("executable_queue")):
             return None
-        item = graph["executable_queue"][0]
+        item = selected or graph["executable_queue"][0]
         assignment_id = f"assignment-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         assignment = {
             "schema": "axis.external-development-supervisor.assignment",
             "schema_version": "1.0.0",
             "assignment_id": assignment_id,
             "state": "ready",
-            "phase": "semantic" if item.get("kind") == "semantic-decomposition" else "implementation",
+            "phase": "semantic"
+            if item.get("kind") in {"semantic-decomposition", "technical-revalidation"}
+            else "implementation",
             "kind": item.get("kind"),
             "queue_ref": item.get("ref"),
             "target_ref": item.get("target_ref") or item.get("ref"),
@@ -47,8 +49,11 @@ class Dispatcher:
             "required_tests": (item.get("candidate") or {}).get("required_tests") or [],
             "source_item": item.get("source_item"),
             "source_fingerprint": item.get("source_fingerprint"),
+            "revalidation_tier": item.get("revalidation_tier"),
+            "ranking_factors": item.get("ranking_factors"),
             "created_by_run": run_id,
             "created_at_epoch": int(time.time()),
+            "model_attempts": 0,
             "lease": None,
             "worker": None,
             "handoff": None,

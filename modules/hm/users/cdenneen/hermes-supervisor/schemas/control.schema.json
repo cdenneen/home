@@ -8,8 +8,12 @@
     "mode",
     "kill_switch",
     "allow_repository_mutation",
+    "allow_technical_revalidation",
     "repository_allowlist",
-    "daily_worker_cycle_limit"
+    "daily_worker_cycle_limit",
+    "daily_model_call_limit",
+    "tier_a_batch_size",
+    "max_semantic_prompt_bytes"
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.control" },
@@ -26,8 +30,16 @@
     },
     "kill_switch": { "type": "boolean" },
     "allow_repository_mutation": { "type": "boolean" },
+    "allow_technical_revalidation": { "type": "boolean" },
     "max_active_assignments": { "type": "integer", "minimum": 0, "maximum": 2 },
     "daily_worker_cycle_limit": { "type": "integer", "minimum": 0 },
+    "daily_model_call_limit": { "type": "integer", "minimum": 0 },
+    "tier_a_batch_size": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "max_semantic_prompt_bytes": {
+      "type": "integer",
+      "minimum": 10000,
+      "maximum": 500000
+    },
     "cron_job_id": { "type": ["string", "null"] },
     "report_cron_job_id": { "type": ["string", "null"] },
     "repository_allowlist": {

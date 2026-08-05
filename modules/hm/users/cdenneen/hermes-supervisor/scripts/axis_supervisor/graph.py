@@ -5,6 +5,8 @@ from pathlib import Path
 
 from .authority import AuthorityResolver
 from .decomposition import SemanticDecompositionEngine
+from .revalidation import revalidation_priority, revalidation_tier
+from .verification import verification_for
 
 
 class ExecutionGraphBuilder:
@@ -26,9 +28,12 @@ class ExecutionGraphBuilder:
         items_by_ref = {
             item.get("ref"): item for item in inventory.get("work_items") or []
         }
+        assignments = inventory.get("supervisor_assignments") or []
         for item in inventory.get("work_items") or []:
             source_fingerprint = self.decomposition.source_fingerprint(item)
             semantic = self.decomposition.load(item["ref"], source_fingerprint)
+            verification = verification_for(item, assignments, semantic)
+            tier = revalidation_tier(item, semantic, verification)
             controlling_parent = (
                 (semantic or {}).get("authority_resolution") or {}
             ).get("controlling_parent")
@@ -43,8 +48,12 @@ class ExecutionGraphBuilder:
                 "dependencies": item.get("dependencies") or [],
                 "semantic_record": semantic,
                 "source_fingerprint": source_fingerprint,
+                "verification": verification,
+                "revalidation_tier": tier,
             }
             nodes.append(node)
+            if verification["state"] == "verified-complete":
+                continue
             if semantic is not None and authority["state"] in {
                 "unresolved",
                 "needs-product-owner",
@@ -60,14 +69,60 @@ class ExecutionGraphBuilder:
             } and semantic is None:
                 pending = self.decomposition.pending_item(item)
                 pending["source_fingerprint"] = source_fingerprint
-                pending["ranking_score"] = semantic_priority.get(item["ref"], pending["ranking_score"])
+                pending["revalidation_tier"] = tier
+                if tier:
+                    score, factors = revalidation_priority(
+                        item, tier, inventory.get("work_items") or []
+                    )
+                    pending["ranking_score"] = score
+                    pending["ranking_factors"] = factors
+                else:
+                    pending["ranking_score"] = semantic_priority.get(
+                        item["ref"], pending["ranking_score"]
+                    )
                 queue.append(pending)
                 semantic_pending += 1
                 continue
             if semantic is not None:
                 executable_candidates = 0
+                technical_candidate_ids = {
+                    candidate.get("slice_id")
+                    for candidate in semantic.get("candidate_slices") or []
+                    if candidate.get("result") == "Executable"
+                    and candidate.get("category")
+                    in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
+                    and candidate.get("required_tests")
+                }
+                if tier == "B" and control.get("allow_technical_revalidation"):
+                    for candidate in semantic.get("candidate_slices") or []:
+                        if (
+                            candidate.get("result") == "Executable"
+                            and candidate.get("category")
+                            in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
+                            and candidate.get("required_tests")
+                        ):
+                            queue.append(
+                                {
+                                    "ref": f"technical-revalidation:{item['ref']}:{candidate['slice_id']}",
+                                    "kind": "technical-revalidation",
+                                    "target_ref": item["ref"],
+                                    "project": candidate.get("project") or item.get("project"),
+                                    "title": candidate.get("title"),
+                                    "classification": "Executable",
+                                    "ranking_score": int(candidate.get("ranking_score") or 200),
+                                    "authority": authority,
+                                    "candidate": candidate,
+                                    "source_item": item,
+                                    "source_fingerprint": source_fingerprint,
+                                    "revalidation_tier": "B",
+                                }
+                            )
+                            executable_candidates += 1
+                            break
                 for candidate in semantic.get("candidate_slices") or []:
                     if candidate.get("result") != "Executable":
+                        continue
+                    if tier == "B" and candidate.get("slice_id") in technical_candidate_ids:
                         continue
                     if not control.get("allow_repository_mutation"):
                         continue
@@ -86,6 +141,7 @@ class ExecutionGraphBuilder:
                             "authority": authority,
                             "candidate": candidate,
                             "source_fingerprint": source_fingerprint,
+                            "revalidation_tier": tier,
                         }
                     )
                 if (

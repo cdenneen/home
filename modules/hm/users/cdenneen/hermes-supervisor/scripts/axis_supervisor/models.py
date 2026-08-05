@@ -2,6 +2,8 @@ from dataclasses import dataclass
 import shlex
 from typing import Any
 
+from .verification import CHECK_NAMES, VERIFICATION_STANDARD
+
 
 SEMANTIC_CLASSES = {
     "Executable",
@@ -147,6 +149,55 @@ def validate_semantic_record(value: dict) -> dict:
         }
         if not isinstance(packet, dict) or not required_packet.issubset(packet):
             raise ValueError("Product Owner authority records require a complete decision_packet")
+    verification = value.get("verification_result")
+    if verification is not None:
+        if not isinstance(verification, dict):
+            raise ValueError("verification_result must be an object")
+        if verification.get("standard") != VERIFICATION_STANDARD:
+            raise ValueError("verification_result uses an unsupported standard")
+        if verification.get("tier") not in {"A", "B", "C", "D"}:
+            raise ValueError("verification_result has an invalid tier")
+        if verification.get("disposition") not in {
+            "verified-complete",
+            "active-technical-revalidation",
+            "corrective-implementation-required",
+            "human-authority-required",
+        }:
+            raise ValueError("verification_result has an invalid disposition")
+        checks = verification.get("checks")
+        if not isinstance(checks, dict) or set(checks) != set(CHECK_NAMES):
+            raise ValueError("verification_result must contain all nine checks")
+        if any(value not in {True, False, None} for value in checks.values()):
+            raise ValueError("verification checks must be true, false, or null")
+        verification_evidence = require_list(
+            verification.get("evidence") or [], "verification evidence"
+        )
+        if any(
+            not (
+                isinstance(evidence, str)
+                and evidence.strip()
+                or isinstance(evidence, dict)
+                and isinstance(evidence.get("ref"), str)
+                and evidence["ref"].strip()
+            )
+            for evidence in verification_evidence
+        ):
+            raise ValueError("verification evidence must contain source-linked references")
+        failed_checks = require_list(
+            verification.get("failed_checks") or [], "verification failed_checks"
+        )
+        expected_failed = {name for name in CHECK_NAMES if checks.get(name) is not True}
+        if set(failed_checks) != expected_failed:
+            raise ValueError("verification failed_checks do not match nine-check results")
+        if verification["disposition"] == "verified-complete":
+            if expected_failed:
+                raise ValueError("verified-complete requires all nine checks")
+            if not verification_evidence:
+                raise ValueError("verified-complete requires source-linked evidence")
+            if str(verification.get("failure_disposition") or "").strip():
+                raise ValueError("verified-complete cannot include a failure disposition")
+        elif not str(verification.get("failure_disposition") or "").strip():
+            raise ValueError("incomplete verification requires a failure disposition")
     return value
 
 

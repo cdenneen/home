@@ -6,6 +6,8 @@
     "schema",
     "schema_version",
     "target_ref",
+    "source_fingerprint",
+    "evidence_fingerprint",
     "candidate_slices",
     "evidence_inspected",
     "permitted_actions",
@@ -23,6 +25,8 @@
     },
     "schema_version": { "const": "1.0.0" },
     "target_ref": { "type": "string", "minLength": 1 },
+    "source_fingerprint": { "type": "string", "minLength": 1 },
+    "evidence_fingerprint": { "type": "string", "minLength": 1 },
     "candidate_slices": { "type": "array" },
     "evidence_inspected": { "type": "array", "minItems": 1 },
     "permitted_actions": { "type": "array" },
@@ -30,6 +34,115 @@
     "transitive_blocker_chain": { "type": "array" },
     "authority_source": { "type": "array" },
     "authority_resolution": { "type": "object" },
+    "verification_result": {
+      "type": "object",
+      "required": [
+        "standard",
+        "tier",
+        "disposition",
+        "checks",
+        "evidence",
+        "failed_checks",
+        "failure_disposition"
+      ],
+      "properties": {
+        "standard": { "const": "Supervisor 1.1 audit standard" },
+        "tier": { "enum": ["A", "B", "C", "D"] },
+        "disposition": {
+          "enum": [
+            "verified-complete",
+            "active-technical-revalidation",
+            "corrective-implementation-required",
+            "human-authority-required"
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "required": [
+            "current_main_and_merge_rechecked",
+            "acceptance_evidence_rechecked",
+            "required_tests_rechecked",
+            "pipeline_rechecked",
+            "governance_linkage_rechecked",
+            "closure_rechecked",
+            "integration_rechecked",
+            "cleanup_rechecked",
+            "fresh_cycle_recognition"
+          ],
+          "properties": {
+            "current_main_and_merge_rechecked": { "type": ["boolean", "null"] },
+            "acceptance_evidence_rechecked": { "type": ["boolean", "null"] },
+            "required_tests_rechecked": { "type": ["boolean", "null"] },
+            "pipeline_rechecked": { "type": ["boolean", "null"] },
+            "governance_linkage_rechecked": { "type": ["boolean", "null"] },
+            "closure_rechecked": { "type": ["boolean", "null"] },
+            "integration_rechecked": { "type": ["boolean", "null"] },
+            "cleanup_rechecked": { "type": ["boolean", "null"] },
+            "fresh_cycle_recognition": { "type": ["boolean", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "required": ["ref"],
+                "properties": { "ref": { "type": "string", "minLength": 1 } }
+              }
+            ]
+          }
+        },
+        "failed_checks": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "current_main_and_merge_rechecked",
+              "acceptance_evidence_rechecked",
+              "required_tests_rechecked",
+              "pipeline_rechecked",
+              "governance_linkage_rechecked",
+              "closure_rechecked",
+              "integration_rechecked",
+              "cleanup_rechecked",
+              "fresh_cycle_recognition"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "failure_disposition": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "disposition": { "const": "verified-complete" } },
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "checks": {
+                "properties": {
+                  "current_main_and_merge_rechecked": { "const": true },
+                  "acceptance_evidence_rechecked": { "const": true },
+                  "required_tests_rechecked": { "const": true },
+                  "pipeline_rechecked": { "const": true },
+                  "governance_linkage_rechecked": { "const": true },
+                  "closure_rechecked": { "const": true },
+                  "integration_rechecked": { "const": true },
+                  "cleanup_rechecked": { "const": true },
+                  "fresh_cycle_recognition": { "const": true }
+                }
+              },
+              "failed_checks": { "maxItems": 0 },
+              "failure_disposition": { "maxLength": 0 }
+            }
+          }
+        }
+      ]
+    },
     "next_state_changing_event": { "type": "string" },
     "revalidated_at": { "type": "string" }
   },

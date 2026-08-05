@@ -3,6 +3,7 @@
   config,
   lib,
   pkgs,
+  self,
   ...
 }:
 let
@@ -10,6 +11,13 @@ let
   gatewayEnabled = config.profiles.hermesGateway.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-supervisor";
+  sourceRevision =
+    if self ? rev then
+      self.rev
+    else if self ? dirtyRev then
+      self.dirtyRev
+    else
+      "unknown";
   supervisorCtl = pkgs.writeShellScriptBin "axis-development-supervisorctl" ''
     set -euo pipefail
     exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisorctl.py" "$@"
@@ -56,6 +64,13 @@ in
         recursive = true;
       };
       ".hermes/supervisor/axis-development-supervisor/VERSION".source = ./VERSION;
+      ".hermes/supervisor/axis-development-supervisor/deployed-source-revision.json".text =
+        builtins.toJSON
+          {
+            revision = sourceRevision;
+            dirty = !(self ? rev);
+            rollback = "home-manager generations";
+          };
     };
 
     systemd.user.services = lib.mkMerge [
@@ -116,7 +131,8 @@ in
           ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt" \
           ".hermes/supervisor/axis-development-supervisor/docs" \
           ".hermes/supervisor/axis-development-supervisor/schemas" \
-          ".hermes/supervisor/axis-development-supervisor/VERSION"
+          ".hermes/supervisor/axis-development-supervisor/VERSION" \
+          ".hermes/supervisor/axis-development-supervisor/deployed-source-revision.json"
           do
             target="$HOME/$relative"
             if [ -e "$target" ] && [ ! -L "$target" ]; then
@@ -125,6 +141,12 @@ in
               $DRY_RUN_CMD ${pkgs.coreutils}/bin/mv -f "$target" "$backup"
             fi
           done
+        fi
+        revision_target="$HOME/.hermes/supervisor/axis-development-supervisor/deployed-source-revision.json"
+        if [ -e "$revision_target" ] && [ ! -L "$revision_target" ]; then
+          revision_backup="$HOME/.hermes/supervisor/axis-development-supervisor/migration-backup-1.0.0/.hermes/supervisor/axis-development-supervisor/deployed-source-revision.json"
+          $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$revision_backup")"
+          $DRY_RUN_CMD ${pkgs.coreutils}/bin/mv -f "$revision_target" "$revision_backup"
         fi
         if [ -f "$HOME/.config/systemd/user/hermes-gateway.service" ] \
           && [ ! -L "$HOME/.config/systemd/user/hermes-gateway.service" ]; then
@@ -193,7 +215,6 @@ in
                    | del(.proof_assignment_id)
               else .
               end
-            | del(.daily_model_call_limit)
           ' \
             "${./control.defaults.json}" "${runtimeRoot}/control.json" > "$control_tmp"
           ${pkgs.coreutils}/bin/install -m 600 -T "$control_tmp" "${runtimeRoot}/control.json"
