@@ -34,6 +34,7 @@ from axis_supervisor.observability import (
     record_engineering_retrospective,
     record_event,
 )
+from axis_supervisor.roadmap_quality import RoadmapQualityProjector
 from axis_supervisor.schema_registry import (
     CorruptRecordError,
     read_record,
@@ -418,7 +419,7 @@ def rebuild() -> dict:
         }:
             active_assignments.append(assignment)
     now = int(time.time())
-    return ExecutionGraphBuilder(ROOT).build(
+    graph = ExecutionGraphBuilder(ROOT).build(
         inventory,
         {
             "available_model_call_budget": remaining,
@@ -428,6 +429,8 @@ def rebuild() -> dict:
             ).throughput_metrics(now - 30 * 86_400, now),
         },
     )
+    RoadmapQualityProjector(ROOT).build(inventory, graph)
+    return graph
 
 
 def execute_new_assignment(

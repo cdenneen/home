@@ -290,6 +290,17 @@ class SlackProjection:
         supervisor_work = semantics["supervisor_work"]
         state = state or {}
         outbox = outbox or self.load_outbox()
+        quality_path = self.root / "roadmap-quality.json"
+        roadmap_quality = (
+            read_record(
+                quality_path,
+                "axis.external-development-supervisor.roadmap-quality",
+            )
+            if quality_path.exists()
+            else {}
+        )
+        quality_metrics = roadmap_quality.get("metrics") or {}
+        quality_trend = roadmap_quality.get("trend") or {}
         assignments = self.live_assignments() or inventory.get("supervisor_assignments") or []
         active = [item for item in assignments if not is_terminal(item)]
         analysis_workers = [
@@ -471,6 +482,27 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
                     {"type": "mrkdwn", "text": f"*Confidence*\n{confidence.get('percent', 0)}%"},
                 ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Roadmap Quality — advisory*\n"
+                    f"Quality score: *{quality_metrics.get('roadmap_quality_score', 'n/a')}%* | "
+                    f"Hygiene: *{quality_metrics.get('roadmap_hygiene_score', 'n/a')}%* | "
+                    f"Graph completeness: *{quality_metrics.get('graph_completeness', 'n/a')}%*\n"
+                    f"Milestone ownership: {quality_metrics.get('milestone_ownership_coverage', 'n/a')}% | "
+                    f"Engineering owner: {quality_metrics.get('engineering_owner_coverage', 'n/a')}% | "
+                    f"PlanningRecord: {quality_metrics.get('planning_record_coverage', 'n/a')}% | "
+                    f"Authority: {quality_metrics.get('execution_authority_coverage', 'n/a')}%\n"
+                    f"Typed dependencies: {quality_metrics.get('typed_dependency_coverage', 'n/a')}% | "
+                    f"Implementation readiness: {quality_metrics.get('implementation_readiness_coverage', 'n/a')}% | "
+                    f"Historical archive: {quality_metrics.get('historical_archive_coverage', 'n/a')}%\n"
+                    f"Critical path: *{quality_metrics.get('critical_path_computability', 'unknown')}* | "
+                    f"Quality trend: `{json.dumps(quality_trend, sort_keys=True)}`\n"
+                    f"Advisory proposals: `{', '.join(value.get('proposal_id', '') for value in roadmap_quality.get('proposals') or []) or 'none'}`",
+                },
             },
             {"type": "divider"},
             {

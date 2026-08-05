@@ -690,6 +690,117 @@ def test_operational_metrics_measure_verified_throughput(tmp_path: Path):
     assert 0 <= first_retrospective["details"]["duration_seconds"] <= 20
 
 
+def test_roadmap_quality_projection_is_advisory_and_provenance_bound(
+    tmp_path: Path,
+):
+    from axis_supervisor.roadmap_quality import RoadmapQualityProjector
+    from axis_supervisor.schema_registry import write_record
+
+    write_record(
+        tmp_path / "control.json",
+        control(),
+        "axis.external-development-supervisor.control",
+    )
+    historical = {
+        "ref": "ghostspace/axis#1",
+        "source_kind": "gitlab-issue",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "Historical",
+        "source_state": "closed",
+        "labels": [],
+        "milestone": None,
+        "authority_facts": {},
+        "blocking_dependency_refs": [],
+        "merge_request_facts": [
+            {
+                "iid": 1,
+                "state": "merged",
+                "web_url": "https://example.test/mr/1",
+            }
+        ],
+        "acceptance_criteria_present": True,
+        "acceptance_facts": {"ids": ["AC-1"], "open_ids": []},
+        "source_evidence": {"description": ""},
+        "retrieval_errors": [],
+        "mutation_allowed": True,
+    }
+    decomposition = {
+        **historical,
+        "ref": "ghostspace/axis#2",
+        "title": "Needs decomposition",
+        "source_state": "opened",
+        "merge_request_facts": [],
+        "authority_facts": {
+            "record_digest": "sha256:" + "a" * 64,
+            "approval_matches_record": True,
+        },
+        "source_evidence": {
+            "description": """relationship_ledger:
+    - edge_id: E-1
+      type: prerequisite-for
+      source: ghostspace/axis#2
+      target: ghostspace/axis#3
+      state: active
+"""
+        },
+    }
+    decision = {
+        **historical,
+        "ref": "ghostspace/axis#3",
+        "title": "Needs PO",
+        "source_state": "opened",
+        "merge_request_facts": [],
+        "authority_facts": {"approval_mismatch": True},
+    }
+    nodes = [
+        {
+            "ref": historical["ref"],
+            "flow_stage": "historical",
+            "verification": {"state": "pending-current-revalidation"},
+            "semantic_record": None,
+        },
+        {
+            "ref": decomposition["ref"],
+            "flow_stage": "decomposition-needed",
+            "verification": {"state": "pending-current-revalidation"},
+            "semantic_record": None,
+        },
+        {
+            "ref": decision["ref"],
+            "flow_stage": "decision",
+            "verification": {"state": "pending-current-revalidation"},
+            "semantic_record": None,
+        },
+    ]
+    projection = RoadmapQualityProjector(tmp_path).build(
+        {
+            "generation_id": "inventory-1",
+            "work_items": [historical, decomposition, decision],
+            "dependency_edges": [],
+        },
+        {"generation_id": "graph-1", "nodes": nodes},
+    )
+    assert projection["cohort_counts"] == {
+        "decomposition-needed": 1,
+        "historical": 1,
+        "product-owner-decision": 1,
+    }
+    assert projection["metrics"]["historical_archive_coverage"] == 100
+    assert projection["metrics"]["decision_queue_accuracy"] == 100
+    assert projection["metrics"]["typed_dependency_coverage"] == 100
+    assert projection["critical_path_status"]["computable"] is True
+    assert any(
+        edge["relationship"] == "prerequisite"
+        and edge["provenance"]["edge_id"] == "E-1"
+        for edge in projection["typed_edges"]
+    )
+    assert all(
+        proposal["requires_product_owner_authority"]
+        for proposal in projection["proposals"]
+    )
+
+
 @pytest.mark.parametrize(
     "path",
     ["/home/cdenneen/.ssh/id_ed25519", "../secret", ".git/config", "src/../secret"],

@@ -548,6 +548,19 @@ def main() -> int:
                     "iid": issue["iid"],
                     "title": issue["title"],
                     "source_state": issue["state"],
+                    "created_at": issue.get("created_at"),
+                    "closed_at": issue.get("closed_at"),
+                    "assignees": [
+                        str(value.get("username") or value.get("name") or "")
+                        for value in issue.get("assignees") or []
+                        if value.get("username") or value.get("name")
+                    ],
+                    "author": str(
+                        (issue.get("author") or {}).get("username") or ""
+                    )
+                    or None,
+                    "task_completion_status": issue.get("task_completion_status")
+                    or {},
                     "labels": issue.get("labels") or [],
                     "milestone": (issue.get("milestone") or {}).get("title"),
                     "priority": issue.get("severity") or None,

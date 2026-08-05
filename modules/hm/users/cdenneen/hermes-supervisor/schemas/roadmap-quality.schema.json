@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.roadmap-quality",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at",
+    "inventory_generation_id",
+    "graph_generation_id",
+    "quality_digest",
+    "cohort_counts",
+    "readiness_distribution",
+    "metrics",
+    "trend",
+    "typed_edges",
+    "untyped_edges",
+    "critical_path_status",
+    "items",
+    "proposals"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.roadmap-quality"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "inventory_generation_id": { "type": "string" },
+    "graph_generation_id": { "type": "string" },
+    "quality_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "cohort_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "readiness_distribution": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "metrics": { "type": "object", "additionalProperties": true },
+    "trend": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+    "typed_edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "untyped_edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "critical_path_status": { "type": "object" },
+    "items": { "type": "array", "items": { "type": "object" } },
+    "proposals": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "edge": {
+      "type": "object",
+      "required": [
+        "source",
+        "target",
+        "relationship",
+        "provenance",
+        "confidence"
+      ],
+      "properties": {
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "relationship": { "type": "string" },
+        "provenance": { "type": "object" },
+        "confidence": { "enum": ["high", "medium", "low"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

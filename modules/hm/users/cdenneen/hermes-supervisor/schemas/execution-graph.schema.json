@@ -85,6 +85,12 @@
           "enum": [
             "backlog",
             "discovery",
+            "decomposition-needed",
+            "decision",
+            "future",
+            "convergence",
+            "historical",
+            "superseded",
             "analysis",
             "implementation-ready",
             "implementation",

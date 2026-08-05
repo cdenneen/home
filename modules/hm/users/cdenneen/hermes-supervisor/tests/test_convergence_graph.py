@@ -152,7 +152,9 @@ def test_graph_has_one_deterministic_node_per_source_and_excludes_blocked(
     )
 
 
-def test_scheduler_uses_actual_budget_and_defers_unselected_work(tmp_path: Path):
+def test_scheduler_excludes_closed_historical_work_without_verification_action(
+    tmp_path: Path,
+):
     configure(tmp_path, tier_a_batch_size=2)
     items = [
         source_item(
@@ -175,10 +177,11 @@ def test_scheduler_uses_actual_budget_and_defers_unselected_work(tmp_path: Path)
 
     assert scheduler["configured_batch_ceiling"] == 2
     assert scheduler["available_model_call_budget"] == 1
-    assert len(scheduler["selected_batch"]) == 1
-    assert len(scheduler["deferred_items"]) == 1
-    assert scheduler["next_eligible_work"]["ref"] == graph["executable_queue"][0]["ref"]
-    assert scheduler["limiting_constraint"] == "available-model-call-budget"
+    assert scheduler["selected_batch"] == []
+    assert scheduler["deferred_items"] == []
+    assert scheduler["next_eligible_work"] is None
+    assert scheduler["limiting_constraint"] == "no-executable-work"
+    assert graph["flow_counts"]["historical"] == 2
 
 
 def test_safe_repository_convergence_can_be_executable(tmp_path: Path):

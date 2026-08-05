@@ -79,6 +79,16 @@ def main() -> int:
         if outbox_path.exists()
         else {"notifications": []}
     )
+    roadmap_quality_path = ROOT / "roadmap-quality.json"
+    roadmap_quality = (
+        validated(
+            roadmap_quality_path,
+            "axis.external-development-supervisor.roadmap-quality",
+            errors,
+        )
+        if roadmap_quality_path.exists()
+        else {}
+    )
     deployed_revision = load(ROOT / "deployed-source-revision.json")
     assignments = []
     for path in (ROOT / "assignments").glob("*.json"):
@@ -258,6 +268,15 @@ def main() -> int:
         errors.append("Slack overview state source revision does not match deployed source")
     if overview_state.get("semantic_revision") != overview.get("semantic_revision"):
         errors.append("Slack overview state and semantic revisions do not match")
+    if roadmap_quality:
+        if roadmap_quality.get("inventory_generation_id") != inventory.get(
+            "generation_id"
+        ):
+            errors.append("roadmap quality source inventory revision is not current")
+        if roadmap_quality.get("graph_generation_id") != graph.get("generation_id"):
+            errors.append("roadmap quality source graph revision is not current")
+    else:
+        warnings.append("roadmap quality projection is not available")
     failed_notifications = [
         item
         for item in outbox.get("notifications") or []
@@ -435,6 +454,9 @@ def main() -> int:
             "current_constraint"
         )
         or {},
+        "roadmap_quality": roadmap_quality.get("metrics") or {},
+        "roadmap_quality_trend": roadmap_quality.get("trend") or {},
+        "critical_path_status": roadmap_quality.get("critical_path_status") or {},
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1

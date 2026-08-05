@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -81,6 +82,12 @@ MUTATING_ASSIGNMENT_TYPES = {
 FLOW_STAGES = (
     "backlog",
     "discovery",
+    "decomposition-needed",
+    "decision",
+    "future",
+    "convergence",
+    "historical",
+    "superseded",
     "analysis",
     "implementation-ready",
     "implementation",
@@ -88,6 +95,11 @@ FLOW_STAGES = (
     "verification",
     "verified-complete",
 )
+
+
+def milestone_number(value: str | None) -> int | None:
+    match = re.search(r"AX-M(\d+)", value or "")
+    return int(match.group(1)) if match else None
 
 
 def _flow_state(
@@ -145,6 +157,43 @@ def _flow_state(
     if completion_assignments:
         return "verification", [
             "implementation is merged and awaits fresh canonical recognition"
+        ]
+    source_kind = str(item.get("source_kind") or "")
+    if source_kind.startswith("repository-") or str(item.get("ref") or "").startswith(
+        "local-convergence:"
+    ):
+        return "convergence", ["local repository custody requires convergence"]
+    if semantic is not None and any(
+        candidate.get("result") == "Executable"
+        and candidate.get("category")
+        in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
+        and candidate.get("required_tests")
+        for candidate in semantic.get("candidate_slices") or []
+    ):
+        return "verification", [
+            "historical evidence has an explicit bounded technical verification action"
+        ]
+    if item.get("source_state") == "closed":
+        return "historical", [
+            f"closed source projected outside active engineering flow; classification={item.get('classification')}"
+        ]
+    if item.get("classification") == "Superseded":
+        return "superseded", ["source classification is Superseded"]
+    if authority.get("state") in {
+        "needs-product-owner",
+        "needs-governance",
+        "prohibited",
+    }:
+        return "decision", [
+            f"authority decision required: {authority.get('state')}",
+            str(authority.get("reason") or "decision evidence is incomplete"),
+        ]
+    number = milestone_number(item.get("milestone"))
+    if number is not None and number >= 5:
+        return "future", [f"owned by future milestone AX-M{number}"]
+    if item.get("acceptance_criteria_present") and not item.get("milestone"):
+        return "decomposition-needed", [
+            "acceptance criteria exist but milestone ownership/decomposition is absent"
         ]
     if semantic is None:
         return "discovery", ["no current semantic engineering record exists"]
@@ -548,6 +597,8 @@ class ExecutionGraphBuilder:
             nodes.append(node)
 
             if verification["verification_result"]["disposition"] == "verified-complete":
+                continue
+            if flow_stage in {"historical", "future", "decision", "superseded"}:
                 continue
             if semantic is not None and authority["state"] in {
                 "unresolved",
