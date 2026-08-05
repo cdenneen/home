@@ -124,4 +124,14 @@ def expire_grant(root: Path, status: str) -> dict:
         {"recorded_at_epoch": int(time.time()), "event": f"grant-{status}"}
     )
     write_grant(root, grant)
+    control = read_record(
+        root / "control.json", "axis.external-development-supervisor.control"
+    )
+    control["mode"] = "observing"
+    control["allow_repository_mutation"] = False
+    write_record(
+        root / "control.json",
+        control,
+        "axis.external-development-supervisor.control",
+    )
     return grant

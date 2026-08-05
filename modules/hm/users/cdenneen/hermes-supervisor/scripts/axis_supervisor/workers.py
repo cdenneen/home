@@ -646,7 +646,14 @@ class HermesWorkerManager:
         patch_path.write_text(patch, encoding="utf-8")
         patch_path.chmod(0o600)
         self._git_mutation(
-            ["git", "apply", "--index", str(patch_path)],
+            ["git", "apply", "--check", "--recount", str(patch_path)],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+        )
+        self._git_mutation(
+            ["git", "apply", "--index", "--recount", str(patch_path)],
             worktree,
             repository_decision,
             OperationClass.REPOSITORY,

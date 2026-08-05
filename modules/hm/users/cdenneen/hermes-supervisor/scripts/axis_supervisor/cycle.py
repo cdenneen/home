@@ -273,7 +273,12 @@ def release_failed_assignment(
             if worker.get("custody") == "isolated-clone":
                 shutil.rmtree(worktree, ignore_errors=True)
             else:
-                assignment["recovery_worktree"] = str(worktree)
+                recovery_worktree = recovery_dir / "worktrees" / assignment["assignment_id"]
+                recovery_worktree.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if recovery_worktree.exists():
+                    shutil.rmtree(recovery_worktree)
+                worktree.rename(recovery_worktree)
+                assignment["recovery_worktree"] = str(recovery_worktree)
     try:
         lease = load_canonical_lease(ROOT, assignment)
     except Exception:
@@ -290,6 +295,8 @@ def release_failed_assignment(
             ],
             check=False,
         )
+        assignment["lease_id"] = None
+        assignment["lease_uri"] = None
     set_lifecycle(assignment, "failed")
     save(path, assignment, gate)
 
