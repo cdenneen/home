@@ -846,6 +846,7 @@ class HermesWorkerManager:
         patch = str(handoff.get("patch") or "")
         if not patch.strip():
             raise RuntimeError("implementation planner returned an empty patch")
+        patch = patch.rstrip() + "\n"
         patch_path = self.root / "recovery" / f"{assignment['assignment_id']}.planned.patch"
         patch_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.gate.require(
@@ -883,6 +884,7 @@ class HermesWorkerManager:
             patch = str(repaired.get("patch") or "")
             if not patch.startswith("diff --git"):
                 raise RuntimeError("patch repair did not return a unified Git diff")
+            patch = patch.rstrip() + "\n"
             patch_path.write_text(patch, encoding="utf-8")
             check = subprocess.run(
                 ["git", "apply", "--check", "--recount", str(patch_path)],
