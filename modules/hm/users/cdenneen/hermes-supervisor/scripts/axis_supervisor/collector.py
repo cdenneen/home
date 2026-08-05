@@ -874,10 +874,18 @@ def main() -> int:
     for lease_path in (
         sorted(lease_root.glob("*/lease.json")) if lease_root.exists() else []
     ):
+        if lease_path.parent.name.startswith("stale-"):
+            continue
         try:
-            active_leases.append(
-                read_record(lease_path, "axis.external-development-supervisor.lease")
+            lease = read_record(
+                lease_path, "axis.external-development-supervisor.lease"
             )
+            if int(lease.get("expires_at_epoch") or 0) <= int(time.time()):
+                state_record_errors.append(
+                    f"expired lease requires recovery: {lease_path}"
+                )
+                continue
+            active_leases.append(lease)
         except Exception as exc:
             state_record_errors.append(f"lease {lease_path}: {type(exc).__name__}")
 

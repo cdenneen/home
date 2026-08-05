@@ -9,9 +9,9 @@
     },
     "Scheduler": {
       "paths": [
-        "src/axis_runtime/scheduler",
-        "src/axis_kernel/execution.py",
-        "src/axis_runtime/execution.py"
+        "src/axis_kernel/workflow.py",
+        "src/axis_runtime/execution_budget.py",
+        "src/axis_runtime/node_operations.py"
       ],
       "runtimes": ["ghost", "nyx"]
     },
@@ -27,23 +27,39 @@
       "runtimes": ["ghost", "nyx"]
     },
     "Cognition": {
-      "paths": ["src/axis_runtime/cognition", "src/axis_runtime/executive"],
+      "paths": [
+        "src/axis_runtime/cognition.py",
+        "src/axis_kernel/cognition.py",
+        "src/axis_kernel/executive_organization.py"
+      ],
       "runtimes": ["ghost", "nyx"]
     },
     "Memory": {
-      "paths": ["src/axis_runtime/memory", "src/axis_kernel/memory"],
+      "paths": ["src/axis_runtime/memory.py", "src/axis_kernel/memory.py"],
       "runtimes": ["ghost", "desktop", "nyx"]
     },
     "Knowledge": {
-      "paths": ["src/axis_runtime/knowledge", "src/axis_kernel/knowledge"],
+      "paths": [
+        "src/axis_runtime/knowledge.py",
+        "src/axis_runtime/knowledge_projection.py",
+        "src/axis_kernel/knowledge.py"
+      ],
       "runtimes": ["ghost", "desktop", "nyx"]
     },
     "Plugin Runtime": {
-      "paths": ["src/axis_runtime/plugin", "src/axis_kernel/plugin"],
+      "paths": [
+        "src/axis_runtime/plugin_host.py",
+        "src/axis_kernel/plugin_lifecycle.py"
+      ],
       "runtimes": ["ghost", "desktop", "nyx"]
     },
     "Skills": {
-      "paths": ["src/axis_runtime/skill", "src/axis_kernel/skill", "packs"],
+      "paths": [
+        "src/axis_runtime/skill_delegation.py",
+        "src/axis_runtime/packs.py",
+        "src/axis_kernel/skills.py",
+        "packs"
+      ],
       "runtimes": ["ghost", "desktop", "nyx"]
     },
     "Desktop Presentation": {
@@ -67,7 +83,12 @@
       "runtimes": ["desktop", "nyx"]
     },
     "Node Runtime": {
-      "paths": ["src/axis_runtime/node", "src/axis_kernel/node"],
+      "paths": [
+        "src/axis_runtime/node_operations.py",
+        "src/axis_runtime/local_node.py",
+        "src/axis_kernel/node.py",
+        "src/axis_kernel/node_topology.py"
+      ],
       "runtimes": ["nyx"]
     },
     "Installer": {
