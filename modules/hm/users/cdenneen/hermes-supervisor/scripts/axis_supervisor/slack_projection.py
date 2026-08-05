@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -63,6 +64,9 @@ class SlackProjection:
     def verify_message(
         self, token: str, channel: str, ts: str, expected_text: str
     ) -> dict:
+        def normalized(value: str) -> str:
+            return re.sub(r"(?<!<)(https?://[^\s>`]+)", r"<\1>", value)
+
         for delay in (0, 0.25, 0.5, 1.0, 2.0):
             if delay:
                 time.sleep(delay)
@@ -79,7 +83,9 @@ class SlackProjection:
                 ),
                 None,
             )
-            if message and message.get("text") == expected_text:
+            if message and normalized(str(message.get("text") or "")) == normalized(
+                expected_text
+            ):
                 return message
         raise RuntimeError("Slack message readback did not match expected channel/ts/text")
 
