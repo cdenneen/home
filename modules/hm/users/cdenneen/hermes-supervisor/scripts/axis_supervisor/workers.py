@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 from .accounting import AccountingLedger
 from .decomposition import SemanticDecompositionEngine
-from .models import test_command_argv, validate_allowed_path
+from .models import test_command_argv, validate_allowed_path, validate_semantic_record
 from .mutation import GateDecision, MutationGate, OperationClass, load_canonical_lease
 from .observability import record_event
 from .prompt_factory import PromptFactory
@@ -494,43 +494,57 @@ class HermesWorkerManager:
                 toolsets="",
             )
             try:
-                record = self.extract_json(output)
+                candidate = self.extract_json(output)
+                candidate["source_inventory_generation_id"] = assignment.get(
+                    "source_inventory_generation_id"
+                )
+                if assignment.get("revalidation_tier") == "A":
+                    verification = candidate.get("verification_result") or {}
+                    if verification.get("tier") != "A":
+                        raise ValueError(
+                            "Tier A worker did not return a Tier A verification result"
+                        )
+                    if verification.get("disposition") == "active-technical-revalidation":
+                        candidates = candidate.get("candidate_slices") or []
+                        if not any(
+                            item.get("result") == "Executable"
+                            and item.get("category")
+                            in {
+                                "audit",
+                                "tests",
+                                "fixtures",
+                                "benchmark",
+                                "negative-test",
+                            }
+                            and item.get("required_tests")
+                            for item in candidates
+                        ):
+                            raise ValueError(
+                                "Tier A technical disposition requires a bounded Tier B test candidate"
+                            )
+                record = validate_semantic_record(candidate)
                 break
-            except ValueError:
+            except ValueError as exc:
                 assignment.setdefault("invalid_model_outputs", []).append(
-                    {"attempt": attempt + 1, "output_tail": output[-4000:]}
+                    {
+                        "attempt": attempt + 1,
+                        "error": str(exc),
+                        "output_tail": output[-4000:],
+                    }
                 )
                 if attempt == 0:
                     prompt = (
-                        "Your prior response violated the JSON-only contract. Return exactly one JSON object "
-                        "matching the supplied schema, with no prose or markdown.\n\n"
+                        "Your prior response violated the semantic response contract: "
+                        f"{exc}. Return exactly one JSON object matching the supplied schema. "
+                        "Every required_tests entry must be an allowlisted executable command, never prose.\n\n"
                         + prompt
                     )
                     continue
                 raise ValueError(
-                    f"worker output contained no JSON object: {output[-1000:]}"
+                    f"worker output failed semantic validation: {exc}: {output[-1000:]}"
                 )
         if record is None:
             raise ValueError("worker produced no semantic record")
-        record["source_inventory_generation_id"] = assignment.get(
-            "source_inventory_generation_id"
-        )
-        if assignment.get("revalidation_tier") == "A":
-            verification = record.get("verification_result") or {}
-            if verification.get("tier") != "A":
-                raise ValueError("Tier A worker did not return a Tier A verification result")
-            if verification.get("disposition") == "active-technical-revalidation":
-                candidates = record.get("candidate_slices") or []
-                if not any(
-                    candidate.get("result") == "Executable"
-                    and candidate.get("category")
-                    in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
-                    and candidate.get("required_tests")
-                    for candidate in candidates
-                ):
-                    raise ValueError(
-                        "Tier A technical disposition requires a bounded Tier B test candidate"
-                    )
         path = self.decomposition.save(record)
         return {"record": record, "path": str(path), "raw_output": output[-4000:]}
 
