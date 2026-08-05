@@ -102,3 +102,25 @@ Return a unified diff that changes only allowed paths. Do not invoke tools, run 
 End with JSON only:
 {{"patch":"unified diff","wwwhh":{{"who":"","what":"","when":"","where":"","how":"","handoff":""}}}}
 """.strip()
+
+    def patch_repair_prompt(
+        self,
+        assignment: dict,
+        source_files: dict[str, str | None],
+        rejected_patch: str,
+        rejection: str,
+    ) -> str:
+        return f"""
+You are a no-tool patch format repair worker using GPT-5.3-Codex.
+Assignment: {json.dumps(assignment, indent=2)}
+Allowlisted source files: {json.dumps(source_files, indent=2)}
+Rejected proposed patch:
+{rejected_patch}
+Rejection:
+{rejection}
+
+Preserve the intended bounded code/test change, but return a valid unified Git diff only inside the JSON `patch` field. It must begin with `diff --git`, contain standard numbered `@@ -old,count +new,count @@` hunks, and contain no `*** Begin Patch`, markdown fences, shell commands, or commentary. Do not invoke tools or perform effects.
+
+Return JSON only:
+{{"patch":"valid unified diff","wwwhh":{{"who":"","what":"","when":"","where":"","how":"","handoff":""}}}}
+""".strip()

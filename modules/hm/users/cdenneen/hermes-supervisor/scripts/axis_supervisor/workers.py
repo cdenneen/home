@@ -645,13 +645,42 @@ class HermesWorkerManager:
         )
         patch_path.write_text(patch, encoding="utf-8")
         patch_path.chmod(0o600)
-        self._git_mutation(
+        check = subprocess.run(
             ["git", "apply", "--check", "--recount", str(patch_path)],
-            worktree,
-            repository_decision,
-            OperationClass.REPOSITORY,
-            assignment,
+            cwd=worktree,
+            text=True,
+            capture_output=True,
         )
+        if not patch.startswith("diff --git") or check.returncode != 0:
+            repair_output = self.run_model(
+                "gpt-5.3-codex",
+                self.prompts.patch_repair_prompt(
+                    assignment,
+                    source_files,
+                    patch,
+                    check.stderr[-2000:] or "patch is not a unified Git diff",
+                ),
+                900,
+                assignment,
+                "implementation-patch-repair",
+                model_decision,
+                OperationClass.MODEL_CALL,
+                toolsets="",
+            )
+            repaired = self.extract_json(repair_output)
+            patch = str(repaired.get("patch") or "")
+            if not patch.startswith("diff --git"):
+                raise RuntimeError("patch repair did not return a unified Git diff")
+            patch_path.write_text(patch, encoding="utf-8")
+            check = subprocess.run(
+                ["git", "apply", "--check", "--recount", str(patch_path)],
+                cwd=worktree,
+                text=True,
+                capture_output=True,
+            )
+            if check.returncode != 0:
+                raise RuntimeError(f"patch repair remained invalid: {check.stderr[-2000:]}")
+            handoff = repaired
         self._git_mutation(
             ["git", "apply", "--index", "--recount", str(patch_path)],
             worktree,
