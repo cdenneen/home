@@ -595,6 +595,25 @@ def test_implementation_worker_prompt_is_a_no_tool_patch_plan():
     assert "Do not invoke tools" in implementation
 
 
+def test_large_implementation_context_requires_and_uses_source_ranges():
+    from axis_supervisor.workers import bounded_source_context
+
+    content = "".join(f"line {index}\n" for index in range(1, 20_001))
+    excerpt = bounded_source_context(
+        "src/example.py",
+        content,
+        "Inspect src/example.py#L10000-L10010",
+        maximum_bytes=2_000,
+    )
+    assert "exact excerpt src/example.py lines 9960-10050" in excerpt
+    assert "line 10000" in excerpt
+    assert "line 1\n" not in excerpt
+    with pytest.raises(RuntimeError, match="lacks candidate line-range evidence"):
+        bounded_source_context(
+            "src/example.py", content, "no source range", maximum_bytes=2_000
+        )
+
+
 @pytest.mark.parametrize(
     "path",
     ["/home/cdenneen/.ssh/id_ed25519", "../secret", ".git/config", "src/../secret"],

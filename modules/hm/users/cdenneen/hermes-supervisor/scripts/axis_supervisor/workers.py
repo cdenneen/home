@@ -29,6 +29,43 @@ def resolve_allowed_source(worktree: Path, relative: str) -> Path:
     return path
 
 
+def bounded_source_context(
+    relative: str, content: str, rationale: str, maximum_bytes: int = 50_000
+) -> str:
+    if len(content.encode("utf-8")) <= maximum_bytes:
+        return content
+    lines = content.splitlines(keepends=True)
+    ranges = [
+        (max(1, int(start) - 40), min(len(lines), int(end) + 40))
+        for start, end in re.findall(
+            rf"{re.escape(relative)}#L(\d+)-L(\d+)", rationale
+        )
+    ]
+    if not ranges:
+        raise RuntimeError(
+            f"large allowlisted source lacks candidate line-range evidence: {relative}"
+        )
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    excerpts = []
+    used = 0
+    for start, end in merged:
+        excerpt = "".join(lines[start - 1 : end])
+        header = f"\n[exact excerpt {relative} lines {start}-{end}]\n"
+        encoded = (header + excerpt).encode("utf-8")
+        if used + len(encoded) > maximum_bytes:
+            break
+        excerpts.append(header + excerpt)
+        used += len(encoded)
+    if not excerpts:
+        raise RuntimeError(f"candidate excerpts exceed context bound: {relative}")
+    return "".join(excerpts)
+
+
 def run_isolated_test(worktree: Path, command: str) -> subprocess.CompletedProcess:
     bwrap = shutil.which("bwrap")
     if not bwrap:
@@ -738,10 +775,17 @@ class HermesWorkerManager:
             )
         allowed = set(assignment.get("allowed_paths") or [])
         source_files = {}
+        rationale = str((assignment.get("candidate") or {}).get("rationale") or "")
         for relative in sorted(allowed):
             path = resolve_allowed_source(worktree, relative)
             source_files[relative] = (
-                path.read_text(encoding="utf-8") if path.is_file() else None
+                bounded_source_context(
+                    relative,
+                    path.read_text(encoding="utf-8"),
+                    rationale,
+                )
+                if path.is_file()
+                else None
             )
         prompt = self.prompts.implementation_prompt(assignment, source_files)
         assignment["worktree"] = str(worktree)
