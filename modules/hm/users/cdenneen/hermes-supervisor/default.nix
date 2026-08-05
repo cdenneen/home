@@ -56,6 +56,7 @@ let
     exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-canaryctl.py" "$@"
   '';
   supervisorPreflightLauncher = pkgs.writeText "axis-development-supervisor-preflight.py" ''
+    #!${supervisorPython}/bin/python
     import os
     import sys
 
@@ -64,6 +65,7 @@ let
     os.execv(python, [python, script, *sys.argv[1:]])
   '';
   supervisorSlackLauncher = pkgs.writeText "axis-development-supervisor-slack.py" ''
+    #!${supervisorPython}/bin/python
     import os
     import sys
 
