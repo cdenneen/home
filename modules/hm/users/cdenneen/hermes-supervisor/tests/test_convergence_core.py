@@ -958,7 +958,13 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
         "Service"
     ]
     identity.write_text(
-        json.dumps({"runtime_revision": current, "health": "healthy"}),
+        json.dumps(
+            {
+                "runtime_revision": current,
+                "health": "healthy",
+                "verification_status": "verified",
+            }
+        ),
         encoding="utf-8",
     )
     converged = projector.build(repository_state)

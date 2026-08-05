@@ -117,15 +117,17 @@ class CapabilityConvergenceProjector:
                 if not contained:
                     behind.append(capability)
             prior_failed = any(ring < int(runtime["ring"]) for ring in ring_failures)
+            verification_pending = (identity or {}).get("verification_status") != "verified"
+            deployment_capabilities = behind or (projected if verification_pending else [])
             status = (
                 "blocked-by-prior-ring"
-                if prior_failed and behind
+                if prior_failed and deployment_capabilities
                 else "deployment-required"
                 if error == "identity-missing"
                 else "unknown"
                 if error
                 else "converged"
-                if not behind
+                if not deployment_capabilities
                 else "deployment-required"
             )
             if status == "unknown":
@@ -149,17 +151,17 @@ class CapabilityConvergenceProjector:
                     "identity_error": error,
                 }
             )
-            if behind:
+            if deployment_capabilities:
                 assignments.append(
                     {
                         "assignment_id": f"deployment-{expected_repository_revision[:12]}-{runtime_name}",
                         "assignment_type": "capability-deployment",
                         "target_runtime": runtime_name,
                         "ring": runtime["ring"],
-                        "affected_capabilities": behind,
+                        "affected_capabilities": deployment_capabilities,
                         "expected_capability_revisions": {
                             capability: expected_by_capability[capability]
-                            for capability in behind
+                            for capability in deployment_capabilities
                         },
                         "expected_revision": expected_repository_revision,
                         "deployment_target": runtime["deployment_target"],
@@ -171,7 +173,7 @@ class CapabilityConvergenceProjector:
                             repository_convergence.get("convergence_digest"),
                             *[
                                 f"{capability}:{expected_by_capability[capability]}"
-                                for capability in behind
+                                for capability in deployment_capabilities
                             ],
                         ],
                     }
