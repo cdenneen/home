@@ -388,7 +388,10 @@ def local_repository_state(project: dict, merge_requests: list[dict] | None = No
                 continue
             remote_name, head = line.split("|", 1)
             branch = remote_name.removeprefix("origin/")
-            if branch in {"HEAD", default_branch}:
+            if remote_name in {"origin", "origin/HEAD", f"origin/{default_branch}"} or branch in {
+                "HEAD",
+                default_branch,
+            }:
                 continue
             merge_base = run(
                 [GIT, "merge-base", default_remote, remote_name], path
