@@ -615,7 +615,10 @@ def test_large_implementation_context_requires_and_uses_source_ranges():
 
 
 def test_operational_metrics_measure_verified_throughput(tmp_path: Path):
-    from axis_supervisor.observability import OperationalEventLog
+    from axis_supervisor.observability import (
+        OperationalEventLog,
+        record_engineering_retrospective,
+    )
     from axis_supervisor.schema_registry import write_record
 
     write_record(
@@ -629,6 +632,10 @@ def test_operational_metrics_measure_verified_throughput(tmp_path: Path):
         "work_item": "ghostspace/axis#1",
         "project": "ghostspace/axis",
         "lifecycle_state": "completed",
+        "created_at_epoch": int(time.time()) - 10,
+        "assignment_type": "read-only-analysis",
+        "result_state": "analysis-completed",
+        "work_item_disposition": "requires-implementation",
     }
     implementation = analysis | {
         "assignment_id": "implementation-1",
@@ -668,6 +675,19 @@ def test_operational_metrics_measure_verified_throughput(tmp_path: Path):
     assert metrics["implementation_to_merge_percent"] == 100
     assert metrics["merge_to_verified_percent"] == 100
     assert metrics["post_main_verified"] == 1
+    first_retrospective = record_engineering_retrospective(
+        tmp_path, analysis, source="cycle"
+    )
+    second_retrospective = record_engineering_retrospective(
+        tmp_path, analysis, source="cycle"
+    )
+    assert first_retrospective["details"]["retrospective_revision"] == 1
+    assert second_retrospective["details"]["retrospective_revision"] == 2
+    assert (
+        second_retrospective["details"]["supersedes_event_id"]
+        == first_retrospective["event_id"]
+    )
+    assert 0 <= first_retrospective["details"]["duration_seconds"] <= 20
 
 
 @pytest.mark.parametrize(

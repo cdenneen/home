@@ -308,9 +308,30 @@ def record_engineering_retrospective(
     attempts = AccountingLedger(root).model_attempts_for_assignment(
         assignment["assignment_id"]
     )
-    duration = max(
-        0, int(time.time()) - int(assignment.get("created_at_epoch") or time.time())
+    event_log = OperationalEventLog(root, source)
+    historical_events = event_log.events(limit=100_000)
+    terminal_events = [
+        event
+        for event in historical_events
+        if event.get("event_type") == "assignment_disposition"
+        and event.get("assignment_id") == assignment["assignment_id"]
+        and (event.get("details") or {}).get("disposition")
+        not in {"awaiting-integration", None}
+    ]
+    finished_epoch = (
+        int(terminal_events[-1].get("created_at_epoch") or time.time())
+        if terminal_events
+        else int(time.time())
     )
+    duration = max(
+        0, finished_epoch - int(assignment.get("created_at_epoch") or finished_epoch)
+    )
+    prior_retrospectives = [
+        event
+        for event in historical_events
+        if event.get("event_type") == "engineering_retrospective"
+        and event.get("assignment_id") == assignment["assignment_id"]
+    ]
     result_state = str(assignment.get("result_state") or "unknown")
     work_item_disposition = str(
         assignment.get("work_item_disposition") or "not-evaluated"
@@ -327,6 +348,10 @@ def record_engineering_retrospective(
     merge_request = integration.get("merge_request") or {}
     details = {
         "assignment_type": assignment.get("assignment_type"),
+        "retrospective_revision": len(prior_retrospectives) + 1,
+        "supersedes_event_id": prior_retrospectives[-1]["event_id"]
+        if prior_retrospectives
+        else None,
         "result_state": result_state,
         "work_item_disposition": work_item_disposition,
         "duration_seconds": duration,
@@ -359,11 +384,9 @@ def record_engineering_retrospective(
             "verified roadmap progress than the first deferred alternative?"
         ),
     }
-    return record_event(
-        root,
+    return event_log.emit(
         "engineering_retrospective",
         assignment=assignment,
         details=details,
-        source=source,
         notify=False,
     )
