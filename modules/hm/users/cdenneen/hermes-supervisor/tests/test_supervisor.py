@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 import os
@@ -1284,3 +1285,122 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     third = projection.update(inventory, graph, control_value)
     assert third["updated"] is True
     assert calls[0][0] == "chat.update"
+
+
+def load_supervisor_slack_plugin():
+    return load_module(
+        "axis_supervisor_commands_test",
+        ROOT / "plugin" / "axis-supervisor-commands" / "__init__.py",
+    )
+
+
+def test_supervisor_slack_plugin_authorizes_only_exact_product_owner_dm(tmp_path: Path):
+    plugin = load_supervisor_slack_plugin()
+    plugin.ROOT = tmp_path
+    (tmp_path / "control.json").write_text(
+        json.dumps({"slack_user_id": "U1"}), encoding="utf-8"
+    )
+    (tmp_path / "slack-overview-state.json").write_text(
+        json.dumps({"channel": "D1"}), encoding="utf-8"
+    )
+    class Platform:
+        value = "slack"
+
+    class Source:
+        platform = Platform()
+        chat_type = "dm"
+        user_id = "U1"
+        chat_id = "D1"
+
+    class Event:
+        source = Source()
+        text = "/axis roadmap"
+
+    assert plugin._pre_gateway_dispatch(event=Event()) == {"action": "allow"}
+    assert plugin._AUTHORIZED.get() is True
+    Event.source.chat_id = "D2"
+    plugin._pre_gateway_dispatch(event=Event())
+    assert plugin._AUTHORIZED.get() is False
+    Event.source.chat_id = "D1"
+    Event.source.chat_type = "mpim"
+    plugin._pre_gateway_dispatch(event=Event())
+    assert plugin._AUTHORIZED.get() is False
+    Event.text = "/axisfoo roadmap"
+    assert plugin._pre_gateway_dispatch(event=Event()) is None
+    assert plugin._parse_command("roadmap") == ("roadmap", "")
+    assert plugin._parse_command("resume normal work") is None
+    assert plugin._parse_command("inspect ghostspace/axis#119") == (
+        "inspect",
+        "ghostspace/axis#119",
+    )
+
+
+def test_supervisor_slack_plugin_executes_typed_command_without_shell(
+    monkeypatch, tmp_path: Path
+):
+    plugin = load_supervisor_slack_plugin()
+    plugin.ROOT = tmp_path
+    plugin.COMMAND_SCRIPT = tmp_path / "command.py"
+    (tmp_path / "control.json").write_text(
+        json.dumps({"slack_user_id": "U1"}), encoding="utf-8"
+    )
+    captured = {}
+
+    (tmp_path / "slack-overview-state.json").write_text(
+        json.dumps({"channel": "D1"}), encoding="utf-8"
+    )
+    class Platform:
+        value = "slack"
+
+    class Source:
+        platform = Platform()
+        chat_type = "dm"
+        user_id = "U1"
+        chat_id = "D1"
+
+    class Event:
+        source = Source()
+        text = "/axis status"
+
+    class Completed:
+        returncode = 0
+        stderr = ""
+        stdout = json.dumps(
+            {
+                "command": "status",
+                "mode": "enabled",
+                "allow_repository_mutation": True,
+                "composition": {
+                    "verified_complete": {
+                        "count": 3,
+                        "denominator": 421,
+                        "percent": 0.7,
+                    }
+                },
+                "supervisor_work": {
+                    "supervisor_work_remaining": 418,
+                    "ready_work_total": 417,
+                },
+                "current_execution_frontier": "AX-M4",
+                "current_supervisor_focus": {
+                    "kind": "tier-a-batch",
+                    "work_items": ["axis#75", "axis-governance#246"],
+                },
+            }
+        )
+
+    def run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setattr(plugin.subprocess, "run", run)
+    plugin._pre_gateway_dispatch(event=Event())
+    response = asyncio.run(plugin._handle_axis("status"))
+    assert "AXIS Supervisor Status" in response
+    assert captured["command"] == [
+        plugin.sys.executable,
+        str(plugin.COMMAND_SCRIPT),
+        "status",
+    ]
+    assert "shell" not in captured["kwargs"]

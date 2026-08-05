@@ -1,12 +1,15 @@
 ---
 name: axis-supervisor-operations
-description: Handle private Slack DM requests for AXIS Build Supervisor status, roadmap, milestones, running, blocked, decisions, recent, inspect, reconcile, pause, resume, or drain. Use only the typed supervisor command CLI; never forward DM text to coding workers.
+description: Fallback guidance for AXIS Build Supervisor requests that are not handled by the deterministic axis-supervisor-commands plugin. Never use terminal discovery for supported commands.
 category: devops
 ---
 
 # AXIS Build Supervisor Operations
 
-For an exact supported command, run:
+Supported Slack commands are handled before agent dispatch by the
+`axis-supervisor-commands` plugin when sent with the `!axis` prefix. If plain
+text reaches this skill, tell the Product Owner to use `!axis <command>`; do not
+inspect the filesystem or discover tools. For fallback execution, run only:
 
 ```bash
 axis-development-supervisor-command <original command text>

@@ -8,6 +8,18 @@
 }:
 let
   packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
+  hermesGatewaySitecustomize = pkgs.writeTextDir "sitecustomize.py" ''
+    try:
+        import hermes_cli.commands as commands
+        commands.should_bypass_active_session = commands.is_gateway_known_command
+    except Exception:
+        pass
+  '';
+  hermesGatewayBypassCheck = pkgs.writeShellScript "hermes-gateway-plugin-bypass-check" ''
+    set -euo pipefail
+    exec ${agentPkgs.hermes.hermesVenv}/bin/python3 -c \
+      'import hermes_cli.commands as commands; assert commands.should_bypass_active_session is commands.is_gateway_known_command'
+  '';
   gatewayEnabled = config.profiles.hermesGateway.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-supervisor";
@@ -83,9 +95,13 @@ in
           };
           Service = {
             Type = "simple";
+            ExecStartPre = hermesGatewayBypassCheck;
             ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
             WorkingDirectory = "%h/.hermes";
-            Environment = [ "HERMES_HOME=%h/.hermes" ];
+            Environment = [
+              "HERMES_HOME=%h/.hermes"
+              "PYTHONPATH=${hermesGatewaySitecustomize}"
+            ];
             Restart = "on-failure";
             RestartSec = 5;
             TimeoutStopSec = 180;
@@ -168,6 +184,7 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p \
           "$HOME/.hermes/skills/axis-development-supervisor" \
           "$HOME/.hermes/skills/axis-supervisor-operations" \
+          "$HOME/.hermes/plugins" \
           "$HOME/.hermes/scripts"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 644 -T \
           "${./skill/SKILL.md}" "$HOME/.hermes/skills/axis-development-supervisor/SKILL.md"
@@ -193,6 +210,10 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp -R \
           "${./scripts/axis_supervisor}" "$HOME/.hermes/scripts/axis_supervisor"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod -R u=rwX,go= "$HOME/.hermes/scripts/axis_supervisor"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "$HOME/.hermes/plugins/axis-supervisor-commands"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp -R \
+          "${./plugin/axis-supervisor-commands}" "$HOME/.hermes/plugins/axis-supervisor-commands"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod -R u=rwX,go= "$HOME/.hermes/plugins/axis-supervisor-commands"
         $DRY_RUN_CMD mkdir -p \
           "${runtimeRoot}/assignments" \
           "${runtimeRoot}/leases" \
@@ -242,11 +263,38 @@ in
             .agent.restart_drain_timeout = 120
             | .agent.reasoning_overrides."gpt-5.4" = "medium"
             | .agent.reasoning_overrides."gpt-5.3-codex" = "medium"
+            ${lib.optionalString supervisorEnabled ''
+              | .plugins.enabled = (((.plugins.enabled // []) + ["axis-supervisor-commands"]) | unique)
+            ''}
+            ${lib.optionalString (!supervisorEnabled) ''
+              | .plugins.enabled = ((.plugins.enabled // []) | map(select(. != "axis-supervisor-commands")))
+            ''}
           ' "$hermes_config" > "$config_tmp"
           ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$hermes_config"
           ${pkgs.coreutils}/bin/rm -f "$config_tmp"
         fi
       ''
+    );
+
+    home.activation.hermesSupervisorPluginCleanup = lib.mkIf (gatewayEnabled && !supervisorEnabled) (
+      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "$HOME/.hermes/plugins/axis-supervisor-commands"
+      ''
+    );
+
+    home.activation.hermesSupervisorGatewayRestart = lib.mkIf gatewayEnabled (
+      lib.hm.dag.entryAfter
+        (
+          [
+            "reloadSystemd"
+            "hermesSupervisorGatewayConfig"
+          ]
+          ++ lib.optional supervisorEnabled "hermesSupervisorState"
+          ++ lib.optional (!supervisorEnabled) "hermesSupervisorPluginCleanup"
+        )
+        ''
+          $DRY_RUN_CMD ${pkgs.systemd}/bin/systemctl --user try-restart hermes-gateway.service
+        ''
     );
   };
 }

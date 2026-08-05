@@ -1,6 +1,6 @@
 # Supervisor Reporting Contract
 
-Version: 1.1.1
+Version: 1.1.2
 
 The deterministic no-agent Block Kit projection is the only Slack report
 producer. It updates one persistent Product Owner DM message in place. Worker
