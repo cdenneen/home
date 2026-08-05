@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -37,6 +38,10 @@ class HermesWorkerManager:
         return match.group(1)
 
     def record_model_attempt(self, assignment: dict, model: str) -> None:
+        control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
+        limit = int(control.get("daily_model_call_limit", 144))
+        if self.model_attempts_today() >= limit:
+            raise RuntimeError(f"daily model call limit reached: {limit}/{limit}")
         now = int(time.time())
         assignment["model_attempts"] = int(assignment.get("model_attempts") or 0) + 1
         assignment.setdefault("model_attempt_log", []).append(
@@ -49,6 +54,30 @@ class HermesWorkerManager:
         tmp.write_text(json.dumps(assignment, indent=2) + "\n", encoding="utf-8")
         tmp.chmod(0o600)
         tmp.replace(path)
+
+    def model_attempts_today(self) -> int:
+        day = datetime.now(timezone.utc).date()
+        total = 0
+        for path in (self.root / "assignments").glob("*.json"):
+            try:
+                assignment = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            attempts = assignment.get("model_attempt_log") or []
+            if attempts:
+                total += sum(
+                    1
+                    for attempt in attempts
+                    if datetime.fromtimestamp(
+                        int(attempt.get("started_at_epoch", 0)), timezone.utc
+                    ).date()
+                    == day
+                )
+                continue
+            created = int(assignment.get("created_at_epoch", 0))
+            if datetime.fromtimestamp(created, timezone.utc).date() == day:
+                total += int(assignment.get("model_attempts") or 0)
+        return total
 
     @staticmethod
     def extract_json(text: str) -> dict:
@@ -359,14 +388,36 @@ class HermesWorkerManager:
             assignment["evidence_fingerprint"] = self.decomposition.save_evidence(
                 assignment["target_ref"], assignment["semantic_evidence"]
             )
-        output = self.run_model(
-            "gpt-5.4",
-            self.prompts.semantic_prompt(assignment),
-            900,
-            assignment,
-            toolsets="",
-        )
-        record = self.extract_json(output)
+        prompt = self.prompts.semantic_prompt(assignment)
+        output = ""
+        record = None
+        for attempt in range(2):
+            output = self.run_model(
+                "gpt-5.4",
+                prompt,
+                900,
+                assignment,
+                toolsets="",
+            )
+            try:
+                record = self.extract_json(output)
+                break
+            except ValueError:
+                assignment.setdefault("invalid_model_outputs", []).append(
+                    {"attempt": attempt + 1, "output_tail": output[-4000:]}
+                )
+                if attempt == 0:
+                    prompt = (
+                        "Your prior response violated the JSON-only contract. Return exactly one JSON object "
+                        "matching the supplied schema, with no prose or markdown.\n\n"
+                        + prompt
+                    )
+                    continue
+                raise ValueError(
+                    f"worker output contained no JSON object: {output[-1000:]}"
+                )
+        if record is None:
+            raise ValueError("worker produced no semantic record")
         if assignment.get("revalidation_tier") == "A":
             verification = record.get("verification_result") or {}
             if verification.get("tier") != "A":
