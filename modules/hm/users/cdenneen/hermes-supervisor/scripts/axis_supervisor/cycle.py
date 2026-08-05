@@ -342,6 +342,8 @@ def execute_new_assignment(
         set_lifecycle(assignment, "failed")
         assignment["error"] = f"lease claim failed: {type(exc).__name__}: {exc}"
         save(path, assignment, gate)
+        if (assignment.get("authority") or {}).get("state") == "canary":
+            expire_grant(ROOT, "failed")
         raise
     assignment["lease_id"] = lease["lease_id"]
     assignment["lease_uri"] = (

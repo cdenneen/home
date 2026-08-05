@@ -149,8 +149,6 @@ def claim(args: argparse.Namespace) -> int:
     control = load_control()
     if control.get("kill_switch") or control.get("mode") != "enabled":
         raise RuntimeError("supervisor is not enabled")
-    if not control.get("allow_repository_mutation") and not args.read_only:
-        raise RuntimeError("repository mutation is disabled")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.assignment_id):
         raise RuntimeError("invalid assignment_id")
     assignment_path = ROOT / "assignments" / f"{args.assignment_id}.json"
@@ -176,6 +174,8 @@ def claim(args: argparse.Namespace) -> int:
                 raise RuntimeError(str(exc)) from exc
         elif authority_state not in {"direct", "inherited"}:
             raise RuntimeError("mutating lease requires direct or inherited authority")
+        if not control.get("allow_repository_mutation") and authority_state != "canary":
+            raise RuntimeError("repository mutation is disabled")
         if assignment.get("governance_state") not in {"Executable", "Running"}:
             raise RuntimeError("mutating lease requires executable governance state")
     ttl = int(args.ttl or control.get("lease_seconds", 1200))
