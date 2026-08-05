@@ -26,6 +26,55 @@ def resolve_allowed_source(worktree: Path, relative: str) -> Path:
     return path
 
 
+def run_isolated_test(worktree: Path, command: str) -> subprocess.CompletedProcess:
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise RuntimeError("bubblewrap is required for isolated supervisor tests")
+    return subprocess.run(
+        [
+            bwrap,
+            "--die-with-parent",
+            "--unshare-net",
+            "--clearenv",
+            "--ro-bind",
+            "/nix",
+            "/nix",
+            "--ro-bind",
+            "/etc",
+            "/etc",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--dir",
+            "/workspace",
+            "--bind",
+            str(worktree),
+            "/workspace",
+            "--ro-bind",
+            str(worktree / ".git"),
+            "/workspace/.git",
+            "--setenv",
+            "HOME",
+            "/tmp",
+            "--setenv",
+            "PATH",
+            "/etc/profiles/per-user/cdenneen/bin:/run/current-system/sw/bin",
+            "--setenv",
+            "LANG",
+            "C.UTF-8",
+            "--chdir",
+            "/workspace",
+            *test_command_argv(command),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=600,
+    )
+
+
 class HermesWorkerManager:
     def __init__(
         self,
@@ -487,16 +536,8 @@ class HermesWorkerManager:
         )
         results = []
         try:
-            from .models import test_command_argv
-
             for command in assignment.get("required_tests") or []:
-                completed = subprocess.run(
-                    test_command_argv(command),
-                    cwd=worktree,
-                    text=True,
-                    capture_output=True,
-                    timeout=600,
-                )
+                completed = run_isolated_test(worktree, command)
                 results.append(
                     {
                         "command": command,
@@ -625,52 +666,7 @@ class HermesWorkerManager:
                 assignment=assignment,
                 repository=assignment.get("project"),
             )
-            bwrap = shutil.which("bwrap")
-            if not bwrap:
-                raise RuntimeError("bubblewrap is required for isolated implementation tests")
-            completed = subprocess.run(
-                [
-                    bwrap,
-                    "--die-with-parent",
-                    "--unshare-net",
-                    "--clearenv",
-                    "--ro-bind",
-                    "/nix",
-                    "/nix",
-                    "--ro-bind",
-                    "/etc",
-                    "/etc",
-                    "--proc",
-                    "/proc",
-                    "--dev",
-                    "/dev",
-                    "--tmpfs",
-                    "/tmp",
-                    "--dir",
-                    "/workspace",
-                    "--bind",
-                    str(worktree),
-                    "/workspace",
-                    "--ro-bind",
-                    str(worktree / ".git"),
-                    "/workspace/.git",
-                    "--setenv",
-                    "HOME",
-                    "/tmp",
-                    "--setenv",
-                    "PATH",
-                    "/etc/profiles/per-user/cdenneen/bin:/run/current-system/sw/bin",
-                    "--setenv",
-                    "LANG",
-                    "C.UTF-8",
-                    "--chdir",
-                    "/workspace",
-                    *test_command_argv(command),
-                ],
-                text=True,
-                capture_output=True,
-                timeout=600,
-            )
+            completed = run_isolated_test(worktree, command)
             test_results.append({"command": command, "returncode": completed.returncode})
             if completed.returncode != 0:
                 raise RuntimeError(f"implementation test failed: {command}")

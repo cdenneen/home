@@ -218,7 +218,10 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
           "$HOME/.hermes/scripts/axis-development-supervisor-report.py" \
           "${runtimeRoot}/report-delivery-pending.json" \
-          "${runtimeRoot}/report-delivery-state.json"
+          "${runtimeRoot}/report-delivery-state.json" \
+          "${runtimeRoot}/report-state.json" \
+          "${runtimeRoot}/schemas/baseline.schema.json" \
+          "${runtimeRoot}/schemas/report.schema.json"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/supervisorctl.py}" "$HOME/.hermes/scripts/axis-development-supervisorctl.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
