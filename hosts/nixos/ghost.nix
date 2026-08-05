@@ -66,7 +66,8 @@ let
                 for key, value in self.headers.items()
                 if key.lower() not in {"host", "content-length", "connection"}
             }
-            upstream.request(self.command, self.path, body=body, headers=headers)
+            upstream_path = self.path[4:] if self.path.startswith("/api") else self.path
+            upstream.request(self.command, upstream_path or "/", body=body, headers=headers)
             response = upstream.getresponse()
             payload = response.read()
             self.send_response(response.status)
@@ -87,7 +88,7 @@ let
         def log_message(self, format, *args):
             return
 
-    ThreadingHTTPServer(("127.0.0.1", 8781), Handler).serve_forever()
+    ThreadingHTTPServer(("127.0.0.1", 8001), Handler).serve_forever()
   '';
   pepsApiHost = "peps-api.denneen.net";
   pepsWebHost = "peps.denneen.net";
@@ -258,18 +259,6 @@ in
       port = 8780;
     };
 
-    caddy = {
-      enable = true;
-      virtualHosts."http://127.0.0.1:3002".extraConfig = ''
-        handle_path /api/* {
-          reverse_proxy 127.0.0.1:8781
-        }
-        handle {
-          reverse_proxy 127.0.0.1:3001
-        }
-      '';
-    };
-
     tailscale = {
       enable = true;
       openFirewall = true;
@@ -331,7 +320,7 @@ in
           "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
           "ai-dev.denneen.net" = "http://127.0.0.1:3000";
-          "ai.denneen.net" = "http://127.0.0.1:3002";
+          "ai.denneen.net" = "http://127.0.0.1:3001";
         };
         default = "http_status:404";
         originRequest = {
@@ -1547,13 +1536,11 @@ in
   systemd.services."cloudflared-tunnel-${ghostTunnelId}" = {
     requires = [
       "axis-api-auth-proxy.service"
-      "caddy.service"
       "cloudflared-credentials-ghost.service"
     ];
     after = [
       "axis-api-auth-proxy.service"
       "axis-web.service"
-      "caddy.service"
       "cloudflared-credentials-ghost.service"
     ];
   };
