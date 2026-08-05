@@ -102,7 +102,15 @@ def _scheduler_state(
             "model-call-budget-exhausted" if not selected else "configured-batch-ceiling"
         )
     else:
-        selected = select_tier_a_batch(queue, ceiling, budget)
+        priority_refs = list(control.get("semantic_priority_refs") or [])
+        priority_order = {ref: index for index, ref in enumerate(priority_refs)}
+        priority_candidates = sorted(
+            [item for item in queue if item.get("target_ref") in priority_order],
+            key=lambda item: priority_order[item["target_ref"]],
+        )
+        selected = priority_candidates[:1]
+        if not selected:
+            selected = select_tier_a_batch(queue, ceiling, budget)
         if not selected:
             selected = queue[:1]
         tier_a_candidates = [
