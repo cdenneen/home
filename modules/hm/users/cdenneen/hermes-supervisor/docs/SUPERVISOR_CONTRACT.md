@@ -49,7 +49,7 @@ token. Integration uses a fresh session and current GitLab state.
 ## Inventory and queue
 
 The deterministic Collector is the sole raw-inventory writer. Retrieval
-failures fail closed to Unknown. `classifier_queue_empty` means only that the
+failures fail closed to Unknown. An empty executable queue means only that the
 deterministic classifier found no direct executable item. Governed queue zero
 requires fresh configured sources, semantic authority resolution, valid
 decomposition/revalidation records for every Waiting/Blocked/closed item,

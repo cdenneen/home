@@ -1,16 +1,144 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "axis.external-development-supervisor.execution-graph",
+  "$defs": {
+    "classification": {
+      "enum": [
+        "Executable",
+        "Running",
+        "Blocked",
+        "Waiting",
+        "Integrated",
+        "Superseded",
+        "Completed",
+        "Invalid",
+        "Revalidation",
+        "Unknown"
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "required": ["from_ref", "to_ref", "relationship"],
+      "properties": {
+        "from_ref": { "type": "string", "minLength": 1 },
+        "to_ref": { "type": "string", "minLength": 1 },
+        "relationship": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "ref",
+        "source_kind",
+        "kind",
+        "classification",
+        "authority",
+        "dependencies",
+        "ranking_score",
+        "ranking_factors",
+        "source_fingerprint",
+        "verification"
+      ],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "source_kind": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "project": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "source_state": { "type": ["string", "null"] },
+        "classification": { "$ref": "#/$defs/classification" },
+        "blocker_type": { "type": ["string", "null"] },
+        "waiting_reason": { "type": ["string", "null"] },
+        "classification_rationale": { "type": ["string", "null"] },
+        "authority": { "type": "object" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "ranking_score": { "type": "integer" },
+        "ranking_factors": { "type": "object" },
+        "semantic_record": { "type": ["object", "null"] },
+        "source_fingerprint": { "type": "string", "minLength": 1 },
+        "verification": {
+          "type": "object",
+          "required": [
+            "state",
+            "checks",
+            "failed_checks",
+            "evidence",
+            "verification_result"
+          ],
+          "properties": {
+            "state": {
+              "enum": ["verified-complete", "pending-current-revalidation"]
+            },
+            "checks": { "type": "object" },
+            "failed_checks": { "type": "array" },
+            "evidence": { "type": "array" },
+            "verification_result": {
+              "$ref": "axis.external-development-supervisor.verification"
+            }
+          },
+          "additionalProperties": true
+        },
+        "revalidation_tier": {
+          "type": ["string", "null"],
+          "enum": ["A", "B", "C", "D", null]
+        }
+      },
+      "additionalProperties": false
+    },
+    "queueItem": {
+      "type": "object",
+      "required": [
+        "ref",
+        "kind",
+        "classification",
+        "ranking_score",
+        "ranking_factors",
+        "authority"
+      ],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "classification": { "const": "Executable" },
+        "ranking_score": { "type": "integer" },
+        "ranking_factors": { "type": "object" },
+        "authority": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "schedulerItem": {
+      "type": "object",
+      "required": ["ref", "kind", "ranking_score"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "target_ref": { "type": ["string", "null"] },
+        "kind": { "type": "string", "minLength": 1 },
+        "project": { "type": ["string", "null"] },
+        "milestone": { "type": ["string", "null"] },
+        "ranking_score": { "type": "integer" },
+        "revalidation_tier": { "enum": ["A", "B", "C", "D", null] }
+      },
+      "additionalProperties": false
+    }
+  },
   "type": "object",
   "required": [
     "schema",
     "schema_version",
     "generation_id",
+    "generated_at",
     "inventory_generation_id",
     "nodes",
     "edges",
+    "classification_counts",
+    "waiting_reason_counts",
     "executable_queue",
-    "classifier_queue_empty",
+    "queue_depth",
+    "semantic_decomposition_pending",
+    "semantic_authority_unresolved",
+    "policy_suppressed_executable_count",
+    "scheduler_state",
+    "queue_zero_proof",
     "governed_queue_zero_proven"
   ],
   "properties": {
@@ -18,11 +146,78 @@
       "const": "axis.external-development-supervisor.execution-graph"
     },
     "schema_version": { "const": "1.0.0" },
-    "nodes": { "type": "array" },
-    "edges": { "type": "array" },
-    "executable_queue": { "type": "array" },
-    "classifier_queue_empty": { "type": "boolean" },
+    "generation_id": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "inventory_generation_id": { "type": "string", "minLength": 1 },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" },
+      "uniqueItems": true
+    },
+    "classification_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "waiting_reason_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "executable_queue": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/queueItem" }
+    },
+    "queue_depth": { "type": "integer", "minimum": 0 },
+    "semantic_decomposition_pending": { "type": "integer", "minimum": 0 },
+    "semantic_authority_unresolved": { "type": "integer", "minimum": 0 },
+    "policy_suppressed_executable_count": { "type": "integer", "minimum": 0 },
+    "scheduler_state": {
+      "type": "object",
+      "required": [
+        "configured_batch_ceiling",
+        "available_model_call_budget",
+        "selected_batch",
+        "deferred_items",
+        "next_eligible_work",
+        "limiting_constraint"
+      ],
+      "properties": {
+        "configured_batch_ceiling": { "type": "integer", "minimum": 1 },
+        "available_model_call_budget": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "selected_batch": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schedulerItem" }
+        },
+        "deferred_items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schedulerItem" }
+        },
+        "next_eligible_work": {
+          "oneOf": [{ "$ref": "#/$defs/schedulerItem" }, { "type": "null" }]
+        },
+        "limiting_constraint": {
+          "enum": [
+            "no-executable-work",
+            "available-model-call-budget-unknown",
+            "model-call-budget-exhausted",
+            "available-model-call-budget",
+            "configured-batch-ceiling",
+            "tier-a-independence",
+            "single-item-dispatch",
+            "queue-depth"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "queue_zero_proof": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
     "governed_queue_zero_proven": { "type": "boolean" }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

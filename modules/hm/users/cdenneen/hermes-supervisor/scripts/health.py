@@ -2,8 +2,10 @@
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+from axis_supervisor.schema_registry import read_record
 
 HOME = Path.home()
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", HOME / ".hermes" / "supervisor" / "axis-development-supervisor"))
@@ -20,15 +22,52 @@ def load(path: Path) -> dict:
     return value
 
 
+def timestamp_epoch(value: str, field: str) -> int:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is invalid") from exc
+
+
+def validated(path: Path, schema: str, errors: list[str]) -> dict:
+    try:
+        return read_record(path, schema)
+    except Exception as exc:
+        errors.append(f"invalid {schema} record {path.name}: {exc}")
+        return {}
+
+
 def main() -> int:
     now = int(time.time())
     errors = []
     warnings = []
     gateway = load(GATEWAY)
     jobs = load(JOBS)
-    inventory = load(ROOT / "inventory.json")
-    graph = load(ROOT / "execution-graph.json")
-    control = load(ROOT / "control.json")
+    inventory = validated(
+        ROOT / "inventory.json", "axis.external-development-supervisor.inventory", errors
+    )
+    graph = validated(
+        ROOT / "execution-graph.json",
+        "axis.external-development-supervisor.execution-graph",
+        errors,
+    )
+    control = validated(
+        ROOT / "control.json", "axis.external-development-supervisor.control", errors
+    )
+    overview = validated(
+        ROOT / "slack-overview-record.json",
+        "axis.external-development-supervisor.roadmap-semantics",
+        errors,
+    )
+    overview_state = validated(
+        ROOT / "slack-overview-state.json",
+        "axis.external-development-supervisor.slack-state",
+        errors,
+    )
+    deployed_revision = load(ROOT / "deployed-source-revision.json")
 
     if gateway.get("gateway_state") != "running":
         errors.append("gateway is not running")
@@ -46,8 +85,15 @@ def main() -> int:
         str(control.get("report_cron_job_id") or ""),
     } - {""}
     if len(expected_jobs) != 2:
-        errors.append("worker and reporter cron IDs are not configured")
+        errors.append("worker and Slack projection cron IDs are not configured")
     actual_jobs = {str(item.get("id")) for item in jobs.get("jobs", []) if item.get("enabled")}
+    for name in (
+        "axis-development-supervisor-worker",
+        "axis-development-supervisor-report",
+    ):
+        matches = [item for item in jobs.get("jobs", []) if item.get("name") == name]
+        if len(matches) != 1:
+            errors.append(f"expected exactly one cron job named {name}, found {len(matches)}")
     missing = sorted(expected_jobs - actual_jobs)
     if missing:
         errors.append(f"missing enabled cron jobs: {missing}")
@@ -56,8 +102,6 @@ def main() -> int:
             continue
         if job.get("last_error"):
             warnings.append(f"{job.get('name')} last error: {job.get('last_error')}")
-        if job.get("last_delivery_error"):
-            warnings.append(f"{job.get('name')} delivery error: {job.get('last_delivery_error')}")
     for marker, label in (
         (CRON_DIR / "ticker_heartbeat", "ticker heartbeat"),
         (CRON_DIR / "ticker_last_success", "ticker success"),
@@ -72,12 +116,12 @@ def main() -> int:
         errors.append("inventory has no generated_at")
     else:
         try:
-            generated_epoch = int(datetime.fromisoformat(generated).timestamp())
+            generated_epoch = timestamp_epoch(generated, "inventory generated_at")
             if now - generated_epoch > 3600:
                 warnings.append("inventory is older than one hour")
-        except Exception:
+        except ValueError:
             errors.append("inventory generated_at is invalid")
-    if inventory.get("invariant", {}).get("unknown_count", 1) != 0:
+    if int((graph.get("classification_counts") or {}).get("Unknown", 1)) != 0:
         errors.append("inventory contains Unknown classifications")
     inventory_lock = ROOT / "inventory.lock"
     if inventory_lock.exists():
@@ -87,15 +131,54 @@ def main() -> int:
         else:
             warnings.append("inventory generation is currently locked")
 
-    pending = ROOT / "report-delivery-pending.json"
-    if pending.exists():
+    overview_freshness_seconds = int(control.get("overview_freshness_minutes", 90)) * 60
+    overview_generated_at = overview.get("generated_at")
+    if not overview_generated_at:
+        errors.append("Slack overview semantic record has no generated_at")
+    else:
         try:
-            pending_value = load(pending)
-            pending_age = now - int(pending_value.get("generated_at_epoch", now))
-            if pending_age > int(control.get("report_heartbeat_minutes", 90)) * 60:
-                warnings.append("report delivery acknowledgment is stale")
-        except Exception:
-            errors.append("pending report state is invalid")
+            overview_age = now - timestamp_epoch(
+                overview_generated_at, "Slack overview generated_at"
+            )
+            if overview_age > overview_freshness_seconds:
+                errors.append(f"Slack overview semantic record is stale ({overview_age}s)")
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    delivery_status = overview_state.get("delivery_status")
+    if delivery_status not in {"delivered", "unchanged"}:
+        errors.append(f"Slack overview delivery status is {delivery_status or 'missing'}")
+    if overview_state.get("last_delivery_error"):
+        errors.append(
+            f"Slack overview delivery failed: {overview_state['last_delivery_error']}"
+        )
+    last_successful_update = overview_state.get("last_successful_update_at")
+    if not last_successful_update:
+        errors.append("Slack overview has no successful update timestamp")
+    else:
+        try:
+            success_age = now - timestamp_epoch(
+                last_successful_update, "Slack overview last_successful_update_at"
+            )
+            if success_age > overview_freshness_seconds:
+                errors.append(f"Slack overview last successful update is stale ({success_age}s)")
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    source = overview.get("source") or {}
+    if source.get("inventory_revision") != inventory.get("generation_id"):
+        errors.append("Slack overview source inventory revision is not current")
+    if source.get("graph_generation_id") != graph.get("generation_id"):
+        errors.append("Slack overview source graph revision is not current")
+    if source.get("deployed_revision") != deployed_revision:
+        errors.append("Slack overview source revision does not match deployed source")
+    if overview_state.get("source_revision") != deployed_revision:
+        errors.append("Slack overview state source revision does not match deployed source")
+    if overview_state.get("semantic_revision") != overview.get("semantic_revision"):
+        errors.append("Slack overview state and semantic revisions do not match")
+
+    schema_compatible = bool(overview)
+    schema_validator = "registry"
 
     free_gib = os.statvfs(ROOT).f_bavail * os.statvfs(ROOT).f_frsize // (1024**3)
     minimum = int(control.get("minimum_free_disk_gib", 15))
@@ -105,7 +188,7 @@ def main() -> int:
     stale_runs = 0
     for path in (ROOT / "runs").glob("*.json"):
         try:
-            record = load(path)
+            record = read_record(path, "axis.external-development-supervisor.run")
         except Exception:
             continue
         if record.get("status") == "started" and now - int(record.get("started_at_epoch", now)) > 1800:
@@ -113,11 +196,12 @@ def main() -> int:
     if stale_runs:
         warnings.append(f"{stale_runs} stale started run record(s)")
 
-    recovery_leases = 0
+    recovery_leases = len(list((ROOT / "leases").glob("stale-*/lease.json")))
     for path in (ROOT / "leases").glob("*/lease.json"):
+        if path.parent.name.startswith("stale-"):
+            continue
         try:
-            if load(path).get("recovery_required"):
-                recovery_leases += 1
+            read_record(path, "axis.external-development-supervisor.lease")
         except Exception:
             recovery_leases += 1
     if recovery_leases:
@@ -133,7 +217,13 @@ def main() -> int:
         "enabled_jobs": sorted(actual_jobs),
         "inventory_generation_id": inventory.get("generation_id"),
         "inventory_generated_at": generated,
-        "classifier_queue_depth": inventory.get("queue_depth"),
+        "overview_generated_at": overview_generated_at,
+        "overview_delivery_status": delivery_status,
+        "overview_last_successful_update_at": last_successful_update,
+        "overview_semantic_revision": overview.get("semantic_revision"),
+        "overview_source_revision": source.get("deployed_revision"),
+        "overview_schema_compatible": schema_compatible,
+        "overview_schema_validator": schema_validator,
         "governed_queue_depth": graph.get("queue_depth"),
         "governed_queue_zero_proven": graph.get("governed_queue_zero_proven"),
         "free_disk_gib": free_gib,

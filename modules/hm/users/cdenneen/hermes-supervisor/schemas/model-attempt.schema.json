@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.model-attempt",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "attempt_id",
+    "role",
+    "model",
+    "provider",
+    "run",
+    "assignment",
+    "attempt",
+    "result",
+    "recorded_at_epoch"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.model-attempt" },
+    "schema_version": { "const": "1.0.0" },
+    "attempt_id": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "provider": { "type": "string", "minLength": 1 },
+    "run": { "type": "string", "minLength": 1 },
+    "assignment": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "result": { "enum": ["started", "succeeded", "failed"] },
+    "recorded_at_epoch": { "type": "integer", "minimum": 1 },
+    "usage": { "type": "object" },
+    "error": { "type": "string" }
+  },
+  "additionalProperties": false
+}

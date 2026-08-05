@@ -4,24 +4,43 @@ import re
 import signal
 import shutil
 import subprocess
+import sys
 import threading
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+from .accounting import AccountingLedger
 from .decomposition import SemanticDecompositionEngine
+from .models import test_command_argv, validate_allowed_path
+from .mutation import GateDecision, MutationGate, OperationClass, load_canonical_lease
 from .prompt_factory import PromptFactory
-from .integrator import Integrator
+from .schema_registry import read_record
+
+
+def resolve_allowed_source(worktree: Path, relative: str) -> Path:
+    relative = validate_allowed_path(relative)
+    path = worktree / relative
+    resolved = path.resolve()
+    if not resolved.is_relative_to(worktree.resolve()) or path.is_symlink():
+        raise RuntimeError(f"allowlisted path escapes repository custody: {relative}")
+    return path
 
 
 class HermesWorkerManager:
-    def __init__(self, root: Path, hermes: str, supervisorctl: str):
+    def __init__(
+        self,
+        root: Path,
+        hermes: str,
+        supervisorctl: str,
+        gate: MutationGate | None = None,
+    ):
         self.root = root
         self.hermes = hermes
         self.supervisorctl = supervisorctl
         self.prompts = PromptFactory()
         self.decomposition = SemanticDecompositionEngine(root)
+        self.gate = gate or MutationGate(root, source="worker")
+        self.accounting = AccountingLedger(root)
 
     def hermes_python(self) -> str:
         launcher = self.hermes
@@ -36,48 +55,6 @@ class HermesWorkerManager:
         if not match or not Path(match.group(1)).is_file():
             raise RuntimeError("Hermes launcher does not declare a valid HERMES_PYTHON")
         return match.group(1)
-
-    def record_model_attempt(self, assignment: dict, model: str) -> None:
-        control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
-        limit = int(control.get("daily_model_call_limit", 144))
-        if self.model_attempts_today() >= limit:
-            raise RuntimeError(f"daily model call limit reached: {limit}/{limit}")
-        now = int(time.time())
-        assignment["model_attempts"] = int(assignment.get("model_attempts") or 0) + 1
-        assignment.setdefault("model_attempt_log", []).append(
-            {"started_at_epoch": now, "model": model}
-        )
-        path = self.root / "assignments" / f"{assignment['assignment_id']}.json"
-        if not path.exists():
-            return
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(assignment, indent=2) + "\n", encoding="utf-8")
-        tmp.chmod(0o600)
-        tmp.replace(path)
-
-    def model_attempts_today(self) -> int:
-        day = datetime.now(timezone.utc).date()
-        total = 0
-        for path in (self.root / "assignments").glob("*.json"):
-            try:
-                assignment = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            attempts = assignment.get("model_attempt_log") or []
-            if attempts:
-                total += sum(
-                    1
-                    for attempt in attempts
-                    if datetime.fromtimestamp(
-                        int(attempt.get("started_at_epoch", 0)), timezone.utc
-                    ).date()
-                    == day
-                )
-                continue
-            created = int(assignment.get("created_at_epoch", 0))
-            if datetime.fromtimestamp(created, timezone.utc).date() == day:
-                total += int(assignment.get("model_attempts") or 0)
-        return total
 
     @staticmethod
     def extract_json(text: str) -> dict:
@@ -97,29 +74,49 @@ class HermesWorkerManager:
         prompt: str,
         timeout: int,
         assignment: dict,
+        role: str,
+        decision: GateDecision | None,
+        operation: OperationClass = OperationClass.MODEL_CALL,
         toolsets: str | None = None,
     ) -> str:
-        control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
+        repository = assignment.get("project") if operation != OperationClass.MODEL_CALL else None
+        self.gate.require(
+            decision,
+            operation,
+            assignment=assignment,
+            repository=repository,
+        )
+        control = read_record(
+            self.root / "control.json",
+            "axis.external-development-supervisor.control",
+        )
         prompt_bytes = len(prompt.encode("utf-8"))
         maximum_prompt_bytes = int(control.get("max_semantic_prompt_bytes", 200_000))
         if prompt_bytes > maximum_prompt_bytes:
             raise ValueError(
                 f"worker prompt exceeds bounded size: {prompt_bytes}/{maximum_prompt_bytes} bytes"
             )
-        self.record_model_attempt(assignment, model)
+        lease = load_canonical_lease(self.root, assignment)
+        attempt = self.accounting.start(
+            role=role,
+            model=model,
+            provider="openai-api",
+            run=str(assignment.get("created_by_run") or "unknown-run"),
+            assignment=assignment["assignment_id"],
+            limit=int(control.get("daily_model_call_limit", 0)),
+        )
         stop_heartbeat = threading.Event()
-        lease = assignment.get("lease") or {}
 
         def heartbeat() -> None:
             while not stop_heartbeat.wait(300):
                 subprocess.run(
                     [
-                        "python3",
+                        sys.executable,
                         self.supervisorctl,
                         "heartbeat",
                         assignment["assignment_id"],
                         "--token",
-                        str(lease.get("fencing_token")),
+                        lease["fencing_token"],
                     ],
                     check=False,
                     stdout=subprocess.DEVNULL,
@@ -127,46 +124,61 @@ class HermesWorkerManager:
                 )
 
         heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
-        heartbeat_thread.start()
-        command = [
-            self.hermes_python(),
-            str(Path(__file__).with_name("oneshot_stdin.py")),
-            "--provider",
-            "openai-api",
-            "--model",
-            model,
-            "--reasoning",
-            "medium",
-        ]
-        if toolsets is not None:
-            command.extend(["--toolsets", toolsets])
-        process = subprocess.Popen(
-            command,
-            text=True,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            cwd=assignment.get("worktree") or str(self.root),
-        )
+        process = None
         try:
-            output, _ = process.communicate(input=prompt, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGTERM)
+            heartbeat_thread.start()
+            command = [
+                self.hermes_python(),
+                str(Path(__file__).with_name("oneshot_stdin.py")),
+                "--provider",
+                "openai-api",
+                "--model",
+                model,
+                "--reasoning",
+                "medium",
+            ]
+            if toolsets is not None:
+                command.extend(["--toolsets", toolsets])
+            process = subprocess.Popen(
+                command,
+                text=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                cwd=assignment.get("worktree") or str(self.root),
+            )
             try:
-                output, _ = process.communicate(timeout=20)
+                output, _ = process.communicate(input=prompt, timeout=timeout)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                output, _ = process.communicate()
-            raise TimeoutError(f"worker timed out: {output[-2000:]}")
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    output, _ = process.communicate(timeout=20)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    output, _ = process.communicate()
+                raise TimeoutError(f"worker timed out: {output[-2000:]}")
+            if process.returncode != 0:
+                raise RuntimeError(
+                    f"worker failed ({process.returncode}): {output[-4000:]}"
+                )
+        except Exception as exc:
+            self.accounting.finish(
+                attempt,
+                "failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            raise
         finally:
             stop_heartbeat.set()
             heartbeat_thread.join(timeout=5)
-        if process.returncode != 0:
-            raise RuntimeError(f"worker failed ({process.returncode}): {output[-4000:]}")
+        self.accounting.finish(attempt, "succeeded")
         return output
 
-    def semantic(self, assignment: dict) -> dict:
+    def semantic(
+        self, assignment: dict, decision: GateDecision | None = None
+    ) -> dict:
+        self.gate.require(decision, OperationClass.MODEL_CALL, assignment=assignment)
         target = str(assignment.get("target_ref") or "")
         match = re.fullmatch(r"([^#]+)#(\d+)", target)
         if match:
@@ -211,9 +223,6 @@ class HermesWorkerManager:
                 for event in raw_events[:100]
             ]
             repo = Path("/home/cdenneen/src/workspace/personal/work") / project.split("/")[-1]
-            subprocess.run(
-                ["git", "fetch", "--prune", "origin"], cwd=repo, check=True, timeout=120
-            )
             grep = subprocess.run(
                 ["git", "grep", "-n", target, "origin/main", "--", "."],
                 cwd=repo,
@@ -398,6 +407,8 @@ class HermesWorkerManager:
                 prompt,
                 900,
                 assignment,
+                "semantic",
+                decision,
                 toolsets="",
             )
             try:
@@ -419,6 +430,9 @@ class HermesWorkerManager:
                 )
         if record is None:
             raise ValueError("worker produced no semantic record")
+        record["source_inventory_generation_id"] = assignment.get(
+            "source_inventory_generation_id"
+        )
         if assignment.get("revalidation_tier") == "A":
             verification = record.get("verification_result") or {}
             if verification.get("tier") != "A":
@@ -438,17 +452,38 @@ class HermesWorkerManager:
         path = self.decomposition.save(record)
         return {"record": record, "path": str(path), "raw_output": output[-4000:]}
 
-    def technical_revalidation(self, assignment: dict) -> dict:
+    def technical_revalidation(
+        self, assignment: dict, decision: GateDecision | None = None
+    ) -> dict:
+        self.gate.require(decision, OperationClass.MODEL_CALL, assignment=assignment)
         repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
             "project"
         ].split("/")[-1]
         worktree = self.root / "worktrees" / assignment["assignment_id"]
-        subprocess.run(["git", "fetch", "--prune", "origin"], cwd=repo, check=True, timeout=120)
+        reconciliation = self.gate.decide(
+            OperationClass.RECONCILIATION,
+            assignment=assignment,
+            repository=assignment["project"],
+        )
+        self.gate.require(
+            reconciliation,
+            OperationClass.RECONCILIATION,
+            assignment=assignment,
+            repository=assignment["project"],
+        )
         subprocess.run(
-            ["git", "worktree", "add", "--detach", str(worktree), "origin/main"],
-            cwd=repo,
+            ["git", "clone", "--no-hardlinks", str(repo), str(worktree)],
             check=True,
             timeout=120,
+        )
+        main_sha = str((assignment.get("source_item") or {}).get("repository_head") or "")
+        if not main_sha:
+            raise RuntimeError("technical revalidation has no source main revision")
+        subprocess.run(
+            ["git", "checkout", "--detach", main_sha],
+            cwd=worktree,
+            check=True,
+            timeout=60,
         )
         results = []
         try:
@@ -480,71 +515,247 @@ class HermesWorkerManager:
                 "all_passed": bool(results)
                 and all(result["returncode"] == 0 for result in results),
             }
-            return self.semantic(assignment)
+            return self.semantic(assignment, decision)
         finally:
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree)],
-                cwd=repo,
-                check=False,
+            self.gate.require(
+                reconciliation,
+                OperationClass.RECONCILIATION,
+                assignment=assignment,
+                repository=assignment["project"],
             )
+            shutil.rmtree(worktree, ignore_errors=True)
 
-    def implementation(self, assignment: dict, repo: Path) -> dict:
+    def implementation(
+        self,
+        assignment: dict,
+        repo: Path,
+        repository_decision: GateDecision | None = None,
+        model_decision: GateDecision | None = None,
+    ) -> dict:
+        self.gate.require(
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment.get("project"),
+        )
         branch = f"hermes/{assignment['assignment_id']}"
         worktree = self.root / "worktrees" / assignment["assignment_id"]
-        subprocess.run(["git", "fetch", "--prune", "origin"], cwd=repo, check=True, timeout=120)
-        subprocess.run(
-            ["git", "worktree", "add", "-b", branch, str(worktree), "origin/main"],
-            cwd=repo,
-            check=True,
+        remote_url = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"], cwd=repo, text=True, timeout=30
+        ).strip()
+        self._git_mutation(
+            ["git", "clone", "--no-hardlinks", str(repo), str(worktree)],
+            self.root,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
             timeout=120,
         )
-        prompt = self.prompts.implementation_prompt(assignment, str(worktree))
+        self._git_mutation(
+            ["git", "remote", "set-url", "origin", remote_url],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+        )
+        self._git_mutation(
+            ["git", "switch", "-c", branch, "origin/main"],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+        )
+        allowed = set(assignment.get("allowed_paths") or [])
+        source_files = {}
+        for relative in sorted(allowed):
+            path = resolve_allowed_source(worktree, relative)
+            source_files[relative] = (
+                path.read_text(encoding="utf-8") if path.is_file() else None
+            )
+        prompt = self.prompts.implementation_prompt(assignment, source_files)
         assignment["worktree"] = str(worktree)
-        output = self.run_model("gpt-5.3-codex", prompt, 1800, assignment)
+        output = self.run_model(
+            "gpt-5.3-codex",
+            prompt,
+            1800,
+            assignment,
+            "implementation",
+            model_decision,
+            OperationClass.MODEL_CALL,
+            toolsets="",
+        )
+        handoff = self.extract_json(output)
+        patch = str(handoff.get("patch") or "")
+        if not patch.strip():
+            raise RuntimeError("implementation planner returned an empty patch")
+        patch_path = self.root / "recovery" / f"{assignment['assignment_id']}.planned.patch"
+        patch_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.gate.require(
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment.get("project"),
+        )
+        patch_path.write_text(patch, encoding="utf-8")
+        patch_path.chmod(0o600)
+        self._git_mutation(
+            ["git", "apply", "--index", str(patch_path)],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+        )
         changed = subprocess.check_output(
-            ["git", "diff", "--name-only", "origin/main...HEAD"],
+            ["git", "diff", "--cached", "--name-only"],
             cwd=worktree,
             text=True,
             timeout=60,
         ).splitlines()
-        allowed = set(assignment.get("allowed_paths") or [])
         disallowed = [path for path in changed if path not in allowed]
         if disallowed:
-            raise RuntimeError(f"worker changed paths outside assignment: {disallowed}")
-        handoff = self.extract_json(output)
-        status_paths = []
-        for line in subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=worktree, text=True, timeout=60
-        ).splitlines():
-            if len(line) >= 4:
-                status_paths.append(line[3:].split(" -> ")[-1])
-        disallowed_status = [path for path in status_paths if path not in allowed]
-        if disallowed_status:
-            raise RuntimeError(
-                f"worker left changes outside assignment: {disallowed_status}"
+            raise RuntimeError(f"planner changed paths outside assignment: {disallowed}")
+        planned_diff = subprocess.check_output(
+            ["git", "diff", "--cached"], cwd=worktree, text=True, timeout=60
+        )
+        test_results = []
+        for command in assignment.get("required_tests") or []:
+            self.gate.require(
+                repository_decision,
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment.get("project"),
             )
+            bwrap = shutil.which("bwrap")
+            if not bwrap:
+                raise RuntimeError("bubblewrap is required for isolated implementation tests")
+            completed = subprocess.run(
+                [
+                    bwrap,
+                    "--die-with-parent",
+                    "--unshare-net",
+                    "--clearenv",
+                    "--ro-bind",
+                    "/nix",
+                    "/nix",
+                    "--ro-bind",
+                    "/etc",
+                    "/etc",
+                    "--proc",
+                    "/proc",
+                    "--dev",
+                    "/dev",
+                    "--tmpfs",
+                    "/tmp",
+                    "--dir",
+                    "/workspace",
+                    "--bind",
+                    str(worktree),
+                    "/workspace",
+                    "--ro-bind",
+                    str(worktree / ".git"),
+                    "/workspace/.git",
+                    "--setenv",
+                    "HOME",
+                    "/tmp",
+                    "--setenv",
+                    "PATH",
+                    "/etc/profiles/per-user/cdenneen/bin:/run/current-system/sw/bin",
+                    "--setenv",
+                    "LANG",
+                    "C.UTF-8",
+                    "--chdir",
+                    "/workspace",
+                    *test_command_argv(command),
+                ],
+                text=True,
+                capture_output=True,
+                timeout=600,
+            )
+            test_results.append({"command": command, "returncode": completed.returncode})
+            if completed.returncode != 0:
+                raise RuntimeError(f"implementation test failed: {command}")
+        if subprocess.check_output(
+            ["git", "diff", "--cached"], cwd=worktree, text=True, timeout=60
+        ) != planned_diff:
+            raise RuntimeError("implementation tests changed the staged patch")
+        unsafe_status = [
+            line
+            for line in subprocess.check_output(
+                ["git", "status", "--porcelain"],
+                cwd=worktree,
+                text=True,
+                timeout=60,
+            ).splitlines()
+            if line.startswith("??") or len(line) < 2 or line[1] != " "
+        ]
+        if unsafe_status:
+            raise RuntimeError(
+                f"implementation tests left unstaged/untracked changes: {unsafe_status}"
+            )
+        self._git_mutation(
+            ["git", "config", "user.name", "AXIS Development Supervisor"],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+        )
+        self._git_mutation(
+            ["git", "config", "user.email", "axis-supervisor@localhost"],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+        )
+        self._git_mutation(
+            [
+                "git",
+                "commit",
+                "--no-verify",
+                "-m",
+                str(assignment.get("title") or assignment["assignment_id"]),
+            ],
+            worktree,
+            repository_decision,
+            OperationClass.REPOSITORY,
+            assignment,
+            timeout=120,
+        )
         head = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=worktree, text=True, timeout=30
         ).strip()
-        if handoff.get("commit") != head:
-            raise RuntimeError("worker handoff commit does not match worktree HEAD")
+        handoff["commit"] = head
+        handoff["tests"] = test_results
         return {
             "branch": branch,
             "worktree": str(worktree),
+            "custody": "isolated-clone",
             "changed_paths": changed,
             "commit": head,
             "handoff": handoff,
             "raw_output": output[-4000:],
         }
 
-    def integration(self, assignment: dict, glab: str) -> dict:
-        worker = assignment.get("worker") or {}
-        handoff = worker.get("handoff") or {}
-        iid = int(handoff.get("mr_iid") or 0)
-        if not iid:
-            raise ValueError("implementation handoff has no MR iid")
-        inspection = Integrator(glab).inspect_mr(assignment["project"], iid)
-        prompt = self.prompts.integration_prompt(assignment, inspection)
-        assignment["worktree"] = worker.get("worktree")
-        output = self.run_model("gpt-5.4", prompt, 1200, assignment)
-        return {"result": self.extract_json(output), "raw_output": output[-4000:]}
+    def _git_mutation(
+        self,
+        command: list[str],
+        cwd: Path,
+        decision: GateDecision | None,
+        operation: OperationClass,
+        assignment: dict,
+        *,
+        check: bool = True,
+        timeout: int | None = None,
+    ) -> subprocess.CompletedProcess:
+        repository = assignment.get("project")
+        self.gate.require(
+            decision,
+            operation,
+            assignment=assignment,
+            repository=repository,
+        )
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            check=check,
+            timeout=timeout,
+        )

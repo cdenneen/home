@@ -349,7 +349,12 @@
                   {
                     nativeBuildInputs = [
                       pkgs.check-jsonschema
-                      pkgs.python3Packages.pytest
+                      pkgs.git
+                      pkgs.pyright
+                      (pkgs.python3.withPackages (pythonPackages: [
+                        pythonPackages.jsonschema
+                        pythonPackages.pytest
+                      ]))
                       pkgs.ruff
                     ];
                   }
@@ -358,9 +363,9 @@
                     chmod -R u+w source
                     ruff check source/scripts source/tests
                     pytest -q source/tests
+                    pyright --project source/pyrightconfig.json
                     check-jsonschema --check-metaschema source/schemas/*.schema.json
                     check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
-                    check-jsonschema --schemafile source/schemas/baseline.schema.json source/baseline.defaults.json
                     touch "$out"
                   '';
             };

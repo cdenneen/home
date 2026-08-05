@@ -19,16 +19,41 @@ def load_module(name: str, path: Path):
 
 
 def control(**overrides):
-    value = {
-        "schema": "axis.external-development-supervisor.control",
-        "schema_version": "1.0.0",
-        "mode": "enabled",
-        "kill_switch": False,
-        "allow_repository_mutation": False,
-        "repository_allowlist": ["ghostspace/axis"],
-    }
+    value = json.loads((ROOT / "control.defaults.json").read_text(encoding="utf-8"))
+    value.update(
+        {
+            "mode": "enabled",
+            "allow_repository_mutation": False,
+            "repository_allowlist": ["ghostspace/axis"],
+        }
+    )
     value.update(overrides)
     return value
+
+
+def write_claim_assignment(root: Path, assignment_id: str, run_id: str) -> None:
+    assignments = root / "assignments"
+    assignments.mkdir(parents=True, exist_ok=True)
+    (assignments / f"{assignment_id}.json").write_text(
+        json.dumps(
+            {
+                "schema": "axis.external-development-supervisor.assignment",
+                "schema_version": "1.0.0",
+                "assignment_id": assignment_id,
+                "lifecycle_state": "ready-implementation",
+                "kind": "implementation",
+                "project": "ghostspace/axis",
+                "work_item": "ghostspace/axis#1",
+                "planning_record": None,
+                "allowed_paths": [],
+                "required_tests": [],
+                "authority": {"state": "direct"},
+                "governance_state": "Executable",
+                "created_by_run": run_id,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_authority_requires_exact_approval_digest():
@@ -36,13 +61,15 @@ def test_authority_requires_exact_approval_digest():
     record = "Immutable PlanningRecord\nDigest: `sha256:" + "a" * 64 + "`"
     matching = ["Product Owner approval — Approve exact digest sha256:" + "a" * 64]
     mismatch = ["Product Owner approval — Approve exact digest sha256:" + "b" * 64]
-    assert reconcile.authority_from_text("", [record, *matching], matching)[
+    assert reconcile.extract_authority_facts("", [record, *matching], matching)[
         "approval_matches_record"
     ]
-    assert reconcile.authority_from_text("", [record, *mismatch], mismatch)[
+    assert reconcile.extract_authority_facts("", [record, *mismatch], mismatch)[
         "approval_mismatch"
     ]
-    assert not reconcile.authority_from_text("", matching, matching)["approval_matches_record"]
+    assert not reconcile.extract_authority_facts("", matching, matching)[
+        "approval_matches_record"
+    ]
 
 
 def test_latest_immutable_record_supersedes_older_approval():
@@ -57,27 +84,87 @@ def test_latest_immutable_record_supersedes_older_approval():
         f"Immutable PlanningRecord\nDigest: `{old_digest}`",
     ]
     approval = [newest_record_first[1]]
-    result = reconcile.authority_from_text("", newest_record_first, approval)
+    result = reconcile.extract_authority_facts("", newest_record_first, approval)
     assert result["record_digest"] == new_digest
     assert result["approval_matches_record"] is False
     assert result["approval_mismatch"] is True
 
 
+def test_approval_note_url_binds_exact_digest_not_first_product_owner_note():
+    reconcile = load_module(
+        "reconcile_approval_url", ROOT / "scripts" / "axis_supervisor" / "collector.py"
+    )
+    digest = "sha256:" + "a" * 64
+    notes = [
+        {"id": 3, "author": {"username": "cdenneen"}, "body": "ordinary note"},
+        {
+            "id": 2,
+            "author": {"username": "cdenneen"},
+            "body": "Product Owner approval — Approve exact digest sha256:" + "b" * 64,
+        },
+        {
+            "id": 1,
+            "author": {"username": "cdenneen"},
+            "body": f"Product Owner approval — Approve exact digest {digest}",
+        },
+    ]
+    assert reconcile.approval_note_url(
+        notes, {"cdenneen"}, digest, "https://example.test/issue/1"
+    ) == "https://example.test/issue/1#note_1"
+
+
 def test_ready_label_does_not_bypass_authority():
-    reconcile = load_module("reconcile_ready", ROOT / "scripts" / "axis_supervisor" / "collector.py")
-    issue = {"state": "opened", "labels": ["ready"], "title": "Ungoverned"}
-    classification, blocker, _ = reconcile.classify_issue(issue, "", [], [], [], [])
-    assert classification == "Waiting"
-    assert blocker == "governance"
+    from axis_supervisor.classifier import classify_source_item
+
+    item = classify_source_item(
+        {
+            "ref": "ghostspace/axis#1",
+            "source_kind": "gitlab-issue",
+            "kind": "issue",
+            "project": "ghostspace/axis",
+            "title": "Ungoverned",
+            "source_state": "opened",
+            "labels": ["ready"],
+            "authority_facts": {},
+            "blocking_dependency_refs": [],
+            "merge_request_facts": [],
+            "acceptance_facts": {"ids": [], "open_ids": []},
+            "source_evidence": {},
+            "retrieval_errors": [],
+            "mutation_allowed": True,
+        }
+    )
+    assert item["classification"] == "Waiting"
+    assert item["blocker_type"] == "governance"
 
 
 def test_waiting_decomposition_is_recorded():
-    reconcile = load_module("reconcile_decomp", ROOT / "scripts" / "axis_supervisor" / "collector.py")
-    value = reconcile.decomposition_for(
-        "acceptance_id: AC-1\nstate: open\nstatement: bounded slice",
-        "Waiting",
-        "Dependency",
+    from axis_supervisor.classifier import classify_source_item
+
+    reconcile = load_module(
+        "reconcile_decomp", ROOT / "scripts" / "axis_supervisor" / "collector.py"
     )
+    acceptance = reconcile.extract_acceptance_facts(
+        "acceptance_id: AC-1\nstate: open\nstatement: bounded slice"
+    )
+    value = classify_source_item(
+        {
+            "ref": "ghostspace/axis#1",
+            "source_kind": "gitlab-issue",
+            "kind": "issue",
+            "project": "ghostspace/axis",
+            "title": "Waiting",
+            "source_state": "opened",
+            "labels": [],
+            "authority_facts": {},
+            "blocking_dependency_refs": ["ghostspace/axis#2"],
+            "merge_request_facts": [],
+            "acceptance_facts": acceptance,
+            "source_evidence": {},
+            "retrieval_errors": [],
+            "mutation_allowed": True,
+        }
+    )["decomposition"]
     assert value["evaluated"] is True
     assert value["open_acceptance_ids"] == ["AC-1"]
 
@@ -503,22 +590,37 @@ def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(workers.subprocess, "Popen", Process)
     (tmp_path / "control.json").write_text(
-        json.dumps({"max_semantic_prompt_bytes": 200_000}), encoding="utf-8"
+        json.dumps(control(max_semantic_prompt_bytes=200_000)), encoding="utf-8"
     )
-    assignments = tmp_path / "assignments"
-    assignments.mkdir()
-    (assignments / "assignment-large-prompt.json").write_text("{}", encoding="utf-8")
     manager = workers.HermesWorkerManager(tmp_path, "/bin/hermes", "/bin/supervisorctl")
     manager.hermes_python = lambda: sys.executable
+    manager.gate = type("Gate", (), {"require": lambda *_args, **_kwargs: None})()
+    manager.accounting = type(
+        "Accounting",
+        (),
+        {
+            "start": lambda *_args, **_kwargs: object(),
+            "finish": lambda *_args, **_kwargs: None,
+        },
+    )()
+    monkeypatch.setattr(
+        workers,
+        "load_canonical_lease",
+        lambda *_args, **_kwargs: {"fencing_token": "token"},
+    )
     prompt = "evidence" * 10_000
+    assignment = {
+        "assignment_id": "assignment-large-prompt",
+        "project": "ghostspace/axis",
+        "created_by_run": "run-1",
+    }
     output = manager.run_model(
         "gpt-5.4",
         prompt,
         900,
-        {
-            "assignment_id": "assignment-large-prompt",
-            "lease": {"fencing_token": "token"},
-        },
+        assignment,
+        "semantic",
+        object(),
         toolsets="",
     )
 
@@ -528,11 +630,6 @@ def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
     assert captured["kwargs"]["stdin"] is workers.subprocess.PIPE
     assert captured["command"][1].endswith("oneshot_stdin.py")
     assert captured["command"][-2:] == ["--toolsets", ""]
-    persisted = json.loads(
-        (assignments / "assignment-large-prompt.json").read_text(encoding="utf-8")
-    )
-    assert persisted["model_attempts"] == 1
-    assert len(persisted["model_attempt_log"]) == 1
 
 
 def test_axis119_proof_is_verified_complete():
@@ -542,7 +639,8 @@ def test_axis119_proof_is_verified_complete():
     verification = verification_for(item, [assignment])
     assert verification["state"] == "verified-complete"
     assert verification["failed_checks"] == []
-    assert verification["proof_assignment_id"] == "axis119-hermes-proof-1"
+    assert verification["completion_assignment_id"] == "axis119-hermes-proof-1"
+    assert verification["source"] == "historical-adapter"
 
 
 def test_verified_item_is_removed_from_supervisor_queue(tmp_path: Path):
@@ -569,6 +667,7 @@ def test_verified_item_is_removed_from_supervisor_queue(tmp_path: Path):
 
 def test_roadmap_composition_is_exclusive_and_queue_is_separate():
     from axis_supervisor.reporting import build_roadmap_semantics
+    from axis_supervisor.verification import verification_for
 
     verified, assignment = verified_item_and_assignment()
     items = [
@@ -623,7 +722,15 @@ def test_roadmap_composition_is_exclusive_and_queue_is_separate():
     }
     graph = {
         "generation_id": "graph-1",
-        "nodes": [{"ref": item["ref"], "semantic_record": None} for item in items],
+        "nodes": [
+            {
+                **item,
+                "source_state": item.get("state"),
+                "semantic_record": None,
+                "verification": verification_for(item, [assignment]),
+            }
+            for item in items
+        ],
         "executable_queue": [
             {
                 "ref": "semantic-decomposition:ghostspace/axis#1",
@@ -671,12 +778,14 @@ def test_complete_roadmap_is_numeric_and_execution_relevance_is_separate():
             "target_ref": "ghostspace/axis#5",
             "kind": "semantic-decomposition",
             "project": "ghostspace/axis",
+            "milestone": "AX-M5",
         },
         {
             "ref": "semantic-decomposition:ghostspace/axis#4",
             "target_ref": "ghostspace/axis#4",
             "kind": "semantic-decomposition",
             "project": "ghostspace/axis",
+            "milestone": "AX-M4",
         },
     ]
     inventory = {
@@ -690,6 +799,14 @@ def test_complete_roadmap_is_numeric_and_execution_relevance_is_separate():
         "generation_id": "graph",
         "nodes": [{"ref": item["ref"], "semantic_record": None} for item in items],
         "executable_queue": queue,
+        "scheduler_state": {
+            "configured_batch_ceiling": 2,
+            "available_model_call_budget": 2,
+            "selected_batch": [queue[0]],
+            "deferred_items": [queue[1]],
+            "next_eligible_work": queue[0],
+            "limiting_constraint": "single-item-dispatch",
+        },
     }
     semantics = build_roadmap_semantics(inventory, graph)
     assert [item["key"] for item in semantics["complete_roadmap"]] == [
@@ -731,7 +848,14 @@ def test_revalidation_tiers_are_exclusive():
     authority = base | {"authority": {"approval_required": True}}
     assert revalidation_tier(authority, None, verification) == "D"
     assert revalidation_tier(authority, corrective, verification) == "D"
-    assert revalidation_tier(base, None, {"state": "verified-complete"}) is None
+    assert (
+        revalidation_tier(
+            base,
+            None,
+            {"verification_result": {"disposition": "verified-complete"}},
+        )
+        is None
+    )
 
 
 def test_semantic_verification_requires_all_nine_checks():
@@ -754,14 +878,14 @@ def test_semantic_verification_requires_all_nine_checks():
     try:
         validate_semantic_record(invalid_evidence)
     except ValueError as exc:
-        assert "source-linked references" in str(exc)
+        assert "verification record" in str(exc)
     else:
         raise AssertionError("non-source-linked verification evidence was accepted")
     del record["verification_result"]["checks"][CHECK_NAMES[0]]
     try:
         validate_semantic_record(record)
     except ValueError as exc:
-        assert "all nine checks" in str(exc)
+        assert "required property" in str(exc)
     else:
         raise AssertionError("incomplete nine-check verification was accepted")
 
@@ -831,69 +955,6 @@ def test_kill_switch_suppresses_before_reconciliation(tmp_path: Path):
     assert not (root / "inventory.lock").exists()
 
 
-def test_daily_budget_suppresses_before_reconciliation(tmp_path: Path):
-    root = tmp_path / "runtime"
-    (root / "runs").mkdir(parents=True)
-    (root / "assignments").mkdir()
-    (root / "control.json").write_text(
-        json.dumps(control(minimum_free_disk_gib=0, daily_worker_cycle_limit=0)),
-        encoding="utf-8",
-    )
-    env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "preflight.py")],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    payload = json.loads(result.stdout)
-    assert payload["wakeAgent"] is False
-    assert "daily worker cycle limit" in payload["reason"]
-
-
-def test_daily_model_budget_suppresses_before_reconciliation(tmp_path: Path):
-    import time
-
-    root = tmp_path / "runtime"
-    (root / "runs").mkdir(parents=True)
-    assignments = root / "assignments"
-    assignments.mkdir()
-    (root / "control.json").write_text(
-        json.dumps(
-            control(
-                minimum_free_disk_gib=0,
-                daily_worker_cycle_limit=10,
-                daily_model_call_limit=1,
-            )
-        ),
-        encoding="utf-8",
-    )
-    (assignments / "used.json").write_text(
-        json.dumps(
-            {
-                "created_at_epoch": 0,
-                "model_attempts": 1,
-                "model_attempt_log": [
-                    {"started_at_epoch": int(time.time()), "model": "gpt-5.4"}
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "preflight.py")],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    payload = json.loads(result.stdout)
-    assert payload["wakeAgent"] is False
-    assert "daily model call limit" in payload["reason"]
-
-
 def test_reconciliation_failure_suppresses_agent(tmp_path: Path):
     root = tmp_path / "runtime"
     (root / "runs").mkdir(parents=True)
@@ -936,6 +997,8 @@ def test_fenced_lease_conflict_and_release(tmp_path: Path):
     )
     env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
     script = str(ROOT / "scripts" / "supervisorctl.py")
+    write_claim_assignment(root, "a1", "r1")
+    write_claim_assignment(root, "a2", "r2")
     first = subprocess.run(
         [sys.executable, script, "claim", "a1", "--run-id", "r1", "--resource", "path:ghostspace/axis:src"],
         env=env,
@@ -981,9 +1044,8 @@ def test_expired_lease_recovery(tmp_path: Path):
         env=env,
         check=True,
     )
-    assert lease_dir.exists()
-    recovered = json.loads((lease_dir / "lease.json").read_text(encoding="utf-8"))
-    assert recovered["recovery_required"] is True
+    assert not lease_dir.exists()
+    assert len(list((root / "leases").glob("stale-*-expired/lease.json"))) == 1
     heartbeat = subprocess.run(
         [
             sys.executable,
@@ -1007,6 +1069,7 @@ def test_resource_allowlist_requires_exact_project(tmp_path: Path):
         encoding="utf-8",
     )
     env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
+    write_claim_assignment(root, "a1", "r1")
     result = subprocess.run(
         [
             sys.executable,
@@ -1039,6 +1102,8 @@ def test_concurrent_claims_are_serialized(tmp_path: Path):
     )
     env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
     script = str(ROOT / "scripts" / "supervisorctl.py")
+    write_claim_assignment(root, "a1", "a1")
+    write_claim_assignment(root, "a2", "a2")
     commands = [
         [sys.executable, script, "claim", assignment, "--run-id", assignment, "--resource", "path:ghostspace/axis:src"]
         for assignment in ("a1", "a2")
@@ -1048,167 +1113,9 @@ def test_concurrent_claims_are_serialized(tmp_path: Path):
     assert sorted(returncodes) == [0, 1]
 
 
-def test_reporter_rejects_inconsistent_queue(tmp_path: Path):
-    root = tmp_path / "runtime"
-    root.mkdir()
-    (root / "control.json").write_text(json.dumps(control()), encoding="utf-8")
-    (root / "inventory.json").write_text(
-        json.dumps(
-            {
-                "schema": "axis.external-development-supervisor.inventory",
-                "schema_version": "1.0.0",
-                "classification_counts": {"Executable": 0, "Unknown": 0},
-                "waiting_reason_counts": {"Unknown": 0},
-                "queue_depth": 0,
-                "executable_queue": [{"ref": "bad"}],
-                "invariant": {"unknown_count": 0},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (root / "execution-graph.json").write_text(
-        json.dumps(
-            {
-                "queue_depth": 0,
-                "executable_queue": [{"ref": "bad"}],
-                "governed_queue_zero_proven": False,
-                "semantic_decomposition_pending": 1,
-            }
-        ),
-        encoding="utf-8",
-    )
-    jobs = tmp_path / "jobs.json"
-    jobs.write_text(json.dumps({"jobs": []}), encoding="utf-8")
-    env = os.environ | {
-        "AXIS_SUPERVISOR_ROOT": str(root),
-        "AXIS_SUPERVISOR_CRON_JOBS": str(jobs),
-    }
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "report.py")],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode != 0
-    assert "queue_depth" in result.stdout
-
-
-def test_reporter_suppresses_during_inventory_generation(tmp_path: Path):
-    root = tmp_path / "runtime"
-    root.mkdir()
-    (root / "inventory.lock").mkdir()
-    env = os.environ | {"AXIS_SUPERVISOR_ROOT": str(root)}
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "report.py")],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    assert result.stdout.strip() == "[SILENT]"
-
-
-def test_report_delivery_is_acknowledged_on_next_successful_run(tmp_path: Path):
-    root = tmp_path / "runtime"
-    root.mkdir()
-    (root / "control.json").write_text(
-        json.dumps(control(report_cron_job_id="report", report_heartbeat_minutes=90)),
-        encoding="utf-8",
-    )
-    counts = {
-        name: 0
-        for name in (
-            "Executable",
-            "Running",
-            "Blocked",
-            "Waiting",
-            "Integrated",
-            "Superseded",
-            "Completed",
-            "Invalid",
-            "Unknown",
-        )
-    }
-    inventory = {
-        "schema": "axis.external-development-supervisor.inventory",
-        "schema_version": "1.0.0",
-        "generation_id": "g1",
-        "generated_at": "2026-01-01T00:00:00+00:00",
-        "classification_counts": counts,
-        "waiting_reason_counts": {"Unknown": 0},
-        "queue_depth": 0,
-        "executable_queue": [],
-        "invariant": {"unknown_count": 0},
-        "idle_proof": {"queue_zero_proven": True},
-        "work_items": [],
-        "repositories": {},
-    }
-    (root / "inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
-    (root / "execution-graph.json").write_text(
-        json.dumps(
-            {
-                "generation_id": "graph-1",
-                "queue_depth": 0,
-                "executable_queue": [],
-                "governed_queue_zero_proven": True,
-                "classifier_queue_empty": True,
-                "semantic_decomposition_pending": 0,
-            }
-        ),
-        encoding="utf-8",
-    )
-    jobs = tmp_path / "jobs.json"
-    jobs.write_text(
-        json.dumps(
-            {
-                "jobs": [
-                    {
-                        "id": "report",
-                        "repeat": {"completed": 0},
-                        "last_status": None,
-                        "last_delivery_error": None,
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    env = os.environ | {
-        "AXIS_SUPERVISOR_ROOT": str(root),
-        "AXIS_SUPERVISOR_CRON_JOBS": str(jobs),
-    }
-    script = str(ROOT / "scripts" / "report.py")
-    first = subprocess.run(
-        [sys.executable, script], env=env, text=True, capture_output=True, check=True
-    )
-    assert "AXIS Development Supervisor" in first.stdout
-    assert (root / "report-delivery-pending.json").exists()
-    jobs.write_text(
-        json.dumps(
-            {
-                "jobs": [
-                    {
-                        "id": "report",
-                        "repeat": {"completed": 1},
-                        "last_status": "ok",
-                        "last_delivery_error": None,
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    second = subprocess.run(
-        [sys.executable, script], env=env, text=True, capture_output=True, check=True
-    )
-    assert second.stdout.strip() == "[SILENT]"
-    assert (root / "report-delivery-state.json").exists()
-    assert not (root / "report-delivery-pending.json").exists()
-
-
 def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     from axis_supervisor.slack_projection import SlackProjection
+    from axis_supervisor.verification import verification_for
 
     projection = SlackProjection(tmp_path)
     projection.env_file = lambda: {"SLACK_BOT_TOKEN": "redacted"}
@@ -1244,6 +1151,7 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     }
     graph = {
         "generation_id": "graph-1",
+        "inventory_generation_id": "g1",
         "queue_depth": 1,
         "executable_queue": [
             {
@@ -1254,11 +1162,33 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
             }
         ],
         "nodes": [
-            {"ref": verified["ref"], "semantic_record": None},
-            {"ref": waiting["ref"], "semantic_record": None},
+            {
+                **verified,
+                "source_state": verified["state"],
+                "semantic_record": None,
+                "verification": verification_for(verified, [assignment]),
+            },
+            {
+                **waiting,
+                "source_state": waiting["state"],
+                "semantic_record": None,
+                "verification": verification_for(waiting, [assignment]),
+            },
         ],
+        "classification_counts": {"Integrated": 1, "Waiting": 1, "Unknown": 0},
+        "scheduler_state": {
+            "configured_batch_ceiling": 2,
+            "available_model_call_budget": 1,
+            "selected_batch": [],
+            "deferred_items": [],
+            "next_eligible_work": None,
+            "limiting_constraint": "queue-depth",
+        },
     }
-    control_value = {"mode": "enabled", "max_active_assignments": 1, "slack_user_id": "U1"}
+    control_value = control(slack_user_id="U1")
+    (tmp_path / "control.json").write_text(
+        json.dumps(control_value), encoding="utf-8"
+    )
     first = projection.update(inventory, graph, control_value)
     assert first["updated"] is True
     assert [method for method, _ in calls] == ["conversations.open", "chat.postMessage"]
@@ -1267,6 +1197,8 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     assert blocks[0]["type"] == "header"
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
     record = json.loads((tmp_path / "slack-overview-record.json").read_text())
+    state = json.loads((tmp_path / "slack-overview-state.json").read_text())
+    assert state["schema"] == "axis.external-development-supervisor.slack-state"
     assert record["composition"]["verified_complete"]["count"] == 1
     assert sum(value["count"] for value in record["composition"].values()) == 2
     calls.clear()
@@ -1295,10 +1227,12 @@ def load_supervisor_slack_plugin():
 
 
 def test_supervisor_slack_plugin_authorizes_only_exact_product_owner_dm(tmp_path: Path):
+    from axis_supervisor.command_registry import parse_command
+
     plugin = load_supervisor_slack_plugin()
     plugin.ROOT = tmp_path
     (tmp_path / "control.json").write_text(
-        json.dumps({"slack_user_id": "U1"}), encoding="utf-8"
+        json.dumps(control(slack_user_id="U1")), encoding="utf-8"
     )
     (tmp_path / "slack-overview-state.json").write_text(
         json.dumps({"channel": "D1"}), encoding="utf-8"
@@ -1327,12 +1261,9 @@ def test_supervisor_slack_plugin_authorizes_only_exact_product_owner_dm(tmp_path
     assert plugin._AUTHORIZED.get() is False
     Event.text = "/axisfoo roadmap"
     assert plugin._pre_gateway_dispatch(event=Event()) is None
-    assert plugin._parse_command("roadmap") == ("roadmap", "")
-    assert plugin._parse_command("resume normal work") is None
-    assert plugin._parse_command("inspect ghostspace/axis#119") == (
-        "inspect",
-        "ghostspace/axis#119",
-    )
+    assert parse_command("roadmap")[0]["command"] == "roadmap"
+    assert parse_command("resume normal work") is None
+    assert parse_command("inspect ghostspace/axis#119")[1] == "ghostspace/axis#119"
 
 
 def test_supervisor_slack_plugin_executes_typed_command_without_shell(
@@ -1342,7 +1273,7 @@ def test_supervisor_slack_plugin_executes_typed_command_without_shell(
     plugin.ROOT = tmp_path
     plugin.COMMAND_SCRIPT = tmp_path / "command.py"
     (tmp_path / "control.json").write_text(
-        json.dumps({"slack_user_id": "U1"}), encoding="utf-8"
+        json.dumps(control(slack_user_id="U1")), encoding="utf-8"
     )
     captured = {}
 

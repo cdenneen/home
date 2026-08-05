@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.slack-state",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "delivery_status",
+    "last_attempt_at",
+    "semantic_revision",
+    "source_revision",
+    "record_schema",
+    "record_schema_version",
+    "last_delivery_error"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.slack-state" },
+    "schema_version": { "const": "1.0.0" },
+    "channel": { "type": "string", "minLength": 1 },
+    "ts": { "type": "string", "minLength": 1 },
+    "fingerprint": { "type": "string", "minLength": 1 },
+    "updated_at_epoch": { "type": "integer", "minimum": 1 },
+    "delivery_status": { "enum": ["delivered", "unchanged", "failed"] },
+    "last_attempt_at": { "type": "string", "format": "date-time" },
+    "last_successful_update_at": { "type": "string", "format": "date-time" },
+    "last_successful_update_epoch": { "type": "integer", "minimum": 1 },
+    "semantic_revision": { "type": "string", "minLength": 1 },
+    "source_revision": { "type": "object" },
+    "record_schema": {
+      "const": "axis.external-development-supervisor.roadmap-semantics"
+    },
+    "record_schema_version": { "type": "string", "minLength": 1 },
+    "last_delivery_error": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

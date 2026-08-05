@@ -21,12 +21,14 @@ paid fallback outside configured policy.
 ## GitLab outage
 
 Reconciliation fails closed and emits no worker session. Cached inventory must
-not authorize mutation. Reporter may emit an alert from the last valid snapshot.
+not authorize mutation. SlackProjection rejects an inventory/graph generation
+mismatch rather than publishing mixed state.
 
 ## Slack outage
 
-Development evidence remains canonical. Pending report fingerprint is retained
-and retried after delivery health returns.
+Development evidence remains canonical. The overview state records failed
+delivery without advancing the successful fingerprint; the next projection run
+retries the current rendered state.
 
 ## Missing worktree after reboot
 

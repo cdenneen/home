@@ -2,9 +2,13 @@ import hashlib
 import json
 import time
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .reporting import COMPOSITION, build_roadmap_semantics
+from .lifecycle import is_terminal
+from .mutation import MutationGate, OperationClass
+from .schema_registry import validate_record, write_record
 
 
 class SlackProjection:
@@ -12,6 +16,7 @@ class SlackProjection:
         self.root = root
         self.state_path = root / "slack-overview-state.json"
         self.record_path = root / "slack-overview-record.json"
+        self.gate = MutationGate(root, source="reporter")
 
     @staticmethod
     def env_file() -> dict[str, str]:
@@ -55,6 +60,13 @@ class SlackProjection:
         return f"{percent:g}%"
 
     @staticmethod
+    def scheduler_refs(values: list[dict], limit: int = 8) -> str:
+        refs = [str(value.get("target_ref") or value.get("ref")) for value in values]
+        visible = refs[:limit]
+        suffix = f" (+{len(refs) - limit} more)" if len(refs) > limit else ""
+        return ", ".join(visible) + suffix if visible else "none"
+
+    @staticmethod
     def milestone_icon(status: str) -> str:
         return {
             "verified": "✅",
@@ -88,11 +100,25 @@ class SlackProjection:
         waiting = int(composition["waiting"]["count"])
         supervisor_work = semantics["supervisor_work"]
         assignments = inventory.get("supervisor_assignments") or []
-        active = [item for item in assignments if item.get("state") not in {"complete", "completed", "cancelled", "failed"}]
+        active = [item for item in assignments if not is_terminal(item)]
         leases = inventory.get("active_leases") or []
-        confidence = inventory.get("roadmap_confidence") or {}
+        classification_counts = graph.get("classification_counts") or {}
+        total_classified = sum(int(value) for value in classification_counts.values())
+        unknown = int(classification_counts.get("Unknown", 0))
+        confidence = {
+            "percent": round((total_classified - unknown) * 100 / total_classified)
+            if total_classified
+            else 0
+        }
         revision = (semantics.get("source") or {}).get("deployed_revision") or {}
-        health = "healthy" if inventory.get("invariant", {}).get("unknown_count", 1) == 0 else "degraded"
+        collection = inventory.get("collection_status") or {}
+        health = (
+            "healthy"
+            if unknown == 0
+            and not collection.get("state_record_errors")
+            and int(collection.get("retrieval_error_count", 0)) == 0
+            else "degraded"
+        )
         icon = "🟢" if health == "healthy" else "🟡"
 
         fallback = (
@@ -125,7 +151,7 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Health*\n{health.title()}"},
                     {"type": "mrkdwn", "text": f"*Mode*\n{control.get('mode')}"},
                     {"type": "mrkdwn", "text": f"*Workers*\n{len(active)}/{control.get('max_active_assignments', 1)}"},
-                    {"type": "mrkdwn", "text": f"*Integrator*\n{'Active' if any(a.get('phase') == 'awaiting-integration' for a in active) else 'Idle'}"},
+                    {"type": "mrkdwn", "text": f"*Integrator*\n{'Active' if any(a.get('lifecycle_state') == 'awaiting-integration' for a in active) else 'Idle'}"},
                     {"type": "mrkdwn", "text": f"*Governed items*\n{total}"},
                     {"type": "mrkdwn", "text": f"*Supervisor work remaining*\n{supervisor_work['supervisor_work_remaining']}"},
                     {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
@@ -170,9 +196,7 @@ class SlackProjection:
                     f"Tier B technical: {semantics['revalidation_plan']['tier_b_active_technical']} | "
                     f"Tier C corrective: {semantics['revalidation_plan']['tier_c_corrective_implementation']} | "
                     f"Tier D authority: {semantics['revalidation_plan']['tier_d_human_authority']}\n"
-                    f"Active milestone impact: {semantics['revalidation_plan']['milestone_impact']['active_milestone_closed_pending']} | "
-                    "Rate: 1 item per successful 10-minute semantic cycle; "
-                    f"configured ceiling {semantics['revalidation_plan']['rate']['configured_daily_cycle_ceiling'] or 'unset'}/day.\n"
+                    f"Active milestone impact: {semantics['revalidation_plan']['milestone_impact']['active_milestone_closed_pending']}\n"
                     "Priority: active-milestone unlocks, durable proof receipts, merged-MR evidence review, then remaining historical risk.",
                 },
             },
@@ -205,7 +229,12 @@ class SlackProjection:
             },
         ]
 
+        scheduler = semantics["scheduler_state"]
         focus = semantics["current_supervisor_focus"]
+        selected = scheduler.get("selected_batch") or []
+        deferred = scheduler.get("deferred_items") or []
+        budget = scheduler.get("available_model_call_budget")
+        constraint = scheduler.get("limiting_constraint")
         blocks.extend(
             [
                 {"type": "divider"},
@@ -215,8 +244,12 @@ class SlackProjection:
                     "text": {
                         "type": "mrkdwn",
                         "text": f"*Current execution frontier:* {semantics['current_execution_frontier'] or 'none'}\n"
-                        f"*Current supervisor focus:* {focus.get('milestone') or 'unmilestoned'} — "
-                        f"{focus.get('kind')} — {', '.join(focus.get('work_items') or []) or 'none'}\n\n"
+                        f"*Observed scheduler focus:* "
+                        f"`{focus.get('target_ref') or focus.get('ref') or 'none'}`\n"
+                        f"*Selected:* `{self.scheduler_refs(selected)}`\n"
+                        f"*Deferred:* `{self.scheduler_refs(deferred)}`\n"
+                        f"*Available model-call budget:* `{budget}`\n"
+                        f"*Limiting constraint:* `{constraint or 'none'}`\n\n"
                         + "\n".join(
                             f"{index}. *{milestone['key']}* — queued {milestone['queued_tasks']} "
                             f"(audit {milestone['queue_breakdown']['semantic_audit']}, implementation {milestone['queue_breakdown']['implementation']}); "
@@ -273,6 +306,7 @@ class SlackProjection:
         for assignment in active[:3]:
             worker = assignment.get("worker") or {}
             handoff = worker.get("handoff") or {}
+            lifecycle_state = str(assignment.get("lifecycle_state") or "unknown")
             blocks.extend(
                 [
                     {"type": "divider"},
@@ -281,8 +315,8 @@ class SlackProjection:
                         "text": {
                             "type": "mrkdwn",
                             "text": f"🔵 *{assignment.get('work_item') or assignment.get('target_ref')}*\n"
-                            f"Worker: {'GPT-5.4' if assignment.get('phase') == 'semantic' else 'GPT-5.3-Codex'} | "
-                            f"Phase: {assignment.get('phase')}\n"
+                            f"Worker: {'GPT-5.4' if 'semantic' in lifecycle_state or 'integration' in lifecycle_state else 'GPT-5.3-Codex'} | "
+                            f"Lifecycle: {lifecycle_state}\n"
                             f"Branch: {worker.get('branch') or 'none'} | MR: {handoff.get('mr_url') or 'none'}\n"
                             f"Next: {assignment.get('integration', {}).get('result', {}).get('next') or 'continue bounded assignment'}",
                         },
@@ -320,7 +354,7 @@ class SlackProjection:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Source {str(revision.get('revision') or 'unknown')[:12]}{' dirty' if revision.get('dirty') else ''} • Inventory {inventory.get('generation_id')} • Graph {graph.get('generation_id')} • Technical record {self.record_path} • Leases {len(leases)}",
+                        "text": f"Source {str(revision.get('revision') or 'unknown')[:12]}{' dirty' if revision.get('dirty') else ''} • Inventory {inventory.get('generation_id')} • Graph {graph.get('generation_id')} • Semantics {semantics.get('semantic_revision', '')[:12]} • Leases {len(leases)}",
                     }
                 ],
             }
@@ -339,47 +373,148 @@ class SlackProjection:
             inventory, graph, control, self.deployed_revision()
         )
         fallback, blocks, fingerprint = self.render(inventory, graph, control, semantics)
-        record_tmp = self.record_path.with_suffix(".json.tmp")
-        record_tmp.write_text(json.dumps(semantics, indent=2) + "\n", encoding="utf-8")
-        record_tmp.chmod(0o600)
-        record_tmp.replace(self.record_path)
-        try:
-            state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except Exception:
-            state = {}
+        decision = self.gate.decide(OperationClass.RECONCILIATION)
+        self.gate.require(decision, OperationClass.RECONCILIATION)
+        write_record(
+            self.record_path,
+            semantics,
+            "axis.external-development-supervisor.roadmap-semantics",
+        )
+        state = self.load_state()
+        now = datetime.now(timezone.utc).isoformat()
         if state.get("fingerprint") == fingerprint:
-            return {"updated": False, "channel": state.get("channel"), "ts": state.get("ts")}
-        channel = state.get("channel")
-        if not channel:
-            channel = self.api(token, "conversations.open", {"users": user_id})["channel"]["id"]
-        ts = state.get("ts")
-        payload = {"channel": channel, "text": fallback, "blocks": blocks}
+            new_state = state | {
+                "delivery_status": "unchanged",
+                "last_attempt_at": now,
+                "last_successful_update_at": now,
+                "last_successful_update_epoch": int(time.time()),
+                "semantic_revision": semantics["semantic_revision"],
+                "source_revision": (semantics.get("source") or {}).get(
+                    "deployed_revision"
+                )
+                or {},
+                "schema": "axis.external-development-supervisor.slack-state",
+                "schema_version": "1.0.0",
+                "record_schema": semantics["schema"],
+                "record_schema_version": semantics["schema_version"],
+                "last_delivery_error": None,
+            }
+            self.write_state(new_state)
+            return {
+                "updated": False,
+                "channel": state.get("channel"),
+                "ts": state.get("ts"),
+                "delivery_status": "unchanged",
+            }
         try:
-            if ts:
-                response = self.api(token, "chat.update", payload | {"ts": ts})
-            else:
+            channel = state.get("channel")
+            if not channel:
+                channel = self.api(token, "conversations.open", {"users": user_id})[
+                    "channel"
+                ]["id"]
+            ts = state.get("ts")
+            payload = {"channel": channel, "text": fallback, "blocks": blocks}
+            try:
+                if ts:
+                    response = self.api(token, "chat.update", payload | {"ts": ts})
+                else:
+                    response = self.api(token, "chat.postMessage", payload)
+            except RuntimeError as exc:
+                if "message_not_found" not in str(exc):
+                    raise
                 response = self.api(token, "chat.postMessage", payload)
-        except RuntimeError as exc:
-            if "message_not_found" not in str(exc):
-                raise
-            response = self.api(token, "chat.postMessage", payload)
+        except Exception as delivery_exc:
+            self.write_state(
+                state
+                | {
+                    "delivery_status": "failed",
+                    "last_attempt_at": now,
+                    "last_delivery_error": str(delivery_exc),
+                    "semantic_revision": semantics["semantic_revision"],
+                    "source_revision": (semantics.get("source") or {}).get(
+                        "deployed_revision"
+                    )
+                    or {},
+                    "schema": "axis.external-development-supervisor.slack-state",
+                    "schema_version": "1.0.0",
+                    "record_schema": semantics["schema"],
+                    "record_schema_version": semantics["schema_version"],
+                }
+            )
+            raise
         new_state = {
             "channel": channel,
             "ts": response["ts"],
             "fingerprint": fingerprint,
             "updated_at_epoch": int(time.time()),
+            "delivery_status": "delivered",
+            "last_attempt_at": now,
+            "last_successful_update_at": now,
+            "last_successful_update_epoch": int(time.time()),
+            "semantic_revision": semantics["semantic_revision"],
+            "source_revision": (semantics.get("source") or {}).get(
+                "deployed_revision"
+            )
+            or {},
+            "schema": "axis.external-development-supervisor.slack-state",
+            "schema_version": "1.0.0",
+            "record_schema": semantics["schema"],
+            "record_schema_version": semantics["schema_version"],
+            "last_delivery_error": None,
         }
-        tmp = self.state_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(new_state, indent=2) + "\n", encoding="utf-8")
-        tmp.chmod(0o600)
-        tmp.replace(self.state_path)
+        self.write_state(new_state)
         return {"updated": True, **new_state}
+
+    def load_state(self) -> dict:
+        if not self.state_path.exists():
+            return {}
+        value = json.loads(self.state_path.read_text(encoding="utf-8"))
+        if value.get("schema") != "axis.external-development-supervisor.slack-state":
+            timestamp = datetime.fromtimestamp(
+                int(value.get("updated_at_epoch") or time.time()), timezone.utc
+            ).isoformat()
+            value = value | {
+                "schema": "axis.external-development-supervisor.slack-state",
+                "schema_version": "1.0.0",
+                "delivery_status": value.get("delivery_status") or "delivered",
+                "last_attempt_at": value.get("last_attempt_at") or timestamp,
+                "last_successful_update_at": value.get("last_successful_update_at")
+                or timestamp,
+                "last_successful_update_epoch": int(
+                    value.get("last_successful_update_epoch")
+                    or value.get("updated_at_epoch")
+                    or time.time()
+                ),
+                "semantic_revision": value.get("semantic_revision") or "legacy",
+                "source_revision": value.get("source_revision") or {},
+                "record_schema": value.get("record_schema")
+                or value.get("schema")
+                or "axis.external-development-supervisor.roadmap-semantics",
+                "record_schema_version": value.get("record_schema_version")
+                or value.get("schema_version")
+                or "1.1.0",
+                "last_delivery_error": value.get("last_delivery_error"),
+            }
+        return validate_record(
+            value,
+            "axis.external-development-supervisor.slack-state",
+            record_path=self.state_path,
+        )
+
+    def write_state(self, value: dict) -> None:
+        decision = self.gate.decide(OperationClass.RECONCILIATION)
+        self.gate.require(decision, OperationClass.RECONCILIATION)
+        write_record(
+            self.state_path,
+            value,
+            "axis.external-development-supervisor.slack-state",
+        )
 
     def deployed_revision(self) -> dict:
         try:
             value = json.loads(
                 (self.root / "deployed-source-revision.json").read_text(encoding="utf-8")
             )
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             return {}
         return value if isinstance(value, dict) else {}

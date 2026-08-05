@@ -4,15 +4,18 @@ import re
 from pathlib import Path
 
 from .models import validate_semantic_record
+from .mutation import MutationGate, OperationClass
+from .schema_registry import write_record
 
 
 class SemanticDecompositionEngine:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, gate: MutationGate | None = None):
         self.root = root
         self.records = root / "decompositions"
         self.records.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.evidence = root / "decomposition-evidence"
         self.evidence.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.gate = gate or MutationGate(root, source="worker")
 
     @staticmethod
     def filename(ref: str) -> str:
@@ -20,6 +23,29 @@ class SemanticDecompositionEngine:
 
     @staticmethod
     def source_fingerprint(item: dict) -> str:
+        payload = {
+            "ref": item.get("ref"),
+            "source_kind": item.get("source_kind") or item.get("kind"),
+            "source_state": item.get("source_state") or item.get("state"),
+            "labels": item.get("labels"),
+            "milestone": item.get("milestone"),
+            "authority_facts": item.get("authority_facts") or item.get("authority"),
+            "blocking_dependency_refs": item.get("blocking_dependency_refs")
+            or item.get("dependencies"),
+            "merge_request_facts": item.get("merge_request_facts")
+            or item.get("merge_requests"),
+            "acceptance_facts": item.get("acceptance_facts"),
+            "updated_at": item.get("updated_at"),
+            "source_evidence": item.get("source_evidence"),
+            "repository_head": item.get("repository_head"),
+            "retrieval_errors": item.get("retrieval_errors"),
+            "mutation_allowed": item.get("mutation_allowed"),
+            "convergence_facts": item.get("convergence_facts"),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
+    def legacy_source_fingerprint(item: dict) -> str:
         payload = {
             "ref": item.get("ref"),
             "classification": item.get("classification"),
@@ -33,36 +59,41 @@ class SemanticDecompositionEngine:
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
-    def load(self, ref: str, source_fingerprint: str | None = None) -> dict | None:
+    def load(
+        self,
+        ref: str,
+        source_fingerprint: str | None = None,
+        compatibility_fingerprints: set[str] | None = None,
+    ) -> dict | None:
         path = self.records / self.filename(ref)
         if not path.exists():
             return None
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-            record = validate_semantic_record(value)
-            if source_fingerprint and record.get("source_fingerprint") != source_fingerprint:
-                return None
-            evidence_path = self.evidence / self.filename(ref)
-            if not evidence_path.exists():
-                return None
-            evidence_hash = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
-            if record.get("evidence_fingerprint") != evidence_hash:
-                return None
-            return record
-        except Exception:
+        record = validate_semantic_record(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+        accepted = {source_fingerprint, *(compatibility_fingerprints or set())} - {None}
+        if accepted and record.get("source_fingerprint") not in accepted:
             return None
+        evidence_path = self.evidence / self.filename(ref)
+        if not evidence_path.exists():
+            raise ValueError(f"semantic evidence is missing: {evidence_path}")
+        evidence_hash = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+        if record.get("evidence_fingerprint") != evidence_hash:
+            raise ValueError(f"semantic evidence fingerprint mismatch: {ref}")
+        return record
 
     def save(self, value: dict) -> Path:
         record = validate_semantic_record(value)
         path = self.records / self.filename(record["target_ref"])
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        tmp.chmod(0o600)
-        tmp.replace(path)
+        decision = self.gate.decide(OperationClass.RECONCILIATION)
+        self.gate.require(decision, OperationClass.RECONCILIATION)
+        write_record(path, record, "axis.external-development-supervisor.semantic-record")
         return path
 
     def save_evidence(self, ref: str, value: dict) -> str:
         path = self.evidence / self.filename(ref)
+        decision = self.gate.decide(OperationClass.RECONCILIATION)
+        self.gate.require(decision, OperationClass.RECONCILIATION)
         payload = json.dumps(value, indent=2, sort_keys=True).encode("utf-8") + b"\n"
         tmp = path.with_suffix(".json.tmp")
         tmp.write_bytes(payload)

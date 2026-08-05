@@ -18,6 +18,7 @@
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.control" },
     "schema_version": { "const": "1.0.0" },
+    "version": { "const": 3 },
     "mode": {
       "enum": [
         "disabled",
@@ -32,6 +33,9 @@
     "allow_repository_mutation": { "type": "boolean" },
     "allow_technical_revalidation": { "type": "boolean" },
     "max_active_assignments": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "lease_seconds": { "type": "integer", "minimum": 1 },
+    "minimum_free_disk_gib": { "type": "integer", "minimum": 0 },
+    "overview_freshness_minutes": { "type": "integer", "minimum": 1 },
     "daily_worker_cycle_limit": { "type": "integer", "minimum": 0 },
     "daily_model_call_limit": { "type": "integer", "minimum": 0 },
     "tier_a_batch_size": { "type": "integer", "minimum": 1, "maximum": 5 },
@@ -42,11 +46,29 @@
     },
     "cron_job_id": { "type": ["string", "null"] },
     "report_cron_job_id": { "type": ["string", "null"] },
+    "cron_generation": { "const": 1 },
     "repository_allowlist": {
       "type": "array",
       "items": { "type": "string" },
       "uniqueItems": true
-    }
+    },
+    "owned_branch_prefixes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "owned_worktree_root": { "type": "string", "minLength": 1 },
+    "product_owner_usernames": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "semantic_priority_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "slack_user_id": { "type": "string", "minLength": 1 }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

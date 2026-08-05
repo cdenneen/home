@@ -3,11 +3,12 @@
 Two Hermes-native jobs share one gateway:
 
 - Worker: model session, guarded preflight, no Slack delivery.
-- Reporter: no-agent deterministic script, Slack delivery.
+- Slack projection: no-agent deterministic Block Kit update.
 
 The worker uses Hermes cron overlap prevention plus fenced assignment leases.
-The reporter reads only a completed inventory generation and returns `[SILENT]`
-when no semantic change or heartbeat is due.
+The projection accepts only matching inventory and graph generations. It writes
+fresh overview semantics each run and skips the Slack API call when the rendered
+fingerprint is unchanged. No text reporter or pending delivery queue exists.
 
 Never add another gateway or scheduler daemon. Job replacement requires a
 drain, control job-ID update, output-history retention, and retirement record.

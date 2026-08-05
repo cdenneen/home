@@ -1,22 +1,12 @@
-from dataclasses import dataclass
 import shlex
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .verification import CHECK_NAMES, VERIFICATION_STANDARD
+from .lifecycle import adapt_assignment
+from .schema_registry import validate_record
+from .verification import normalize_verification_result
 
 
-SEMANTIC_CLASSES = {
-    "Executable",
-    "Running",
-    "Blocked",
-    "Waiting",
-    "Integrated",
-    "Superseded",
-    "Completed",
-    "Invalid",
-    "Revalidation",
-    "Unknown",
-}
 SLICE_CATEGORIES = {
     "research",
     "audit",
@@ -46,18 +36,6 @@ ALLOWED_TEST_PREFIXES = {
 }
 
 
-@dataclass(frozen=True)
-class CandidateSlice:
-    slice_id: str
-    title: str
-    category: str
-    result: str
-    rationale: str
-    project: str | None = None
-    allowed_paths: tuple[str, ...] = ()
-    required_tests: tuple[str, ...] = ()
-
-
 def require_list(value: Any, field: str) -> list:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be a list")
@@ -75,7 +53,26 @@ def test_command_argv(command: str) -> list[str]:
     return argv
 
 
+def validate_allowed_path(value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("allowed path must be a non-empty string")
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts or "." in path.parts:
+        raise ValueError(f"allowed path must be normalized and repository-relative: {value}")
+    if path.parts[0] == ".git" or ".git" in path.parts:
+        raise ValueError(f"allowed path cannot address Git metadata: {value}")
+    normalized = path.as_posix()
+    if normalized != value:
+        raise ValueError(f"allowed path is not normalized: {value}")
+    return normalized
+
+
 def validate_semantic_record(value: dict) -> dict:
+    if value.get("verification_result") is not None:
+        value["verification_result"] = normalize_verification_result(
+            value["verification_result"]
+        )
+    validate_record(value, "axis.external-development-supervisor.semantic-record")
     required = {
         "schema",
         "schema_version",
@@ -121,6 +118,17 @@ def validate_semantic_record(value: dict) -> dict:
             raise ValueError("candidate slice requires slice_id and rationale")
         if candidate.get("category") not in SLICE_CATEGORIES:
             raise ValueError("candidate slice has invalid category")
+        candidate["allowed_paths"] = [
+            validate_allowed_path(path)
+            for path in require_list(candidate.get("allowed_paths") or [], "allowed_paths")
+        ]
+        if candidate.get("result") == "Executable" and candidate.get(
+            "category"
+        ) == "implementation":
+            if not candidate["allowed_paths"]:
+                raise ValueError("executable implementation requires allowed_paths")
+            if not candidate.get("required_tests"):
+                raise ValueError("executable implementation requires required_tests")
         for command in require_list(candidate.get("required_tests") or [], "required_tests"):
             test_command_argv(command)
     resolution = value.get("authority_resolution")
@@ -149,63 +157,18 @@ def validate_semantic_record(value: dict) -> dict:
         }
         if not isinstance(packet, dict) or not required_packet.issubset(packet):
             raise ValueError("Product Owner authority records require a complete decision_packet")
-    verification = value.get("verification_result")
-    if verification is not None:
-        if not isinstance(verification, dict):
-            raise ValueError("verification_result must be an object")
-        if verification.get("standard") != VERIFICATION_STANDARD:
-            raise ValueError("verification_result uses an unsupported standard")
-        if verification.get("tier") not in {"A", "B", "C", "D"}:
-            raise ValueError("verification_result has an invalid tier")
-        if verification.get("disposition") not in {
-            "verified-complete",
-            "active-technical-revalidation",
-            "corrective-implementation-required",
-            "human-authority-required",
-        }:
-            raise ValueError("verification_result has an invalid disposition")
-        checks = verification.get("checks")
-        if not isinstance(checks, dict) or set(checks) != set(CHECK_NAMES):
-            raise ValueError("verification_result must contain all nine checks")
-        if any(value not in {True, False, None} for value in checks.values()):
-            raise ValueError("verification checks must be true, false, or null")
-        verification_evidence = require_list(
-            verification.get("evidence") or [], "verification evidence"
-        )
-        if any(
-            not (
-                isinstance(evidence, str)
-                and evidence.strip()
-                or isinstance(evidence, dict)
-                and isinstance(evidence.get("ref"), str)
-                and evidence["ref"].strip()
-            )
-            for evidence in verification_evidence
-        ):
-            raise ValueError("verification evidence must contain source-linked references")
-        failed_checks = require_list(
-            verification.get("failed_checks") or [], "verification failed_checks"
-        )
-        expected_failed = {name for name in CHECK_NAMES if checks.get(name) is not True}
-        if set(failed_checks) != expected_failed:
-            raise ValueError("verification failed_checks do not match nine-check results")
-        if verification["disposition"] == "verified-complete":
-            if expected_failed:
-                raise ValueError("verified-complete requires all nine checks")
-            if not verification_evidence:
-                raise ValueError("verified-complete requires source-linked evidence")
-            if str(verification.get("failure_disposition") or "").strip():
-                raise ValueError("verified-complete cannot include a failure disposition")
-        elif not str(verification.get("failure_disposition") or "").strip():
-            raise ValueError("incomplete verification requires a failure disposition")
     return value
 
 
-def validate_assignment(value: dict) -> dict:
+def validate_assignment(value: dict, root: Path | None = None) -> dict:
+    value = adapt_assignment(value, root)
+    if value.get("completion_receipt") is not None:
+        value["completion_receipt"] = normalize_verification_result(
+            value["completion_receipt"]
+        )
+    validate_record(value, "axis.external-development-supervisor.assignment")
     required = {
         "assignment_id",
-        "state",
-        "phase",
         "project",
         "work_item",
         "planning_record",
@@ -215,27 +178,9 @@ def validate_assignment(value: dict) -> dict:
     missing = sorted(required - set(value))
     if missing:
         raise ValueError(f"assignment missing fields: {missing}")
-    if value["state"] not in {
-        "ready",
-        "active",
-        "waiting",
-        "blocked",
-        "complete",
-        "cancelled",
-        "failed",
-    }:
-        raise ValueError("assignment has invalid state")
-    if value["phase"] not in {
-        "semantic",
-        "semantic-complete",
-        "implementation",
-        "awaiting-integration",
-        "integration",
-        "integrated",
-        "failed",
-        "recovery",
-    }:
-        raise ValueError("assignment has invalid phase")
-    require_list(value["allowed_paths"], "allowed_paths")
+    value["allowed_paths"] = [
+        validate_allowed_path(path)
+        for path in require_list(value["allowed_paths"], "allowed_paths")
+    ]
     require_list(value["required_tests"], "required_tests")
     return value

@@ -7,8 +7,14 @@
 - Inventory stale after GitLab error: treat as invalid; worker must not wake.
 - Queue zero with Unknown/retrieval errors: invalid snapshot; inspect source
   statuses and rerun reconciliation.
-- Reporter repeats or loses messages: inspect pending/delivered state and cron
-  `last_delivery_error`; do not manually advance the fingerprint.
+- Slack overview repeats or fails: inspect `slack-overview-state.json` delivery
+  status, last successful update, semantic revision, and source revision. Do not
+  manually advance the fingerprint.
+- Slack command reports stale state: compare inventory `generation_id` with the
+  execution graph `inventory_generation_id`; commands fail instead of mixing
+  generations.
+- Scheduler focus looks wrong: inspect graph `scheduler_state`. Reporting only
+  projects those observed fields and does not select or predict work.
 - Terminal cannot find tools: use preflight-provided absolute `tool_paths`.
 - Pipeline run exceeds cycle: record Waiting and exit; never long-poll.
 - Dirty worktree: preserve provenance and isolate; clean only supervisor-owned

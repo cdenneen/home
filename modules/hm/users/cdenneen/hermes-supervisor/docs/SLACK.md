@@ -14,23 +14,11 @@ is only Integrated plus evidence-backed Completed. Revalidation, discovered,
 classified, Waiting, Blocked, Invalid, and Superseded items are never counted as
 complete.
 
-The configured Product Owner can send these exact private-DM commands without
-invoking an LLM. Always use the `!axis` prefix:
-
-- `!axis roadmap`
-- `!axis status`
-- `!axis milestones`
-- `!axis running`
-- `!axis blocked`
-- `!axis decisions`
-- `!axis recent`
-- `!axis inspect <group/project#iid>`
-- `!axis reconcile`
-- `!axis pause`
-- `!axis resume`
-- `!axis drain`
-
-`!axis help` lists the contract. Slack rewrites the known bang command to the
+The configured Product Owner can send deterministic private-DM commands without
+invoking an LLM. Always use the `!axis` prefix. `!axis help` renders the current
+command, alias, description, and parameter contract from
+`axis_supervisor.command_registry`; it is the authoritative command list.
+Slack rewrites the known bang command to the
 typed `/axis` gateway command before busy-agent input handling. A trusted Hermes
 plugin then checks the Slack platform, exact private-DM channel, and configured
 Product Owner user ID before executing `axis-development-supervisor-command`
@@ -40,7 +28,11 @@ remains a normal Hermes conversation and must not be used for supervisor control
 
 Material effects resolve through typed control changes and existing authority;
 arbitrary message text never becomes a shell command or persistent policy.
+The registry marks every command as Product Owner DM authority and distinguishes
+read-only commands from effectful commands whose command text is the explicit
+confirmation.
 
-Stop requires explicit confirmation. Prioritization reorders only already
-Executable work. Human decisions identify the exact reserved boundary, affected
-refs, impact, alternatives, and independent work continuing meanwhile.
+Command results are generated from the current inventory, execution graph, and
+control in one invocation. They include semantic revision, generation time,
+source inventory revision, and staleness, and never read
+`slack-overview-record.json` to compose live state.

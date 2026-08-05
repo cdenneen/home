@@ -27,10 +27,12 @@ def reserved_authority_required(item: dict) -> bool:
 def revalidation_tier(
     item: dict, semantic_record: dict | None, verification: dict
 ) -> str | None:
-    if verification.get("state") == "verified-complete":
+    if (verification.get("verification_result") or verification).get(
+        "disposition"
+    ) == "verified-complete":
         return None
     revalidation_scope = bool(
-        item.get("state") == "closed"
+        (item.get("source_state") or item.get("state")) == "closed"
         or item.get("classification") in {"Revalidation", "Integrated", "Completed"}
     )
     if not revalidation_scope:
@@ -42,8 +44,9 @@ def revalidation_tier(
         return "C"
     if result.get("disposition") == "active-technical-revalidation":
         return "B"
-    if item.get("state") == "closed" and any(
-        mr.get("state") == "merged" for mr in item.get("merge_requests") or []
+    if (item.get("source_state") or item.get("state")) == "closed" and any(
+        mr.get("state") == "merged"
+        for mr in item.get("merge_request_facts") or item.get("merge_requests") or []
     ):
         return "A"
     return "B"
@@ -52,7 +55,14 @@ def revalidation_tier(
 def revalidation_priority(item: dict, tier: str | None, all_items: list[dict]) -> tuple[int, dict]:
     milestone = roadmap_order(item)
     unlocks = sum(
-        1 for candidate in all_items if item.get("ref") in (candidate.get("dependencies") or [])
+        1
+        for candidate in all_items
+        if item.get("ref")
+        in (
+            candidate.get("blocking_dependency_refs")
+            or candidate.get("dependencies")
+            or []
+        )
     )
     searchable = f"{item.get('title', '')} {' '.join(item.get('labels') or [])}".lower()
     runtime_relevance = int(
@@ -91,7 +101,11 @@ def select_tier_a_batch(
     for item in queue:
         project = item.get("project")
         authority = set(
-            ((item.get("source_item") or {}).get("authority") or {}).get("digests")
+            (
+                (item.get("source_item") or {}).get("authority_facts")
+                or (item.get("source_item") or {}).get("authority")
+                or {}
+            ).get("digests")
             or []
         )
         if (

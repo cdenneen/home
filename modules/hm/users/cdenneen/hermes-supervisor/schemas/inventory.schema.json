@@ -1,27 +1,180 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "axis.external-development-supervisor.inventory",
+  "$defs": {
+    "dependencyEdge": {
+      "type": "object",
+      "required": ["from_ref", "to_ref", "relationship"],
+      "properties": {
+        "from_ref": { "type": "string", "minLength": 1 },
+        "to_ref": { "type": "string", "minLength": 1 },
+        "relationship": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "sourceItem": {
+      "type": "object",
+      "required": [
+        "ref",
+        "source_kind",
+        "kind",
+        "project",
+        "title",
+        "source_state",
+        "labels",
+        "authority_facts",
+        "blocking_dependency_refs",
+        "merge_request_facts",
+        "acceptance_facts",
+        "source_evidence",
+        "retrieval_errors",
+        "mutation_allowed"
+      ],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "source_kind": {
+          "enum": [
+            "gitlab-issue",
+            "repository-root",
+            "repository-worktree",
+            "repository-branch"
+          ]
+        },
+        "kind": { "type": "string", "minLength": 1 },
+        "project": { "type": "string", "minLength": 1 },
+        "iid": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "source_state": { "type": "string", "minLength": 1 },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "milestone": { "type": ["string", "null"] },
+        "priority": { "type": ["string", "null"] },
+        "authority_facts": { "type": "object" },
+        "blocking_dependency_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "merge_request_facts": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "acceptance_criteria_present": { "type": "boolean" },
+        "acceptance_facts": {
+          "type": "object",
+          "required": ["ids", "open_ids"],
+          "properties": {
+            "ids": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            },
+            "open_ids": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "updated_at": { "type": ["string", "null"] },
+        "web_url": { "type": ["string", "null"] },
+        "source_evidence": { "type": "object" },
+        "repository_head": { "type": ["string", "null"] },
+        "retrieval_errors": { "type": "array", "items": { "type": "string" } },
+        "mutation_allowed": { "type": "boolean" },
+        "convergence_facts": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
   "type": "object",
   "required": [
     "schema",
     "schema_version",
     "generation_id",
     "generated_at",
+    "duration_seconds",
+    "mode",
+    "allow_repository_mutation",
+    "repositories",
+    "repository_allowlist",
     "repositories_inspected",
     "work_items_discovered",
-    "classification_counts",
     "work_items",
-    "executable_queue",
-    "idle_proof"
+    "dependency_edges",
+    "milestones",
+    "open_merge_requests",
+    "supervisor_assignments",
+    "active_leases",
+    "collection_status"
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.inventory" },
     "schema_version": { "const": "1.0.0" },
     "generation_id": { "type": "string", "minLength": 1 },
-    "classification_counts": { "type": "object" },
-    "work_items": { "type": "array" },
-    "executable_queue": { "type": "array" },
-    "idle_proof": { "type": "object" }
+    "generated_at": { "type": "string", "format": "date-time" },
+    "duration_seconds": { "type": "number", "minimum": 0 },
+    "mode": { "type": ["string", "null"] },
+    "allow_repository_mutation": { "type": "boolean" },
+    "repositories": {
+      "type": "object",
+      "additionalProperties": { "type": "object" }
+    },
+    "repository_allowlist": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "repositories_inspected": { "type": "integer", "minimum": 0 },
+    "work_items_discovered": { "type": "integer", "minimum": 0 },
+    "work_items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sourceItem" }
+    },
+    "dependency_edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dependencyEdge" },
+      "uniqueItems": true
+    },
+    "milestones": { "type": "array", "items": { "type": "object" } },
+    "open_merge_requests": { "type": "array", "items": { "type": "object" } },
+    "supervisor_assignments": {
+      "type": "array",
+      "items": { "$ref": "axis.external-development-supervisor.assignment" }
+    },
+    "active_leases": {
+      "type": "array",
+      "items": { "$ref": "axis.external-development-supervisor.lease" }
+    },
+    "collection_status": {
+      "type": "object",
+      "required": [
+        "configured_repository_count",
+        "all_configured_repositories_inspected",
+        "dependency_queries",
+        "dependency_query_failures",
+        "retrieval_error_count",
+        "stale_repository_count",
+        "state_record_errors",
+        "active_assignment_count",
+        "active_lease_count"
+      ],
+      "properties": {
+        "configured_repository_count": { "type": "integer", "minimum": 0 },
+        "all_configured_repositories_inspected": { "type": "boolean" },
+        "dependency_queries": { "type": "integer", "minimum": 0 },
+        "dependency_query_failures": { "type": "integer", "minimum": 0 },
+        "retrieval_error_count": { "type": "integer", "minimum": 0 },
+        "stale_repository_count": { "type": "integer", "minimum": 0 },
+        "state_record_errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "active_assignment_count": { "type": "integer", "minimum": 0 },
+        "active_lease_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

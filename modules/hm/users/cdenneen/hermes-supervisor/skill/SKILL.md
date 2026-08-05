@@ -14,7 +14,7 @@ Organism, scheduler, authority, cognition, planning, evidence, or product state.
 1. Read the preflight JSON injected by the cron script.
    Use `tool_paths` absolute binaries for terminal commands; cron shells may not
    inherit the interactive PATH. Do not use `execute_code` in unattended runs.
-2. Read `control.json`, `baseline.json`, and `inventory.json` from
+2. Read `control.json`, `inventory.json`, and `execution-graph.json` from
    `~/.hermes/supervisor/axis-development-supervisor/`.
 3. If preflight says `skip_agent`, do not inspect repositories or call tools.
    Return the supplied concise status and exit.
@@ -26,10 +26,8 @@ Organism, scheduler, authority, cognition, planning, evidence, or product state.
    leases before selecting new work.
 6. When `allow_repository_mutation` is false, perform read-only reconciliation
    only. Do not create branches, worktrees, commits, MRs, issue notes, or jobs.
-   When the baseline is unconverged, mutation is allowed only for the exact
-   `proof_assignment_id` in control state when its assignment record contains a
-   Product Owner approval note and immutable PlanningRecord digest. Do not
-   select or mutate any other work.
+   Mutation authorization is executable policy owned by `MutationGate`; skill
+   text never grants mutation authority.
 7. When mutation is explicitly enabled, execute only work whose controlling
    PlanningRecord and dependencies are current, closed, and source-linked.
 8. Prefer one direct Hermes assignment. Use at most two native delegated

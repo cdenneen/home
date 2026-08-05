@@ -3,9 +3,9 @@
   "$id": "axis.external-development-supervisor.assignment",
   "type": "object",
   "required": [
+    "schema",
+    "schema_version",
     "assignment_id",
-    "state",
-    "phase",
     "project",
     "work_item",
     "planning_record",
@@ -13,7 +13,24 @@
     "required_tests"
   ],
   "properties": {
+    "schema": { "const": "axis.external-development-supervisor.assignment" },
+    "schema_version": { "const": "1.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
+    "lifecycle_state": {
+      "enum": [
+        "ready-semantic",
+        "ready-implementation",
+        "running-semantic",
+        "running-implementation",
+        "awaiting-integration",
+        "completed",
+        "waiting",
+        "blocked",
+        "failed",
+        "cancelled",
+        "recovery-required"
+      ]
+    },
     "state": {
       "enum": [
         "ready",
@@ -21,8 +38,21 @@
         "waiting",
         "blocked",
         "complete",
+        "completed",
         "cancelled",
         "failed"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "semantic",
+        "semantic-complete",
+        "implementation",
+        "awaiting-integration",
+        "integration",
+        "integrated",
+        "failed",
+        "recovery"
       ]
     },
     "project": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
@@ -37,18 +67,6 @@
       },
       "additionalProperties": true
     },
-    "phase": {
-      "enum": [
-        "semantic",
-        "semantic-complete",
-        "implementation",
-        "awaiting-integration",
-        "integration",
-        "integrated",
-        "failed",
-        "recovery"
-      ]
-    },
     "allowed_paths": {
       "type": "array",
       "items": { "type": "string" }
@@ -56,7 +74,25 @@
     "required_tests": {
       "type": "array",
       "items": { "type": "string" }
-    }
+    },
+    "lease_id": { "type": ["string", "null"] },
+    "lease_uri": { "type": ["string", "null"], "format": "uri" },
+    "completion_receipt": {
+      "$ref": "axis.external-development-supervisor.verification"
+    },
+    "source_inventory_generation_id": { "type": ["string", "null"] }
   },
+  "oneOf": [
+    {
+      "required": ["lifecycle_state"],
+      "not": {
+        "anyOf": [{ "required": ["state"] }, { "required": ["phase"] }]
+      }
+    },
+    {
+      "required": ["state", "phase"],
+      "not": { "required": ["lifecycle_state"] }
+    }
+  ],
   "additionalProperties": true
 }

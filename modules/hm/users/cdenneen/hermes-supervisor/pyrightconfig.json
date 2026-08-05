@@ -1,0 +1,11 @@
+{
+  "include": ["scripts", "plugin"],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["scripts"]
+    }
+  ],
+  "reportMissingImports": "error",
+  "reportMissingModuleSource": "warning"
+}

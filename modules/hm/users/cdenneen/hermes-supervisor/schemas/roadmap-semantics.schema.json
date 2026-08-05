@@ -5,8 +5,10 @@
   "required": [
     "schema",
     "schema_version",
+    "semantic_revision",
     "generated_at",
     "source",
+    "staleness",
     "verification_standard",
     "verification_scope",
     "total_governed_items",
@@ -17,6 +19,7 @@
     "strategic_programs",
     "roadmap_endpoint",
     "current_execution_frontier",
+    "scheduler_state",
     "current_supervisor_focus",
     "supervisor_work",
     "executable_sources",
@@ -28,12 +31,21 @@
     "schema": {
       "const": "axis.external-development-supervisor.roadmap-semantics"
     },
-    "schema_version": { "const": "1.1.0" },
-    "generated_at": { "type": ["string", "null"] },
+    "schema_version": { "const": "1.2.0" },
+    "semantic_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
     "source": {
       "type": "object",
-      "required": ["inventory_generation_id", "graph_generation_id"]
+      "required": [
+        "inventory_revision",
+        "graph_generation_id",
+        "deployed_revision"
+      ]
     },
+    "staleness": { "$ref": "#/$defs/staleness" },
     "verification_standard": {
       "type": "object",
       "required": ["label", "definition"]
@@ -72,6 +84,29 @@
     "strategic_programs": { "type": "array" },
     "roadmap_endpoint": { "type": ["string", "null"] },
     "current_execution_frontier": { "type": ["string", "null"] },
+    "scheduler_state": {
+      "type": "object",
+      "required": [
+        "configured_batch_ceiling",
+        "available_model_call_budget",
+        "selected_batch",
+        "deferred_items",
+        "next_eligible_work",
+        "limiting_constraint"
+      ],
+      "properties": {
+        "configured_batch_ceiling": { "type": "integer", "minimum": 1 },
+        "available_model_call_budget": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "selected_batch": { "type": "array", "items": { "type": "object" } },
+        "deferred_items": { "type": "array", "items": { "type": "object" } },
+        "next_eligible_work": { "type": ["object", "null"] },
+        "limiting_constraint": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "current_supervisor_focus": { "type": "object" },
     "supervisor_work": { "type": "object" },
     "executable_sources": { "type": "object" },
@@ -88,6 +123,26 @@
         "count": { "type": "integer", "minimum": 0 },
         "denominator": { "type": "integer", "minimum": 0 },
         "percent": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "staleness": {
+      "type": "object",
+      "required": [
+        "state",
+        "source_generations_match",
+        "source_age_seconds",
+        "source_inventory_revision",
+        "graph_inventory_revision",
+        "reason"
+      ],
+      "properties": {
+        "state": { "enum": ["current", "stale"] },
+        "source_generations_match": { "type": "boolean" },
+        "source_age_seconds": { "type": "integer", "minimum": 0 },
+        "source_inventory_revision": { "type": ["string", "null"] },
+        "graph_inventory_revision": { "type": ["string", "null"] },
+        "reason": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     }

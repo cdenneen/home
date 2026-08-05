@@ -88,26 +88,17 @@ For Tier A evidence-only revalidation, mark a check true only when the supplied 
 When authority state is `needs-product-owner`, `decision_packet` must contain current_record, current_digest, decision_requested, recommendation, consequences, downstream_effects, unresolved_assumptions, and exact response_syntax. Revalidate later approvals/superseding decisions before requesting one.
 """.strip()
 
-    def implementation_prompt(self, assignment: dict, worktree: str) -> str:
+    def implementation_prompt(
+        self, assignment: dict, source_files: dict[str, str | None]
+    ) -> str:
         return f"""
-You are a disposable Hermes-native coding worker using GPT-5.3-Codex.
+You are a disposable no-tool patch planner using GPT-5.3-Codex.
 Assignment: {json.dumps(assignment, indent=2)}
-Worktree: {worktree}
+Allowlisted source files:
+{json.dumps(source_files, indent=2)}
 
-Implement only the bounded candidate and allowed paths. Run required tests and commit coherent changes on the assigned local branch. Do not push, create an MR, merge, or modify supervisor policy. The supervisor validates paths and publishes the branch/MR after your process exits.
+Return a unified diff that changes only allowed paths. Do not invoke tools, run commands, access repositories, use credentials, or perform any external effect. The supervisor applies the patch, runs the declared tests, commits, and publishes through its mutation gate.
 
 End with JSON only:
-{{"commit":"sha","tests":["command: result"],"wwwhh":{{"who":"","what":"","when":"","where":"","how":"","handoff":""}}}}
-""".strip()
-
-    def integration_prompt(self, assignment: dict, inspection: dict) -> str:
-        return f"""
-You are a fresh Hermes integration worker using GPT-5.4. You have no prior conversation context.
-Assignment:
-{json.dumps(assignment, indent=2)}
-Current GitLab inspection:
-{json.dumps(inspection, indent=2)}
-
-Reconstruct from GitLab and the worktree. If CI/review is non-terminal, return Waiting without polling. If a bounded branch defect exists, repair only allowed paths, test, commit, push, and leave integration pending. If all configured gates pass, merge through GitLab and reconcile the work-item evidence. Do not remove the branch/worktree; the supervisor validates merged main and performs cleanup. Return JSON only:
-{{"result":"integrated|waiting|repaired|blocked","merge_commit":"sha-or-null","main_sha":"sha-or-null","tests":["command: result"],"cleanup":{{"branch":true,"worktree":true}},"evidence":["url"],"next":""}}
+{{"patch":"unified diff","wwwhh":{{"who":"","what":"","when":"","where":"","how":"","handoff":""}}}}
 """.strip()

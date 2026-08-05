@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.run",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "run_id",
+    "status",
+    "host",
+    "started_at_epoch",
+    "mode",
+    "allow_repository_mutation",
+    "inventory_generation_id",
+    "model_calls_remaining"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.run" },
+    "schema_version": { "const": "1.0.0" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["started", "completed", "abandoned", "preflight-test"]
+    },
+    "host": { "type": "string", "minLength": 1 },
+    "started_at_epoch": { "type": "integer", "minimum": 1 },
+    "mode": { "type": "string", "minLength": 1 },
+    "allow_repository_mutation": { "type": "boolean" },
+    "inventory_generation_id": { "type": ["string", "null"] },
+    "model_calls_remaining": { "type": "integer", "minimum": 0 },
+    "completion_output": { "type": "string" },
+    "reconciled_at_epoch": { "type": "integer", "minimum": 1 }
+  },
+  "additionalProperties": false
+}

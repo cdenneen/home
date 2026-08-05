@@ -7,7 +7,13 @@ class AuthorityResolver:
     def resolve(
         self, item: dict, semantic_record: dict | None, parent_item: dict | None = None
     ) -> dict:
-        direct = item.get("authority") or {}
+        direct = item.get("authority_facts") or item.get("authority") or {}
+        if direct.get("repository_convergence_authorized"):
+            return {
+                "state": "direct",
+                "source": direct,
+                "reason": "supervisor-owned integrated repository state",
+            }
         if direct.get("decision_stop"):
             return {"state": "prohibited", "source": direct, "reason": "stop decision"}
         if direct.get("approval_mismatch"):
@@ -29,12 +35,21 @@ class AuthorityResolver:
         }:
             return {"state": "unresolved", "source": resolution, "reason": "invalid semantic authority state"}
         if state == "inherited":
-            parent_authority = (parent_item or {}).get("authority") or {}
+            parent_authority = (
+                (parent_item or {}).get("authority_facts")
+                or (parent_item or {}).get("authority")
+                or {}
+            )
             controlling_parent = resolution.get("controlling_parent")
             source_refs = resolution.get("source_refs") or []
             parent_digest = resolution.get("parent_digest")
             relationship_evidence = (
-                controlling_parent in (item.get("dependencies") or [])
+                controlling_parent
+                in (
+                    item.get("blocking_dependency_refs")
+                    or item.get("dependencies")
+                    or []
+                )
                 or controlling_parent
                 in ((item.get("source_evidence") or {}).get("parent_refs") or [])
             )

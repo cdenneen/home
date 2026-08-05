@@ -30,25 +30,26 @@ let
       self.dirtyRev
     else
       "unknown";
+  supervisorPython = pkgs.python3.withPackages (pythonPackages: [ pythonPackages.jsonschema ]);
   supervisorCtl = pkgs.writeShellScriptBin "axis-development-supervisorctl" ''
     set -euo pipefail
-    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisorctl.py" "$@"
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisorctl.py" "$@"
   '';
   supervisorHealth = pkgs.writeShellScriptBin "axis-development-supervisor-health" ''
     set -euo pipefail
-    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-health.py" "$@"
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-health.py" "$@"
   '';
   supervisorCronCtl = pkgs.writeShellScriptBin "axis-development-supervisor-cronctl" ''
     set -euo pipefail
-    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" "$@"
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" "$@"
   '';
   supervisorCycle = pkgs.writeShellScriptBin "axis-development-supervisor-cycle" ''
     set -euo pipefail
-    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis_supervisor/cycle.py" "$@"
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis_supervisor/cycle.py" "$@"
   '';
   supervisorCommand = pkgs.writeShellScriptBin "axis-development-supervisor-command" ''
     set -euo pipefail
-    exec ${pkgs.python3}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
   '';
 in
 {
@@ -59,6 +60,7 @@ in
     home.packages =
       lib.optionals gatewayEnabled [ agentPkgs.hermes ]
       ++ lib.optionals supervisorEnabled [
+        pkgs.bubblewrap
         supervisorCtl
         supervisorHealth
         supervisorCronCtl
@@ -120,7 +122,8 @@ in
           };
           Service = {
             Type = "oneshot";
-            ExecStart = "${pkgs.python3}/bin/python ${./scripts/cronctl.py} install --hermes ${agentPkgs.hermes}/bin/hermes";
+            ExecStart = "${supervisorPython}/bin/python ${./scripts/cronctl.py} install --hermes ${agentPkgs.hermes}/bin/hermes";
+            Environment = [ "AXIS_SUPERVISOR_MUTATION_SOURCE=home-manager" ];
             RemainAfterExit = true;
           };
           Install.WantedBy = [ "default.target" ];
@@ -194,8 +197,10 @@ in
           "${./scripts/preflight.py}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/reconcile.py}" "$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"
-        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
-          "${./scripts/report.py}" "$HOME/.hermes/scripts/axis-development-supervisor-report.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
+          "$HOME/.hermes/scripts/axis-development-supervisor-report.py" \
+          "${runtimeRoot}/report-delivery-pending.json" \
+          "${runtimeRoot}/report-delivery-state.json"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/supervisorctl.py}" "$HOME/.hermes/scripts/axis-development-supervisorctl.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
@@ -216,10 +221,11 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod -R u=rwX,go= "$HOME/.hermes/plugins/axis-supervisor-commands"
         $DRY_RUN_CMD mkdir -p \
           "${runtimeRoot}/assignments" \
+          "${runtimeRoot}/accounting" \
           "${runtimeRoot}/leases" \
-          "${runtimeRoot}/reports" \
           "${runtimeRoot}/runs" \
           "${runtimeRoot}/worktrees"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "${runtimeRoot}/reports"
         if [ ! -f "${runtimeRoot}/control.json" ]; then
           $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T \
             "${./control.defaults.json}" "${runtimeRoot}/control.json"
@@ -229,11 +235,14 @@ in
             .[1] as $existing
             | (.[0] * $existing)
             | if (($existing.schema // "") != "axis.external-development-supervisor.control"
-                  or ($existing.version // 0) < 2)
+                  or ($existing.version // 0) < 3)
               then .mode = "observing"
                    | .allow_repository_mutation = false
-                   | .version = 2
-                   | del(.proof_assignment_id)
+                   | .version = 3
+                   | .overview_freshness_minutes = ($existing.overview_freshness_minutes // $existing.report_heartbeat_minutes // 90)
+                   | del(.proof_assignment_id, .max_delegated_assignments, .report_heartbeat_minutes,
+                         .gitlab_host, .gitlab_group, .slack_delivery, .operator,
+                         .continue_unattended_after_proof, .repository_roots, .updated_at)
               else .
               end
           ' \
@@ -241,16 +250,7 @@ in
           ${pkgs.coreutils}/bin/install -m 600 -T "$control_tmp" "${runtimeRoot}/control.json"
           ${pkgs.coreutils}/bin/rm -f "$control_tmp"
         fi
-        if [ ! -f "${runtimeRoot}/baseline.json" ]; then
-          $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T \
-            "${./baseline.defaults.json}" "${runtimeRoot}/baseline.json"
-        elif [ -z "''${DRY_RUN_CMD:-}" ]; then
-          baseline_tmp="$(${pkgs.coreutils}/bin/mktemp "${runtimeRoot}/baseline.json.XXXXXX")"
-          ${pkgs.jq}/bin/jq -s '.[0] * .[1]' \
-            "${./baseline.defaults.json}" "${runtimeRoot}/baseline.json" > "$baseline_tmp"
-          ${pkgs.coreutils}/bin/install -m 600 -T "$baseline_tmp" "${runtimeRoot}/baseline.json"
-          ${pkgs.coreutils}/bin/rm -f "$baseline_tmp"
-        fi
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "${runtimeRoot}/baseline.json"
       ''
     );
 

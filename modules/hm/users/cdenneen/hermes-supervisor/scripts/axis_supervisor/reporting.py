@@ -1,10 +1,12 @@
-from collections import Counter
+import hashlib
+import json
 import re
+from collections import Counter
+from datetime import datetime, timezone
 from typing import Any
 
-from .revalidation import revalidation_tier, select_tier_a_batch
+from .revalidation import revalidation_tier
 from .verification import VERIFICATION_STANDARD, verification_for
-
 
 COMPOSITION = (
     ("verified_complete", "Verified complete"),
@@ -27,6 +29,55 @@ PROGRAMS = (
     ("repository_convergence", "Repository Convergence", ()),
     ("revalidation", "Revalidation", ()),
 )
+SCHEMA = "axis.external-development-supervisor.roadmap-semantics"
+SCHEMA_VERSION = "1.2.0"
+
+
+def source_staleness(
+    inventory: dict, graph: dict, max_age_seconds: int = 3600
+) -> dict[str, Any]:
+    inventory_revision = inventory.get("generation_id")
+    graph_inventory_revision = graph.get("inventory_generation_id")
+    matches = bool(
+        inventory_revision
+        and graph_inventory_revision
+        and inventory_revision == graph_inventory_revision
+    )
+    try:
+        generated = datetime.fromisoformat(
+            str(inventory.get("generated_at")).replace("Z", "+00:00")
+        )
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+        raw_age_seconds = int((datetime.now(timezone.utc) - generated).total_seconds())
+        future_timestamp = raw_age_seconds < -300
+        source_age_seconds = max(0, raw_age_seconds)
+    except (TypeError, ValueError):
+        source_age_seconds = max_age_seconds + 1
+        future_timestamp = False
+    current = matches and not future_timestamp and source_age_seconds <= max_age_seconds
+    return {
+        "state": "current" if current else "stale",
+        "source_generations_match": matches,
+        "source_age_seconds": source_age_seconds,
+        "source_inventory_revision": inventory_revision,
+        "graph_inventory_revision": graph_inventory_revision,
+        "reason": (
+            None
+            if current
+            else "execution graph generation mismatch"
+            if not matches
+            else "source inventory timestamp is in the future"
+            if future_timestamp
+            else f"source inventory is older than {max_age_seconds} seconds"
+        ),
+    }
+
+
+def require_current_sources(inventory: dict, graph: dict) -> None:
+    staleness = source_staleness(inventory, graph)
+    if staleness["state"] != "current":
+        raise ValueError(staleness["reason"])
 
 
 def metric(count: int, denominator: int) -> dict[str, int | float]:
@@ -38,7 +89,8 @@ def metric(count: int, denominator: int) -> dict[str, int | float]:
 
 
 def composition_key(item: dict, verification: dict) -> str:
-    if verification.get("state") == "verified-complete":
+    result = verification.get("verification_result") or verification
+    if result.get("disposition") == "verified-complete":
         return "verified_complete"
     if item.get("state") == "closed":
         return "closed_pending_revalidation"
@@ -59,7 +111,7 @@ def composition_key(item: dict, verification: dict) -> str:
 
 
 def milestone_key(value: str | None) -> str | None:
-    match = re.search(r"AX-M(\d+(?:\.\d+)?)", str(value or ""), re.I)
+    match = re.search(r"AX-M(\d+(?:\.\d+)?)", str(value or ""), re.IGNORECASE)
     return f"AX-M{match.group(1)}" if match else None
 
 
@@ -73,7 +125,11 @@ def item_milestone_key(item: dict) -> str | None:
             if key:
                 return key
     description = ((item.get("source_evidence") or {}).get("description") or "")
-    match = re.search(r"owning_milestone:\s*(AX-M\d+(?:\.\d+)?)", description, re.I)
+    match = re.search(
+        r"owning_milestone:\s*(AX-M\d+(?:\.\d+)?)",
+        description,
+        re.IGNORECASE,
+    )
     return milestone_key(match.group(1)) if match else None
 
 
@@ -130,7 +186,9 @@ def milestone_status(counts: Counter, total: int) -> str:
 
 
 def queue_source(entry: dict, items: dict[str, dict]) -> str:
-    target = items.get(entry.get("target_ref") or entry.get("ref")) or {}
+    ref = entry.get("target_ref") or entry.get("ref")
+    target = items.get(str(ref)) if ref else {}
+    target = target or {}
     candidate = entry.get("candidate") or {}
     if entry.get("kind") == "repository-convergence" or target.get("kind") == "repository-convergence":
         return "repository_convergence"
@@ -157,7 +215,15 @@ def build_roadmap_semantics(
     control: dict | None = None,
     deployed_revision: dict | None = None,
 ) -> dict[str, Any]:
-    work_items = inventory.get("work_items") or []
+    source_items = {
+        item.get("ref"): item for item in inventory.get("work_items") or []
+    }
+    work_items = []
+    for node in graph.get("nodes") or []:
+        item = dict(source_items.get(node.get("ref")) or {})
+        item.update(node)
+        item["state"] = node.get("source_state")
+        work_items.append(item)
     items_by_ref = {item.get("ref"): item for item in work_items}
     queue = graph.get("executable_queue") or []
     assignments = inventory.get("supervisor_assignments") or []
@@ -184,11 +250,17 @@ def build_roadmap_semantics(
     verified_items = [
         {
             "ref": ref,
-            "proof_assignment_id": verification.get("proof_assignment_id"),
-            "evidence": verification.get("evidence") or [],
+            "completion_assignment_id": verification.get("completion_assignment_id"),
+            "evidence": (
+                verification.get("verification_result") or verification
+            ).get("evidence")
+            or [],
         }
         for ref, verification in verifications.items()
-        if verification.get("state") == "verified-complete"
+        if (verification.get("verification_result") or verification).get(
+            "disposition"
+        )
+        == "verified-complete"
     ]
     closed = [item for item in work_items if item.get("state") == "closed"]
     waiting = [item for item in work_items if item.get("classification") == "Waiting"]
@@ -245,27 +317,15 @@ def build_roadmap_semantics(
     for index, entry in enumerate(queue):
         target = items_by_ref.get(entry.get("target_ref") or entry.get("ref")) or {}
         key = item_milestone_key(target)
-        if key in roadmap_metadata:
+        if key and key in roadmap_metadata:
             queue_by_milestone.setdefault(key, []).append((index, entry))
-    scheduled_batch = select_tier_a_batch(
-        queue,
-        int((control or {}).get("tier_a_batch_size", 2)),
-        int((control or {}).get("daily_model_call_limit", 144)),
-    )
-    focus_queue = scheduled_batch or queue[:1]
-    current_supervisor_focus_key = next(
-        (
-            item_milestone_key(
-                items_by_ref.get(entry.get("target_ref") or entry.get("ref")) or {}
-            )
-            for entry in focus_queue
-            if item_milestone_key(
-                items_by_ref.get(entry.get("target_ref") or entry.get("ref")) or {}
-            )
-            in roadmap_metadata
-        ),
-        None,
-    )
+    scheduler_state = graph.get("scheduler_state") or {}
+    if not isinstance(scheduler_state, dict):
+        raise TypeError("execution graph scheduler_state must be an object")
+    current_supervisor_focus = scheduler_state.get("next_eligible_work") or {}
+    if not isinstance(current_supervisor_focus, dict):
+        raise TypeError("scheduler_state next_eligible_work must be an object or null")
+    current_supervisor_focus_key = current_supervisor_focus.get("milestone")
     ordered_roadmap_keys = sorted(roadmap_metadata, key=milestone_order)
     current_execution_frontier = next(
         (
@@ -490,13 +550,6 @@ def build_roadmap_semantics(
             "merged-MR items eligible for automatic evidence review",
             "remaining historical items by governance and execution risk",
         ],
-        "rate": {
-            "items_per_successful_semantic_cycle": 1,
-            "scheduled_cycle_minutes": 10,
-            "configured_daily_cycle_ceiling": (control or {}).get(
-                "daily_worker_cycle_limit"
-            ),
-        },
         "milestone_impact": {
             "active_milestone_closed_pending": active_milestone_pending,
             "inactive_or_unmilestoned_closed_pending": len(closed_pending)
@@ -553,19 +606,21 @@ def build_roadmap_semantics(
         ),
         "need_product_owner_now": need_product_owner,
         "baseline_clarification": (
-            "This is a current revalidation baseline, not a claim that AXIS is only 1/421 implemented."
+            "This is a current revalidation baseline, not a claim that AXIS is only "
+            f"{len(verified_items)}/{total} implemented."
         ),
     }
 
-    return {
-        "schema": "axis.external-development-supervisor.roadmap-semantics",
-        "schema_version": "1.1.0",
-        "generated_at": inventory.get("generated_at"),
+    semantics = {
+        "schema": SCHEMA,
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": {
-            "inventory_generation_id": inventory.get("generation_id"),
+            "inventory_revision": inventory.get("generation_id"),
             "graph_generation_id": graph.get("generation_id"),
             "deployed_revision": deployed_revision or {},
         },
+        "staleness": source_staleness(inventory, graph),
         "verification_standard": {
             "label": f"Verified under {VERIFICATION_STANDARD}",
             "definition": (
@@ -589,13 +644,8 @@ def build_roadmap_semantics(
         "strategic_programs": strategic_programs,
         "roadmap_endpoint": milestones[-1]["key"] if milestones else None,
         "current_execution_frontier": current_execution_frontier,
-        "current_supervisor_focus": {
-            "milestone": current_supervisor_focus_key,
-            "kind": "tier-a-batch" if scheduled_batch else "single-item",
-            "work_items": [
-                entry.get("target_ref") or entry.get("ref") for entry in focus_queue
-            ],
-        },
+        "scheduler_state": scheduler_state,
+        "current_supervisor_focus": current_supervisor_focus,
         "supervisor_work": supervisor_work,
         "executable_sources": executable_sources,
         "ready_queue": {
@@ -606,3 +656,15 @@ def build_roadmap_semantics(
         "verified_items": verified_items,
         "revalidation_plan": revalidation_plan,
     }
+    revision_payload = json.loads(
+        json.dumps(
+            {key: value for key, value in semantics.items() if key != "generated_at"}
+        )
+    )
+    revision_payload["staleness"].pop("source_age_seconds", None)
+    semantics["semantic_revision"] = hashlib.sha256(
+        json.dumps(revision_payload, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return semantics

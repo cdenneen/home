@@ -1,22 +1,19 @@
 {
   "schema": "axis.external-development-supervisor.control",
   "schema_version": "1.0.0",
-  "version": 2,
+  "version": 3,
   "mode": "observing",
   "kill_switch": false,
   "allow_repository_mutation": false,
   "allow_technical_revalidation": true,
   "max_active_assignments": 1,
-  "max_delegated_assignments": 0,
   "lease_seconds": 1200,
   "minimum_free_disk_gib": 15,
   "daily_worker_cycle_limit": 144,
   "daily_model_call_limit": 144,
   "tier_a_batch_size": 2,
   "max_semantic_prompt_bytes": 200000,
-  "report_heartbeat_minutes": 90,
-  "gitlab_host": "gitlab.com",
-  "gitlab_group": "ghostspace",
+  "overview_freshness_minutes": 90,
   "cron_job_id": null,
   "report_cron_job_id": null,
   "cron_generation": 1,
@@ -36,7 +33,5 @@
     "ghostspace/axis#115",
     "ghostspace/axis#116"
   ],
-  "slack_delivery": "slack:C0BHLUXQ4EB",
-  "slack_user_id": "U0B7ZGP6M43",
-  "operator": "cdenneen"
+  "slack_user_id": "U0B7ZGP6M43"
 }

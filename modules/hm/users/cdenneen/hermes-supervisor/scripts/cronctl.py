@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
-ROOT = Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"
+from axis_supervisor.mutation import MutationGate, OperationClass
+from axis_supervisor.schema_registry import read_record, write_record
+
+ROOT = Path(
+    os.environ.get(
+        "AXIS_SUPERVISOR_ROOT",
+        Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor",
+    )
+)
 CONTROL = ROOT / "control.json"
-JOBS = Path.home() / ".hermes" / "cron" / "jobs.json"
+JOBS = Path(
+    os.environ.get(
+        "AXIS_SUPERVISOR_CRON_JOBS", Path.home() / ".hermes" / "cron" / "jobs.json"
+    )
+)
 PROMPT = ROOT / "worker-prompt.txt"
 
 
@@ -18,19 +31,23 @@ def load(path: Path) -> dict:
     return value
 
 
-def write_atomic(path: Path, value: dict) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    tmp.chmod(0o600)
-    tmp.replace(path)
+def write_control(value: dict, gate: MutationGate, decision) -> None:
+    gate.require(decision, OperationClass.SCHEDULER)
+    write_record(CONTROL, value, "axis.external-development-supervisor.control")
 
 
-def create(hermes: str, args: list[str]) -> str:
+def create(hermes: str, args: list[str], gate: MutationGate, decision) -> str:
+    gate.require(decision, OperationClass.SCHEDULER)
     output = subprocess.check_output([hermes, "cron", "create", *args], text=True, timeout=120)
     for line in output.splitlines():
         if line.startswith("Created job:"):
             return line.split(":", 1)[1].strip()
     raise RuntimeError(f"could not parse cron job ID: {output}")
+
+
+def mutate(gate: MutationGate, decision, command: list[str], **kwargs):
+    gate.require(decision, OperationClass.SCHEDULER)
+    return subprocess.run(command, **kwargs)
 
 
 def main() -> int:
@@ -39,25 +56,40 @@ def main() -> int:
     parser.add_argument("--hermes", required=True)
     args = parser.parse_args()
 
-    control = load(CONTROL)
+    control = read_record(CONTROL, "axis.external-development-supervisor.control")
+    gate = MutationGate(
+        ROOT, source=os.environ.get("AXIS_SUPERVISOR_MUTATION_SOURCE", "operator-cli")
+    )
+    decision = (
+        gate.decide(OperationClass.SCHEDULER)
+        if args.command in {"install", "remove"}
+        else None
+    )
     jobs = load(JOBS) if JOBS.exists() else {"jobs": []}
-    by_name = {item.get("name"): item for item in jobs.get("jobs", [])}
+    def owned_job(name: str) -> dict | None:
+        matches = [item for item in jobs.get("jobs", []) if item.get("name") == name]
+        if len(matches) > 1:
+            raise RuntimeError(f"duplicate supervisor cron jobs named {name}: {len(matches)}")
+        return matches[0] if matches else None
 
-    worker = by_name.get("axis-development-supervisor-worker")
-    reporter = by_name.get("axis-development-supervisor-report")
+    worker = owned_job("axis-development-supervisor-worker")
+    projection = owned_job("axis-development-supervisor-report")
     if args.command == "install":
         if control.get("cron_generation") not in {None, 1}:
             raise RuntimeError("unsupported cron_generation")
         configured_worker = control.get("cron_job_id")
-        configured_reporter = control.get("report_cron_job_id")
+        configured_projection = control.get("report_cron_job_id")
         if configured_worker and (worker is None or str(worker.get("id")) != str(configured_worker)):
             raise RuntimeError("configured worker cron ID is missing or name ownership does not match")
-        if configured_reporter and (reporter is None or str(reporter.get("id")) != str(configured_reporter)):
-            raise RuntimeError("configured reporter cron ID is missing or name ownership does not match")
+        if configured_projection and (
+            projection is None
+            or str(projection.get("id")) != str(configured_projection)
+        ):
+            raise RuntimeError("configured Slack projection cron ID is missing or name ownership does not match")
         if not configured_worker and worker is not None:
             raise RuntimeError("refusing to adopt same-name worker without a configured ownership ID")
-        if not configured_reporter and reporter is not None:
-            raise RuntimeError("refusing to adopt same-name reporter without a configured ownership ID")
+        if not configured_projection and projection is not None:
+            raise RuntimeError("refusing to adopt same-name Slack projection without a configured ownership ID")
         if worker is None:
             worker_id = create(
                 args.hermes,
@@ -71,10 +103,12 @@ def main() -> int:
                     "every 10m",
                     PROMPT.read_text(encoding="utf-8").strip(),
                 ],
+                gate,
+                decision,
             )
             control["cron_job_id"] = worker_id
             control["cron_generation"] = 1
-            write_atomic(CONTROL, control)
+            write_control(control, gate, decision)
         else:
             worker_id = str(worker["id"])
             desired_prompt = PROMPT.read_text(encoding="utf-8").strip()
@@ -97,7 +131,9 @@ def main() -> int:
                 or worker.get("provider") != "openai-api"
                 or worker.get("model") != "gpt-5.4"
             ):
-                subprocess.run(
+                mutate(
+                    gate,
+                    decision,
                     [
                         args.hermes,
                         "cron",
@@ -113,8 +149,8 @@ def main() -> int:
                     check=True,
                     timeout=120,
                 )
-        if reporter is None:
-            reporter_id = create(
+        if projection is None:
+            projection_id = create(
                 args.hermes,
                 [
                     "--name", "axis-development-supervisor-report",
@@ -122,12 +158,14 @@ def main() -> int:
                     "--no-agent",
                     "every 15m",
                 ],
+                gate,
+                decision,
             )
-            control["report_cron_job_id"] = reporter_id
+            control["report_cron_job_id"] = projection_id
             control["cron_generation"] = 1
-            write_atomic(CONTROL, control)
+            write_control(control, gate, decision)
         else:
-            reporter_id = str(reporter["id"])
+            projection_id = str(projection["id"])
             expected = {
                 "schedule_display": "every 15m",
                 "script": "axis-development-supervisor-slack.py",
@@ -136,15 +174,15 @@ def main() -> int:
             }
             drift = []
             for key, value in expected.items():
-                actual = reporter.get(key)
+                actual = projection.get(key)
                 if key == "deliver" and actual in {None, "local"}:
                     continue
                 if actual != value:
                     drift.append(f"{key}={actual!r}, expected {value!r}")
             if drift:
-                subprocess.run([args.hermes, "cron", "pause", reporter_id], check=False)
-                subprocess.run([args.hermes, "cron", "remove", reporter_id], check=True)
-                reporter_id = create(
+                mutate(gate, decision, [args.hermes, "cron", "pause", projection_id], check=False)
+                mutate(gate, decision, [args.hermes, "cron", "remove", projection_id], check=True)
+                projection_id = create(
                     args.hermes,
                     [
                         "--name",
@@ -154,26 +192,28 @@ def main() -> int:
                         "--no-agent",
                         "every 15m",
                     ],
+                    gate,
+                    decision,
                 )
-                control["report_cron_job_id"] = reporter_id
-                write_atomic(CONTROL, control)
+                control["report_cron_job_id"] = projection_id
+                write_control(control, gate, decision)
         control["cron_job_id"] = worker_id
-        control["report_cron_job_id"] = reporter_id
+        control["report_cron_job_id"] = projection_id
         control["cron_generation"] = 1
-        write_atomic(CONTROL, control)
+        write_control(control, gate, decision)
         lifecycle_command = (
             "resume"
             if control.get("mode") in {"observing", "enabled", "draining"}
             else "pause"
         )
-        for job_id in (worker_id, reporter_id):
-            subprocess.run([args.hermes, "cron", lifecycle_command, job_id], check=True)
-        print(json.dumps({"worker": worker_id, "reporter": reporter_id}, sort_keys=True))
+        for job_id in (worker_id, projection_id):
+            mutate(gate, decision, [args.hermes, "cron", lifecycle_command, job_id], check=True)
+        print(json.dumps({"worker": worker_id, "slack_projection": projection_id}, sort_keys=True))
         return 0
 
     if args.command == "remove":
         removed = []
-        for job in (worker, reporter):
+        for job in (worker, projection):
             if job is None:
                 continue
             job_id = str(job["id"])
@@ -183,12 +223,12 @@ def main() -> int:
             }
             if job_id not in configured_ids:
                 raise RuntimeError(f"refusing to remove unowned cron job {job_id}")
-            subprocess.run([args.hermes, "cron", "pause", job_id], check=False)
-            subprocess.run([args.hermes, "cron", "remove", job_id], check=True)
+            mutate(gate, decision, [args.hermes, "cron", "pause", job_id], check=False)
+            mutate(gate, decision, [args.hermes, "cron", "remove", job_id], check=True)
             removed.append(job_id)
         control["cron_job_id"] = None
         control["report_cron_job_id"] = None
-        write_atomic(CONTROL, control)
+        write_control(control, gate, decision)
         print(json.dumps({"removed": removed}, sort_keys=True))
         return 0
 
@@ -196,9 +236,9 @@ def main() -> int:
         json.dumps(
             {
                 "worker": (worker or {}).get("id"),
-                "reporter": (reporter or {}).get("id"),
+                "slack_projection": (projection or {}).get("id"),
                 "configured_worker": control.get("cron_job_id"),
-                "configured_reporter": control.get("report_cron_job_id"),
+                "configured_slack_projection": control.get("report_cron_job_id"),
             },
             sort_keys=True,
         )

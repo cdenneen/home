@@ -5,11 +5,12 @@
   "required": [
     "schema",
     "schema_version",
+    "lease_id",
     "assignment_id",
     "owner_run_id",
     "fencing_token",
     "resources",
-    "phase",
+    "read_only",
     "acquired_at_epoch",
     "heartbeat_at_epoch",
     "expires_at_epoch"
@@ -17,6 +18,10 @@
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.lease" },
     "schema_version": { "const": "1.0.0" },
+    "lease_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
     "assignment_id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
@@ -29,12 +34,10 @@
       "minItems": 1,
       "uniqueItems": true
     },
-    "phase": { "type": "string", "minLength": 1 },
+    "read_only": { "type": "boolean" },
     "acquired_at_epoch": { "type": "integer", "minimum": 1 },
     "heartbeat_at_epoch": { "type": "integer", "minimum": 1 },
-    "expires_at_epoch": { "type": "integer", "minimum": 1 },
-    "recovery_required": { "type": "boolean" },
-    "recovery_detected_at_epoch": { "type": "integer", "minimum": 1 }
+    "expires_at_epoch": { "type": "integer", "minimum": 1 }
   },
   "additionalProperties": false
 }

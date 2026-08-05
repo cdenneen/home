@@ -3,8 +3,8 @@ import argparse
 import copy
 import sys
 
-from hermes_cli import config as hermes_config
-from hermes_cli.oneshot import run_oneshot
+from hermes_cli import config as hermes_config  # pyright: ignore[reportMissingImports]
+from hermes_cli.oneshot import run_oneshot  # pyright: ignore[reportMissingImports]
 
 
 def main() -> int:

@@ -1,10 +1,11 @@
 # Supervisor Reporting Contract
 
-Version: 1.1.2
+Version: 1.2.0
 
-The deterministic no-agent Block Kit projection is the only Slack report
-producer. It updates one persistent Product Owner DM message in place. Worker
-output remains local audit evidence.
+`SlackProjection` is the sole report producer. The deterministic no-agent cron
+invokes it directly and it updates one persistent Product Owner DM message in
+place. There is no intermediate text reporter, report delivery queue, or
+reports directory. Worker output remains local audit evidence.
 
 Reports contain a human briefing followed by technical evidence. Human order:
 Summary, Since Last Update, Completed, Current Focus, Why This Work, categorized
@@ -27,8 +28,10 @@ inputs or aggregates, not additional roadmap-denominator entities.
 Audit and readiness coverage is reported separately and is not roadmap progress.
 It includes inventory classification, closed-item revalidation, Waiting-item
 decomposition, dependency evaluation, queue eligibility, source linkage, and
-milestone readiness. The technical record
-`slack-overview-record.json` is the exact semantic input to Block Kit rendering.
+milestone readiness. `slack-overview-record.json` is the exact semantic input to
+Block Kit rendering. It identifies its semantic revision, generation timestamp,
+inventory revision, graph revision, deployed source revision, schema version,
+and source staleness.
 
 Milestones show explicit total, verified, closed-pending-recheck, running,
 executable, waiting, and blocked counts. Green means eligible progress, blue
@@ -45,10 +48,11 @@ The roadmap presentation has three independent views:
    current endpoint in numeric order, including closed sub-milestones. Roadmap
    membership is recovered from GitLab milestone titles, `roadmap::AX-M*`
    labels, or source-linked `owning_milestone` evidence.
-2. Active Execution orders milestone work by current supervisor queue rank,
-   while separately naming the earliest unresolved execution frontier and the
-   current supervisor focus. Parallel work does not imply earlier prerequisites
-   are complete.
+2. Active Execution renders observed `scheduler_state` from the execution graph.
+   Current focus, selected work, deferred work, budget, and constraint are copied
+   from graph fields only. Reporting never calls scheduler selection logic or
+   predicts the next batch. The earliest unresolved roadmap frontier remains a
+   lifecycle projection and does not claim scheduler selection.
 3. Strategic Programs projects non-exclusive cross-cutting streams such as
    efficiency architecture, cognition projection, runtime decomposition,
    provider runtime, plugin lifecycle, repository convergence, and
@@ -62,16 +66,23 @@ and repository-convergence-ready are distinct. Waiting, blocked, and other
 not-ready work is reported as the reconciled remainder.
 
 Revalidation uses four exclusive tiers. Tier A reconstructs canonical evidence
-without mutation and may batch at most two independent repositories per cycle.
+without mutation and may batch independent repositories when the scheduler does.
 Tier B performs bounded technical inspection or reruns. Tier C creates governed
 corrective implementation. Tier D isolates reserved human authority. Every item
 retains its own assignment, evidence fingerprint, verification record, and
 failure disposition; batching never weakens the nine-check standard.
 
-Deliver only on semantic inventory change, urgent failure/human decision, or
-the configured heartbeat. Otherwise emit exactly `[SILENT]`. Advance delivered
-state only after the prior Hermes delivery completed successfully. Failed
-delivery retries the same semantic fingerprint.
+The projection refreshes the semantic record every run. It calls Slack only when
+the rendered semantic fingerprint changes, records `delivered`, `unchanged`, or
+`failed` in `slack-overview-state.json`, and retains the last successful update
+timestamp and deployed source revision. Failed delivery does not advance the
+successful fingerprint.
+
+Live commands generate a new semantic record from one matching current
+inventory/graph/control tuple. They never compose with the persisted overview.
+Generation mismatch fails explicitly as stale. Every command response includes
+semantic revision, generation timestamp, source inventory revision, and
+staleness.
 
 Need Product Owner is YES only for a specific reserved human-authority decision.
 Governance or technical blockers alone do not imply human action. Queue zero

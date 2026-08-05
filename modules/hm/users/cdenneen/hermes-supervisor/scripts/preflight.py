@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import hashlib
 import json
 import os
 import shutil
@@ -10,11 +9,14 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
+
+from axis_supervisor.accounting import AccountingLedger
+from axis_supervisor.lifecycle import is_terminal
+from axis_supervisor.mutation import MutationGate, OperationClass
+from axis_supervisor.schema_registry import read_record, write_record
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 CONTROL = ROOT / "control.json"
-BASELINE = ROOT / "baseline.json"
 RUNS = ROOT / "runs"
 ASSIGNMENTS = ROOT / "assignments"
 RECONCILE = Path(
@@ -29,29 +31,39 @@ SUPERVISORCTL = Path(
         Path.home() / ".hermes" / "scripts" / "axis-development-supervisorctl.py",
     )
 )
-CYCLE = Path.home() / ".hermes" / "scripts" / "axis_supervisor" / "cycle.py"
+CYCLE = Path(
+    os.environ.get(
+        "AXIS_SUPERVISOR_CYCLE",
+        Path.home() / ".hermes" / "scripts" / "axis_supervisor" / "cycle.py",
+    )
+)
 INVENTORY_LOCK = ROOT / "inventory.lock"
-
-
-def load(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as handle:
-        value = json.load(handle)
-    if not isinstance(value, dict):
-        raise ValueError(f"expected JSON object: {path}")
-    return value
+INVENTORY_LOCK_OWNER = INVENTORY_LOCK / "owner.json"
 
 
 def load_control() -> dict:
-    value = load(CONTROL)
-    if value.get("schema") != "axis.external-development-supervisor.control":
-        raise ValueError("unsupported control schema")
-    if value.get("schema_version") != "1.0.0":
-        raise ValueError("unsupported control schema_version")
-    return value
+    return read_record(CONTROL, "axis.external-development-supervisor.control")
 
 
 def emit(payload: dict) -> None:
     print(json.dumps(payload, sort_keys=True))
+
+
+def process_start_time(pid: int) -> str | None:
+    try:
+        return Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").split()[21]
+    except (OSError, IndexError):
+        return None
+
+
+def process_alive(pid: int, expected_start_time: str | None = None) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return expected_start_time in {None, process_start_time(pid)}
+    except OSError:
+        return False
 
 
 def skip(run_id: str, mode: str | None, reason: str) -> int:
@@ -65,58 +77,13 @@ def skip(run_id: str, mode: str | None, reason: str) -> int:
     return 0
 
 
-def worker_cycles_today(now: int) -> int:
-    day = datetime.fromtimestamp(now, timezone.utc).date()
-    count = 0
-    for path in RUNS.glob("*.json"):
-        try:
-            record = load(path)
-            started = int(record.get("started_at_epoch", 0))
-            status = str(record.get("status") or "")
-        except Exception:
-            continue
-        if status == "preflight-test":
-            continue
-        if datetime.fromtimestamp(started, timezone.utc).date() == day:
-            count += 1
-    return count
-
-
-def model_calls_today(now: int) -> int:
-    day = datetime.fromtimestamp(now, timezone.utc).date()
-    count = 0
-    for path in ASSIGNMENTS.glob("*.json"):
-        try:
-            assignment = load(path)
-        except Exception:
-            continue
-        attempts = assignment.get("model_attempt_log") or []
-        if attempts:
-            count += sum(
-                1
-                for attempt in attempts
-                if datetime.fromtimestamp(
-                    int(attempt.get("started_at_epoch", 0)), timezone.utc
-                ).date()
-                == day
-            )
-            continue
-        created = int(assignment.get("created_at_epoch", 0))
-        if datetime.fromtimestamp(created, timezone.utc).date() == day:
-            count += int(assignment.get("model_attempts") or 0)
-    return count
-
-
-def reconcile_prior_runs(control: dict, now: int) -> None:
+def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
     job_id = str(control.get("cron_job_id") or "").strip()
     output_dir = Path.home() / ".hermes" / "cron" / "output" / job_id
     outputs = list(output_dir.glob("*.md")) if job_id else []
 
     for run_path in RUNS.glob("*.json"):
-        try:
-            record = load(run_path)
-        except Exception:
-            continue
+        record = read_record(run_path, "axis.external-development-supervisor.run")
         if record.get("status") != "started":
             continue
 
@@ -140,99 +107,11 @@ def reconcile_prior_runs(control: dict, now: int) -> None:
         else:
             continue
 
-        tmp = run_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        tmp.chmod(0o600)
-        tmp.replace(run_path)
-
-
-def reconcile_proof_assignment(
-    assignment_path: Path, assignment: dict, control: dict, now: int
-) -> dict:
-    if assignment.get("phase") != "implementation":
-        return assignment
-
-    project = str(assignment.get("project") or "")
-    branch = str(assignment.get("branch") or "")
-    assignment_id = str(assignment.get("assignment_id") or "")
-    if not project or not branch or not assignment_id:
-        return assignment
-
-    try:
-        raw = subprocess.check_output(
-            [
-                "glab",
-                "api",
-                "--hostname",
-                "gitlab.com",
-                f"projects/{quote(project, safe='')}/merge_requests?state=opened&source_branch={quote(branch, safe='')}",
-            ],
-            text=True,
-            timeout=30,
+        decision = gate.decide(OperationClass.RECONCILIATION)
+        gate.require(decision, OperationClass.RECONCILIATION)
+        write_record(
+            run_path, record, "axis.external-development-supervisor.run"
         )
-        merge_requests = json.loads(raw)
-    except Exception:
-        return assignment
-    if not isinstance(merge_requests, list) or not merge_requests:
-        return assignment
-
-    mr = merge_requests[0]
-    job_id = str(control.get("cron_job_id") or "").strip()
-    outputs = sorted(
-        (Path.home() / ".hermes" / "cron" / "output" / job_id).glob("*.md"),
-        reverse=True,
-    )
-    handoff = None
-    implementation_run_id = None
-    for output in outputs:
-        try:
-            text = output.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if assignment_id not in text or "implemented-awaiting-integration" not in text:
-            continue
-        handoff = str(output)
-        for line in text.splitlines():
-            if line.startswith("Run: axis-supervisor-"):
-                implementation_run_id = line.split("Run:", 1)[1].split("|", 1)[0].strip()
-                break
-        break
-    if handoff is None:
-        return assignment
-
-    head_pipeline = mr.get("head_pipeline") or {}
-    assignment["state"] = "active"
-    assignment["phase"] = "awaiting-integration"
-    assignment["branch_sha"] = mr.get("sha")
-    assignment["merge_request"] = {
-        "iid": mr.get("iid"),
-        "url": mr.get("web_url"),
-        "state": mr.get("state"),
-    }
-    assignment["pipeline"] = {
-        "id": head_pipeline.get("id"),
-        "status": head_pipeline.get("status"),
-        "url": head_pipeline.get("web_url"),
-    }
-    assignment["lease"] = {
-        "owner": implementation_run_id,
-        "phase": "implementation-complete",
-        "reconciled_at_epoch": now,
-    }
-    assignment["handoff"] = handoff
-    assignment.setdefault("evidence", []).append(
-        {
-            "kind": "implementation-handoff",
-            "ref": handoff,
-            "recorded_at_epoch": now,
-        }
-    )
-
-    tmp = assignment_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(assignment, indent=2) + "\n", encoding="utf-8")
-    tmp.chmod(0o600)
-    tmp.replace(assignment_path)
-    return assignment
 
 
 def main() -> int:
@@ -240,6 +119,8 @@ def main() -> int:
     RUNS.mkdir(mode=0o700, parents=True, exist_ok=True)
     ASSIGNMENTS.mkdir(mode=0o700, parents=True, exist_ok=True)
     control = load_control()
+    gate = MutationGate(ROOT, source="preflight")
+    accounting = AccountingLedger(ROOT)
     now = int(time.time())
     run_id = f"axis-supervisor-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     tool_fallbacks = {
@@ -266,23 +147,11 @@ def main() -> int:
         )
 
     daily_limit = int(control.get("daily_worker_cycle_limit", 24))
-    cycles_today = worker_cycles_today(now)
-    if cycles_today >= daily_limit:
-        return skip(
-            run_id,
-            control.get("mode"),
-            f"daily worker cycle limit reached: {cycles_today}/{daily_limit}",
-        )
+    cycles_today = accounting.worker_cycles_today(now)
     model_limit = int(control.get("daily_model_call_limit", daily_limit))
-    calls_today = model_calls_today(now)
-    if calls_today >= model_limit:
-        return skip(
-            run_id,
-            control.get("mode"),
-            f"daily model call limit reached: {calls_today}/{model_limit}",
-        )
+    calls_today = accounting.model_attempts_today(now)
 
-    reconcile_prior_runs(control, now)
+    reconcile_prior_runs(control, now, gate)
     subprocess.run(
         [sys.executable, str(SUPERVISORCTL), "recover"],
         check=True,
@@ -291,17 +160,41 @@ def main() -> int:
         timeout=30,
     )
     if INVENTORY_LOCK.exists() and now - int(INVENTORY_LOCK.stat().st_mtime) > 300:
+        try:
+            owner = json.loads(INVENTORY_LOCK_OWNER.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            owner = {}
+        if process_alive(
+            int(owner.get("pid") or 0), owner.get("process_start_time")
+        ):
+            return skip(run_id, mode, "inventory lock owner is still alive")
+        gate.require(
+            gate.decide(OperationClass.RECONCILIATION),
+            OperationClass.RECONCILIATION,
+        )
         stale_lock = ROOT / f"inventory.lock.stale.{now}"
         INVENTORY_LOCK.rename(stale_lock)
     try:
+        gate.require(
+            gate.decide(OperationClass.RECONCILIATION),
+            OperationClass.RECONCILIATION,
+        )
         INVENTORY_LOCK.mkdir(mode=0o700)
+        INVENTORY_LOCK_OWNER.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "process_start_time": process_start_time(os.getpid()),
+                    "run_id": run_id,
+                    "acquired_at_epoch": now,
+                }
+            ),
+            encoding="utf-8",
+        )
+        INVENTORY_LOCK_OWNER.chmod(0o600)
     except FileExistsError:
         return skip(run_id, control.get("mode"), "inventory generation already in progress")
     try:
-        (INVENTORY_LOCK / "owner.json").write_text(
-            json.dumps({"run_id": run_id, "created_at_epoch": now}) + "\n",
-            encoding="utf-8",
-        )
         subprocess.run(
             [sys.executable, str(RECONCILE)],
             check=True,
@@ -323,64 +216,77 @@ def main() -> int:
             f"live reconciliation failed closed: {type(exc).__name__}: {exc}",
         )
     finally:
-        shutil.rmtree(INVENTORY_LOCK, ignore_errors=True)
+        try:
+            owner = json.loads(INVENTORY_LOCK_OWNER.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            owner = {}
+        if int(owner.get("pid") or 0) == os.getpid():
+            shutil.rmtree(INVENTORY_LOCK, ignore_errors=True)
 
-    baseline = load(BASELINE)
-    if baseline.get("schema") != "axis.external-development-supervisor.baseline":
-        raise ValueError("unsupported baseline schema")
-    if baseline.get("schema_version") != "1.0.0":
-        raise ValueError("unsupported baseline schema_version")
-    contract_path = ROOT / "docs" / "SUPERVISOR_CONTRACT.md"
-    contract_sha256 = (
-        hashlib.sha256(contract_path.read_bytes()).hexdigest()
-        if contract_path.exists()
-        else None
+    inventory = read_record(
+        ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
     )
-
-    proof_assignment_id = str(control.get("proof_assignment_id") or "").strip()
-    assignment_path = ASSIGNMENTS / f"{proof_assignment_id}.json" if proof_assignment_id else None
-    assignment = load(assignment_path) if assignment_path and assignment_path.exists() else None
-    if assignment_path is not None and assignment is not None:
-        assignment = reconcile_proof_assignment(assignment_path, assignment, control, now)
-    inventory = load(ROOT / "inventory.json")
-    execution_graph = load(ROOT / "execution-graph.json")
-    idle_proof = inventory.get("idle_proof") or {}
-    if not idle_proof.get("all_configured_repositories_inspected"):
+    execution_graph = read_record(
+        ROOT / "execution-graph.json",
+        "axis.external-development-supervisor.execution-graph",
+    )
+    collection = inventory.get("collection_status") or {}
+    if not collection.get("all_configured_repositories_inspected"):
         return skip(run_id, mode, "configured repository discovery is incomplete")
-    if int(idle_proof.get("unknown_count", 1)) != 0:
-        return skip(run_id, mode, "inventory contains Unknown classifications")
-    if int(idle_proof.get("dependency_query_failures", 1)) != 0:
+    if int(collection.get("retrieval_error_count", 1)) != 0:
+        return skip(run_id, mode, "source retrieval is incomplete")
+    if int(collection.get("stale_repository_count", 1)) != 0:
+        return skip(run_id, mode, "local repository refs are stale relative to origin")
+    if int(collection.get("dependency_query_failures", 1)) != 0:
         return skip(run_id, mode, "dependency retrieval is incomplete")
     active_assignments = [
         item
         for item in (inventory.get("supervisor_assignments") or [])
-        if item.get("state") not in {"complete", "completed", "cancelled", "failed"}
+        if not is_terminal(item)
     ]
     if mode == "observing":
         return skip(run_id, mode, "observing mode performs reconciliation without model execution")
     if mode == "draining" and not active_assignments:
         return skip(run_id, mode, "draining mode has no active assignment")
+    if cycles_today >= daily_limit:
+        return skip(
+            run_id,
+            control.get("mode"),
+            f"daily worker cycle limit reached: {cycles_today}/{daily_limit}",
+        )
+    selected_batch = (execution_graph.get("scheduler_state") or {}).get(
+        "selected_batch"
+    ) or []
+    model_work_selected = any(
+        item.get("kind") != "repository-convergence" for item in selected_batch
+    )
+    if calls_today >= model_limit and model_work_selected:
+        return skip(
+            run_id,
+            control.get("mode"),
+            f"daily model call limit reached: {calls_today}/{model_limit}",
+        )
     if not execution_graph.get("executable_queue") and not active_assignments:
         return skip(run_id, control.get("mode"), "no executable or active assignment after fresh reconciliation")
 
     run_record = {
+        "schema": "axis.external-development-supervisor.run",
+        "schema_version": "1.0.0",
         "run_id": run_id,
         "status": "started",
         "host": socket.gethostname(),
         "started_at_epoch": now,
         "mode": control.get("mode"),
         "allow_repository_mutation": bool(control.get("allow_repository_mutation")),
-        "baseline_converged": bool(baseline.get("converged")),
-        "proof_assignment_id": proof_assignment_id or None,
         "inventory_generation_id": inventory.get("generation_id"),
-        "contract_sha256": contract_sha256,
         "model_calls_remaining": max(0, model_limit - calls_today),
     }
     run_path = RUNS / f"{run_id}.json"
-    run_tmp = run_path.with_suffix(".json.tmp")
-    run_tmp.write_text(json.dumps(run_record, indent=2) + "\n", encoding="utf-8")
-    run_tmp.chmod(0o600)
-    run_tmp.replace(run_path)
+    gate.require(
+        gate.decide(OperationClass.RECONCILIATION),
+        OperationClass.RECONCILIATION,
+    )
+    write_record(run_path, run_record, "axis.external-development-supervisor.run")
 
     emit({
         "run_id": run_id,
@@ -388,25 +294,14 @@ def main() -> int:
         "skip_agent": False,
         "mode": control.get("mode"),
         "allow_repository_mutation": bool(control.get("allow_repository_mutation")),
-        "baseline_converged": bool(baseline.get("converged")),
-        "baseline": baseline,
-        "proof_assignment": assignment,
         "tool_paths": tool_paths,
         "supervisorctl": str(SUPERVISORCTL),
         "control_path": str(CONTROL),
-        "contract_sha256": contract_sha256,
         "inventory_path": str(ROOT / "inventory.json"),
         "inventory_summary": {
             "repositories_inspected": inventory.get("repositories_inspected"),
             "work_items_discovered": inventory.get("work_items_discovered"),
-            "classification_counts": inventory.get("classification_counts"),
-            "waiting_reason_counts": inventory.get("waiting_reason_counts"),
-            "queue_depth": inventory.get("queue_depth"),
-            "top_executable": (inventory.get("executable_queue") or [])[:10],
-            "invariant": inventory.get("invariant"),
-            "idle_proof": inventory.get("idle_proof"),
-            "roadmap_confidence": inventory.get("roadmap_confidence"),
-            "activity_timeline": inventory.get("activity_timeline"),
+            "collection_status": collection,
             "reconcile_error": None,
         },
         "execution_graph_summary": {
@@ -415,10 +310,12 @@ def main() -> int:
             "semantic_decomposition_pending": execution_graph.get(
                 "semantic_decomposition_pending"
             ),
-            "classifier_queue_empty": execution_graph.get("classifier_queue_empty"),
             "governed_queue_zero_proven": execution_graph.get(
                 "governed_queue_zero_proven"
             ),
+            "classification_counts": execution_graph.get("classification_counts"),
+            "waiting_reason_counts": execution_graph.get("waiting_reason_counts"),
+            "scheduler_state": execution_graph.get("scheduler_state"),
             "top_executable": (execution_graph.get("executable_queue") or [])[:5],
         },
         "cycle_command": [
