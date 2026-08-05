@@ -51,6 +51,10 @@ let
     set -euo pipefail
     exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
   '';
+  supervisorCanaryCtl = pkgs.writeShellScriptBin "axis-development-supervisor-canaryctl" ''
+    set -euo pipefail
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-canaryctl.py" "$@"
+  '';
   supervisorPreflightLauncher = pkgs.writeText "axis-development-supervisor-preflight.py" ''
     import os
     import sys
@@ -77,6 +81,7 @@ in
       lib.optionals gatewayEnabled [ agentPkgs.hermes ]
       ++ lib.optionals supervisorEnabled [
         pkgs.bubblewrap
+        supervisorCanaryCtl
         supervisorCtl
         supervisorHealth
         supervisorCronCtl
@@ -234,6 +239,8 @@ in
           "${supervisorSlackLauncher}" "$HOME/.hermes/scripts/axis-development-supervisor-slack.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/commands.py}" "$HOME/.hermes/scripts/axis-development-supervisor-command.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/canaryctl.py}" "$HOME/.hermes/scripts/axis-development-supervisor-canaryctl.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "$HOME/.hermes/scripts/axis_supervisor"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp -R \
           "${./scripts/axis_supervisor}" "$HOME/.hermes/scripts/axis_supervisor"

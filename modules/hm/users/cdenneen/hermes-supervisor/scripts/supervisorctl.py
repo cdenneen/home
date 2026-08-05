@@ -17,6 +17,7 @@ from axis_supervisor.lifecycle import (
     set_lifecycle,
 )
 from axis_supervisor.models import validate_assignment
+from axis_supervisor.canary import CanaryDenied, validate_canary
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 CONTROL = ROOT / "control.json"
@@ -166,7 +167,14 @@ def claim(args: argparse.Namespace) -> int:
         raise RuntimeError("lease read-only mode does not match assignment kind")
     if not args.read_only:
         authority_state = (assignment.get("authority") or {}).get("state")
-        if authority_state not in {"direct", "inherited"}:
+        if authority_state == "canary":
+            try:
+                validate_canary(
+                    ROOT, assignment, "repository-mutation", assignment.get("project")
+                )
+            except CanaryDenied as exc:
+                raise RuntimeError(str(exc)) from exc
+        elif authority_state not in {"direct", "inherited"}:
             raise RuntimeError("mutating lease requires direct or inherited authority")
         if assignment.get("governance_state") not in {"Executable", "Running"}:
             raise RuntimeError("mutating lease requires executable governance state")

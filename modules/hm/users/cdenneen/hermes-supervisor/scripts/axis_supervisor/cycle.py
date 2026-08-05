@@ -11,6 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from axis_supervisor.accounting import AccountingLedger
+from axis_supervisor.canary import bind_mr, expire_grant
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
@@ -98,6 +99,7 @@ def publish_implementation(
         timeout=120,
     )
     mr = json.loads(output)
+    bind_mr(ROOT, assignment, mr)
     result["handoff"].update(
         {
             "mr_iid": mr.get("iid"),
@@ -169,6 +171,66 @@ def converge_repository(
         "worktree_removed": removed_worktree,
         "branch_removed": removed_branch,
     }
+
+
+def close_work_item(
+    assignment: dict,
+    glab: str,
+    gate: MutationGate,
+    decision: GateDecision,
+    evidence: list[str],
+) -> None:
+    target = str(assignment.get("work_item") or "")
+    if "#" not in target:
+        raise RuntimeError("integrated assignment has no GitLab work item ref")
+    project, iid = target.rsplit("#", 1)
+    encoded = quote(project, safe="")
+    gate.require(
+        decision,
+        OperationClass.GITLAB,
+        assignment=assignment,
+        repository=project,
+    )
+    subprocess.check_output(
+        [
+            glab,
+            "api",
+            "--hostname",
+            "gitlab.com",
+            "--method",
+            "PUT",
+            "--field",
+            "state_event=close",
+            f"projects/{encoded}/issues/{int(iid)}",
+        ],
+        text=True,
+        timeout=120,
+    )
+    gate.require(
+        decision,
+        OperationClass.GITLAB,
+        assignment=assignment,
+        repository=project,
+    )
+    note = (
+        f"Supervisor assignment `{assignment['assignment_id']}` completed through gated merge and post-merge verification.\n\n"
+        + "\n".join(f"- {ref}" for ref in evidence if ref)
+    )
+    subprocess.check_output(
+        [
+            glab,
+            "api",
+            "--hostname",
+            "gitlab.com",
+            "--method",
+            "POST",
+            "--field",
+            f"body={note}",
+            f"projects/{encoded}/issues/{int(iid)}/notes",
+        ],
+        text=True,
+        timeout=120,
+    )
 
 
 def release_failed_assignment(
@@ -379,6 +441,8 @@ def execute_new_assignment(
     except Exception as exc:
         assignment["error"] = f"{type(exc).__name__}: {exc}"
         release_failed_assignment(assignment, path, supervisorctl, gate)
+        if (assignment.get("authority") or {}).get("state") == "canary":
+            expire_grant(ROOT, "failed")
         raise
 
 
@@ -443,13 +507,13 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         assignment["integration"] = integration
         result = integration["result"].get("result")
         if result in {"integrate", "integrated-existing"}:
+            gitlab_decision = gate.decide(
+                OperationClass.GITLAB,
+                assignment=assignment,
+                repository=assignment["project"],
+                fencing_token=lease["fencing_token"],
+            )
             if result == "integrate":
-                gitlab_decision = gate.decide(
-                    OperationClass.GITLAB,
-                    assignment=assignment,
-                    repository=assignment["project"],
-                    fencing_token=lease["fencing_token"],
-                )
                 integrator.merge_mr(
                     assignment["project"], iid, assignment, gate, gitlab_decision
                 )
@@ -554,7 +618,21 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 set_lifecycle(assignment, "blocked")
                 assignment["error"] = verification_error
                 result = "post-merge-verification-failed"
+                if (assignment.get("authority") or {}).get("state") == "canary":
+                    expire_grant(ROOT, "failed")
             else:
+                close_work_item(
+                    assignment,
+                    "/etc/profiles/per-user/cdenneen/bin/glab",
+                    gate,
+                    gitlab_decision,
+                    [
+                        str(inspection["mr"].get("web_url") or ""),
+                        str((inspection.get("pipeline") or {}).get("web_url") or ""),
+                    ],
+                )
+                assignment["source_item"]["source_state"] = "closed"
+                assignment["source_item"]["state"] = "closed"
                 assignment["completion_receipt"] = completion_receipt(
                     assignment,
                     inspection,
@@ -564,6 +642,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
                 set_lifecycle(assignment, "completed")
                 result = "integrated"
+                if (assignment.get("authority") or {}).get("state") == "canary":
+                    expire_grant(ROOT, "consumed")
         else:
             if result == "waiting":
                 set_lifecycle(assignment, "awaiting-integration")
@@ -582,6 +662,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
                 assignment["lease_id"] = None
                 assignment["lease_uri"] = None
+                if (assignment.get("authority") or {}).get("state") == "canary":
+                    expire_grant(ROOT, "failed")
         save(path, assignment, gate)
         rebuild()
         return {"result": result, "assignment": assignment["assignment_id"]}
@@ -627,10 +709,29 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     return execute_new_assignment(assignment, manager, supervisorctl, gate)
 
 
+def run_canary(
+    assignment_id: str, run_id: str, hermes: str, supervisorctl: str
+) -> dict:
+    path = ROOT / "assignments" / f"{assignment_id}.json"
+    assignment = validate_assignment(
+        json.loads(path.read_text(encoding="utf-8")), ROOT
+    )
+    if assignment.get("lifecycle_state") != "ready-implementation":
+        raise RuntimeError("canary assignment is not ready for implementation")
+    if (assignment.get("authority") or {}).get("state") != "canary":
+        raise RuntimeError("assignment is not bound to canary authority")
+    assignment["created_by_run"] = run_id
+    gate = MutationGate(ROOT, source="cycle")
+    manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
+    save(path, assignment, gate)
+    return execute_new_assignment(assignment, manager, supervisorctl, gate)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("rebuild", "run-next"))
+    parser.add_argument("command", choices=("rebuild", "run-next", "run-canary"))
     parser.add_argument("--run-id")
+    parser.add_argument("--assignment-id")
     parser.add_argument("--hermes", default="hermes")
     parser.add_argument(
         "--supervisorctl",
@@ -640,9 +741,17 @@ def main() -> int:
     if args.command == "rebuild":
         print(json.dumps(rebuild(), sort_keys=True))
         return 0
-    if not args.run_id:
+    if args.command in {"run-next", "run-canary"} and not args.run_id:
         parser.error("run-next requires --run-id")
-    print(json.dumps(run_next(args.run_id, args.hermes, args.supervisorctl), sort_keys=True))
+    if args.command == "run-canary":
+        if not args.assignment_id:
+            parser.error("run-canary requires --assignment-id")
+        result = run_canary(
+            args.assignment_id, args.run_id, args.hermes, args.supervisorctl
+        )
+    else:
+        result = run_next(args.run_id, args.hermes, args.supervisorctl)
+    print(json.dumps(result, sort_keys=True))
     return 0
 
 

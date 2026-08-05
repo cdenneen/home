@@ -581,6 +581,12 @@ class HermesWorkerManager:
         )
         branch = f"hermes/{assignment['assignment_id']}"
         worktree = self.root / "worktrees" / assignment["assignment_id"]
+        if assignment.get("canary_branch") and assignment["canary_branch"] != branch:
+            raise RuntimeError("canary branch does not match assignment custody")
+        if assignment.get("canary_worktree") and Path(
+            assignment["canary_worktree"]
+        ).resolve() != worktree.resolve():
+            raise RuntimeError("canary worktree does not match assignment custody")
         remote_url = subprocess.check_output(
             ["git", "remote", "get-url", "origin"], cwd=repo, text=True, timeout=30
         ).strip()

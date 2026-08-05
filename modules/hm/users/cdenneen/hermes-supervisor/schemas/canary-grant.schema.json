@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.canary-grant",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "grant_id",
+    "grant_digest",
+    "status",
+    "authority_ref",
+    "assignment_id",
+    "target_ref",
+    "target_title",
+    "repository",
+    "source_sha",
+    "branch",
+    "worktree",
+    "allowed_paths",
+    "required_tests",
+    "operation_sequence",
+    "issued_at_epoch",
+    "expires_at_epoch",
+    "mr_iid"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.canary-grant" },
+    "schema_version": { "const": "1.0.0" },
+    "grant_id": { "type": "string", "minLength": 1 },
+    "grant_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "status": { "enum": ["active", "consumed", "expired", "failed"] },
+    "authority_ref": { "type": "string", "minLength": 1 },
+    "assignment_id": { "type": "string", "minLength": 1 },
+    "target_ref": { "type": "string", "minLength": 1 },
+    "target_title": { "type": "string", "minLength": 1 },
+    "repository": { "const": "ghostspace/axis-lab" },
+    "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "branch": { "type": "string", "pattern": "^hermes/canary-[a-z0-9._-]+$" },
+    "worktree": { "type": "string", "minLength": 1 },
+    "allowed_paths": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "required_tests": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "operation_sequence": {
+      "const": [
+        "issue-create",
+        "model-call",
+        "repository-mutation",
+        "gitlab-mutation",
+        "integration",
+        "verification",
+        "cleanup"
+      ]
+    },
+    "issued_at_epoch": { "type": "integer", "minimum": 1 },
+    "expires_at_epoch": { "type": "integer", "minimum": 1 },
+    "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
+    "issue_iid": { "type": ["integer", "null"], "minimum": 1 },
+    "events": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}

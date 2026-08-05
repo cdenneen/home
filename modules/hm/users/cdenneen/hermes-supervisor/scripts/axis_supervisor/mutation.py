@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from .accounting import AccountingLedger
+from .canary import CanaryDenied, append_event, validate_canary
 from .lifecycle import is_terminal
 from .schema_registry import read_record
 
@@ -18,6 +19,7 @@ class OperationClass(str, Enum):
     CONTROL = "control-mutation"
     SCHEDULER = "scheduler-mutation"
     RECONCILE = "reconciliation-trigger"
+    CANARY_BOOTSTRAP = "issue-create"
 
 
 class MutationDenied(PermissionError):
@@ -34,6 +36,7 @@ class GateDecision:
     lease_expires_at_epoch: int | None
     authority_state: str | None
     governance_state: str | None
+    canary_grant_id: str | None
     _issuer: str
 
 
@@ -116,6 +119,21 @@ class MutationGate:
                     f"reconciliation trigger source is not trusted: {self.source}"
                 )
             return self._decision(operation, repository, assignment)
+        if operation == OperationClass.CANARY_BOOTSTRAP:
+            if self.source != "operator-cli" or assignment is None:
+                raise MutationDenied("canary bootstrap requires operator assignment context")
+            if control.get("kill_switch") or control.get("mode") != "enabled":
+                raise MutationDenied("supervisor governance state does not permit canary bootstrap")
+            try:
+                canary = validate_canary(
+                    self.root,
+                    assignment,
+                    operation.value,
+                    repository or assignment.get("project"),
+                )
+            except CanaryDenied as exc:
+                raise MutationDenied(str(exc)) from exc
+            return self._decision(operation, repository, assignment, canary=canary)
         if control.get("kill_switch") or control.get("mode") != "enabled":
             raise MutationDenied("supervisor governance state does not permit this operation")
         if operation == OperationClass.MODEL_CALL:
@@ -124,14 +142,20 @@ class MutationGate:
                 raise MutationDenied("model-call budget is exhausted")
             if assignment is None:
                 raise MutationDenied("model calls require assignment context")
+            canary = None
+            if (assignment.get("authority") or {}).get("state") == "canary":
+                try:
+                    canary = validate_canary(
+                        self.root, assignment, operation.value, assignment.get("project")
+                    )
+                except CanaryDenied as exc:
+                    raise MutationDenied(str(exc)) from exc
             lease = self._validate_lease(
                 assignment, repository, fencing_token, allow_read_only=True
             )
-            return self._decision(operation, repository, assignment, lease)
+            return self._decision(operation, repository, assignment, lease, canary)
         if self.source not in {"cycle", "worker"}:
             raise MutationDenied(f"mutation source is not trusted: {self.source}")
-        if not control.get("allow_repository_mutation"):
-            raise MutationDenied("repository mutation is disabled")
         if assignment is None or not repository:
             raise MutationDenied("mutation requires assignment and repository context")
         if is_terminal(assignment):
@@ -144,7 +168,17 @@ class MutationGate:
         authority_state = authority.get("state")
         if authority_state is None and authority.get("approval_matches_record"):
             authority_state = "direct"
-        if authority_state not in {"direct", "inherited"}:
+        canary = None
+        if authority_state == "canary":
+            try:
+                canary = validate_canary(
+                    self.root, assignment, operation.value, repository
+                )
+            except CanaryDenied as exc:
+                raise MutationDenied(str(exc)) from exc
+        if not control.get("allow_repository_mutation") and canary is None:
+            raise MutationDenied("repository mutation is disabled")
+        if authority_state not in {"direct", "inherited", "canary"}:
             raise MutationDenied("direct or validated inherited authority is required")
         governance_state = assignment.get("governance_state") or (
             assignment.get("candidate") or {}
@@ -154,7 +188,7 @@ class MutationGate:
         lease = self._validate_lease(
             assignment, repository, fencing_token, allow_read_only=False
         )
-        return self._decision(operation, repository, assignment, lease)
+        return self._decision(operation, repository, assignment, lease, canary)
 
     def _validate_lease(
         self,
@@ -187,8 +221,9 @@ class MutationGate:
         repository: str | None,
         assignment: dict | None,
         lease: dict | None = None,
+        canary: dict | None = None,
     ) -> GateDecision:
-        return GateDecision(
+        decision = GateDecision(
             operation=operation,
             repository=repository,
             assignment_id=(assignment or {}).get("assignment_id"),
@@ -198,8 +233,20 @@ class MutationGate:
             authority_state=((assignment or {}).get("authority") or {}).get("state"),
             governance_state=(assignment or {}).get("governance_state")
             or ((assignment or {}).get("candidate") or {}).get("result"),
+            canary_grant_id=(canary or {}).get("grant_id"),
             _issuer=self._issuer,
         )
+        if canary:
+            append_event(
+                self.root,
+                {
+                    "event": "gate-decision",
+                    "operation": operation.value,
+                    "assignment_id": (assignment or {}).get("assignment_id"),
+                    "repository": repository or (assignment or {}).get("project"),
+                },
+            )
+        return decision
 
     def require(
         self,
@@ -221,6 +268,7 @@ class MutationGate:
             OperationClass.MODEL_CALL,
             OperationClass.REPOSITORY,
             OperationClass.GITLAB,
+            OperationClass.CANARY_BOOTSTRAP,
         }:
             if assignment is None:
                 raise MutationDenied("effect decision lost assignment context")
@@ -234,7 +282,19 @@ class MutationGate:
             )
             if control.get("kill_switch") or control.get("mode") != "enabled":
                 raise MutationDenied("supervisor governance changed after decision")
-            if operation in {OperationClass.REPOSITORY, OperationClass.GITLAB} and not control.get(
+            if decision.canary_grant_id:
+                try:
+                    canary = validate_canary(
+                        self.root,
+                        assignment,
+                        operation.value,
+                        repository or assignment.get("project"),
+                    )
+                except CanaryDenied as exc:
+                    raise MutationDenied(str(exc)) from exc
+                if canary.get("grant_id") != decision.canary_grant_id:
+                    raise MutationDenied("canary grant changed after decision")
+            elif operation in {OperationClass.REPOSITORY, OperationClass.GITLAB} and not control.get(
                 "allow_repository_mutation"
             ):
                 raise MutationDenied("repository mutation was disabled after decision")
@@ -247,21 +307,22 @@ class MutationGate:
             ).get("result")
             if governance_state != decision.governance_state:
                 raise MutationDenied("assignment governance changed after decision")
-            lease = self._validate_lease(
-                assignment,
-                repository,
-                decision.fencing_token,
-                allow_read_only=operation == OperationClass.MODEL_CALL,
-            )
-            if (
-                lease.get("lease_id") != decision.lease_id
-                or lease.get("fencing_token") != decision.fencing_token
-                or int(lease.get("expires_at_epoch", 0))
-                < int(decision.lease_expires_at_epoch or 0)
-                or int(lease.get("expires_at_epoch", 0)) <= int(time.time())
-            ):
-                raise MutationDenied("canonical lease changed after decision")
-            if operation in {OperationClass.REPOSITORY, OperationClass.GITLAB} and lease.get(
-                "read_only"
-            ):
-                raise MutationDenied("canonical lease became read-only")
+            if operation != OperationClass.CANARY_BOOTSTRAP:
+                lease = self._validate_lease(
+                    assignment,
+                    repository,
+                    decision.fencing_token,
+                    allow_read_only=operation == OperationClass.MODEL_CALL,
+                )
+                if (
+                    lease.get("lease_id") != decision.lease_id
+                    or lease.get("fencing_token") != decision.fencing_token
+                    or int(lease.get("expires_at_epoch", 0))
+                    < int(decision.lease_expires_at_epoch or 0)
+                    or int(lease.get("expires_at_epoch", 0)) <= int(time.time())
+                ):
+                    raise MutationDenied("canonical lease changed after decision")
+                if operation in {OperationClass.REPOSITORY, OperationClass.GITLAB} and lease.get(
+                    "read_only"
+                ):
+                    raise MutationDenied("canonical lease became read-only")
