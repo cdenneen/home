@@ -169,7 +169,7 @@ Until that proof is approved, control remains observing with
 ## After Metrics
 
 - Source files: 65 (before: 55).
-- Counted lines: 12,703 (before: 8,857).
+- Counted lines: 12,771 (before: 8,857).
 - Tests: 61 (before: 34).
 - Removed production modules: retired `report.py`, dead `convergence.py`.
 - Removed schemas/policy files: report schema, baseline schema/defaults.
