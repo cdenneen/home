@@ -137,6 +137,7 @@ def extract_authority_facts(
         }
     )
     record_digest = None
+    record_body = None
     for body in note_bodies or []:
         if body in approval_notes or not re.search(
             r"immutable PlanningRecord|PlanningRecord v1.*immutable revision",
@@ -149,6 +150,7 @@ def extract_authority_facts(
         )
         if match:
             record_digest = match.group(1).lower()
+            record_body = body
             break
     approval = bool(approval_notes and approval_digests)
     approval_matches_record = bool(
@@ -168,6 +170,24 @@ def extract_authority_facts(
         )
     )
     revision_match = re.search(r"(?:revision|Revision):\s*(\d+)", text)
+    assignment_type_match = re.search(
+        r"Assignment type:\s*([a-z-]+)", record_body or "", re.I
+    )
+
+    def markdown_list(label: str, following: str) -> list[str]:
+        match = re.search(
+            rf"{re.escape(label)}:\s*\n(?P<items>(?:- .+\n?)+?)(?={following}:|\n\n|\Z)",
+            record_body or "",
+            re.I,
+        )
+        if not match:
+            return []
+        return [
+            line.removeprefix("- ").strip()
+            for line in match.group("items").splitlines()
+            if line.startswith("- ")
+        ]
+
     return {
         "digests": digests,
         "approved": approval,
@@ -185,6 +205,13 @@ def extract_authority_facts(
         ),
         "decision_escalate": bool(
             re.search(r"(?:outcome|decision):\s*escalate", text, re.I)
+        ),
+        "approved_assignment_type": assignment_type_match.group(1).lower()
+        if assignment_type_match
+        else None,
+        "approved_allowed_paths": markdown_list("Allowed paths", "Required tests"),
+        "approved_required_tests": markdown_list(
+            "Required tests", "execution_rag"
         ),
     }
 

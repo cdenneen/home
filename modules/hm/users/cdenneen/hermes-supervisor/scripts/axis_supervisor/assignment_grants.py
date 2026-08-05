@@ -92,6 +92,20 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     required_tests = list(dict.fromkeys(assignment.get("required_tests") or []))
     if not allowed_paths or not required_tests:
         raise AssignmentGrantDenied("bounded mutation grant requires exact paths and tests")
+    authority_facts = (assignment.get("source_item") or {}).get(
+        "authority_facts"
+    ) or {}
+    if authority_state == "direct" and (
+        authority_facts.get("approved_assignment_type")
+        != assignment["assignment_type"]
+        or sorted(authority_facts.get("approved_allowed_paths") or [])
+        != allowed_paths
+        or list(authority_facts.get("approved_required_tests") or [])
+        != required_tests
+    ):
+        raise AssignmentGrantDenied(
+            "assignment scope does not match the approved PlanningRecord"
+        )
     source_sha = str((assignment.get("source_item") or {}).get("repository_head") or "")
     if len(source_sha) != 40:
         raise AssignmentGrantDenied("bounded mutation grant requires an exact source SHA")

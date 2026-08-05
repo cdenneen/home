@@ -522,7 +522,14 @@ def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path
             "digest": "sha256:" + "b" * 64,
             "approval_note": "https://example.test/approval",
         },
-        source_item={"repository_head": "c" * 40},
+        source_item={
+            "repository_head": "c" * 40,
+            "authority_facts": {
+                "approved_assignment_type": "code-implementation",
+                "approved_allowed_paths": ["src/example.py"],
+                "approved_required_tests": ["pytest tests/test_example.py"],
+            },
+        },
         source_fingerprint="source-fingerprint",
         mutation_grant_id=None,
         mutation_grant_uri=None,

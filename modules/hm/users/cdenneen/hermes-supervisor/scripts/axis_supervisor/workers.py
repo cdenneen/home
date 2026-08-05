@@ -504,6 +504,36 @@ class HermesWorkerManager:
                 candidate["source_inventory_generation_id"] = assignment.get(
                     "source_inventory_generation_id"
                 )
+                authority_facts = (assignment.get("source_item") or {}).get(
+                    "authority_facts"
+                ) or {}
+                if authority_facts.get("approval_matches_record"):
+                    approved_paths = authority_facts.get(
+                        "approved_allowed_paths"
+                    ) or []
+                    approved_tests = authority_facts.get(
+                        "approved_required_tests"
+                    ) or []
+                    approved_type = authority_facts.get("approved_assignment_type")
+                    for implementation_candidate in candidate.get(
+                        "candidate_slices"
+                    ) or []:
+                        if (
+                            implementation_candidate.get("result") == "Executable"
+                            and implementation_candidate.get("category")
+                            == "implementation"
+                            and (
+                                implementation_candidate.get("allowed_paths")
+                                != approved_paths
+                                or implementation_candidate.get("required_tests")
+                                != approved_tests
+                                or approved_type != "code-implementation"
+                            )
+                        ):
+                            raise ValueError(
+                                "implementation candidate must exactly match approved "
+                                f"PlanningRecord paths={approved_paths!r} and tests={approved_tests!r}"
+                            )
                 if assignment.get("revalidation_tier") == "A":
                     verification = candidate.get("verification_result") or {}
                     if verification.get("tier") != "A":
