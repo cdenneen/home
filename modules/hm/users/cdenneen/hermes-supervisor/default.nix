@@ -122,7 +122,7 @@ in
           };
           Service = {
             Type = "oneshot";
-            ExecStart = "${supervisorPython}/bin/python ${./scripts/cronctl.py} install --hermes ${agentPkgs.hermes}/bin/hermes";
+            ExecStart = "${supervisorCronCtl}/bin/axis-development-supervisor-cronctl install --hermes ${agentPkgs.hermes}/bin/hermes";
             Environment = [ "AXIS_SUPERVISOR_MUTATION_SOURCE=home-manager" ];
             RemainAfterExit = true;
           };
