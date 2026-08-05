@@ -612,6 +612,20 @@ class HermesWorkerManager:
             OperationClass.REPOSITORY,
             assignment,
         )
+        if (worktree / "uv.lock").is_file():
+            uv = shutil.which("uv") or "/etc/profiles/per-user/cdenneen/bin/uv"
+            self.gate.require(
+                repository_decision,
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment.get("project"),
+            )
+            subprocess.run(
+                [uv, "sync", "--locked", "--group", "dev"],
+                cwd=worktree,
+                check=True,
+                timeout=600,
+            )
         allowed = set(assignment.get("allowed_paths") or [])
         source_files = {}
         for relative in sorted(allowed):
