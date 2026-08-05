@@ -51,6 +51,14 @@ let
     set -euo pipefail
     exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-command.py" "$@"
   '';
+  supervisorPreflightLauncher = pkgs.writeShellScript "axis-development-supervisor-preflight.py" ''
+    set -euo pipefail
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-preflight-impl.py" "$@"
+  '';
+  supervisorSlackLauncher = pkgs.writeShellScript "axis-development-supervisor-slack.py" ''
+    set -euo pipefail
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-slack-impl.py" "$@"
+  '';
 in
 {
   options.profiles.hermesGateway.enable = lib.mkEnableOption "managed Hermes messaging gateway";
@@ -194,7 +202,9 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 644 -T \
           "${./slack-skill/SKILL.md}" "$HOME/.hermes/skills/axis-supervisor-operations/SKILL.md"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
-          "${./scripts/preflight.py}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight.py"
+          "${./scripts/preflight.py}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight-impl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${supervisorPreflightLauncher}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/reconcile.py}" "$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
@@ -208,7 +218,9 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/cronctl.py}" "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
-          "${./scripts/slack_projection.py}" "$HOME/.hermes/scripts/axis-development-supervisor-slack.py"
+          "${./scripts/slack_projection.py}" "$HOME/.hermes/scripts/axis-development-supervisor-slack-impl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${supervisorSlackLauncher}" "$HOME/.hermes/scripts/axis-development-supervisor-slack.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/commands.py}" "$HOME/.hermes/scripts/axis-development-supervisor-command.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "$HOME/.hermes/scripts/axis_supervisor"
