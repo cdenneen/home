@@ -6,6 +6,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.request import urlopen
 
 from .lifecycle import set_lifecycle
 from .mutation import MutationGate, OperationClass
@@ -139,20 +140,8 @@ def _smoke(target: str, capabilities: list[str]) -> dict:
         subprocess.run(["systemctl", "is-active", "axis.service"], check=True)
         if "Web Presentation" in capabilities:
             subprocess.run(["systemctl", "is-active", "axis-web.service"], check=True)
-        output = subprocess.check_output(
-            [
-                "sudo",
-                "-n",
-                "-u",
-                "axis",
-                "/run/current-system/sw/bin/axis",
-                "--data-root",
-                "/var/lib/axis",
-                "health",
-            ],
-            text=True,
-            timeout=120,
-        )
+        with urlopen("http://127.0.0.1:8780/health", timeout=30) as response:
+            output = response.read().decode()
     elif target == "nyx":
         output = subprocess.check_output(
             [
@@ -160,12 +149,11 @@ def _smoke(target: str, capabilities: list[str]) -> dict:
                 "-o",
                 "BatchMode=yes",
                 "nyx",
-                "systemctl is-active axis.service && sudo -n -u axis /run/current-system/sw/bin/axis --data-root /var/lib/axis health",
+                "systemctl is-active axis.service >/dev/null && curl -fsS http://127.0.0.1:8780/health",
             ],
             text=True,
             timeout=120,
         )
-        output = output.split("\n", 1)[1]
     else:
         output = subprocess.check_output(
             [
@@ -173,7 +161,7 @@ def _smoke(target: str, capabilities: list[str]) -> dict:
                 "-o",
                 "BatchMode=yes",
                 "VNJTECMBCD",
-                "launchctl print system/org.nixos.axis >/dev/null && /run/current-system/sw/bin/axis --data-root /Users/cdenneen/.local/share/axis health",
+                "launchctl print system/org.nixos.axis >/dev/null && curl -fsS http://127.0.0.1:8780/health",
             ],
             text=True,
             timeout=120,

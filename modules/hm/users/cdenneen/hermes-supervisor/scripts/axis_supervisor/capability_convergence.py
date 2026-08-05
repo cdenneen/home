@@ -29,16 +29,15 @@ class CapabilityConvergenceProjector:
         path = str(runtime["identity_path"])
         try:
             if runtime["host"] == "local":
-                if not Path(path).is_file():
-                    return None, "identity-missing"
-                return (
-                    json.loads(
-                        subprocess.check_output(
-                            ["sudo", "-n", "cat", path], text=True, timeout=10
-                        )
-                    ),
-                    None,
+                completed = subprocess.run(
+                    ["sudo", "-n", "cat", path],
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
                 )
+                if completed.returncode != 0:
+                    return None, "identity-missing"
+                return json.loads(completed.stdout), None
             output = subprocess.check_output(
                 [
                     "ssh",
