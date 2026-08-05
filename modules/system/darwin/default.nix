@@ -110,6 +110,12 @@
       };
     })
     (lib.mkIf (config ? system) {
+      sops.secrets.github-token = {
+        sopsFile = config.sops.defaultSopsFile;
+        owner = config.system.primaryUser;
+        mode = "0400";
+      };
+
       launchd.daemons.nix-access-tokens = {
         script =
           let
@@ -119,13 +125,20 @@
           ''
             set -euo pipefail
 
-            token=""
-            token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
+            gitlab_token=""
+            github_token=""
+            gitlab_token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
+            github_token_file="${config.sops.secrets.github-token.path}"
 
-            if [ -s "$token_file" ]; then
-              token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+            if [ -s "$gitlab_token_file" ]; then
+              gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$gitlab_token_file")"
             elif [ -r "${sopsFile}" ] && [ -r "${ageKey}" ]; then
-              token="$(SOPS_AGE_KEY_FILE="${ageKey}" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "${sopsFile}" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+              gitlab_token="$(SOPS_AGE_KEY_FILE="${ageKey}" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "${sopsFile}" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+            fi
+            if [ -s "$github_token_file" ]; then
+              github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$github_token_file")"
+            elif [ -r "${sopsFile}" ] && [ -r "${ageKey}" ]; then
+              github_token="$(SOPS_AGE_KEY_FILE="${ageKey}" ${pkgs.sops}/bin/sops --extract '["github-token"]' --decrypt "${sopsFile}" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
             fi
 
             conf_file="/etc/nix/nix.custom.conf"
@@ -134,13 +147,16 @@
             ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
 
             if [ -f "$conf_file" ]; then
-              ${pkgs.gnugrep}/bin/grep -v '^access-tokens = gitlab.com=' "$conf_file" > "$tmp_file" || true
+              ${pkgs.gnugrep}/bin/grep -v '^access-tokens = ' "$conf_file" > "$tmp_file" || true
             else
               : > "$tmp_file"
             fi
 
-            if [ -n "$token" ]; then
-              printf 'access-tokens = gitlab.com=%s\n' "$token" >> "$tmp_file"
+            access_tokens=""
+            [ -n "$gitlab_token" ] && access_tokens="gitlab.com=$gitlab_token"
+            [ -n "$github_token" ] && access_tokens="$access_tokens github.com=$github_token"
+            if [ -n "$access_tokens" ]; then
+              printf 'access-tokens =%s\n' "$access_tokens" >> "$tmp_file"
             fi
 
             ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"

@@ -145,22 +145,34 @@ in
         ''
       );
       system.activationScripts.nixAccessTokens = lib.mkAfter ''
-        token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
-        token=""
+        gitlab_token_file="${config.sops.secrets.gitlab_com_flake_token.path}"
+        github_token_file="${config.sops.secrets.github-token.path}"
+        gitlab_token=""
+        github_token=""
 
-        if [ -s "$token_file" ]; then
-          token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$token_file")"
+        if [ -s "$gitlab_token_file" ]; then
+          gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$gitlab_token_file")"
+        fi
+        if [ -s "$github_token_file" ]; then
+          github_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$github_token_file")"
         fi
 
         netrc_file="/etc/nix/netrc"
         netrc_tmp="$netrc_file.tmp"
 
         ${lib.optionalString pkgs.stdenv.isDarwin ''
-          if [ -z "$token" ]; then
+          if [ -z "$gitlab_token" ]; then
             sops_file="${config.sops.defaultSopsFile}"
             age_key="${config.sops.age.keyFile}"
             if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
-              token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+              gitlab_token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["gitlab_com_flake_token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
+            fi
+          fi
+          if [ -z "$github_token" ]; then
+            sops_file="${config.sops.defaultSopsFile}"
+            age_key="${config.sops.age.keyFile}"
+            if [ -r "$sops_file" ] && [ -r "$age_key" ]; then
+              github_token="$(SOPS_AGE_KEY_FILE="$age_key" ${pkgs.sops}/bin/sops --extract '["github-token"]' --decrypt "$sops_file" 2>/dev/null | ${pkgs.coreutils}/bin/tr -d '\n\r')"
             fi
           fi
         ''}
@@ -171,13 +183,16 @@ in
           ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
 
           if [ -f "$conf_file" ]; then
-            ${pkgs.gnugrep}/bin/grep -v '^access-tokens = gitlab.com=' "$conf_file" > "$tmp_file" || true
+            ${pkgs.gnugrep}/bin/grep -v '^access-tokens = ' "$conf_file" > "$tmp_file" || true
           else
             : > "$tmp_file"
           fi
 
-          if [ -n "$token" ]; then
-            printf 'access-tokens = gitlab.com=%s\n' "$token" >> "$tmp_file"
+          access_tokens=""
+          [ -n "$gitlab_token" ] && access_tokens="gitlab.com=$gitlab_token"
+          [ -n "$github_token" ] && access_tokens="$access_tokens github.com=$github_token"
+          if [ -n "$access_tokens" ]; then
+            printf 'access-tokens =%s\n' "$access_tokens" >> "$tmp_file"
           fi
 
           ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
@@ -189,8 +204,11 @@ in
 
           ${pkgs.coreutils}/bin/install -d -m 0755 "$conf_dir"
 
-          if [ -n "$token" ]; then
-            printf 'access-tokens = gitlab.com=%s\n' "$token" > "$conf_file"
+          access_tokens=""
+          [ -n "$gitlab_token" ] && access_tokens="gitlab.com=$gitlab_token"
+          [ -n "$github_token" ] && access_tokens="$access_tokens github.com=$github_token"
+          if [ -n "$access_tokens" ]; then
+            printf 'access-tokens =%s\n' "$access_tokens" > "$conf_file"
             ${pkgs.coreutils}/bin/chmod 0400 "$conf_file"
           else
             ${pkgs.coreutils}/bin/rm -f "$conf_file"
@@ -198,16 +216,20 @@ in
         ''}
 
         ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
-        if [ -n "$token" ]; then
-          ${pkgs.coreutils}/bin/printf 'machine gitlab.com\n  login cdenneen\n  password %s\n' "$token" > "$netrc_tmp"
+        if [ -n "$gitlab_token" ] || [ -n "$github_token" ]; then
+          : > "$netrc_tmp"
+          [ -n "$gitlab_token" ] && ${pkgs.coreutils}/bin/printf 'machine gitlab.com\n  login cdenneen\n  password %s\n' "$gitlab_token" >> "$netrc_tmp"
+          [ -n "$github_token" ] && ${pkgs.coreutils}/bin/printf 'machine github.com\n  login x-access-token\n  password %s\n' "$github_token" >> "$netrc_tmp"
           ${pkgs.coreutils}/bin/install -m 0600 "$netrc_tmp" "$netrc_file"
           ${pkgs.coreutils}/bin/rm -f "$netrc_tmp"
         else
           ${pkgs.coreutils}/bin/rm -f "$netrc_file"
         fi
 
-        if [ -n "$token" ]; then
-          ${pkgs.coreutils}/bin/printf 'https://cdenneen:%s@gitlab.com\n' "$token" > /root/.git-credentials
+        if [ -n "$gitlab_token" ] || [ -n "$github_token" ]; then
+          : > /root/.git-credentials
+          [ -n "$gitlab_token" ] && ${pkgs.coreutils}/bin/printf 'https://cdenneen:%s@gitlab.com\n' "$gitlab_token" >> /root/.git-credentials
+          [ -n "$github_token" ] && ${pkgs.coreutils}/bin/printf 'https://x-access-token:%s@github.com\n' "$github_token" >> /root/.git-credentials
           ${pkgs.coreutils}/bin/chmod 0600 /root/.git-credentials
           ${pkgs.git}/bin/git config --system credential.helper "store --file /root/.git-credentials"
         else

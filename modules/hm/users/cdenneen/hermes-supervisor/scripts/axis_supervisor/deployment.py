@@ -109,6 +109,13 @@ def _command(home: Path, target: str) -> list[str]:
         if target == "desktop"
         else ""
     )
+    remote_deployment = (
+        f"NIXPKGS_ALLOW_INSECURE=1 nix build --impure "
+        f"{remote_home}#nixosConfigurations.nyx.config.system.build.toplevel && "
+        f"sudo -n {remote_home}/result/bin/switch-to-configuration switch"
+        if target == "nyx"
+        else f"sudo -n {rebuild} switch --flake {remote_home}#{selector}{post_activation}"
+    )
     return [
         "ssh",
         "-o",
@@ -117,9 +124,7 @@ def _command(home: Path, target: str) -> list[str]:
         (
             f"test -d {remote_home}/.git && "
             f"git -C {remote_home} pull --rebase && "
-            f"sudo -n env NIXPKGS_ALLOW_INSECURE=1 {rebuild} switch "
-            f"{'--impure ' if target == 'nyx' else ''}--flake {remote_home}#{selector}"
-            f"{post_activation}"
+            f"cd {remote_home} && {remote_deployment}"
         ),
     ]
 
