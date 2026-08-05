@@ -78,6 +78,117 @@ MUTATING_ASSIGNMENT_TYPES = {
     "code-implementation",
     "ci-integration-repair",
 }
+FLOW_STAGES = (
+    "backlog",
+    "discovery",
+    "analysis",
+    "implementation-ready",
+    "implementation",
+    "integration",
+    "verification",
+    "verified-complete",
+)
+
+
+def _flow_state(
+    item: dict,
+    semantic: dict | None,
+    verification: dict,
+    authority: dict,
+    assignments: list[dict],
+) -> tuple[str, list[str]]:
+    active = [
+        assignment
+        for assignment in assignments
+        if assignment.get("work_item") == item.get("ref")
+        and assignment.get("lifecycle_state")
+        not in {
+            "completed",
+            "waiting",
+            "blocked",
+            "failed",
+            "cancelled",
+            "recovery-required",
+        }
+    ]
+    if active:
+        assignment = sorted(
+            active,
+            key=lambda value: int(value.get("created_at_epoch") or 0),
+            reverse=True,
+        )[0]
+        lifecycle = assignment.get("lifecycle_state")
+        assignment_type = assignment.get("assignment_type")
+        if lifecycle == "awaiting-integration":
+            return "integration", [
+                f"active assignment {assignment['assignment_id']} awaits deterministic integration"
+            ]
+        if assignment_type in MUTATING_ASSIGNMENT_TYPES:
+            return "implementation", [
+                f"active coding assignment {assignment['assignment_id']}"
+            ]
+        if assignment_type == "no-op-verification":
+            return "verification", [
+                f"active no-op verification {assignment['assignment_id']}"
+            ]
+        return "analysis", [f"active analysis assignment {assignment['assignment_id']}"]
+    if verification.get("state") == "verified-complete":
+        return "verified-complete", [
+            "canonical verification receipt has all required checks"
+        ]
+    completion_assignments = [
+        assignment
+        for assignment in assignments
+        if assignment.get("work_item") == item.get("ref")
+        and assignment.get("result_state") == "integrated-post-main-verified"
+    ]
+    if completion_assignments:
+        return "verification", [
+            "implementation is merged and awaits fresh canonical recognition"
+        ]
+    if semantic is None:
+        return "discovery", ["no current semantic engineering record exists"]
+    candidates = [
+        candidate
+        for candidate in semantic.get("candidate_slices") or []
+        if candidate.get("result") == "Executable"
+    ]
+    implementation_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.get("category")
+        in {"implementation", "documentation", "ci", "compatibility"}
+    ]
+    if implementation_candidates and authority.get("state") in {"direct", "inherited"}:
+        return "implementation-ready", [
+            f"{len(implementation_candidates)} executable candidate(s)",
+            f"authority is {authority.get('state')}",
+        ]
+    if candidates:
+        return "analysis", [
+            f"{len(candidates)} executable analysis/verification candidate(s) remain"
+        ]
+    if authority.get("state") in {
+        "needs-product-owner",
+        "needs-governance",
+        "unresolved",
+        "prohibited",
+    }:
+        return "backlog", [
+            f"authority constraint: {authority.get('state')}",
+            str(authority.get("reason") or "authority evidence is incomplete"),
+        ]
+    if item.get("classification") in {"Integrated", "Completed", "Revalidation"}:
+        return "verification", [
+            f"source classification is {item.get('classification')} but canonical verification is incomplete"
+        ]
+    return "backlog", [
+        str(
+            item.get("waiting_reason")
+            or item.get("classification_rationale")
+            or "no executable downstream action is currently proven"
+        )
+    ]
 
 
 def _execution_order(item: dict) -> int:
@@ -120,6 +231,40 @@ def _scheduler_state(
         ),
     )
     context = scheduler_context or {}
+    active_assignments = context.get("active_assignments") or []
+    wip_counts = {
+        "analysis": sum(
+            assignment.get("assignment_type")
+            in {"read-only-analysis", "no-op-verification"}
+            and assignment.get("lifecycle_state") != "awaiting-integration"
+            for assignment in active_assignments
+        ),
+        "implementation": sum(
+            assignment.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
+            and assignment.get("lifecycle_state") != "awaiting-integration"
+            for assignment in active_assignments
+        ),
+        "integration": sum(
+            assignment.get("lifecycle_state") == "awaiting-integration"
+            for assignment in active_assignments
+        ),
+        "verification": sum(
+            assignment.get("assignment_type") == "no-op-verification"
+            for assignment in active_assignments
+        ),
+    }
+    maximum_active = int(control.get("max_active_assignments", 1))
+    wip_limits = {
+        "analysis": 1
+        if wip_counts["implementation"] or wip_counts["integration"]
+        else min(2, maximum_active),
+        "implementation": 1
+        if wip_counts["integration"]
+        else min(2, maximum_active),
+        "integration": 1,
+        "verification": min(2, maximum_active),
+    }
+    available_slots = max(0, maximum_active - len(active_assignments))
     budget_present = scheduler_context is not None and (
         "model_calls_remaining" in context
         or "available_model_call_budget" in context
@@ -132,7 +277,10 @@ def _scheduler_state(
 
     implementation_selected = False
     limiting_constraint = "queue-depth"
-    if not queue:
+    if available_slots == 0:
+        selected = []
+        limiting_constraint = "wip-capacity"
+    elif not queue:
         selected = []
         limiting_constraint = "no-executable-work"
     elif budget is None:
@@ -151,6 +299,8 @@ def _scheduler_state(
             for item in queue
             if item.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
         ]
+        if wip_counts["implementation"] >= wip_limits["implementation"]:
+            implementation_candidates = []
         selected = []
         selected_projects = set()
         for item in implementation_candidates:
@@ -159,7 +309,12 @@ def _scheduler_state(
                 continue
             selected.append(item)
             selected_projects.add(project)
-            if len(selected) >= min(ceiling, budget):
+            if len(selected) >= min(
+                ceiling,
+                budget,
+                available_slots,
+                wip_limits["implementation"] - wip_counts["implementation"],
+            ):
                 break
         if selected:
             implementation_selected = True
@@ -170,11 +325,13 @@ def _scheduler_state(
             [item for item in queue if item.get("target_ref") in priority_order],
             key=lambda item: priority_order[item["target_ref"]],
         )
-        if not selected:
+        if not selected and wip_counts["analysis"] < wip_limits["analysis"]:
             selected = priority_candidates[:1]
-        if not selected:
-            selected = select_tier_a_batch(queue, ceiling, budget)
-        if not selected:
+        if not selected and wip_counts["analysis"] < wip_limits["analysis"]:
+            selected = select_tier_a_batch(
+                queue, min(ceiling, available_slots), budget
+            )
+        if not selected and wip_counts["analysis"] < wip_limits["analysis"]:
             selected = queue[:1]
         tier_a_candidates = [
             item for item in queue if item.get("revalidation_tier") == "A"
@@ -214,6 +371,52 @@ def _scheduler_state(
             )
         }
 
+    implementation_ready = sum(
+        item.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES for item in queue
+    )
+    analysis_ready = sum(
+        item.get("assignment_type") in {"read-only-analysis", "no-op-verification"}
+        for item in queue
+    )
+    metrics = context.get("engineering_metrics") or {}
+    verified_samples = int(metrics.get("post_main_verified") or 0)
+    metric_days = max(1, int(metrics.get("window_days") or 30))
+    estimated_delay = (
+        round(len(queue) / (verified_samples / metric_days), 1)
+        if verified_samples >= 3
+        else None
+    )
+    if wip_counts["integration"] >= wip_limits["integration"]:
+        constraint_name = "integration"
+        evidence = [
+            f"integration WIP {wip_counts['integration']}/{wip_limits['integration']}"
+        ]
+        action = "resolve the oldest integration before starting same-repository work"
+    elif implementation_ready and wip_counts["implementation"] >= wip_limits[
+        "implementation"
+    ]:
+        constraint_name = "implementation-wip"
+        evidence = [
+            f"implementation WIP {wip_counts['implementation']}/{wip_limits['implementation']}",
+            f"{implementation_ready} implementation-ready queue item(s)",
+        ]
+        action = "finish or unblock active coding assignments"
+    elif implementation_ready:
+        constraint_name = "implementation"
+        evidence = [f"{implementation_ready} implementation-ready queue item(s)"]
+        action = "dispatch highest-unlock implementation immediately"
+    elif analysis_ready:
+        constraint_name = "implementation-ready-supply"
+        evidence = [
+            f"{analysis_ready} analysis/verification queue item(s)",
+            f"analysis→implementation conversion {int(metrics.get('analysis_to_implementation_percent') or 0)}%",
+        ]
+        action = "analyze critical-path items with authority paths most likely to yield implementation"
+    else:
+        constraint_name = "governed-work-supply"
+        evidence = ["no executable queue entry is currently proven"]
+        action = "surface exact governance, Product Owner, or dependency actions"
+
     return {
         "configured_batch_ceiling": ceiling,
         "available_model_call_budget": budget,
@@ -223,6 +426,21 @@ def _scheduler_state(
         ],
         "next_eligible_work": summary(next_work),
         "limiting_constraint": limiting_constraint,
+        "wip_limits": wip_limits,
+        "wip_counts": wip_counts,
+        "available_capacity": available_slots,
+        "current_constraint": {
+            "name": constraint_name,
+            "evidence": evidence,
+            "engineering_impact": (
+                "verified roadmap progress is paced by this stage"
+            ),
+            "estimated_roadmap_delay_days": estimated_delay,
+            "forecast_confidence": "insufficient-history"
+            if estimated_delay is None
+            else "observed-throughput",
+            "recommended_action": action,
+        },
     }
 
 
@@ -260,7 +478,13 @@ class ExecutionGraphBuilder:
         source_items = [adapt_source_item(item) for item in raw_source_items]
         classified_items = [classify_source_item(item) for item in source_items]
         items_by_ref = {item["ref"]: item for item in classified_items}
-        assignments = inventory.get("supervisor_assignments") or []
+        assignment_by_id = {
+            assignment.get("assignment_id"): assignment
+            for assignment in inventory.get("supervisor_assignments") or []
+        }
+        for assignment in (scheduler_context or {}).get("active_assignments") or []:
+            assignment_by_id[assignment.get("assignment_id")] = assignment
+        assignments = list(assignment_by_id.values())
         nodes = []
         queue = []
         semantic_pending = 0
@@ -295,6 +519,9 @@ class ExecutionGraphBuilder:
             authority = self.authority.resolve(
                 item, semantic, items_by_ref.get(controlling_parent)
             )
+            flow_stage, flow_evidence = _flow_state(
+                item, semantic, verification, authority, assignments
+            )
             ranking_score, ranking_factors = _rank_node(item, authority)
             node = {
                 "ref": item["ref"],
@@ -315,6 +542,8 @@ class ExecutionGraphBuilder:
                 "source_fingerprint": source_fingerprint,
                 "verification": verification,
                 "revalidation_tier": tier,
+                "flow_stage": flow_stage,
+                "flow_evidence": flow_evidence,
             }
             nodes.append(node)
 
@@ -343,6 +572,7 @@ class ExecutionGraphBuilder:
                     entry = {
                         **item,
                         "assignment_type": "repository-convergence",
+                        "flow_stage": "implementation-ready",
                         "authority": authority,
                         "source_item": item,
                         "source_fingerprint": source_fingerprint,
@@ -364,6 +594,7 @@ class ExecutionGraphBuilder:
                 pending["source_fingerprint"] = source_fingerprint
                 pending["revalidation_tier"] = tier
                 pending["milestone"] = item.get("milestone")
+                pending["flow_stage"] = "analysis"
                 if tier:
                     score, factors = revalidation_priority(item, tier, classified_items)
                     pending["ranking_score"] = score
@@ -403,6 +634,7 @@ class ExecutionGraphBuilder:
                                 "ref": f"technical-revalidation:{item['ref']}:{candidate['slice_id']}",
                                 "kind": "technical-revalidation",
                                 "assignment_type": "no-op-verification",
+                                "flow_stage": "verification",
                                 "target_ref": item["ref"],
                                 "project": candidate.get("project")
                                 or item.get("project"),
@@ -442,6 +674,7 @@ class ExecutionGraphBuilder:
                         "ref": f"slice:{item['ref']}:{candidate['slice_id']}",
                         "kind": "implementation",
                         "assignment_type": assignment_type,
+                        "flow_stage": "implementation-ready",
                         "target_ref": item["ref"],
                         "project": candidate.get("project") or item.get("project"),
                         "title": candidate.get("title"),
@@ -470,6 +703,9 @@ class ExecutionGraphBuilder:
         classification_counts = Counter(node["classification"] for node in nodes)
         for classification in CLASSIFICATIONS:
             classification_counts.setdefault(classification, 0)
+        flow_counts = Counter(node["flow_stage"] for node in nodes)
+        for stage in FLOW_STAGES:
+            flow_counts.setdefault(stage, 0)
         waiting_reason_counts = Counter(
             node.get("waiting_reason") or "Unknown"
             for node in nodes
@@ -530,6 +766,7 @@ class ExecutionGraphBuilder:
                 ),
             ),
             "classification_counts": dict(sorted(classification_counts.items())),
+            "flow_counts": dict(sorted(flow_counts.items())),
             "waiting_reason_counts": dict(sorted(waiting_reason_counts.items())),
             "executable_queue": queue,
             "queue_depth": len(queue),

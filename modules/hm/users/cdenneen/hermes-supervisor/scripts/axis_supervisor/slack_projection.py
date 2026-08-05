@@ -357,6 +357,35 @@ class SlackProjection:
         weekly_metrics = event_log.throughput_metrics(
             now_epoch - 7 * 86_400, now_epoch
         )
+        monthly_metrics = event_log.throughput_metrics(
+            now_epoch - 30 * 86_400, now_epoch
+        )
+        scheduler_flow = graph.get("scheduler_state") or {}
+        constraint = scheduler_flow.get("current_constraint") or {}
+        flow_counts = graph.get("flow_counts") or {}
+        roadmap_percent = round(verified * 100 / total) if total else 0
+        weekly_daily_velocity = weekly_metrics["post_main_verified"] / 7
+        velocity_direction = (
+            "↑"
+            if daily_metrics["post_main_verified"] > weekly_daily_velocity
+            else "↓"
+            if daily_metrics["post_main_verified"] < weekly_daily_velocity
+            else "→"
+        )
+        remaining_roadmap = max(0, total - verified)
+        monthly_verified = monthly_metrics["post_main_verified"]
+        forecast_days = (
+            round(remaining_roadmap / (monthly_verified / 30), 1)
+            if monthly_verified >= 3
+            else None
+        )
+        forecast_confidence = (
+            "observed"
+            if monthly_verified >= 10
+            else "low-sample"
+            if monthly_verified >= 3
+            else "insufficient-history"
+        )
         meaningful = [event for event in events if event.get("event_type") not in {"cycle_completed", "reconciliation_completed"}]
         last_progress = meaningful[-1] if meaningful else None
         implemented_since_update = sum(
@@ -442,6 +471,29 @@ class SlackProjection:
                     {"type": "mrkdwn", "text": f"*Ready work queue*\n{supervisor_work['ready_work_total']}"},
                     {"type": "mrkdwn", "text": f"*Confidence*\n{confidence.get('percent', 0)}%"},
                 ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Engineering Flow & Forecast*\n"
+                    f"Roadmap: *{roadmap_percent}%* ({verified}/{total} verified) | "
+                    f"Velocity trend: *{velocity_direction}* | 30d verified: {monthly_verified}\n"
+                    f"Flow WIP — Analysis {scheduler_flow.get('wip_counts', {}).get('analysis', 0)}/{scheduler_flow.get('wip_limits', {}).get('analysis', 0)} | "
+                    f"Implementation {scheduler_flow.get('wip_counts', {}).get('implementation', 0)}/{scheduler_flow.get('wip_limits', {}).get('implementation', 0)} | "
+                    f"Integration {scheduler_flow.get('wip_counts', {}).get('integration', 0)}/{scheduler_flow.get('wip_limits', {}).get('integration', 0)} | "
+                    f"Verification {scheduler_flow.get('wip_counts', {}).get('verification', 0)}/{scheduler_flow.get('wip_limits', {}).get('verification', 0)}\n"
+                    f"Flow inventory — Backlog {flow_counts.get('backlog', 0)} | Discovery {flow_counts.get('discovery', 0)} | "
+                    f"Analysis {flow_counts.get('analysis', 0)} | Implementation-ready {flow_counts.get('implementation-ready', 0)} | "
+                    f"Verification {flow_counts.get('verification', 0)} | Verified {flow_counts.get('verified-complete', 0)}\n"
+                    f"Current constraint: *{constraint.get('name') or 'unknown'}*\n"
+                    f"Evidence: {'; '.join(constraint.get('evidence') or ['none'])}\n"
+                    f"Impact: {constraint.get('engineering_impact') or 'unknown'}\n"
+                    f"Corrective action: {constraint.get('recommended_action') or 'none'}\n"
+                    f"Roadmap forecast: *{str(forecast_days) + ' days' if forecast_days is not None else 'unavailable'}* "
+                    f"({forecast_confidence}; assumes observed 30d verified throughput continues; uncertainty improves with more verified samples)",
+                },
             },
             {"type": "divider"},
             {

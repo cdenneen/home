@@ -1270,15 +1270,40 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
                 "verification": verification_for(waiting, [assignment]),
             },
         ],
-        "classification_counts": {"Integrated": 1, "Waiting": 1, "Unknown": 0},
-        "scheduler_state": {
+            "classification_counts": {"Integrated": 1, "Waiting": 1, "Unknown": 0},
+            "flow_counts": {
+                "backlog": 1,
+                "verified-complete": 1,
+            },
+            "scheduler_state": {
             "configured_batch_ceiling": 2,
             "available_model_call_budget": 1,
             "selected_batch": [],
             "deferred_items": [],
             "next_eligible_work": None,
-            "limiting_constraint": "queue-depth",
-        },
+                "limiting_constraint": "queue-depth",
+                "wip_limits": {
+                    "analysis": 2,
+                    "implementation": 2,
+                    "integration": 1,
+                    "verification": 2,
+                },
+                "wip_counts": {
+                    "analysis": 0,
+                    "implementation": 0,
+                    "integration": 0,
+                    "verification": 0,
+                },
+                "available_capacity": 2,
+                "current_constraint": {
+                    "name": "implementation-ready-supply",
+                    "evidence": ["one analysis item"],
+                    "engineering_impact": "verified roadmap progress is paced by this stage",
+                    "estimated_roadmap_delay_days": None,
+                    "forecast_confidence": "insufficient-history",
+                    "recommended_action": "analyze the next critical-path item",
+                },
+            },
     }
     control_value = control(slack_user_id="U1")
     (tmp_path / "control.json").write_text(

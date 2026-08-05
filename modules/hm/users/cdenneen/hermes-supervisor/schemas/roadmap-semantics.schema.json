@@ -92,7 +92,11 @@
         "selected_batch",
         "deferred_items",
         "next_eligible_work",
-        "limiting_constraint"
+        "limiting_constraint",
+        "wip_limits",
+        "wip_counts",
+        "available_capacity",
+        "current_constraint"
       ],
       "properties": {
         "configured_batch_ceiling": { "type": "integer", "minimum": 1 },
@@ -103,7 +107,11 @@
         "selected_batch": { "type": "array", "items": { "type": "object" } },
         "deferred_items": { "type": "array", "items": { "type": "object" } },
         "next_eligible_work": { "type": ["object", "null"] },
-        "limiting_constraint": { "type": "string", "minLength": 1 }
+        "limiting_constraint": { "type": "string", "minLength": 1 },
+        "wip_limits": { "type": "object" },
+        "wip_counts": { "type": "object" },
+        "available_capacity": { "type": "integer", "minimum": 0 },
+        "current_constraint": { "type": "object" }
       },
       "additionalProperties": false
     },

@@ -147,6 +147,9 @@ def main() -> int:
     engineering_metrics = OperationalEventLog(ROOT, "reporter").throughput_metrics(
         now - 86_400, now
     )
+    engineering_metrics_30d = OperationalEventLog(
+        ROOT, "reporter"
+    ).throughput_metrics(now - 30 * 86_400, now)
 
     if gateway.get("gateway_state") != "running":
         errors.append("gateway is not running")
@@ -424,6 +427,14 @@ def main() -> int:
         "integration_workers": len(integration_workers),
         "post_main_verified_last_24h": recent_integrated,
         "engineering_metrics_24h": engineering_metrics,
+        "engineering_metrics_30d": engineering_metrics_30d,
+        "flow_counts": graph.get("flow_counts") or {},
+        "wip_limits": (graph.get("scheduler_state") or {}).get("wip_limits") or {},
+        "wip_counts": (graph.get("scheduler_state") or {}).get("wip_counts") or {},
+        "current_constraint": (graph.get("scheduler_state") or {}).get(
+            "current_constraint"
+        )
+        or {},
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1

@@ -73,6 +73,27 @@ def current_sources() -> tuple[dict, dict, dict]:
         "deferred_items": [],
         "next_eligible_work": None,
         "limiting_constraint": "available-model-call-budget",
+        "wip_limits": {
+            "analysis": 2,
+            "implementation": 2,
+            "integration": 1,
+            "verification": 2,
+        },
+        "wip_counts": {
+            "analysis": 0,
+            "implementation": 0,
+            "integration": 0,
+            "verification": 0,
+        },
+        "available_capacity": 2,
+        "current_constraint": {
+            "name": "governance",
+            "evidence": ["one unresolved authority item"],
+            "engineering_impact": "verified roadmap progress is paced by this stage",
+            "estimated_roadmap_delay_days": None,
+            "forecast_confidence": "insufficient-history",
+            "recommended_action": "produce an exact approval packet",
+        },
     }
     graph = {
         "schema": "axis.external-development-supervisor.execution-graph",
@@ -156,10 +177,13 @@ def current_sources() -> tuple[dict, dict, dict]:
                     },
                 },
                 "revalidation_tier": None,
+                "flow_stage": "backlog",
+                "flow_evidence": ["authority constraint: unresolved"],
             }
         ],
         "edges": [],
         "classification_counts": {"Waiting": 1, "Unknown": 0},
+        "flow_counts": {"backlog": 1},
         "waiting_reason_counts": {"Governance approval": 1},
         "executable_queue": [],
         "queue_depth": 0,

@@ -29,7 +29,11 @@ from axis_supervisor.mutation import (
     OperationClass,
     load_canonical_lease,
 )
-from axis_supervisor.observability import record_event
+from axis_supervisor.observability import (
+    OperationalEventLog,
+    record_engineering_retrospective,
+    record_event,
+)
 from axis_supervisor.schema_registry import (
     CorruptRecordError,
     read_record,
@@ -399,8 +403,30 @@ def rebuild() -> dict:
         int(control.get("daily_model_call_limit", 0))
         - AccountingLedger(ROOT).model_attempts_today(),
     )
+    active_assignments = []
+    for path in (ROOT / "assignments").glob("*.json"):
+        assignment = validate_assignment(
+            json.loads(path.read_text(encoding="utf-8")), ROOT
+        )
+        if assignment.get("lifecycle_state") not in {
+            "completed",
+            "waiting",
+            "blocked",
+            "failed",
+            "cancelled",
+            "recovery-required",
+        }:
+            active_assignments.append(assignment)
+    now = int(time.time())
     return ExecutionGraphBuilder(ROOT).build(
-        inventory, {"available_model_call_budget": remaining}
+        inventory,
+        {
+            "available_model_call_budget": remaining,
+            "active_assignments": active_assignments,
+            "engineering_metrics": OperationalEventLog(
+                ROOT, "cycle"
+            ).throughput_metrics(now - 30 * 86_400, now),
+        },
     )
 
 
@@ -439,6 +465,17 @@ def execute_new_assignment(
         )
     except Exception as exc:
         set_lifecycle(assignment, "failed")
+        assignment["result_state"] = "failed"
+        assignment["work_item_disposition"] = (
+            "requires-implementation"
+            if assignment.get("assignment_type")
+            in {
+                "governance-document-mutation",
+                "code-implementation",
+                "ci-integration-repair",
+            }
+            else "analyzed-only"
+        )
         assignment["error"] = f"lease claim failed: {type(exc).__name__}: {exc}"
         save(path, assignment, gate)
         record_event(
@@ -454,6 +491,7 @@ def execute_new_assignment(
             },
             source="cycle",
         )
+        record_engineering_retrospective(ROOT, assignment, source="cycle")
         if (assignment.get("authority") or {}).get("state") == "canary":
             expire_grant(ROOT, "failed")
         if assignment.get("mutation_grant_id"):
@@ -584,6 +622,9 @@ def execute_new_assignment(
                 },
                 source="cycle",
             )
+            record_engineering_retrospective(
+                ROOT, assignment, source="cycle"
+            )
             gitlab_decision = gate.decide(
                 OperationClass.GITLAB,
                 assignment=assignment,
@@ -644,6 +685,9 @@ def execute_new_assignment(
                 },
                 source="cycle",
             )
+            record_engineering_retrospective(
+                ROOT, assignment, source="cycle"
+            )
         rebuild()
         return {
             "result": assignment["lifecycle_state"],
@@ -664,6 +708,7 @@ def execute_new_assignment(
             },
             source="cycle",
         )
+        record_engineering_retrospective(ROOT, assignment, source="cycle")
         if (assignment.get("authority") or {}).get("state") == "canary":
             expire_grant(ROOT, "failed")
         if assignment.get("mutation_grant_id"):
@@ -834,7 +879,13 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "result": integration_result,
                 "evidence": [inspection["mr"].get("web_url")],
                 "next": "merge when ready" if integration_result == "waiting" else "",
-            }
+            },
+            "pipeline": inspection.get("pipeline"),
+            "merge_request": {
+                "iid": inspection["mr"].get("iid"),
+                "sha": inspection["mr"].get("sha"),
+                "has_conflicts": inspection["mr"].get("has_conflicts"),
+            },
         }
         assignment["integration"] = integration
         assignment["last_integration_check_epoch"] = int(time.time())
@@ -1196,7 +1247,12 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 if assignment.get("mutation_grant_id"):
                     finish_assignment_grant(ROOT, assignment, "failed")
         save(path, assignment, gate)
-        if assignment.get("lifecycle_state") in {"completed", "blocked", "failed", "cancelled"}:
+        if assignment.get("lifecycle_state") in {
+            "completed",
+            "blocked",
+            "failed",
+            "cancelled",
+        }:
             record_event(
                 ROOT,
                 "assignment_disposition",
@@ -1219,6 +1275,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     "next_scheduled_work": "recompute governed frontier",
                 },
                 source="cycle",
+            )
+            record_engineering_retrospective(
+                ROOT, assignment, source="cycle"
             )
         current_graph = rebuild()
         response = {"result": result, "assignment": assignment["assignment_id"]}

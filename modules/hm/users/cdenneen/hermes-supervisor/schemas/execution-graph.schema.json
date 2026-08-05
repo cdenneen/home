@@ -38,7 +38,9 @@
         "ranking_score",
         "ranking_factors",
         "source_fingerprint",
-        "verification"
+        "verification",
+        "flow_stage",
+        "flow_evidence"
       ],
       "properties": {
         "ref": { "type": "string", "minLength": 1 },
@@ -78,6 +80,23 @@
             }
           },
           "additionalProperties": true
+        },
+        "flow_stage": {
+          "enum": [
+            "backlog",
+            "discovery",
+            "analysis",
+            "implementation-ready",
+            "implementation",
+            "integration",
+            "verification",
+            "verified-complete"
+          ]
+        },
+        "flow_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
         },
         "revalidation_tier": {
           "type": ["string", "null"],
@@ -134,6 +153,7 @@
     "nodes",
     "edges",
     "classification_counts",
+    "flow_counts",
     "waiting_reason_counts",
     "executable_queue",
     "queue_depth",
@@ -162,6 +182,10 @@
       "type": "object",
       "additionalProperties": { "type": "integer", "minimum": 0 }
     },
+    "flow_counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
     "waiting_reason_counts": {
       "type": "object",
       "additionalProperties": { "type": "integer", "minimum": 0 }
@@ -182,7 +206,11 @@
         "selected_batch",
         "deferred_items",
         "next_eligible_work",
-        "limiting_constraint"
+        "limiting_constraint",
+        "wip_limits",
+        "wip_counts",
+        "available_capacity",
+        "current_constraint"
       ],
       "properties": {
         "configured_batch_ceiling": { "type": "integer", "minimum": 1 },
@@ -211,8 +239,45 @@
             "tier-a-independence",
             "single-item-dispatch",
             "queue-depth",
-            "implementation-ready"
+            "implementation-ready",
+            "wip-capacity"
           ]
+        },
+        "wip_limits": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "wip_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "available_capacity": { "type": "integer", "minimum": 0 },
+        "current_constraint": {
+          "type": "object",
+          "required": [
+            "name",
+            "evidence",
+            "engineering_impact",
+            "estimated_roadmap_delay_days",
+            "forecast_confidence",
+            "recommended_action"
+          ],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "evidence": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "engineering_impact": { "type": "string", "minLength": 1 },
+            "estimated_roadmap_delay_days": {
+              "type": ["number", "null"],
+              "minimum": 0
+            },
+            "forecast_confidence": { "type": "string", "minLength": 1 },
+            "recommended_action": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .accounting import AccountingLedger
 from .mutation import MutationGate, OperationClass
 from .schema_registry import read_record, validate_record, write_record
 
@@ -256,6 +257,7 @@ class OperationalEventLog:
         return {
             "start_epoch": start_epoch,
             "end_epoch": end_epoch,
+            "window_days": max(1, round((end_epoch - start_epoch) / 86_400)),
             "assignments_selected": len(selected),
             "analysis_selected": len(analysis_selected),
             "analysis_completed": len(analysis_completed),
@@ -297,4 +299,71 @@ def record_event(
 ) -> dict[str, Any]:
     return OperationalEventLog(root, source).emit(
         event_type, assignment=assignment, details=details, notify=notify
+    )
+
+
+def record_engineering_retrospective(
+    root: Path, assignment: dict[str, Any], *, source: str
+) -> dict[str, Any]:
+    attempts = AccountingLedger(root).model_attempts_for_assignment(
+        assignment["assignment_id"]
+    )
+    duration = max(
+        0, int(time.time()) - int(assignment.get("created_at_epoch") or time.time())
+    )
+    result_state = str(assignment.get("result_state") or "unknown")
+    work_item_disposition = str(
+        assignment.get("work_item_disposition") or "not-evaluated"
+    )
+    successful = result_state in {
+        "analysis-completed",
+        "no-op-verification-completed",
+        "implementation-commit-created",
+        "awaiting-integration",
+        "integrated-post-main-verified",
+    }
+    integration = assignment.get("integration") or {}
+    pipeline = integration.get("pipeline") or {}
+    merge_request = integration.get("merge_request") or {}
+    details = {
+        "assignment_type": assignment.get("assignment_type"),
+        "result_state": result_state,
+        "work_item_disposition": work_item_disposition,
+        "duration_seconds": duration,
+        "model_attempts": attempts,
+        "retry_count": max(0, attempts - 1),
+        "selection_rationale": assignment.get("selection_rationale"),
+        "milestone": (assignment.get("source_item") or {}).get("milestone"),
+        "repository": assignment.get("project"),
+        "mutation_grant_id": assignment.get("mutation_grant_id"),
+        "ci_duration_seconds": pipeline.get("duration"),
+        "pipeline_status": pipeline.get("status"),
+        "merge_conflict": bool(merge_request.get("has_conflicts")),
+        "roadmap_convergence_improved": work_item_disposition
+        in {
+            "no-op-verified",
+            "requires-implementation",
+            "requires-integration",
+            "evidence-recorded-awaiting-fresh-recognition",
+        },
+        "successful_pattern": (
+            f"{assignment.get('assignment_type')}:{work_item_disposition}"
+            if successful
+            else None
+        ),
+        "failure_pattern": str(assignment.get("error") or "")[-2_000:]
+        if not successful
+        else None,
+        "improvement_question": (
+            "Did this selection reduce the current constraint or unlock more "
+            "verified roadmap progress than the first deferred alternative?"
+        ),
+    }
+    return record_event(
+        root,
+        "engineering_retrospective",
+        assignment=assignment,
+        details=details,
+        source=source,
+        notify=False,
     )
