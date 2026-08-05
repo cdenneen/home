@@ -63,22 +63,25 @@ class SlackProjection:
     def verify_message(
         self, token: str, channel: str, ts: str, expected_text: str
     ) -> dict:
-        response = self.api(
-            token,
-            "conversations.history",
-            {"channel": channel, "oldest": ts, "inclusive": True, "limit": 5},
-        )
-        message = next(
-            (
-                item
-                for item in response.get("messages") or []
-                if str(item.get("ts")) == str(ts)
-            ),
-            None,
-        )
-        if not message or message.get("text") != expected_text:
-            raise RuntimeError("Slack message readback did not match expected channel/ts/text")
-        return message
+        for delay in (0, 0.25, 0.5, 1.0, 2.0):
+            if delay:
+                time.sleep(delay)
+            response = self.api(
+                token,
+                "conversations.history",
+                {"channel": channel, "oldest": ts, "inclusive": True, "limit": 5},
+            )
+            message = next(
+                (
+                    item
+                    for item in response.get("messages") or []
+                    if str(item.get("ts")) == str(ts)
+                ),
+                None,
+            )
+            if message and message.get("text") == expected_text:
+                return message
+        raise RuntimeError("Slack message readback did not match expected channel/ts/text")
 
     def load_outbox(self) -> dict:
         path = self.root / "slack-outbox.json"
