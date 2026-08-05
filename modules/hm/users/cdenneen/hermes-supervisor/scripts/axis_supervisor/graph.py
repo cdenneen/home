@@ -266,6 +266,7 @@ class ExecutionGraphBuilder:
                 ):
                     entry = {
                         **item,
+                        "assignment_type": "repository-convergence",
                         "authority": authority,
                         "source_item": item,
                         "source_fingerprint": source_fingerprint,
@@ -325,6 +326,7 @@ class ExecutionGraphBuilder:
                             entry = {
                                 "ref": f"technical-revalidation:{item['ref']}:{candidate['slice_id']}",
                                 "kind": "technical-revalidation",
+                                "assignment_type": "no-op-verification",
                                 "target_ref": item["ref"],
                                 "project": candidate.get("project")
                                 or item.get("project"),
@@ -350,14 +352,20 @@ class ExecutionGraphBuilder:
                         continue
                     if tier == "B" and candidate.get("slice_id") in technical_candidate_ids:
                         continue
-                    if not control.get("allow_repository_mutation"):
-                        policy_suppressed_executable += 1
-                        continue
                     if authority["state"] not in {"direct", "inherited"}:
                         continue
+                    category = candidate.get("category")
+                    assignment_type = (
+                        "governance-document-mutation"
+                        if category == "documentation"
+                        else "ci-integration-repair"
+                        if category in {"ci", "compatibility"}
+                        else "code-implementation"
+                    )
                     entry = {
                         "ref": f"slice:{item['ref']}:{candidate['slice_id']}",
                         "kind": "implementation",
+                        "assignment_type": assignment_type,
                         "target_ref": item["ref"],
                         "project": candidate.get("project") or item.get("project"),
                         "title": candidate.get("title"),

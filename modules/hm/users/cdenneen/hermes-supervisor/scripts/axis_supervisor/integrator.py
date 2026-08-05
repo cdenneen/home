@@ -88,6 +88,9 @@ class Integrator:
             OperationClass.GITLAB,
             assignment=assignment,
             repository=project,
+            effect="merge-reviewed-mr"
+            if assignment.get("mutation_grant_id")
+            else None,
         )
         encoded = quote(project, safe="")
         output = subprocess.check_output(

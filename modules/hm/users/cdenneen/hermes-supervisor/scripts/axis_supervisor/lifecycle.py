@@ -70,6 +70,44 @@ def adapt_assignment(
     adapted.setdefault("planning_record", None)
     adapted.setdefault("allowed_paths", [])
     adapted.setdefault("required_tests", [])
+    kind = str(adapted.get("kind") or "")
+    assignment_type = adapted.get("assignment_type")
+    if not assignment_type:
+        assignment_type = {
+            "semantic-decomposition": "read-only-analysis",
+            "technical-revalidation": "no-op-verification",
+            "repository-convergence": "repository-convergence",
+        }.get(kind, "code-implementation")
+    adapted["assignment_type"] = assignment_type
+    state = lifecycle_state(value)
+    if not adapted.get("result_state"):
+        if state == "completed" and assignment_type == "read-only-analysis":
+            adapted["result_state"] = "analysis-completed"
+        elif state == "completed" and assignment_type == "no-op-verification":
+            adapted["result_state"] = "no-op-verification-completed"
+        elif state == "awaiting-integration":
+            adapted["result_state"] = "awaiting-integration"
+        elif state in {"blocked", "waiting", "failed", "cancelled", "recovery-required"}:
+            adapted["result_state"] = state
+        else:
+            adapted["result_state"] = "pending"
+    if not adapted.get("work_item_disposition"):
+        verification = (((adapted.get("worker") or {}).get("record") or {}).get(
+            "verification_result"
+        ) or {})
+        disposition = verification.get("disposition")
+        if assignment_type == "no-op-verification" and disposition == "verified-complete":
+            adapted["work_item_disposition"] = "no-op-verified"
+        elif disposition == "corrective-implementation-required":
+            adapted["work_item_disposition"] = "requires-implementation"
+        elif disposition == "human-authority-required":
+            adapted["work_item_disposition"] = "requires-human-decision"
+        elif assignment_type in {"read-only-analysis", "no-op-verification"}:
+            adapted["work_item_disposition"] = "analyzed-only"
+        else:
+            adapted["work_item_disposition"] = "not-evaluated"
+    adapted.setdefault("mutation_grant_id", None)
+    adapted.setdefault("mutation_grant_uri", None)
     legacy_lease = adapted.pop("lease", None)
     if legacy_lease and not adapted.get("lease_id"):
         runtime_root = root or Path(
@@ -90,7 +128,7 @@ def adapt_assignment(
         if lease_id and lease_path.exists():
             adapted["lease_id"] = lease_id
             adapted["lease_uri"] = lease_path.resolve().as_uri()
-    adapted["lifecycle_state"] = lifecycle_state(value)
+    adapted["lifecycle_state"] = state
     adapted.pop("state", None)
     adapted.pop("phase", None)
     return adapted
@@ -115,4 +153,7 @@ def is_integrable(value: dict[str, Any] | str) -> bool:
 
 
 def is_read_only_work(value: dict[str, Any]) -> bool:
-    return value.get("kind") in {"semantic-decomposition", "technical-revalidation"}
+    return value.get("assignment_type") in {
+        "read-only-analysis",
+        "no-op-verification",
+    }

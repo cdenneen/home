@@ -29,6 +29,11 @@ def control(**overrides) -> dict:
         "daily_model_call_limit": 24,
         "tier_a_batch_size": 2,
         "max_semantic_prompt_bytes": 200_000,
+        "mutation_grant_ttl_seconds": 21600,
+        "mutation_grant_max_model_calls": 2,
+        "mutation_grant_max_retries": 1,
+        "mutation_grant_max_prompt_bytes": 200_000,
+        "mutation_grant_max_cost_usd": 5.0,
     }
     value.update(overrides)
     return value
@@ -40,6 +45,9 @@ def assignment(root: Path, **overrides) -> dict:
         "schema": "axis.external-development-supervisor.assignment",
         "schema_version": "1.0.0",
         "assignment_id": "assignment-1",
+        "assignment_type": "code-implementation",
+        "result_state": "pending",
+        "work_item_disposition": "not-evaluated",
         "lifecycle_state": "running-implementation",
         "project": "ghostspace/axis",
         "work_item": "ghostspace/axis#119",
@@ -52,6 +60,8 @@ def assignment(root: Path, **overrides) -> dict:
         "created_by_run": "run-1",
         "lease_id": "assignment-1",
         "lease_uri": lease_path.resolve().as_uri(),
+        "mutation_grant_id": None,
+        "mutation_grant_uri": None,
     }
     value.update(overrides)
     return value
@@ -142,6 +152,44 @@ def test_lifecycle_migrates_historical_completed_and_converges_writes():
     assert is_completed(historical)
     set_lifecycle(historical, "waiting")
     assert historical == {"lifecycle_state": "waiting"}
+
+
+def test_analysis_assignment_completion_does_not_claim_implementation_completion():
+    from axis_supervisor.lifecycle import adapt_assignment
+
+    analyzed = adapt_assignment(
+        {
+            "kind": "semantic-decomposition",
+            "state": "completed",
+            "phase": "semantic-complete",
+            "worker": {
+                "record": {
+                    "verification_result": {
+                        "disposition": "corrective-implementation-required"
+                    }
+                }
+            },
+        }
+    )
+    assert analyzed["assignment_type"] == "read-only-analysis"
+    assert analyzed["result_state"] == "analysis-completed"
+    assert analyzed["work_item_disposition"] == "requires-implementation"
+
+    no_op = adapt_assignment(
+        {
+            "kind": "technical-revalidation",
+            "state": "completed",
+            "phase": "semantic-complete",
+            "worker": {
+                "record": {
+                    "verification_result": {"disposition": "verified-complete"}
+                }
+            },
+        }
+    )
+    assert no_op["assignment_type"] == "no-op-verification"
+    assert no_op["result_state"] == "no-op-verification-completed"
+    assert no_op["work_item_disposition"] == "no-op-verified"
 
 
 def test_current_and_historical_completion_use_one_verification_shape(tmp_path: Path):
@@ -251,9 +299,20 @@ def test_semantic_verification_is_authoritative_for_positive_and_negative_result
         semantic,
         current_inventory_generation_id="inventory-after",
         current_source_fingerprint="source-current",
-    )["state"] == (
-        "verified-complete"
+    )["state"] == "pending-current-revalidation"
+
+    no_op_assignment = historical_assignment(
+        assignment_type="no-op-verification",
+        result_state="no-op-verification-completed",
+        technical_results={"all_passed": True, "main_sha": "a" * 40},
     )
+    assert verification_for(
+        item(),
+        [no_op_assignment],
+        semantic,
+        current_inventory_generation_id="inventory-after",
+        current_source_fingerprint="source-current",
+    )["state"] == "verified-complete"
 
 
 def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
@@ -439,6 +498,82 @@ def test_mutation_is_default_denied_and_lower_helper_cannot_bypass(tmp_path: Pat
     manager = HermesWorkerManager(tmp_path, "/bin/false", "/bin/false", gate)
     with pytest.raises(MutationDenied, match="missing or invalid"):
         manager.implementation(value, tmp_path)
+
+
+def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path: Path):
+    from axis_supervisor import assignment_grants
+    from axis_supervisor.assignment_grants import create_grant, grant_path
+    from axis_supervisor.mutation import MutationDenied, MutationGate, OperationClass
+    from axis_supervisor.schema_registry import write_record
+
+    control_value = control()
+    write_record(
+        tmp_path / "control.json",
+        control_value,
+        "axis.external-development-supervisor.control",
+    )
+    value = assignment(
+        tmp_path,
+        assignment_type="code-implementation",
+        result_state="pending",
+        work_item_disposition="not-evaluated",
+        planning_record={
+            "revision": 1,
+            "digest": "sha256:" + "b" * 64,
+            "approval_note": "https://example.test/approval",
+        },
+        source_item={"repository_head": "c" * 40},
+        source_fingerprint="source-fingerprint",
+        mutation_grant_id=None,
+        mutation_grant_uri=None,
+    )
+    create_grant(tmp_path, value, control_value)
+    write_record(
+        tmp_path / "assignments" / "assignment-1.json",
+        value,
+        "axis.external-development-supervisor.assignment",
+    )
+    write_record(
+        tmp_path / "leases" / "assignment-1" / "lease.json",
+        lease(),
+        "axis.external-development-supervisor.lease",
+    )
+    monkeypatch.setattr(assignment_grants, "current_main_sha", lambda _repo: "c" * 40)
+    gate = MutationGate(tmp_path, source="cycle")
+    decision = gate.decide(
+        OperationClass.REPOSITORY,
+        assignment=value,
+        repository=value["project"],
+        fencing_token="a" * 32,
+        effect="clone",
+    )
+    gate.require(
+        decision,
+        OperationClass.REPOSITORY,
+        assignment=value,
+        repository=value["project"],
+        effect="clone",
+    )
+    with pytest.raises(MutationDenied, match="outside mutation grant"):
+        gate.decide(
+            OperationClass.REPOSITORY,
+            assignment=value,
+            repository=value["project"],
+            fencing_token="a" * 32,
+            effect="force-push",
+        )
+    path = grant_path(tmp_path, value["assignment_id"])
+    grant = json.loads(path.read_text(encoding="utf-8"))
+    grant["allowed_paths"] = ["src/other.py"]
+    write_record(path, grant, "axis.external-development-supervisor.mutation-grant")
+    with pytest.raises(MutationDenied, match="scope digest mismatch"):
+        gate.decide(
+            OperationClass.REPOSITORY,
+            assignment=value,
+            repository=value["project"],
+            fencing_token="a" * 32,
+            effect="clone",
+        )
 
 
 def test_implementation_worker_prompt_is_a_no_tool_patch_plan():

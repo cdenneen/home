@@ -505,7 +505,7 @@ def test_semantic_worker_cannot_self_grant_inherited_authority(tmp_path: Path):
     assert graph["governed_queue_zero_proven"] is False
 
 
-def test_mutation_disabled_suppresses_implementation_slice(tmp_path: Path):
+def test_global_mutation_disabled_keeps_grant_eligible_implementation_slice(tmp_path: Path):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -513,19 +513,18 @@ def test_mutation_disabled_suppresses_implementation_slice(tmp_path: Path):
         json.dumps(control(semantic_priority_refs=[], allow_repository_mutation=False)),
         encoding="utf-8",
     )
-    parent = {
-        "ref": "ghostspace/axis#10",
-        "classification": "Integrated",
-        "authority": {"approval_matches_record": True},
-        "dependencies": [],
-    }
     item = {
         "ref": "ghostspace/axis#4",
         "kind": "issue",
         "project": "ghostspace/axis",
         "title": "Inherited implementation",
         "classification": "Waiting",
-        "authority": {},
+        "authority": {
+            "approval_matches_record": True,
+            "record_digest": "sha256:" + "a" * 64,
+            "record_revision": 1,
+            "approval_note": "https://example.test/approval",
+        },
         "dependencies": [],
     }
     fingerprint = SemanticDecompositionEngine.source_fingerprint(item)
@@ -545,14 +544,16 @@ def test_mutation_disabled_suppresses_implementation_slice(tmp_path: Path):
         ],
         source_fingerprint=fingerprint,
     )
-    record["authority_resolution"]["controlling_parent"] = parent["ref"]
     engine = SemanticDecompositionEngine(tmp_path)
     record["evidence_fingerprint"] = engine.save_evidence(item["ref"], {"fixture": True})
     engine.save(record)
     graph = ExecutionGraphBuilder(tmp_path).build(
-        {"generation_id": "g1", "work_items": [parent, item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}}
+        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}}
     )
-    assert not any(entry.get("kind") == "implementation" for entry in graph["executable_queue"])
+    implementation = next(
+        entry for entry in graph["executable_queue"] if entry.get("kind") == "implementation"
+    )
+    assert implementation["assignment_type"] == "code-implementation"
 
 
 def test_semantic_test_commands_reject_shell_control():

@@ -11,13 +11,15 @@ from pathlib import Path
 from urllib.parse import quote
 
 try:
-    from .lifecycle import adapt_assignment, is_terminal
+    from .lifecycle import is_terminal
+    from .models import validate_assignment
     from .mutation import MutationGate, OperationClass
-    from .schema_registry import read_record, validate_record, write_record
+    from .schema_registry import read_record, write_record
 except ImportError:
-    from axis_supervisor.lifecycle import adapt_assignment, is_terminal
+    from axis_supervisor.lifecycle import is_terminal
+    from axis_supervisor.models import validate_assignment
     from axis_supervisor.mutation import MutationGate, OperationClass
-    from axis_supervisor.schema_registry import read_record, validate_record, write_record
+    from axis_supervisor.schema_registry import read_record, write_record
 
 ROOT = Path(
     os.environ.get(
@@ -702,13 +704,18 @@ def main() -> int:
         sorted(assignment_dir.glob("*.json")) if assignment_dir.exists() else []
     ):
         try:
-            assignment_records.append(
-                validate_record(
-                    adapt_assignment(load(assignment_path), ROOT),
+            raw_assignment = load(assignment_path)
+            normalized_assignment = validate_assignment(raw_assignment, ROOT)
+            if normalized_assignment != raw_assignment:
+                gate = MutationGate(ROOT, source="collector")
+                decision = gate.decide(OperationClass.RECONCILIATION)
+                gate.require(decision, OperationClass.RECONCILIATION)
+                write_record(
+                    assignment_path,
+                    normalized_assignment,
                     "axis.external-development-supervisor.assignment",
-                    record_path=assignment_path,
                 )
-            )
+            assignment_records.append(normalized_assignment)
         except Exception as exc:
             state_record_errors.append(
                 f"assignment {assignment_path.name}: {type(exc).__name__}"

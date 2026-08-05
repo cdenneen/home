@@ -105,6 +105,7 @@ class SemanticDecompositionEngine:
         return {
             "ref": f"semantic-decomposition:{item['ref']}",
             "kind": "semantic-decomposition",
+            "assignment_type": "read-only-analysis",
             "target_ref": item["ref"],
             "project": item.get("project"),
             "title": f"Semantically decompose {item['ref']}: {item.get('title')}",

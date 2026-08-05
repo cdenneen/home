@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.mutation-grant",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "grant_id",
+    "scope_digest",
+    "status",
+    "assignment_id",
+    "work_item",
+    "repository",
+    "source_sha",
+    "source_fingerprint",
+    "branch_prefix",
+    "branch",
+    "worktree",
+    "path_policy",
+    "allowed_paths",
+    "prohibited_paths",
+    "permitted_operation_classes",
+    "permitted_git_operations",
+    "permitted_gitlab_operations",
+    "required_tests",
+    "max_model_calls",
+    "max_retries",
+    "max_prompt_bytes",
+    "max_cost_usd",
+    "issued_at_epoch",
+    "expires_at_epoch",
+    "approval_source",
+    "required_evidence",
+    "integration_conditions",
+    "mr_iid",
+    "events"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.mutation-grant"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "grant_id": { "type": "string", "pattern": "^grant-[A-Za-z0-9._-]+$" },
+    "scope_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "status": {
+      "enum": ["active", "consumed", "failed", "expired", "revoked"]
+    },
+    "assignment_id": { "type": "string", "minLength": 1 },
+    "work_item": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "source_fingerprint": { "type": "string", "minLength": 1 },
+    "branch_prefix": { "const": "hermes/" },
+    "branch": { "type": "string", "pattern": "^hermes/[A-Za-z0-9._-]+$" },
+    "worktree": { "type": "string", "minLength": 1 },
+    "path_policy": { "const": "exact-set" },
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "prohibited_paths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "permitted_operation_classes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["model-call", "repository-mutation", "gitlab-mutation"]
+      }
+    },
+    "permitted_git_operations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "clone",
+          "configure-remote",
+          "configure-local-identity",
+          "create-owned-branch",
+          "apply-bounded-patch",
+          "stage-allowed-paths",
+          "commit",
+          "push-owned-branch",
+          "fetch",
+          "checkout-merged-main",
+          "remove-owned-worktree",
+          "delete-owned-branch",
+          "provision-test-environment",
+          "run-required-tests"
+        ]
+      }
+    },
+    "permitted_gitlab_operations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "create-owned-mr",
+          "update-owned-mr",
+          "merge-reviewed-mr",
+          "record-evidence",
+          "close-controlling-work-item"
+        ]
+      }
+    },
+    "required_tests": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "max_model_calls": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "max_retries": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "max_prompt_bytes": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 200000
+    },
+    "max_cost_usd": { "type": "number", "exclusiveMinimum": 0, "maximum": 20 },
+    "issued_at_epoch": { "type": "integer", "minimum": 1 },
+    "expires_at_epoch": { "type": "integer", "minimum": 1 },
+    "approval_source": {
+      "type": "object",
+      "required": [
+        "authority_state",
+        "source_refs",
+        "planning_digest",
+        "planning_revision",
+        "approval_note"
+      ],
+      "properties": {
+        "authority_state": { "enum": ["direct", "inherited"] },
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "planning_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "planning_revision": { "type": "integer", "minimum": 1 },
+        "approval_note": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": false
+    },
+    "required_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "integration_conditions": {
+      "type": "object",
+      "required": [
+        "target_branch",
+        "pipeline_status",
+        "approvals_satisfied",
+        "discussions_resolved",
+        "no_conflicts",
+        "exact_head_sha",
+        "post_main_tests",
+        "fresh_cycle_recognition"
+      ],
+      "properties": {
+        "target_branch": { "const": "main" },
+        "pipeline_status": { "const": "success" },
+        "approvals_satisfied": { "const": true },
+        "discussions_resolved": { "const": true },
+        "no_conflicts": { "const": true },
+        "exact_head_sha": { "const": true },
+        "post_main_tests": { "const": true },
+        "fresh_cycle_recognition": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
+    "mr_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
+    "events": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}

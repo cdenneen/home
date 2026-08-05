@@ -11,7 +11,12 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from axis_supervisor.accounting import AccountingLedger
-from axis_supervisor.canary import bind_mr, expire_grant
+from axis_supervisor.assignment_grants import (
+    bind_mr as bind_assignment_grant_mr,
+    finish_grant as finish_assignment_grant,
+)
+from axis_supervisor.canary import bind_mr as bind_canary_mr
+from axis_supervisor.canary import expire_grant
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
@@ -60,6 +65,7 @@ def publish_implementation(
         OperationClass.REPOSITORY,
         assignment=assignment,
         repository=assignment["project"],
+        effect="push-owned-branch" if assignment.get("mutation_grant_id") else None,
     )
     subprocess.run(
         ["git", "push", "--no-verify", "-u", "origin", branch],
@@ -79,6 +85,7 @@ def publish_implementation(
         OperationClass.GITLAB,
         assignment=assignment,
         repository=assignment["project"],
+        effect="create-owned-mr" if assignment.get("mutation_grant_id") else None,
     )
     output = subprocess.check_output(
         [
@@ -104,7 +111,9 @@ def publish_implementation(
         timeout=120,
     )
     mr = json.loads(output)
-    bind_mr(ROOT, assignment, mr)
+    bind_canary_mr(ROOT, assignment, mr)
+    if assignment.get("mutation_grant_id"):
+        bind_assignment_grant_mr(ROOT, assignment, mr)
     result["handoff"].update(
         {
             "mr_iid": mr.get("iid"),
@@ -195,7 +204,8 @@ def close_work_item(
     assignment: dict,
     glab: str,
     gate: MutationGate,
-    decision: GateDecision,
+    close_decision: GateDecision,
+    evidence_decision: GateDecision,
     evidence: list[str],
 ) -> None:
     target = str(assignment.get("work_item") or "")
@@ -204,10 +214,13 @@ def close_work_item(
     project, iid = target.rsplit("#", 1)
     encoded = quote(project, safe="")
     gate.require(
-        decision,
+        close_decision,
         OperationClass.GITLAB,
         assignment=assignment,
         repository=project,
+        effect="close-controlling-work-item"
+        if assignment.get("mutation_grant_id")
+        else None,
     )
     subprocess.check_output(
         [
@@ -225,13 +238,14 @@ def close_work_item(
         timeout=120,
     )
     gate.require(
-        decision,
+        evidence_decision,
         OperationClass.GITLAB,
         assignment=assignment,
         repository=project,
+        effect="record-evidence" if assignment.get("mutation_grant_id") else None,
     )
     note = (
-        f"Supervisor assignment `{assignment['assignment_id']}` completed through gated merge and post-merge verification.\n\n"
+        f"Supervisor implementation assignment `{assignment['assignment_id']}` merged and passed post-main verification.\n\n"
         + "\n".join(f"- {ref}" for ref in evidence if ref)
     )
     subprocess.check_output(
@@ -316,6 +330,17 @@ def release_failed_assignment(
         assignment["lease_id"] = None
         assignment["lease_uri"] = None
     set_lifecycle(assignment, "failed")
+    assignment["result_state"] = "failed"
+    assignment["work_item_disposition"] = (
+        "requires-implementation"
+        if assignment.get("assignment_type")
+        in {
+            "governance-document-mutation",
+            "code-implementation",
+            "ci-integration-repair",
+        }
+        else "analyzed-only"
+    )
     save(path, assignment, gate)
 
 
@@ -354,9 +379,15 @@ def execute_new_assignment(
         "--resource",
         resource,
         "--ttl",
-        "1200" if assignment["kind"] == "semantic-decomposition" else "3600",
+        "1200"
+        if assignment["assignment_type"]
+        in {"read-only-analysis", "no-op-verification"}
+        else "3600",
     ]
-    if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}:
+    if assignment["assignment_type"] in {
+        "read-only-analysis",
+        "no-op-verification",
+    }:
         claim_command.append("--read-only")
     try:
         lease_output = subprocess.check_output(claim_command, text=True, timeout=30)
@@ -382,6 +413,8 @@ def execute_new_assignment(
         )
         if (assignment.get("authority") or {}).get("state") == "canary":
             expire_grant(ROOT, "failed")
+        if assignment.get("mutation_grant_id"):
+            finish_assignment_grant(ROOT, assignment, "failed")
         raise
     assignment["lease_id"] = lease["lease_id"]
     assignment["lease_uri"] = (
@@ -390,7 +423,8 @@ def execute_new_assignment(
     set_lifecycle(
         assignment,
         "running-semantic"
-        if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}
+        if assignment["assignment_type"]
+        in {"read-only-analysis", "no-op-verification"}
         else "running-implementation",
     )
     save(path, assignment, gate)
@@ -400,39 +434,64 @@ def execute_new_assignment(
         assignment=assignment,
         details={
             "model": "gpt-5.4"
-            if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}
+            if assignment["assignment_type"]
+            in {"read-only-analysis", "no-op-verification"}
             else "gpt-5.3-codex",
             "lease_id": lease["lease_id"],
             "branch": f"hermes/{assignment['assignment_id']}"
-            if assignment["kind"] not in {"semantic-decomposition", "technical-revalidation"}
+            if assignment["assignment_type"]
+            not in {"read-only-analysis", "no-op-verification"}
             else None,
             "worktree": str(ROOT / "worktrees" / assignment["assignment_id"]),
             "grant": (assignment.get("authority") or {}).get("grant_id"),
             "expected_next_phase": "awaiting-integration"
-            if assignment["kind"] not in {"semantic-decomposition", "technical-revalidation"}
+            if assignment["assignment_type"]
+            not in {"read-only-analysis", "no-op-verification"}
             else "completed",
         },
         source="cycle",
     )
     try:
         token = load_canonical_lease(ROOT, assignment)["fencing_token"]
-        if assignment["kind"] == "semantic-decomposition":
+        if assignment["assignment_type"] == "read-only-analysis":
             model_decision = gate.decide(
                 OperationClass.MODEL_CALL,
                 assignment=assignment,
                 fencing_token=token,
             )
             result = manager.semantic(assignment, model_decision)
+            verification = (result.get("record") or {}).get("verification_result") or {}
+            assignment["result_state"] = "analysis-completed"
+            assignment["work_item_disposition"] = (
+                "requires-implementation"
+                if verification.get("disposition")
+                == "corrective-implementation-required"
+                else "requires-human-decision"
+                if verification.get("disposition") == "human-authority-required"
+                else "analyzed-only"
+            )
             set_lifecycle(assignment, "completed")
-        elif assignment["kind"] == "technical-revalidation":
+        elif assignment["assignment_type"] == "no-op-verification":
             model_decision = gate.decide(
                 OperationClass.MODEL_CALL,
                 assignment=assignment,
                 fencing_token=token,
             )
             result = manager.technical_revalidation(assignment, model_decision)
+            verification = (result.get("record") or {}).get("verification_result") or {}
+            assignment["result_state"] = "no-op-verification-completed"
+            assignment["work_item_disposition"] = (
+                "no-op-verified"
+                if verification.get("disposition") == "verified-complete"
+                else "requires-implementation"
+                if verification.get("disposition")
+                == "corrective-implementation-required"
+                else "requires-human-decision"
+                if verification.get("disposition") == "human-authority-required"
+                else "analyzed-only"
+            )
             set_lifecycle(assignment, "completed")
-        elif assignment["kind"] == "repository-convergence":
+        elif assignment["assignment_type"] == "repository-convergence":
             repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
                 "project"
             ].split("/")[-1]
@@ -441,6 +500,7 @@ def execute_new_assignment(
                 assignment=assignment,
                 repository=assignment["project"],
                 fencing_token=token,
+                effect="clone" if assignment.get("mutation_grant_id") else None,
             )
             result = converge_repository(
                 assignment, repo, gate, repository_decision
@@ -455,6 +515,7 @@ def execute_new_assignment(
                 assignment=assignment,
                 repository=assignment["project"],
                 fencing_token=token,
+                effect="clone" if assignment.get("mutation_grant_id") else None,
             )
             model_decision = gate.decide(
                 OperationClass.MODEL_CALL,
@@ -464,6 +525,8 @@ def execute_new_assignment(
             result = manager.implementation(
                 assignment, repo, repository_decision, model_decision
             )
+            assignment["result_state"] = "implementation-commit-created"
+            assignment["work_item_disposition"] = "requires-integration"
             record_event(
                 ROOT,
                 "implementation_completed",
@@ -483,16 +546,29 @@ def execute_new_assignment(
                 assignment=assignment,
                 repository=assignment["project"],
                 fencing_token=token,
+                effect="create-owned-mr"
+                if assignment.get("mutation_grant_id")
+                else None,
+            )
+            push_decision = gate.decide(
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment["project"],
+                fencing_token=token,
+                effect="push-owned-branch"
+                if assignment.get("mutation_grant_id")
+                else None,
             )
             result = publish_implementation(
                 assignment,
                 result,
                 "/etc/profiles/per-user/cdenneen/bin/glab",
                 gate,
-                repository_decision,
+                push_decision,
                 gitlab_decision,
             )
             set_lifecycle(assignment, "awaiting-integration")
+            assignment["result_state"] = "awaiting-integration"
         assignment["worker"] = result
         save(path, assignment, gate)
         if is_completed(assignment):
@@ -515,7 +591,11 @@ def execute_new_assignment(
                 "assignment_disposition",
                 assignment=assignment,
                 details={
-                    "disposition": "completed",
+                    "disposition": assignment["result_state"],
+                    "work_item_disposition": assignment[
+                        "work_item_disposition"
+                    ],
+                    "assignment_type": assignment["assignment_type"],
                     "cleanup": {"lease_removed": True},
                     "next_scheduled_work": "recompute governed frontier",
                 },
@@ -543,6 +623,8 @@ def execute_new_assignment(
         )
         if (assignment.get("authority") or {}).get("state") == "canary":
             expire_grant(ROOT, "failed")
+        if assignment.get("mutation_grant_id"):
+            finish_assignment_grant(ROOT, assignment, "failed")
         raise
 
 
@@ -636,6 +718,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     assignment=assignment,
                     repository=assignment["project"],
                     fencing_token=lease["fencing_token"],
+                    effect="merge-reviewed-mr"
+                    if assignment.get("mutation_grant_id")
+                    else None,
                 )
                 integrator.merge_mr(
                     assignment["project"], iid, assignment, gate, gitlab_decision
@@ -644,6 +729,26 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if inspection["mr"].get("state") != "merged":
                 raise RuntimeError("gated integration did not produce a merged MR")
             merged_mr = inspection["mr"]
+
+            def post_merge_repository_decision(effect: str) -> GateDecision:
+                return gate.decide(
+                    OperationClass.REPOSITORY,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                    fencing_token=lease["fencing_token"],
+                    merged_mr=merged_mr,
+                    effect=effect if assignment.get("mutation_grant_id") else None,
+                )
+
+            def post_merge_gitlab_decision(effect: str) -> GateDecision:
+                return gate.decide(
+                    OperationClass.GITLAB,
+                    assignment=assignment,
+                    repository=assignment["project"],
+                    fencing_token=lease["fencing_token"],
+                    merged_mr=merged_mr,
+                    effect=effect if assignment.get("mutation_grant_id") else None,
+                )
             record_event(
                 ROOT,
                 "mr_merged",
@@ -657,20 +762,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 },
                 source="cycle",
             )
-            repository_decision = gate.decide(
-                OperationClass.REPOSITORY,
-                assignment=assignment,
-                repository=assignment["project"],
-                fencing_token=lease["fencing_token"],
-                merged_mr=merged_mr,
-            )
-            gitlab_decision = gate.decide(
-                OperationClass.GITLAB,
-                assignment=assignment,
-                repository=assignment["project"],
-                fencing_token=lease["fencing_token"],
-                merged_mr=merged_mr,
-            )
             worker_record = assignment.get("worker") or {}
             worktree_value = worker_record.get("worktree")
             branch = worker_record.get("branch")
@@ -683,10 +774,11 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             recreated_worktree = not worktree.exists()
             if recreated_worktree:
                 gate.require(
-                    repository_decision,
+                    post_merge_repository_decision("clone"),
                     OperationClass.REPOSITORY,
                     assignment=assignment,
                     repository=assignment["project"],
+                    effect="clone" if assignment.get("mutation_grant_id") else None,
                 )
                 remote_url = subprocess.check_output(
                     ["git", "remote", "get-url", "origin"],
@@ -700,10 +792,13 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     timeout=120,
                 )
                 gate.require(
-                    repository_decision,
+                    post_merge_repository_decision("configure-remote"),
                     OperationClass.REPOSITORY,
                     assignment=assignment,
                     repository=assignment["project"],
+                    effect="configure-remote"
+                    if assignment.get("mutation_grant_id")
+                    else None,
                 )
                 subprocess.run(
                     ["git", "remote", "set-url", "origin", remote_url],
@@ -712,27 +807,34 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     timeout=30,
                 )
             gate.require(
-                repository_decision,
+                post_merge_repository_decision("fetch"),
                 OperationClass.REPOSITORY,
                 assignment=assignment,
                 repository=assignment["project"],
+                effect="fetch" if assignment.get("mutation_grant_id") else None,
             )
             subprocess.run(["git", "fetch", "--prune", "origin"], cwd=worktree, check=True)
             gate.require(
-                repository_decision,
+                post_merge_repository_decision("checkout-merged-main"),
                 OperationClass.REPOSITORY,
                 assignment=assignment,
                 repository=assignment["project"],
+                effect="checkout-merged-main"
+                if assignment.get("mutation_grant_id")
+                else None,
             )
             subprocess.run(
                 ["git", "switch", "--detach", "origin/main"], cwd=worktree, check=True
             )
             if recreated_worktree and (worktree / "uv.lock").is_file():
                 gate.require(
-                    repository_decision,
+                    post_merge_repository_decision("provision-test-environment"),
                     OperationClass.REPOSITORY,
                     assignment=assignment,
                     repository=assignment["project"],
+                    effect="provision-test-environment"
+                    if assignment.get("mutation_grant_id")
+                    else None,
                 )
                 subprocess.run(
                     [
@@ -758,6 +860,15 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             }
             try:
                 for command in assignment.get("required_tests") or []:
+                    gate.require(
+                        post_merge_repository_decision("run-required-tests"),
+                        OperationClass.REPOSITORY,
+                        assignment=assignment,
+                        repository=assignment["project"],
+                        effect="run-required-tests"
+                        if assignment.get("mutation_grant_id")
+                        else None,
+                    )
                     completed = run_isolated_test(worktree, command)
                     test_results.append(
                         {"command": command, "returncode": completed.returncode}
@@ -778,6 +889,14 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     assignment=assignment,
                     repository=assignment["project"],
                 )
+                if assignment.get("mutation_grant_id"):
+                    gate.require(
+                        post_merge_repository_decision("remove-owned-worktree"),
+                        OperationClass.REPOSITORY,
+                        assignment=assignment,
+                        repository=assignment["project"],
+                        effect="remove-owned-worktree",
+                    )
                 shutil.rmtree(worktree, ignore_errors=True)
                 cleanup["worktree_removed"] = not worktree.exists()
                 cleanup["local_branch_deleted"] = True
@@ -812,7 +931,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                         assignment,
                         "/etc/profiles/per-user/cdenneen/bin/glab",
                         gate,
-                        gitlab_decision,
+                        post_merge_gitlab_decision("close-controlling-work-item"),
+                        post_merge_gitlab_decision("record-evidence"),
                         [
                             str(inspection["mr"].get("web_url") or ""),
                             str((inspection.get("pipeline") or {}).get("web_url") or ""),
@@ -837,10 +957,14 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 assignment["lease_uri"] = None
             if verification_error:
                 set_lifecycle(assignment, "blocked")
+                assignment["result_state"] = "blocked"
+                assignment["work_item_disposition"] = "requires-implementation"
                 assignment["error"] = verification_error
                 result = "post-merge-verification-failed"
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "failed")
+                if assignment.get("mutation_grant_id"):
+                    finish_assignment_grant(ROOT, assignment, "failed")
             else:
                 assignment["source_item"]["source_state"] = "closed"
                 assignment["source_item"]["state"] = "closed"
@@ -852,6 +976,10 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     fresh_cycle_recognition=False,
                 )
                 set_lifecycle(assignment, "completed")
+                assignment["result_state"] = "integrated-post-main-verified"
+                assignment["work_item_disposition"] = (
+                    "evidence-recorded-awaiting-fresh-recognition"
+                )
                 result = "integrated"
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "consumed")
@@ -866,9 +994,24 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                         },
                         source="cycle",
                     )
+                if assignment.get("mutation_grant_id"):
+                    finish_assignment_grant(ROOT, assignment, "consumed")
+                    record_event(
+                        ROOT,
+                        "grant_consumed",
+                        assignment=assignment,
+                        details={
+                            "grant_id": assignment["mutation_grant_id"],
+                            "status": "consumed",
+                            "global_mutation_enabled": False,
+                            "expected_next_phase": "fresh canonical recognition",
+                        },
+                        source="cycle",
+                    )
         else:
             if result == "waiting":
                 set_lifecycle(assignment, "awaiting-integration")
+                assignment["result_state"] = "awaiting-integration"
                 record_event(
                     ROOT,
                     "assignment_disposition",
@@ -882,6 +1025,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
             else:
                 set_lifecycle(assignment, "blocked")
+                assignment["result_state"] = "blocked"
+                assignment["work_item_disposition"] = "requires-implementation"
                 subprocess.run(
                     [
                         sys.executable,
@@ -897,6 +1042,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 assignment["lease_uri"] = None
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "failed")
+                if assignment.get("mutation_grant_id"):
+                    finish_assignment_grant(ROOT, assignment, "failed")
         save(path, assignment, gate)
         if assignment.get("lifecycle_state") in {"completed", "blocked", "failed", "cancelled"}:
             record_event(
@@ -904,11 +1051,19 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "assignment_disposition",
                 assignment=assignment,
                 details={
-                    "disposition": assignment.get("lifecycle_state"),
+                    "disposition": assignment.get("result_state"),
+                    "work_item_disposition": assignment.get(
+                        "work_item_disposition"
+                    ),
+                    "assignment_type": assignment.get("assignment_type"),
                     "post_main_verification": integration.get("post_merge_tests") or [],
                     "lease_state": "released" if assignment.get("lease_id") is None else "active",
                     "grant_state": "consumed"
-                    if result == "integrated" and (assignment.get("authority") or {}).get("state") == "canary"
+                    if result == "integrated"
+                    and (
+                        (assignment.get("authority") or {}).get("state") == "canary"
+                        or assignment.get("mutation_grant_id")
+                    )
                     else None,
                     "next_scheduled_work": "recompute governed frontier",
                 },

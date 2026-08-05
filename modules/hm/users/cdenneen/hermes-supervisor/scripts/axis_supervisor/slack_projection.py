@@ -150,6 +150,9 @@ class SlackProjection:
             ("Assignment", event.get("assignment_id")),
             ("Repository", event.get("repository")),
             ("Lifecycle", event.get("lifecycle_state")),
+            ("Assignment type", details.get("assignment_type")),
+            ("Assignment result", details.get("disposition")),
+            ("Work item disposition", details.get("work_item_disposition")),
             ("Model", details.get("model")),
             ("Retry", details.get("retry")),
             ("Failed gate", details.get("failed_gate")),
@@ -159,7 +162,6 @@ class SlackProjection:
             ("Worktree", details.get("worktree")),
             ("Commit", details.get("commit")),
             ("MR", details.get("mr_url")),
-            ("Disposition", details.get("disposition")),
             ("Next", details.get("expected_next_phase") or details.get("next_scheduled_work")),
         ):
             if value is not None and value != "" and value != []:
@@ -290,6 +292,37 @@ class SlackProjection:
         outbox = outbox or self.load_outbox()
         assignments = self.live_assignments() or inventory.get("supervisor_assignments") or []
         active = [item for item in assignments if not is_terminal(item)]
+        analysis_workers = [
+            item
+            for item in active
+            if item.get("assignment_type")
+            in {"read-only-analysis", "no-op-verification"}
+        ]
+        coding_workers = [
+            item
+            for item in active
+            if item.get("assignment_type")
+            in {
+                "governance-document-mutation",
+                "code-implementation",
+                "ci-integration-repair",
+            }
+            and item.get("lifecycle_state") != "awaiting-integration"
+        ]
+        integration_workers = [
+            item for item in active if item.get("lifecycle_state") == "awaiting-integration"
+        ]
+        active_grants = []
+        for grant_path in (self.root / "mutation-grants").glob("*/grant.json"):
+            try:
+                grant = read_record(
+                    grant_path,
+                    "axis.external-development-supervisor.mutation-grant",
+                )
+            except Exception:
+                continue
+            if grant.get("status") == "active":
+                active_grants.append(grant)
         leases = inventory.get("active_leases") or []
         classification_counts = graph.get("classification_counts") or {}
         total_classified = sum(int(value) for value in classification_counts.values())
@@ -320,6 +353,16 @@ class SlackProjection:
         events = OperationalEventLog(self.root, "reporter").events(limit=50)
         meaningful = [event for event in events if event.get("event_type") not in {"cycle_completed", "reconciliation_completed"}]
         last_progress = meaningful[-1] if meaningful else None
+        implemented_since_update = sum(
+            event.get("event_type") in {"mr_merged", "post_main_verified"}
+            for event in meaningful
+        )
+        analyzed_since_update = sum(
+            event.get("event_type") == "assignment_disposition"
+            and (event.get("details") or {}).get("assignment_type")
+            in {"read-only-analysis", "no-op-verification"}
+            for event in meaningful
+        )
         pending_notifications = [
             item
             for item in outbox.get("notifications") or []
@@ -336,7 +379,24 @@ class SlackProjection:
             if state.get("delivery_stage") == "delivery_failed" or any(item.get("current_stage") == "delivery_failed" for item in pending_notifications)
             else "amber"
         )
-        overall_operability = "green" if {scheduling_state, execution_state, integration_state, gitlab_state, slack_state} == {"green"} else "amber"
+        roadmap_advancement = (
+            "green"
+            if active_grants or coding_workers or integration_workers
+            else "amber"
+        )
+        overall_operability = (
+            "green"
+            if {
+                scheduling_state,
+                execution_state,
+                integration_state,
+                gitlab_state,
+                slack_state,
+                roadmap_advancement,
+            }
+            == {"green"}
+            else "amber"
+        )
         icon = "🟢" if health == "healthy" else "🟡"
 
         fallback = (
@@ -385,10 +445,13 @@ class SlackProjection:
                     "text": "*Operational Loop*\n"
                     f"Scheduling: *{scheduling_state}* | Execution: *{execution_state}* | "
                     f"Integration: *{integration_state}* | GitLab: *{gitlab_state}* | Slack: *{slack_state}*\n"
-                    f"Overall unattended operability: *{overall_operability}*\n"
+                    f"Roadmap advancement: *{roadmap_advancement}* | Overall unattended operability: *{overall_operability}*\n"
+                    f"Mutation default: *{'enabled' if control.get('allow_repository_mutation') else 'disabled'}* | Active bounded grants: {len(active_grants)}\n"
+                    f"Analysis workers: {len(analysis_workers)} | Coding workers: {len(coding_workers)} | Integration workers: {len(integration_workers)}\n"
+                    f"Merged/post-main events: {implemented_since_update} | Analyzed-only events: {analyzed_since_update}\n"
                     f"Last successful worker cron: `{worker_job.get('last_run_at') or 'none'}` ({worker_job.get('last_status') or 'unknown'})\n"
                     f"Last meaningful progress: `{(last_progress or {}).get('event_type') or 'none'}` at `{(last_progress or {}).get('created_at') or 'none'}`\n"
-                    f"Active assignments: {len(active)}/{control.get('max_active_assignments', 1)} | Integrator: {'awaiting MR' if integration_state == 'amber' else 'idle'}\n"
+                    f"Active assignments: {len(active)}/{control.get('max_active_assignments', 1)} | Integrator: {'awaiting MR' if integration_workers else 'idle'}\n"
                     f"Pending Slack events: {len(pending_notifications)} | Last Slack verification: `{state.get('last_verified_at') or 'unverified'}`\n"
                     f"Next worker cycle: `{worker_job.get('next_run_at') or 'unknown'}` | Next status cycle: `{reporter_job.get('next_run_at') or 'unknown'}`",
                 },
@@ -542,6 +605,15 @@ class SlackProjection:
             worker = assignment.get("worker") or {}
             handoff = worker.get("handoff") or {}
             lifecycle_state = str(assignment.get("lifecycle_state") or "unknown")
+            assignment_type = str(assignment.get("assignment_type") or "unknown")
+            worker_label = (
+                "deterministic integrator"
+                if lifecycle_state == "awaiting-integration"
+                else "GPT-5.4 analysis"
+                if assignment_type
+                in {"read-only-analysis", "no-op-verification"}
+                else "GPT-5.3-Codex coding"
+            )
             blocks.extend(
                 [
                     {"type": "divider"},
@@ -550,8 +622,9 @@ class SlackProjection:
                         "text": {
                             "type": "mrkdwn",
                             "text": f"🔵 *{assignment.get('work_item') or assignment.get('target_ref')}*\n"
-                            f"Worker: {'GPT-5.4' if 'semantic' in lifecycle_state or 'integration' in lifecycle_state else 'GPT-5.3-Codex'} | "
-                            f"Lifecycle: {lifecycle_state}\n"
+                            f"Worker: {worker_label} | Type: {assignment_type}\n"
+                            f"Lifecycle: {lifecycle_state} | Assignment result: {assignment.get('result_state')}\n"
+                            f"Work item disposition: {assignment.get('work_item_disposition')} | Grant: {assignment.get('mutation_grant_id') or 'none'}\n"
                             f"Branch: {worker.get('branch') or 'none'} | MR: {handoff.get('mr_url') or 'none'}\n"
                             f"Next: {assignment.get('integration', {}).get('result', {}).get('next') or 'continue bounded assignment'}",
                         },

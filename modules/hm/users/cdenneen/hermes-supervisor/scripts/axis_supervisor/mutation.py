@@ -6,6 +6,11 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from .accounting import AccountingLedger
+from .assignment_grants import (
+    AssignmentGrantDenied,
+    append_event as append_assignment_grant_event,
+    validate_grant as validate_assignment_grant,
+)
 from .canary import CanaryDenied, append_event, validate_canary
 from .lifecycle import is_terminal
 from .schema_registry import read_record
@@ -37,6 +42,8 @@ class GateDecision:
     authority_state: str | None
     governance_state: str | None
     canary_grant_id: str | None
+    mutation_grant_id: str | None
+    effect: str | None
     _issuer: str
     _merged_mr: dict | None
 
@@ -83,6 +90,7 @@ class MutationGate:
         repository: str | None = None,
         fencing_token: str | None = None,
         merged_mr: dict | None = None,
+        effect: str | None = None,
     ) -> GateDecision:
         if not isinstance(operation, OperationClass):
             raise MutationDenied(f"unknown operation class: {operation}")
@@ -145,6 +153,7 @@ class MutationGate:
             if assignment is None:
                 raise MutationDenied("model calls require assignment context")
             canary = None
+            mutation_grant = None
             if (assignment.get("authority") or {}).get("state") == "canary":
                 try:
                     canary = validate_canary(
@@ -152,10 +161,27 @@ class MutationGate:
                     )
                 except CanaryDenied as exc:
                     raise MutationDenied(str(exc)) from exc
+            elif assignment.get("mutation_grant_id"):
+                try:
+                    mutation_grant = validate_assignment_grant(
+                        self.root,
+                        assignment,
+                        operation.value,
+                        assignment.get("project"),
+                    )
+                except AssignmentGrantDenied as exc:
+                    raise MutationDenied(str(exc)) from exc
             lease = self._validate_lease(
                 assignment, repository, fencing_token, allow_read_only=True
             )
-            return self._decision(operation, repository, assignment, lease, canary)
+            return self._decision(
+                operation,
+                repository,
+                assignment,
+                lease,
+                canary,
+                mutation_grant=mutation_grant,
+            )
         if self.source not in {"cycle", "worker"}:
             raise MutationDenied(f"mutation source is not trusted: {self.source}")
         if assignment is None or not repository:
@@ -171,6 +197,7 @@ class MutationGate:
         if authority_state is None and authority.get("approval_matches_record"):
             authority_state = "direct"
         canary = None
+        mutation_grant = None
         if authority_state == "canary":
             try:
                 canary = validate_canary(
@@ -182,7 +209,23 @@ class MutationGate:
                 )
             except CanaryDenied as exc:
                 raise MutationDenied(str(exc)) from exc
-        if not control.get("allow_repository_mutation") and canary is None:
+        elif assignment.get("mutation_grant_id"):
+            try:
+                mutation_grant = validate_assignment_grant(
+                    self.root,
+                    assignment,
+                    operation.value,
+                    repository,
+                    effect=effect,
+                    merged_mr=merged_mr,
+                )
+            except AssignmentGrantDenied as exc:
+                raise MutationDenied(str(exc)) from exc
+        if (
+            not control.get("allow_repository_mutation")
+            and canary is None
+            and mutation_grant is None
+        ):
             raise MutationDenied("repository mutation is disabled")
         if authority_state not in {"direct", "inherited", "canary"}:
             raise MutationDenied("direct or validated inherited authority is required")
@@ -200,7 +243,9 @@ class MutationGate:
             assignment,
             lease,
             canary,
+            mutation_grant=mutation_grant,
             merged_mr=merged_mr,
+            effect=effect,
         )
 
     def _validate_lease(
@@ -235,7 +280,9 @@ class MutationGate:
         assignment: dict | None,
         lease: dict | None = None,
         canary: dict | None = None,
+        mutation_grant: dict | None = None,
         merged_mr: dict | None = None,
+        effect: str | None = None,
     ) -> GateDecision:
         decision = GateDecision(
             operation=operation,
@@ -248,6 +295,8 @@ class MutationGate:
             governance_state=(assignment or {}).get("governance_state")
             or ((assignment or {}).get("candidate") or {}).get("result"),
             canary_grant_id=(canary or {}).get("grant_id"),
+            mutation_grant_id=(mutation_grant or {}).get("grant_id"),
+            effect=effect,
             _issuer=self._issuer,
             _merged_mr=merged_mr,
         )
@@ -261,6 +310,17 @@ class MutationGate:
                     "repository": repository or (assignment or {}).get("project"),
                 },
             )
+        if mutation_grant and assignment:
+            append_assignment_grant_event(
+                self.root,
+                assignment,
+                {
+                    "event": "gate-decision",
+                    "operation": operation.value,
+                    "effect": effect,
+                    "repository": repository or assignment.get("project"),
+                },
+            )
         return decision
 
     def require(
@@ -270,6 +330,7 @@ class MutationGate:
         *,
         assignment: dict | None = None,
         repository: str | None = None,
+        effect: str | None = None,
     ) -> None:
         if (
             decision is None
@@ -277,6 +338,7 @@ class MutationGate:
             or decision.operation != operation
             or decision.repository != repository
             or decision.assignment_id != (assignment or {}).get("assignment_id")
+            or decision.effect != effect
         ):
             raise MutationDenied("missing or invalid mutation gate decision")
         if operation in {
@@ -310,6 +372,20 @@ class MutationGate:
                     raise MutationDenied(str(exc)) from exc
                 if canary.get("grant_id") != decision.canary_grant_id:
                     raise MutationDenied("canary grant changed after decision")
+            elif decision.mutation_grant_id:
+                try:
+                    mutation_grant = validate_assignment_grant(
+                        self.root,
+                        assignment,
+                        operation.value,
+                        repository or assignment.get("project"),
+                        effect=effect,
+                        merged_mr=decision._merged_mr,
+                    )
+                except AssignmentGrantDenied as exc:
+                    raise MutationDenied(str(exc)) from exc
+                if mutation_grant.get("grant_id") != decision.mutation_grant_id:
+                    raise MutationDenied("mutation grant changed after decision")
             elif operation in {OperationClass.REPOSITORY, OperationClass.GITLAB} and not control.get(
                 "allow_repository_mutation"
             ):

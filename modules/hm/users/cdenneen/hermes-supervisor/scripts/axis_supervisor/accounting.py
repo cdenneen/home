@@ -70,6 +70,15 @@ class AccountingLedger:
             for record in self._started(records)
         )
 
+    def model_attempts_for_assignment(self, assignment: str) -> int:
+        if not self.path.exists():
+            return 0
+        with self.path.open("r", encoding="utf-8") as handle:
+            records = self._records(handle)
+        return sum(
+            record["assignment"] == assignment for record in self._started(records)
+        )
+
     def worker_cycles_today(self, now: int | None = None) -> int:
         current = int(now or time.time())
         count = 0

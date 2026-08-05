@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .accounting import AccountingLedger
+from .assignment_grants import load_grant as load_assignment_grant
 from .decomposition import SemanticDecompositionEngine
 from .models import test_command_argv, validate_allowed_path, validate_semantic_record
 from .mutation import GateDecision, MutationGate, OperationClass, load_canonical_lease
@@ -155,6 +156,11 @@ class HermesWorkerManager:
         )
         prompt_bytes = len(prompt.encode("utf-8"))
         maximum_prompt_bytes = int(control.get("max_semantic_prompt_bytes", 200_000))
+        if assignment.get("mutation_grant_id"):
+            maximum_prompt_bytes = min(
+                maximum_prompt_bytes,
+                int(load_assignment_grant(self.root, assignment)["max_prompt_bytes"]),
+            )
         if prompt_bytes > maximum_prompt_bytes:
             raise ValueError(
                 f"worker prompt exceeds bounded size: {prompt_bytes}/{maximum_prompt_bytes} bytes"
@@ -620,11 +626,26 @@ class HermesWorkerManager:
         repository_decision: GateDecision | None = None,
         model_decision: GateDecision | None = None,
     ) -> dict:
+        bounded_grant = bool(assignment.get("mutation_grant_id"))
+
+        def decision(effect: str) -> GateDecision | None:
+            if not bounded_grant:
+                return repository_decision
+            lease = load_canonical_lease(self.root, assignment)
+            return self.gate.decide(
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment["project"],
+                fencing_token=lease["fencing_token"],
+                effect=effect,
+            )
+
         self.gate.require(
-            repository_decision,
+            decision("clone"),
             OperationClass.REPOSITORY,
             assignment=assignment,
             repository=assignment.get("project"),
+            effect="clone" if bounded_grant else None,
         )
         branch = f"hermes/{assignment['assignment_id']}"
         worktree = self.root / "worktrees" / assignment["assignment_id"]
@@ -640,32 +661,36 @@ class HermesWorkerManager:
         self._git_mutation(
             ["git", "clone", "--no-hardlinks", str(repo), str(worktree)],
             self.root,
-            repository_decision,
+            decision("clone"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="clone",
             timeout=120,
         )
         self._git_mutation(
             ["git", "remote", "set-url", "origin", remote_url],
             worktree,
-            repository_decision,
+            decision("configure-remote"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="configure-remote",
         )
         self._git_mutation(
             ["git", "switch", "-c", branch, "origin/main"],
             worktree,
-            repository_decision,
+            decision("create-owned-branch"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="create-owned-branch",
         )
         if (worktree / "uv.lock").is_file():
             uv = shutil.which("uv") or "/etc/profiles/per-user/cdenneen/bin/uv"
             self.gate.require(
-                repository_decision,
+                decision("provision-test-environment"),
                 OperationClass.REPOSITORY,
                 assignment=assignment,
                 repository=assignment.get("project"),
+                effect="provision-test-environment" if bounded_grant else None,
             )
             subprocess.run(
                 [
@@ -707,10 +732,11 @@ class HermesWorkerManager:
         patch_path = self.root / "recovery" / f"{assignment['assignment_id']}.planned.patch"
         patch_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.gate.require(
-            repository_decision,
+            decision("apply-bounded-patch"),
             OperationClass.REPOSITORY,
             assignment=assignment,
             repository=assignment.get("project"),
+            effect="apply-bounded-patch" if bounded_grant else None,
         )
         patch_path.write_text(patch, encoding="utf-8")
         patch_path.chmod(0o600)
@@ -753,9 +779,10 @@ class HermesWorkerManager:
         self._git_mutation(
             ["git", "apply", "--index", "--recount", str(patch_path)],
             worktree,
-            repository_decision,
+            decision("apply-bounded-patch"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="apply-bounded-patch",
         )
         changed = subprocess.check_output(
             ["git", "diff", "--cached", "--name-only"],
@@ -772,10 +799,11 @@ class HermesWorkerManager:
         test_results = []
         for command in assignment.get("required_tests") or []:
             self.gate.require(
-                repository_decision,
+                decision("run-required-tests"),
                 OperationClass.REPOSITORY,
                 assignment=assignment,
                 repository=assignment.get("project"),
+                effect="run-required-tests" if bounded_grant else None,
             )
             completed = run_isolated_test(worktree, command)
             test_results.append({"command": command, "returncode": completed.returncode})
@@ -805,16 +833,18 @@ class HermesWorkerManager:
         self._git_mutation(
             ["git", "config", "user.name", "AXIS Development Supervisor"],
             worktree,
-            repository_decision,
+            decision("configure-local-identity"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="configure-local-identity",
         )
         self._git_mutation(
             ["git", "config", "user.email", "axis-supervisor@localhost"],
             worktree,
-            repository_decision,
+            decision("configure-local-identity"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="configure-local-identity",
         )
         self._git_mutation(
             [
@@ -825,9 +855,10 @@ class HermesWorkerManager:
                 str(assignment.get("title") or assignment["assignment_id"]),
             ],
             worktree,
-            repository_decision,
+            decision("commit"),
             OperationClass.REPOSITORY,
             assignment,
+            effect="commit",
             timeout=120,
         )
         head = subprocess.check_output(
@@ -852,6 +883,7 @@ class HermesWorkerManager:
         decision: GateDecision | None,
         operation: OperationClass,
         assignment: dict,
+        effect: str,
         *,
         check: bool = True,
         timeout: int | None = None,
@@ -862,6 +894,7 @@ class HermesWorkerManager:
             operation,
             assignment=assignment,
             repository=repository,
+            effect=effect if assignment.get("mutation_grant_id") else None,
         )
         return subprocess.run(
             command,

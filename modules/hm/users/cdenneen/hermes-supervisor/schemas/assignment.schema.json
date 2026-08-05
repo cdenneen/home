@@ -10,12 +10,53 @@
     "work_item",
     "planning_record",
     "allowed_paths",
-    "required_tests"
+    "required_tests",
+    "assignment_type",
+    "result_state",
+    "work_item_disposition",
+    "mutation_grant_id",
+    "mutation_grant_uri"
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.assignment" },
     "schema_version": { "const": "1.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
+    "assignment_type": {
+      "enum": [
+        "read-only-analysis",
+        "governance-document-mutation",
+        "code-implementation",
+        "ci-integration-repair",
+        "repository-convergence",
+        "no-op-verification"
+      ]
+    },
+    "result_state": {
+      "enum": [
+        "pending",
+        "analysis-completed",
+        "no-op-verification-completed",
+        "implementation-commit-created",
+        "awaiting-integration",
+        "integrated-post-main-verified",
+        "waiting",
+        "blocked",
+        "failed",
+        "cancelled",
+        "recovery-required"
+      ]
+    },
+    "work_item_disposition": {
+      "enum": [
+        "not-evaluated",
+        "analyzed-only",
+        "no-op-verified",
+        "requires-implementation",
+        "requires-human-decision",
+        "requires-integration",
+        "evidence-recorded-awaiting-fresh-recognition"
+      ]
+    },
     "lifecycle_state": {
       "enum": [
         "ready-semantic",
@@ -77,6 +118,8 @@
     },
     "lease_id": { "type": ["string", "null"] },
     "lease_uri": { "type": ["string", "null"], "format": "uri" },
+    "mutation_grant_id": { "type": ["string", "null"] },
+    "mutation_grant_uri": { "type": ["string", "null"], "format": "uri" },
     "completion_receipt": {
       "$ref": "axis.external-development-supervisor.verification"
     },

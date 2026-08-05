@@ -223,6 +223,25 @@ def verification_for(
     assignment_id = None
     if semantic_record is not None and semantic_record.get("verification_result") is not None:
         result = normalize_verification_result(semantic_record["verification_result"])
+        qualifying_noop = any(
+            assignment.get("assignment_type") == "no-op-verification"
+            and assignment.get("result_state") == "no-op-verification-completed"
+            and bool((assignment.get("technical_results") or {}).get("all_passed"))
+            and bool((assignment.get("technical_results") or {}).get("main_sha"))
+            for assignment in matching
+        )
+        if result["disposition"] == "verified-complete" and not qualifying_noop:
+            checks = dict(result["checks"])
+            checks["fresh_cycle_recognition"] = False
+            result = verification_result(
+                checks,
+                list(result["evidence"]),
+                tier=result["tier"],
+                failure_disposition=(
+                    "semantic analysis alone cannot prove canonical completion; "
+                    "a bounded no-op verification or implementation receipt is required"
+                ),
+            )
         legacy_fresh = False
         if not semantic_record.get("source_inventory_generation_id"):
             try:

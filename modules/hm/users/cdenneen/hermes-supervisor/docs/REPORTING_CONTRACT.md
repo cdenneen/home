@@ -1,6 +1,6 @@
 # Supervisor Reporting Contract
 
-Version: 1.2.1
+Version: 1.3.0
 
 `SlackProjection` is the sole Slack transport owner. The deterministic no-agent
 cron invokes it directly. It updates one persistent Product Owner DM status
@@ -92,6 +92,19 @@ followed by message readback from that channel. Formatter success, local state
 writes, gateway connectivity, or an intermediate HTTP success are not delivery.
 Failures remain queued, affect observability and overall health, and never
 advance the successful fingerprint.
+
+Assignment lifecycle completion is operational only. Reporting must show the
+assignment type, assignment result, and work-item disposition separately.
+`analysis-completed` never means implementation completed. Canonical roadmap
+completion remains exclusively derived from an implementation completion
+receipt or a bounded no-op verification against an exact main revision.
+
+Global repository mutation remains default-deny. An eligible implementation may
+run only with a canonical per-assignment mutation grant binding exact authority,
+source revision, branch/worktree, paths, tests, operation classes, Git/GitLab
+effects, model/retry/prompt/cost budgets, expiry, required evidence, and
+integration conditions. Grant consumption does not itself prove canonical work
+item completion.
 
 Live commands generate a new semantic record from one matching current
 inventory/graph/control tuple. They never compose with the persisted overview.

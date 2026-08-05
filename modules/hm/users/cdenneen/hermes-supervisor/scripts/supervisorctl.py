@@ -18,6 +18,7 @@ from axis_supervisor.lifecycle import (
 )
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.canary import CanaryDenied, validate_canary
+from axis_supervisor.assignment_grants import AssignmentGrantDenied, validate_grant
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 CONTROL = ROOT / "control.json"
@@ -165,6 +166,7 @@ def claim(args: argparse.Namespace) -> int:
         raise RuntimeError("lease read-only mode does not match assignment kind")
     if not args.read_only:
         authority_state = (assignment.get("authority") or {}).get("state")
+        bounded_grant = False
         if authority_state == "canary":
             merged_mr = None
             if args.merged_mr_json:
@@ -181,9 +183,31 @@ def claim(args: argparse.Namespace) -> int:
                 )
             except CanaryDenied as exc:
                 raise RuntimeError(str(exc)) from exc
+        elif assignment.get("mutation_grant_id"):
+            merged_mr = None
+            if args.merged_mr_json:
+                merged_mr = json.loads(args.merged_mr_json)
+                if not isinstance(merged_mr, dict):
+                    raise RuntimeError("merged MR recovery evidence must be an object")
+            try:
+                validate_grant(
+                    ROOT,
+                    assignment,
+                    "repository-mutation",
+                    assignment.get("project"),
+                    effect="clone",
+                    merged_mr=merged_mr,
+                )
+                bounded_grant = True
+            except AssignmentGrantDenied as exc:
+                raise RuntimeError(str(exc)) from exc
         elif authority_state not in {"direct", "inherited"}:
             raise RuntimeError("mutating lease requires direct or inherited authority")
-        if not control.get("allow_repository_mutation") and authority_state != "canary":
+        if (
+            not control.get("allow_repository_mutation")
+            and authority_state != "canary"
+            and not bounded_grant
+        ):
             raise RuntimeError("repository mutation is disabled")
         if assignment.get("governance_state") not in {"Executable", "Running"}:
             raise RuntimeError("mutating lease requires executable governance state")

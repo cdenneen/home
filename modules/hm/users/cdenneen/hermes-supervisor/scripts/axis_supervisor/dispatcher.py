@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .lifecycle import is_terminal
+from .assignment_grants import create_grant
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
 from .observability import record_event
@@ -49,6 +50,18 @@ class Dispatcher:
             "schema": "axis.external-development-supervisor.assignment",
             "schema_version": "1.0.0",
             "assignment_id": assignment_id,
+            "assignment_type": item.get("assignment_type")
+            or (
+                "read-only-analysis"
+                if item.get("kind") == "semantic-decomposition"
+                else "no-op-verification"
+                if item.get("kind") == "technical-revalidation"
+                else "repository-convergence"
+                if item.get("kind") == "repository-convergence"
+                else "code-implementation"
+            ),
+            "result_state": "pending",
+            "work_item_disposition": "not-evaluated",
             "lifecycle_state": "ready-semantic"
             if item.get("kind") in {"semantic-decomposition", "technical-revalidation"}
             else "ready-implementation",
@@ -75,11 +88,20 @@ class Dispatcher:
             "lease_id": None,
             "lease_uri": None,
             "worker": None,
+            "mutation_grant_id": None,
+            "mutation_grant_uri": None,
         }
-        validate_assignment(assignment)
         path = self.assignments / f"{assignment_id}.json"
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)
+        if assignment["assignment_type"] in {
+            "governance-document-mutation",
+            "code-implementation",
+            "ci-integration-repair",
+        }:
+            control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
+            create_grant(self.root, assignment, control)
+        validate_assignment(assignment)
         write_record(path, assignment, "axis.external-development-supervisor.assignment")
         record_event(
             self.root,
@@ -90,6 +112,8 @@ class Dispatcher:
                 if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}
                 else "gpt-5.3-codex",
                 "authority": assignment.get("authority"),
+                "assignment_type": assignment["assignment_type"],
+                "mutation_grant_id": assignment.get("mutation_grant_id"),
                 "expected_next_phase": assignment["lifecycle_state"],
             },
             source="dispatcher",

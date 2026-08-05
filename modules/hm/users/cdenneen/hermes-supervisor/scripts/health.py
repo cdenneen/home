@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from axis_supervisor.schema_registry import read_record
+from axis_supervisor.models import validate_assignment
 
 HOME = Path.home()
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", HOME / ".hermes" / "supervisor" / "axis-development-supervisor"))
@@ -78,6 +79,63 @@ def main() -> int:
         else {"notifications": []}
     )
     deployed_revision = load(ROOT / "deployed-source-revision.json")
+    assignments = []
+    for path in (ROOT / "assignments").glob("*.json"):
+        try:
+            assignments.append(
+                validate_assignment(json.loads(path.read_text(encoding="utf-8")), ROOT)
+            )
+        except Exception as exc:
+            errors.append(f"invalid assignment record {path.name}: {exc}")
+    active_assignments = [
+        item
+        for item in assignments
+        if item.get("lifecycle_state")
+        not in {"completed", "waiting", "blocked", "failed", "cancelled", "recovery-required"}
+    ]
+    active_grants = []
+    for path in (ROOT / "mutation-grants").glob("*/grant.json"):
+        grant = validated(
+            path,
+            "axis.external-development-supervisor.mutation-grant",
+            errors,
+        )
+        if grant.get("status") == "active":
+            active_grants.append(grant)
+    analysis_workers = [
+        item
+        for item in active_assignments
+        if item.get("assignment_type") in {"read-only-analysis", "no-op-verification"}
+    ]
+    coding_workers = [
+        item
+        for item in active_assignments
+        if item.get("assignment_type")
+        in {
+            "governance-document-mutation",
+            "code-implementation",
+            "ci-integration-repair",
+        }
+        and item.get("lifecycle_state") != "awaiting-integration"
+    ]
+    integration_workers = [
+        item
+        for item in active_assignments
+        if item.get("lifecycle_state") == "awaiting-integration"
+    ]
+    recent_integrated = 0
+    events_path = ROOT / "operational-events.jsonl"
+    if events_path.exists():
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                event.get("event_type") == "post_main_verified"
+                and now - int(event.get("created_at_epoch") or 0) <= 86400
+            ):
+                recent_integrated += 1
 
     if gateway.get("gateway_state") != "running":
         errors.append("gateway is not running")
@@ -261,15 +319,70 @@ def main() -> int:
             return "red"
         return "amber" if issues else "green"
 
+    collection = inventory.get("collection_status") or {}
+    collector_issues = [
+        issue
+        for issue in (
+            f"retrieval errors: {collection.get('retrieval_error_count')}"
+            if int(collection.get("retrieval_error_count", 0))
+            else None,
+            f"dependency query failures: {collection.get('dependency_query_failures')}"
+            if int(collection.get("dependency_query_failures", 0))
+            else None,
+            f"stale repositories: {collection.get('stale_repository_count')}"
+            if int(collection.get("stale_repository_count", 0))
+            else None,
+        )
+        if issue
+    ]
+    mutation_state = (
+        "green"
+        if control.get("allow_repository_mutation") or active_grants
+        else "amber"
+    )
+    coding_state = "green" if coding_workers else "amber"
+    integration_activity_state = "green" if integration_workers else "amber"
+    throughput_state = "green" if recent_integrated else "amber"
     subsystem_health = {
-        "scheduling": {"state": subsystem_state(scheduling_issues), "issues": scheduling_issues},
-        "worker_execution": {"state": subsystem_state(worker_issues), "issues": worker_issues},
-        "integration": {"state": subsystem_state(integration_issues), "issues": integration_issues},
-        "gitlab": {"state": subsystem_state(gitlab_issues), "issues": gitlab_issues},
+        "scheduler": {"state": subsystem_state(scheduling_issues), "issues": scheduling_issues},
+        "collector": {"state": "red" if collector_issues else "green", "issues": collector_issues},
+        "semantic_supervisor": {"state": subsystem_state(worker_issues), "issues": worker_issues},
         "slack_observability": {"state": subsystem_state(observability_issues), "issues": observability_issues},
+        "mutation_capability": {
+            "state": mutation_state,
+            "mode": "global-enabled"
+            if control.get("allow_repository_mutation")
+            else "bounded-active"
+            if active_grants
+            else "standby",
+            "active_grants": len(active_grants),
+            "issues": [],
+        },
+        "coding_worker_activity": {
+            "state": coding_state,
+            "active_workers": len(coding_workers),
+            "issues": [],
+        },
+        "integration_activity": {
+            "state": integration_activity_state,
+            "active_workers": len(integration_workers),
+            "issues": integration_issues,
+        },
+        "verified_roadmap_throughput": {
+            "state": throughput_state,
+            "post_main_verified_last_24h": recent_integrated,
+            "issues": [],
+        },
+        "gitlab": {"state": subsystem_state(gitlab_issues), "issues": gitlab_issues},
     }
     subsystem_states = {value["state"] for value in subsystem_health.values()}
-    overall_operability = "red" if "red" in subsystem_states and subsystem_health["worker_execution"]["state"] == "red" else "amber" if "red" in subsystem_states or "amber" in subsystem_states else "green"
+    overall_operability = (
+        "red"
+        if "red" in subsystem_states
+        else "amber"
+        if "amber" in subsystem_states
+        else "green"
+    )
     status = "healthy" if not errors and not warnings else "degraded" if not errors else "unhealthy"
     print(json.dumps({
         "status": status,
@@ -293,6 +406,12 @@ def main() -> int:
         "failed_slack_notifications": len(failed_notifications),
         "subsystem_health": subsystem_health,
         "overall_unattended_operability": overall_operability,
+        "global_repository_mutation": bool(control.get("allow_repository_mutation")),
+        "active_mutation_grants": len(active_grants),
+        "analysis_workers": len(analysis_workers),
+        "coding_workers": len(coding_workers),
+        "integration_workers": len(integration_workers),
+        "post_main_verified_last_24h": recent_integrated,
         "free_disk_gib": free_gib,
     }, sort_keys=True))
     return 0 if not errors else 1
