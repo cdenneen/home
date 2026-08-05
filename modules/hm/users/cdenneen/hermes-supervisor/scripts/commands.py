@@ -40,6 +40,18 @@ def with_semantic_metadata(result: dict, semantics: dict) -> dict:
     }
 
 
+def scheduler_summary(semantics: dict) -> dict:
+    scheduler = semantics.get("scheduler_state") or {}
+    return {
+        "configured_batch_ceiling": scheduler.get("configured_batch_ceiling"),
+        "available_model_call_budget": scheduler.get("available_model_call_budget"),
+        "selected_batch": scheduler.get("selected_batch") or [],
+        "deferred_count": len(scheduler.get("deferred_items") or []),
+        "next_eligible_work": scheduler.get("next_eligible_work"),
+        "limiting_constraint": scheduler.get("limiting_constraint"),
+    }
+
+
 def main() -> int:
     text = " ".join(sys.argv[1:]).strip()
     parsed = parse_command(text or "help")
@@ -56,7 +68,15 @@ def main() -> int:
     )
     control = load("control.json", "axis.external-development-supervisor.control")
     require_current_sources(inventory, graph)
-    roadmap = build_roadmap_semantics(inventory, graph, control)
+    revision_path = ROOT / "deployed-source-revision.json"
+    deployed_revision = (
+        json.loads(revision_path.read_text(encoding="utf-8"))
+        if revision_path.is_file()
+        else {}
+    )
+    roadmap = build_roadmap_semantics(
+        inventory, graph, control, deployed_revision
+    )
 
     if command == "help":
         print(
@@ -105,7 +125,7 @@ def main() -> int:
                     "confidence": (roadmap.get("coverage") or {}).get(
                         "inventory_classified"
                     ),
-                    "scheduler_state": roadmap.get("scheduler_state") or {},
+                    "scheduler_state": scheduler_summary(roadmap),
                 }, roadmap),
                 sort_keys=True,
             )
@@ -128,7 +148,7 @@ def main() -> int:
                     "supervisor_work": roadmap.get("supervisor_work") or {},
                     "complete_roadmap": roadmap.get("complete_roadmap") or [],
                     "strategic_programs": roadmap.get("strategic_programs") or [],
-                    "scheduler_state": roadmap.get("scheduler_state") or {},
+                    "scheduler_state": scheduler_summary(roadmap),
                 }, roadmap),
                 sort_keys=True,
             )
