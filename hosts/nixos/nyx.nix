@@ -224,9 +224,34 @@ in
     port = 8780;
   };
 
+  environment.etc."axis/identity-seed.json".source = "${axis}/examples/first_run/identity-seed.json";
+
+  systemd.services.axis-bootstrap = {
+    description = "Initialize Nyx AXIS runtime state once";
+    before = [ "axis.service" ];
+    requiredBy = [ "axis.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "axis";
+      Group = "axis";
+    };
+    script = ''
+      if [ ! -f /var/lib/axis/runtime.db ]; then
+        ${axis.packages.${pkgs.system}.axis}/bin/axis \
+          --data-root /var/lib/axis \
+          init \
+          --seed-file /etc/axis/identity-seed.json \
+          --node-alias Nyx
+        ${axis.packages.${pkgs.system}.axis}/bin/axis \
+          --data-root /var/lib/axis stop || true
+      fi
+    '';
+  };
+
   systemd.services.axis-deployment-identity = {
     description = "Record Nyx AXIS deployment identity";
     after = [ "axis.service" ];
+    requires = [ "axis.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";

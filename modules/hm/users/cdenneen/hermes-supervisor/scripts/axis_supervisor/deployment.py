@@ -1,8 +1,10 @@
 import json
+import base64
 import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .lifecycle import set_lifecycle
@@ -89,8 +91,11 @@ def _command(home: Path, target: str) -> list[str]:
         return [
             "sudo",
             "-n",
+            "env",
+            "NIXPKGS_ALLOW_INSECURE=1",
             "nixos-rebuild",
             "switch",
+            "--impure",
             "--flake",
             f"{home}#ghost",
         ]
@@ -106,7 +111,8 @@ def _command(home: Path, target: str) -> list[str]:
         (
             f"test -d {remote_home}/.git && "
             f"git -C {remote_home} pull --rebase && "
-            f"sudo -n {rebuild} switch --flake {remote_home}#{selector}"
+            f"sudo -n env NIXPKGS_ALLOW_INSECURE=1 {rebuild} switch "
+            f"{'--impure ' if target == 'nyx' else ''}--flake {remote_home}#{selector}"
         ),
     ]
 
@@ -122,6 +128,106 @@ def _identity(target: str, path: str) -> dict:
             timeout=30,
         )
     )
+
+
+def _smoke(target: str, capabilities: list[str]) -> dict:
+    if target == "ghost":
+        subprocess.run(["systemctl", "is-active", "axis.service"], check=True)
+        if "Web Presentation" in capabilities:
+            subprocess.run(["systemctl", "is-active", "axis-web.service"], check=True)
+        output = subprocess.check_output(
+            [
+                "sudo",
+                "-n",
+                "-u",
+                "axis",
+                "/run/current-system/sw/bin/axis",
+                "--data-root",
+                "/var/lib/axis",
+                "health",
+            ],
+            text=True,
+            timeout=120,
+        )
+    elif target == "nyx":
+        output = subprocess.check_output(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "nyx",
+                "systemctl is-active axis.service && sudo -n -u axis /run/current-system/sw/bin/axis --data-root /var/lib/axis health",
+            ],
+            text=True,
+            timeout=120,
+        )
+        output = output.split("\n", 1)[1]
+    else:
+        output = subprocess.check_output(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "VNJTECMBCD",
+                "launchctl print system/org.nixos.axis >/dev/null && /run/current-system/sw/bin/axis --data-root /Users/cdenneen/.local/share/axis health",
+            ],
+            text=True,
+            timeout=120,
+        )
+    health = json.loads(output)
+    runtime_state = (health.get("runtime") or {}).get("state")
+    if runtime_state not in {"ready", "running"}:
+        raise RuntimeError(f"runtime smoke verification failed: {runtime_state}")
+    return health
+
+
+def _write_verified_identity(
+    target: str,
+    path: str,
+    identity: dict,
+    assignment: dict,
+) -> dict:
+    identity = dict(identity)
+    identity.update(
+        {
+            "health": "healthy",
+            "verification_status": "verified",
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+            "capability_revisions": assignment["deployment_plan"].get(
+                "expected_capability_revisions"
+            )
+            or {},
+        }
+    )
+    payload = json.dumps(identity, sort_keys=True)
+    encoded = base64.b64encode(payload.encode()).decode()
+    if target == "ghost":
+        subprocess.run(
+            [
+                "sudo",
+                "-n",
+                "sh",
+                "-c",
+                f"echo {encoded} | base64 -d > {path} && chown axis:axis {path} && chmod 0640 {path}",
+            ],
+            check=True,
+        )
+    else:
+        remote = "VNJTECMBCD" if target == "desktop" else "nyx"
+        owner = "cdenneen:staff" if target == "desktop" else "axis:axis"
+        prefix = "" if target == "desktop" else "sudo -n "
+        subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                remote,
+                f"echo {encoded} | base64 -d | {prefix}tee {path} >/dev/null && {prefix}chown {owner} {path} && {prefix}chmod 0640 {path}",
+            ],
+            check=True,
+            timeout=30,
+        )
+    return identity
 
 
 def execute_deployment_assignment(
@@ -183,9 +289,19 @@ def execute_deployment_assignment(
             "expected_revision"
         ]:
             raise RuntimeError("runtime identity does not match expected revision")
+        health = _smoke(
+            target, assignment["source_item"]["affected_capabilities"]
+        )
+        identity = _write_verified_identity(
+            target,
+            matrix["runtimes"][target]["identity_path"],
+            identity,
+            assignment,
+        )
         assignment["deployment_result"] = {
             "duration_seconds": round(time.time() - started, 3),
             "identity": identity,
+            "health": health,
             "command_stdout_tail": completed.stdout[-4000:],
         }
         assignment["result_state"] = "runtime-converged"

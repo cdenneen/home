@@ -151,6 +151,10 @@ class CapabilityConvergenceProjector:
                         "target_runtime": runtime_name,
                         "ring": runtime["ring"],
                         "affected_capabilities": behind,
+                        "expected_capability_revisions": {
+                            capability: expected_by_capability[capability]
+                            for capability in behind
+                        },
                         "expected_revision": expected_repository_revision,
                         "deployment_target": runtime["deployment_target"],
                         "status": status,
