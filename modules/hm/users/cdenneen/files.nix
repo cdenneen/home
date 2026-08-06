@@ -359,6 +359,16 @@ let
     };
 
   codexProfileAttrs = {
+    eros = {
+      model = "coding";
+      model_provider = "eros";
+      model_providers.eros = {
+        name = "Eros LiteLLM";
+        base_url = "http://100.117.68.38:4000/v1";
+        env_key = "EROS_LITELLM_API_KEY";
+        wire_api = "responses";
+      };
+    };
     "fast-triage" = {
       approval_policy = "on-request";
       sandbox_mode = "workspace-write";
@@ -514,11 +524,56 @@ in
     source = ./files/opencode-attach-latest;
     executable = true;
   };
+  home.file.".local/bin/codex-eros" = {
+    source = ./files/eros-agent;
+    executable = true;
+  };
+  home.file.".local/bin/opencode-eros" = {
+    source = ./files/eros-agent;
+    executable = true;
+  };
+  home.file.".local/bin/claude-eros" = {
+    source = ./files/eros-agent;
+    executable = true;
+  };
+  home.file.".local/bin/hermes-eros" = {
+    source = ./files/eros-agent;
+    executable = true;
+  };
+  home.file.".local/bin/pi-eros" = {
+    source = ./files/eros-agent;
+    executable = true;
+  };
+  home.file.".pi/agent/extensions/eros.ts".text = ''
+    import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+    const models = ["coding", "coding-openai", "coding-haiku", "coding-gemini", "coding-strong"];
+
+    export default function (pi: ExtensionAPI) {
+      pi.registerProvider("eros", {
+        name: "Eros LiteLLM",
+        baseUrl: "http://100.117.68.38:4000/v1",
+        apiKey: "$EROS_LITELLM_API_KEY",
+        api: "openai-completions",
+        models: models.map((id) => ({
+          id,
+          name: `Eros ''${id}`,
+          reasoning: false,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 32768,
+          maxTokens: 4096,
+        })),
+      });
+    }
+  '';
   home.file.".codex/config.toml.source".source =
     tomlFormat.generate "codex-config.toml" codexConfigAttrs;
   home.file.".codex/fast-triage.config.toml".source =
     tomlFormat.generate "codex-fast-triage.config.toml"
       codexProfileAttrs."fast-triage";
+  home.file.".codex/eros.config.toml".source =
+    tomlFormat.generate "codex-eros.toml" codexProfileAttrs.eros;
   home.file.".codex/safe-relaxed.config.toml".source =
     tomlFormat.generate "codex-safe-relaxed.config.toml"
       codexProfileAttrs."safe-relaxed";

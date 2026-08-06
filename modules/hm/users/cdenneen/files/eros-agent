@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -z "${EROS_LITELLM_API_KEY:-}" ]; then
+  for secret in \
+    "$HOME/.config/sops-nix/secrets/eros_litellm_api_key" \
+    "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key"; do
+    if [ -r "$secret" ]; then
+      export EROS_LITELLM_API_KEY="$(tr -d '\\r\\n' < "$secret")"
+      break
+    fi
+  done
+fi
+
+: "${EROS_LITELLM_API_KEY:?Eros LiteLLM key is unavailable}"
+base_url="${EROS_LITELLM_BASE_URL:-http://100.117.68.38:4000/v1}"
+model="${EROS_LITELLM_MODEL:-coding}"
+
+case "$(basename "$0")" in
+  codex-eros)
+    exec codex --profile eros "$@"
+    ;;
+  opencode-eros)
+    exec opencode -m "litellm/$model" "$@"
+    ;;
+  claude-eros)
+    export ANTHROPIC_API_KEY="$EROS_LITELLM_API_KEY"
+    export ANTHROPIC_BASE_URL="${base_url%/v1}"
+    exec claude --model "$model" "$@"
+    ;;
+  hermes-eros)
+    export OPENAI_API_KEY="$EROS_LITELLM_API_KEY"
+    export OPENAI_BASE_URL="$base_url"
+    exec hermes --provider custom --model "$model" "$@"
+    ;;
+  pi-eros)
+    exec pi --extension "$HOME/.pi/agent/extensions/eros.ts" --provider eros --model "$model" "$@"
+    ;;
+  *)
+    echo "unknown Eros launcher: $0" >&2
+    exit 2
+    ;;
+esac
