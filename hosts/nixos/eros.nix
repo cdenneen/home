@@ -53,6 +53,24 @@ in
 
   systemd.tmpfiles.rules = [ "d /var/lib/qdrant 0750 root root -" ];
 
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "litellm" ];
+    ensureUsers = [
+      {
+        name = "litellm";
+        ensureDBOwnership = true;
+      }
+    ];
+    authentication = lib.mkAfter ''
+      host litellm litellm 127.0.0.1/32 scram-sha-256
+    '';
+    settings = {
+      listen_addresses = "127.0.0.1";
+      password_encryption = "scram-sha-256";
+    };
+  };
+
   services.litellm = {
     enable = true;
     host = "127.0.0.1";
@@ -104,7 +122,10 @@ in
         }
       ];
 
-      general_settings.master_key = "os.environ/LITELLM_MASTER_KEY";
+      general_settings = {
+        master_key = "os.environ/LITELLM_MASTER_KEY";
+        database_url = "os.environ/DATABASE_URL";
+      };
 
       litellm_settings = {
         cache = true;
@@ -140,6 +161,16 @@ in
 
   sops.secrets = {
     eros_litellm_master_key = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+    eros_litellm_db_password = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+    eros_litellm_salt_key = {
       owner = "root";
       group = "root";
       mode = "0400";
@@ -183,6 +214,8 @@ in
       ${pkgs.coreutils}/bin/install -m 0600 /dev/null "${litellmEnvFile}"
       {
         printf 'LITELLM_MASTER_KEY=%s\n' "$(read_secret "${config.sops.secrets.eros_litellm_master_key.path}" "LiteLLM master key")"
+        printf 'LITELLM_SALT_KEY=%s\n' "$(read_secret "${config.sops.secrets.eros_litellm_salt_key.path}" "LiteLLM salt key")"
+        printf 'DATABASE_URL=postgresql://litellm:%s@127.0.0.1:5432/litellm\n' "$(read_secret "${config.sops.secrets.eros_litellm_db_password.path}" "LiteLLM database password")"
         printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
         printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
         printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
@@ -191,13 +224,54 @@ in
     '';
   };
 
+  systemd.services.eros-litellm-db-user = {
+    description = "Set the LiteLLM PostgreSQL role password";
+    after = [ "postgresql.service" ];
+    requires = [ "postgresql.service" ];
+    before = [ "litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [
+      config.services.postgresql.package
+      pkgs.coreutils
+      pkgs.util-linux
+    ];
+    script = ''
+      set -euo pipefail
+
+      password_file="${config.sops.secrets.eros_litellm_db_password.path}"
+      if [ ! -r "$password_file" ]; then
+        echo "Missing LiteLLM database password at $password_file" >&2
+        exit 1
+      fi
+
+      password="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$password_file")"
+      if [ -z "$password" ]; then
+        echo "LiteLLM database password is empty" >&2
+        exit 1
+      fi
+
+      ${pkgs.util-linux}/bin/runuser -u postgres -- ${config.services.postgresql.package}/bin/psql \
+        --dbname=postgres \
+        --set=ON_ERROR_STOP=1 \
+        --set=password="$password" \
+        --command "ALTER ROLE litellm PASSWORD :'password';"
+    '';
+  };
+
   systemd.services.litellm = {
     requires = [
+      "eros-litellm-db-user.service"
       "eros-litellm-env.service"
       "ollama.service"
       "podman-qdrant.service"
     ];
     after = [
+      "eros-litellm-db-user.service"
       "eros-litellm-env.service"
       "ollama.service"
       "podman-qdrant.service"
