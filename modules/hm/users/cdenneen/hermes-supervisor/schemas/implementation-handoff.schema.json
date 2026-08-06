@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.implementation-handoff",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "assignment_id",
+    "work_item",
+    "repository",
+    "branch",
+    "commit",
+    "allowed_paths",
+    "changed_paths",
+    "tests",
+    "mr_iid",
+    "mr_url",
+    "created_at",
+    "state"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.implementation-handoff"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "assignment_id": { "type": "string", "minLength": 1 },
+    "work_item": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "minLength": 1 },
+    "allowed_paths": { "type": "array", "items": { "type": "string" } },
+    "changed_paths": { "type": "array", "items": { "type": "string" } },
+    "tests": { "type": "array", "items": { "type": "object" } },
+    "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
+    "mr_url": { "type": ["string", "null"], "format": "uri" },
+    "source_main_sha": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "state": { "enum": ["ready-for-integration", "integrated", "blocked"] }
+  },
+  "additionalProperties": false
+}

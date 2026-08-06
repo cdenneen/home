@@ -48,9 +48,20 @@ from axis_supervisor.schema_registry import (
     write_record,
 )
 from axis_supervisor.verification import completion_receipt
+from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
+
+
+def deployed_source_revision() -> dict:
+    try:
+        value = json.loads(
+            (ROOT / "deployed-source-revision.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def save(path: Path, value: dict, gate: MutationGate) -> None:
@@ -704,8 +715,31 @@ def execute_new_assignment(
                 push_decision,
                 gitlab_decision,
             )
+            workflow = WorkflowState(ROOT)
+            implementation_handoff = workflow.persist_handoff(assignment, result)
+            control = read_record(
+                ROOT / "control.json",
+                "axis.external-development-supervisor.control",
+            )
+            reviewers = control.get("product_owner_usernames") or ["unassigned"]
+            integration_item = workflow.enqueue(
+                assignment, implementation_handoff, str(reviewers[0])
+            )
+            result["implementation_handoff_uri"] = integration_item["handoff_uri"]
             set_lifecycle(assignment, "awaiting-integration")
             assignment["result_state"] = "awaiting-integration"
+            record_event(
+                ROOT,
+                "frontier_refill_requested",
+                assignment=assignment,
+                details={
+                    "released_stage": "implementation",
+                    "occupied_stage": "integration",
+                    "reason": "implementation handoff persisted and queued",
+                },
+                source="cycle",
+                notify=False,
+            )
         assignment["worker"] = result
         save(path, assignment, gate)
         if is_completed(assignment):
@@ -991,9 +1025,33 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "has_conflicts": inspection["mr"].get("has_conflicts"),
             },
         }
+        worker_record = assignment.get("worker") or {}
+        mr_value = inspection.get("mr") or {}
+        diff_refs = mr_value.get("diff_refs") or {}
+        main_advance = classify_main_advance(
+            (assignment.get("source_item") or {}).get("repository_head"),
+            diff_refs.get("start_sha") or diff_refs.get("base_sha"),
+            worker_record.get("changed_paths") or assignment.get("allowed_paths"),
+            mr_value.get("main_changed_paths"),
+            merge_commit_sha=mr_value.get("merge_commit_sha"),
+        )
+        integration["main_advance"] = main_advance
         assignment["integration"] = integration
         assignment["last_integration_check_epoch"] = int(time.time())
         result = integration["result"].get("result")
+        workflow = WorkflowState(ROOT)
+        workflow.update_integration(
+            assignment["assignment_id"],
+            state=(
+                "integrating"
+                if result in {"integrate", "integrated-existing"}
+                else "waiting-ci"
+                if result == "waiting"
+                else "blocked"
+            ),
+            main_advance=main_advance,
+            last_error=None if result != "blocked" else "merge request is not integrable",
+        )
         if result in {"integrate", "integrated-existing"}:
             if result == "integrate":
                 gitlab_decision = gate.decide(
@@ -1317,6 +1375,11 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     "requires-runtime-convergence"
                 )
                 result = "integrated"
+                workflow.update_integration(
+                    assignment["assignment_id"],
+                    state="integrated",
+                    main_advance="integrated",
+                )
                 if (assignment.get("authority") or {}).get("state") == "canary":
                     expire_grant(ROOT, "consumed")
                     record_event(
@@ -1358,6 +1421,18 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                         "expected_next_phase": integration["result"].get("next") or "next scheduled integration check",
                     },
                     source="cycle",
+                )
+                record_event(
+                    ROOT,
+                    "frontier_refill_requested",
+                    assignment=assignment,
+                    details={
+                        "released_stage": "implementation",
+                        "occupied_stage": "integration",
+                        "reason": "CI or review waiting does not consume implementation capacity",
+                    },
+                    source="cycle",
+                    notify=False,
                 )
             else:
                 set_lifecycle(assignment, "blocked")
@@ -1457,7 +1532,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             "assignments": results,
         }
 
-    selected = selected_batch[0] if selected_batch else None
     assignment = dispatch_first_available(graph)
     if assignment is None:
         return {"result": "no-assignment", "queue_depth": graph["queue_depth"]}

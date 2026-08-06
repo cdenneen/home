@@ -1326,6 +1326,8 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     state = json.loads((tmp_path / "slack-overview-state.json").read_text())
     assert state["schema_version"] == "1.1.0"
     assert state["delivery_stage"] == "Slack_message_verified"
+    assert state["projection_timestamps"]["dashboard"]["overview"] == first["ts"]
+    assert state["dashboard_fallback"]["blocks"][0]["type"] == "header"
     assert record["composition"]["verified_complete"]["count"] == 1
     assert sum(value["count"] for value in record["composition"].values()) == 2
     calls.clear()

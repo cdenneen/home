@@ -12,6 +12,7 @@ from .classifier import (
     legacy_fingerprint_item,
 )
 from .decomposition import SemanticDecompositionEngine
+from .frontier import ExecutableFrontier
 from .mutation import MutationGate, OperationClass
 from .revalidation import (
     revalidation_priority,
@@ -840,4 +841,7 @@ class ExecutionGraphBuilder:
             "governed_queue_zero_proven": governed_zero,
         }
         write_execution_graph(self.root / "execution-graph.json", graph, self.gate)
+        ExecutableFrontier(self.root).build(
+            queue, assignments, graph["generation_id"]
+        )
         return graph
