@@ -7,7 +7,7 @@ if [ -z "${EROS_LITELLM_API_KEY:-}" ]; then
     "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key" \
     "$HOME/.config/sops-nix/secrets/eros_litellm_api_key"; do
     if [ -r "$secret" ]; then
-      export EROS_LITELLM_API_KEY="$(tr -d '\\r\\n' < "$secret")"
+      export EROS_LITELLM_API_KEY="$(tr -d '\r\n' < "$secret")"
       break
     fi
   done
