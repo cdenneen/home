@@ -39,7 +39,7 @@
     bindkey -M emacs '^I' expand-or-complete
     bindkey -M viins '^I' expand-or-complete
     _rm_files_or_options() {
-      if [[ ''${words[CURRENT]} == -* ]]; then
+      if [[ $PREFIX == -* ]]; then
         _rm "$@"
       else
         _files
