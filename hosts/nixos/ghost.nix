@@ -243,6 +243,17 @@ in
     extraGroups = [ "podman" ];
   };
 
+  systemd.user.services.herdr = {
+    description = "Herdr persistent terminal workspace server";
+    wantedBy = [ "default.target" ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${config.users.users.cdenneen.home}/.local/bin/herdr server";
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
+
   environment.systemPackages = lib.mkAfter [
     pkgs.caddy
     pkgs.cloudflared
