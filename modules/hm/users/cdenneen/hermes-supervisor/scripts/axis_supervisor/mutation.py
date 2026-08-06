@@ -103,11 +103,13 @@ class MutationGate:
                 "collector",
                 "cycle",
                 "dispatcher",
+                "frontier",
                 "graph",
                 "lease-controller",
                 "preflight",
                 "reporter",
                 "worker",
+                "workflow-state",
             }:
                 raise MutationDenied(
                     f"reconciliation write source is not trusted: {self.source}"

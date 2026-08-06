@@ -177,8 +177,128 @@ class SlackProjection:
         lines.append(f"*Recorded:* {event.get('created_at')}")
         return "\n".join(lines)
 
-    def process_outbox(self, token: str, channel: str) -> dict:
+    @staticmethod
+    def projection_key(event: dict) -> tuple[str, str] | None:
+        details = event.get("details") or {}
+        event_type = str(event.get("event_type") or "")
+        assignment_id = str(event.get("assignment_id") or "")
+        disposition = str(details.get("disposition") or "")
+        if event_type in {"assignment_retry", "observability_recovered"} or disposition in {
+            "blocked",
+            "failed",
+            "recovery-required",
+        }:
+            incident_id = str(
+                details.get("incident_id")
+                or assignment_id
+                or event.get("event_id")
+            )
+            return ("incident", incident_id)
+        if event_type in {"decision_required", "product_owner_decision"}:
+            decision_id = str(
+                details.get("decision_id")
+                or event.get("work_item")
+                or event.get("event_id")
+            )
+            return ("decision", decision_id)
+        if assignment_id:
+            return ("assignment", assignment_id)
+        return None
+
+    @classmethod
+    def aggregate_notifications(
+        cls, notifications: list[dict], window_seconds: int = 60
+    ) -> list[list[dict]]:
+        groups: list[list[dict]] = []
+        group_keys: list[tuple[str, str] | None] = []
+        semantic_fingerprints: list[set[str]] = []
+        for item in sorted(
+            notifications,
+            key=lambda value: (
+                int((value.get("event") or {}).get("created_at_epoch") or 0),
+                str(value.get("notification_id") or ""),
+            ),
+        ):
+            event = item.get("event") or {}
+            key = cls.projection_key(event)
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "key": key,
+                        "event_type": event.get("event_type"),
+                        "lifecycle_state": event.get("lifecycle_state"),
+                        "details": event.get("details") or {},
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            event_epoch = int(event.get("created_at_epoch") or 0)
+            matched = None
+            for index, group in enumerate(groups):
+                first_epoch = int(
+                    ((group[0].get("event") or {}).get("created_at_epoch") or 0)
+                )
+                if key is not None and group_keys[index] == key and event_epoch - first_epoch <= window_seconds:
+                    matched = index
+                    break
+            if matched is None:
+                groups.append([item])
+                group_keys.append(key)
+                semantic_fingerprints.append({fingerprint})
+            elif fingerprint not in semantic_fingerprints[matched]:
+                groups[matched].append(item)
+                semantic_fingerprints[matched].add(fingerprint)
+            else:
+                groups[matched].append(item | {"semantic_duplicate": True})
+        return groups
+
+    @classmethod
+    def render_event_group(cls, group: list[dict], recovery: bool = False) -> str:
+        events = [item["event"] for item in group if not item.get("semantic_duplicate")]
+        if not events:
+            events = [group[-1]["event"]]
+        if recovery:
+            event_names = ", ".join(event["event_type"] for event in events)
+            return (
+                "*AXIS Supervisor — Recovered missed activity*\n"
+                f"Recovered {len(group)} queued event(s): {event_names}\n"
+                f"Latest: {cls.render_event(events[-1])}"
+            )
+        assignment_type = next(
+            (
+                str((event.get("details") or {}).get("assignment_type"))
+                for event in reversed(events)
+                if (event.get("details") or {}).get("assignment_type")
+            ),
+            "",
+        )
+        if len(group) > 1 and assignment_type in {
+            "read-only-analysis",
+            "no-op-verification",
+        }:
+            return (
+                "*AXIS Supervisor — Analysis activity*\n"
+                f"Collapsed {len(group)} read-only/no-op events in a 60s window.\n"
+                f"Latest: {cls.render_event(events[-1])}"
+            )
+        if len(group) > 1:
+            return (
+                f"*AXIS Supervisor — {len(group)} related events (60s)*\n"
+                f"Latest: {cls.render_event(events[-1])}"
+            )
+        return cls.render_event(events[0])
+
+    def process_outbox(self, token: str, channel: str, state: dict | None = None) -> dict:
         outbox = self.load_outbox()
+        state = state if state is not None else self.load_state()
+        state.setdefault(
+            "projection_timestamps",
+            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
+        )
+        state.setdefault(
+            "projection_fingerprints",
+            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
+        )
         now = int(time.time())
         pending = [
             item
@@ -189,35 +309,76 @@ class SlackProjection:
         if not pending:
             return outbox
         recovery = any(item["current_stage"] == "delivery_failed" for item in pending)
-        groups = [pending[:20]] if recovery else [[item] for item in pending[:10]]
+        groups = (
+            [pending[:20]]
+            if recovery
+            else self.aggregate_notifications(pending[:50])[:10]
+        )
         for group in groups:
-            if recovery:
-                event_names = ", ".join(item["event"]["event_type"] for item in group)
-                text = (
-                    f"*AXIS Supervisor — Recovered missed activity*\n"
-                    f"Recovered {len(group)} queued event(s): {event_names}\n"
-                    f"Latest: {self.render_event(group[-1]['event'])}"
-                )
-            else:
-                text = self.render_event(group[0]["event"])
+            text = self.render_event_group(group, recovery)
+            projection = self.projection_key(group[-1]["event"])
+            text_fingerprint = hashlib.sha256(text.encode()).hexdigest()
             for item in group:
                 item["attempts"] += 1
                 self.advance(item, "notification_send_attempted")
             self.write_outbox(outbox)
             try:
-                response = self.api(token, "chat.postMessage", {"channel": channel, "text": text})
+                existing_ts = (
+                    (state.get("projection_timestamps") or {})
+                    .get(projection[0], {})
+                    .get(projection[1])
+                    if projection
+                    else None
+                )
+                existing_fingerprint = (
+                    (state.get("projection_fingerprints") or {})
+                    .get(projection[0], {})
+                    .get(projection[1])
+                    if projection
+                    else None
+                )
+                if existing_ts and existing_fingerprint == text_fingerprint:
+                    response = {"ok": True, "channel": channel, "ts": existing_ts}
+                    operation_stage = "Slack_message_updated"
+                elif existing_ts:
+                    try:
+                        response = self.api(
+                            token,
+                            "chat.update",
+                            {"channel": channel, "ts": existing_ts, "text": text},
+                        )
+                        operation_stage = "Slack_message_updated"
+                    except RuntimeError as exc:
+                        if "message_not_found" not in str(exc):
+                            raise
+                        response = self.api(
+                            token,
+                            "chat.postMessage",
+                            {"channel": channel, "text": text},
+                        )
+                        operation_stage = "Slack_message_created"
+                else:
+                    response = self.api(
+                        token, "chat.postMessage", {"channel": channel, "text": text}
+                    )
+                    operation_stage = "Slack_message_created"
                 response_channel = str(response.get("channel") or "")
                 response_ts = str(response.get("ts") or "")
                 if response_channel != channel or not response_ts:
                     raise RuntimeError("Slack API response omitted expected channel or timestamp")
                 for item in group:
                     self.advance(item, "Slack_API_accepted")
-                    self.advance(item, "Slack_message_created")
+                    self.advance(item, operation_stage)
                     item["channel"] = response_channel
                     item["ts"] = response_ts
                     item["recovery_summary"] = recovery
+                if projection:
+                    state["projection_timestamps"][projection[0]][projection[1]] = response_ts
+                    state["projection_fingerprints"][projection[0]][projection[1]] = text_fingerprint
+                    self.write_state(state)
                 self.write_outbox(outbox)
-                self.verify_message(token, channel, response_ts, text)
+                if existing_fingerprint != text_fingerprint:
+                    self.verify_message(token, channel, response_ts, text)
                 for item in group:
                     self.advance(item, "Slack_message_verified")
                     item["last_error"] = None
@@ -231,6 +392,38 @@ class SlackProjection:
                 self.write_outbox(outbox)
                 raise
         return outbox
+
+    def project_decisions(
+        self, token: str, channel: str, graph: dict, state: dict
+    ) -> None:
+        for node in graph.get("nodes") or []:
+            packet = ((node.get("semantic_record") or {}).get("decision_packet"))
+            if not isinstance(packet, dict):
+                continue
+            decision_id = str(node.get("ref") or packet.get("decision_id") or "unknown")
+            text = (
+                f"*AXIS Supervisor — Product Owner decision — {decision_id}*\n"
+                f"{packet.get('decision_requested')}\n"
+                f"*Recommendation:* {packet.get('recommendation')}\n"
+                f"*Response:* `{packet.get('response_syntax')}`"
+            )
+            fingerprint = hashlib.sha256(text.encode()).hexdigest()
+            if state["projection_fingerprints"]["decision"].get(decision_id) == fingerprint:
+                continue
+            ts = state["projection_timestamps"]["decision"].get(decision_id)
+            payload = {"channel": channel, "text": text}
+            response = self.api(
+                token,
+                "chat.update" if ts else "chat.postMessage",
+                payload | ({"ts": ts} if ts else {}),
+            )
+            response_ts = str(response.get("ts") or "")
+            if str(response.get("channel") or "") != channel or not response_ts:
+                raise RuntimeError("Slack decision projection omitted channel or timestamp")
+            state["projection_timestamps"]["decision"][decision_id] = response_ts
+            state["projection_fingerprints"]["decision"][decision_id] = fingerprint
+            self.write_state(state)
+            self.verify_message(token, channel, response_ts, text)
 
     @staticmethod
     def bar(value: int, total: int, width: int = 20) -> str:
@@ -874,6 +1067,21 @@ class SlackProjection:
             "last_successful_update_epoch": state.get("last_successful_update_epoch"),
             "updated_at_epoch": state.get("updated_at_epoch"),
             "last_api_response": state.get("last_api_response"),
+            "projection_timestamps": state.get("projection_timestamps")
+            or {
+                "dashboard": {},
+                "assignment": {},
+                "incident": {},
+                "decision": {},
+            },
+            "projection_fingerprints": state.get("projection_fingerprints")
+            or {
+                "dashboard": {},
+                "assignment": {},
+                "incident": {},
+                "decision": {},
+            },
+            "dashboard_fallback": state.get("dashboard_fallback"),
         }
 
         def state_stage(stage: str) -> None:
@@ -907,10 +1115,15 @@ class SlackProjection:
             if state.get("channel") and state["channel"] != channel:
                 raise RuntimeError("Slack DM channel does not match persisted Product Owner route")
             state["channel"] = channel
-            outbox = self.process_outbox(token, channel)
+            outbox = self.process_outbox(token, channel, state)
             fallback, blocks, fingerprint = self.render(
                 inventory, graph, control, semantics, state, outbox
             )
+            state["dashboard_fallback"] = {
+                "text": fallback,
+                "blocks": blocks,
+                "fingerprint": fingerprint,
+            }
             ts = state.get("ts")
             if state.get("fingerprint") == fingerprint and ts:
                 self.verify_message(token, channel, ts, fallback)
@@ -951,6 +1164,7 @@ class SlackProjection:
             except RuntimeError as exc:
                 if "message_not_found" not in str(exc):
                     raise
+                state["previous_ts"] = ts
                 response = self.api(token, "chat.postMessage", payload)
                 operation_stage = "Slack_message_created"
                 operation = "created"
@@ -962,6 +1176,8 @@ class SlackProjection:
             state_stage(operation_stage)
             state["channel"] = response_channel
             state["ts"] = response_ts
+            state["projection_timestamps"]["dashboard"]["overview"] = response_ts
+            state["projection_fingerprints"]["dashboard"]["overview"] = fingerprint
             state["last_api_response"] = {
                 "ok": bool(response.get("ok")),
                 "channel": response_channel,
@@ -971,6 +1187,7 @@ class SlackProjection:
             self.write_state(state)
             self.verify_message(token, channel, response_ts, fallback)
             state_stage("Slack_message_verified")
+            self.project_decisions(token, channel, graph, state)
         except Exception as delivery_exc:
             state_stage("delivery_failed")
             state["last_delivery_error"] = f"{type(delivery_exc).__name__}: {delivery_exc}"
@@ -1040,7 +1257,29 @@ class SlackProjection:
                 "last_successful_update_epoch": value.get("last_successful_update_epoch"),
                 "updated_at_epoch": value.get("updated_at_epoch"),
                 "last_api_response": None,
+                "projection_timestamps": {
+                    "dashboard": {},
+                    "assignment": {},
+                    "incident": {},
+                    "decision": {},
+                },
+                "projection_fingerprints": {
+                    "dashboard": {},
+                    "assignment": {},
+                    "incident": {},
+                    "decision": {},
+                },
+                "dashboard_fallback": None,
             }
+        value.setdefault(
+            "projection_timestamps",
+            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
+        )
+        value.setdefault(
+            "projection_fingerprints",
+            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
+        )
+        value.setdefault("dashboard_fallback", None)
         return validate_record(
             value,
             "axis.external-development-supervisor.slack-state",

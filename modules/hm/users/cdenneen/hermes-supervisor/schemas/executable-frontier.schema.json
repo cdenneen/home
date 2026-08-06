@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.executable-frontier",
+  "$defs": {
+    "stage": {
+      "enum": [
+        "semantic",
+        "implementation",
+        "integration",
+        "repair",
+        "deployment"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "required": [
+        "entry_id",
+        "target_ref",
+        "repository",
+        "stage",
+        "allowed_paths",
+        "conflict_domains",
+        "ranking_score"
+      ],
+      "properties": {
+        "entry_id": { "type": "string", "minLength": 1 },
+        "target_ref": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "stage": { "$ref": "#/$defs/stage" },
+        "allowed_paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "conflict_domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "ranking_score": { "type": "integer" },
+        "assignment_type": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "deferred": {
+      "type": "object",
+      "required": ["entry_id", "reason"],
+      "properties": {
+        "entry_id": { "type": "string", "minLength": 1 },
+        "reason": {
+          "enum": [
+            "stage-capacity",
+            "conflict-domain",
+            "quarantined",
+            "duplicate"
+          ]
+        },
+        "conflicts_with": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generation_id",
+    "generated_at",
+    "source_generation_id",
+    "capacities",
+    "in_use",
+    "entries",
+    "selected",
+    "deferred"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.executable-frontier"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "generation_id": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "source_generation_id": { "type": ["string", "null"] },
+    "capacities": {
+      "type": "object",
+      "required": [
+        "semantic",
+        "implementation",
+        "integration",
+        "repair",
+        "deployment"
+      ],
+      "properties": {
+        "semantic": { "const": 2 },
+        "implementation": { "const": 4 },
+        "integration": { "const": 2 },
+        "repair": { "const": 2 },
+        "deployment": { "const": 2 }
+      },
+      "additionalProperties": false
+    },
+    "in_use": {
+      "type": "object",
+      "required": [
+        "semantic",
+        "implementation",
+        "integration",
+        "repair",
+        "deployment"
+      ],
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+    "selected": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "deferred": { "type": "array", "items": { "$ref": "#/$defs/deferred" } }
+  },
+  "additionalProperties": false
+}

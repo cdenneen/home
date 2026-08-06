@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.integration-queue",
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": [
+        "assignment_id",
+        "work_item",
+        "repository",
+        "handoff_uri",
+        "mr_iid",
+        "mr_url",
+        "reviewer",
+        "state",
+        "main_advance",
+        "enqueued_at",
+        "updated_at"
+      ],
+      "properties": {
+        "assignment_id": { "type": "string", "minLength": 1 },
+        "work_item": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "handoff_uri": { "type": "string", "format": "uri" },
+        "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
+        "mr_url": { "type": ["string", "null"], "format": "uri" },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "state": {
+          "enum": [
+            "awaiting-review",
+            "waiting-ci",
+            "ready",
+            "integrating",
+            "integrated",
+            "blocked"
+          ]
+        },
+        "main_advance": {
+          "enum": [
+            "unchanged",
+            "compatible",
+            "repair-required",
+            "advanced-unassessed",
+            "integrated"
+          ]
+        },
+        "enqueued_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "last_error": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["schema", "schema_version", "updated_at", "items"],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.integration-queue"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "additionalProperties": false
+}

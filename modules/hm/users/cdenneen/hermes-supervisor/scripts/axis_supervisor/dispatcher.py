@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .lifecycle import is_terminal
 from .assignment_grants import create_grant
+from .frontier import compatible
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
 from .observability import record_event
@@ -53,7 +54,7 @@ class Dispatcher:
                 for value in quarantine.get("items") or []
             ):
                 return None
-        if any(value.get("project") == item.get("project") for value in active):
+        if any(not compatible(item, value) for value in active):
             return None
         source_item = item.get("source_item") or {}
         authority_facts = source_item.get("authority_facts") or {}

@@ -103,6 +103,47 @@
         "ts": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "projection_timestamps": {
+      "$ref": "#/$defs/projectionMaps"
+    },
+    "projection_fingerprints": {
+      "$ref": "#/$defs/projectionMaps"
+    },
+    "dashboard_fallback": {
+      "type": ["object", "null"],
+      "required": ["text", "blocks", "fingerprint"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "blocks": { "type": "array", "items": { "type": "object" } },
+        "fingerprint": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "projectionMaps": {
+      "type": "object",
+      "required": ["dashboard", "assignment", "incident", "decision"],
+      "properties": {
+        "dashboard": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "assignment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "incident": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "decision": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
