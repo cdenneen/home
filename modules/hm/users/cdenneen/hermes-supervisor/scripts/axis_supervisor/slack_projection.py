@@ -6,6 +6,13 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .decisions import (
+    DECISION_DIGEST,
+    DECISION_ID,
+    DecisionStore,
+    SlackDecisionController,
+    decision_identity,
+)
 from .lifecycle import is_terminal
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
@@ -194,6 +201,8 @@ class SlackProjection:
                 or event.get("event_id")
             )
             return ("incident", incident_id)
+        if details.get("assignment_type") == "no-op-verification":
+            return ("assignment", "no-op-activity")
         if event_type in {"decision_required", "product_owner_decision"}:
             decision_id = str(
                 details.get("decision_id")
@@ -396,11 +405,58 @@ class SlackProjection:
     def project_decisions(
         self, token: str, channel: str, graph: dict, state: dict
     ) -> None:
+        controller = SlackDecisionController(self.root, self.api)
+        store = DecisionStore(self.root)
         for node in graph.get("nodes") or []:
             packet = ((node.get("semantic_record") or {}).get("decision_packet"))
             if not isinstance(packet, dict):
                 continue
             decision_id = str(node.get("ref") or packet.get("decision_id") or "unknown")
+            identity, digest = decision_identity(decision_id, packet)
+            if identity == DECISION_ID and digest == DECISION_DIGEST:
+                record = store.load(identity)
+                frontier = store.load_frontier_request(identity)
+                status = (
+                    "scheduling"
+                    if record
+                    and record["outcome"].startswith("approved")
+                    and frontier
+                    and frontier["status"] == "completed"
+                    else "approved"
+                    if record and record["outcome"].startswith("approved")
+                    else "rejected"
+                    if record
+                    else "pending"
+                )
+                text, blocks = controller.render_card(
+                    packet, status=status, record=record
+                )
+                fingerprint = hashlib.sha256(
+                    json.dumps(
+                        {"text": text, "blocks": blocks}, sort_keys=True
+                    ).encode()
+                ).hexdigest()
+                if (
+                    state["projection_fingerprints"]["decision"].get(identity)
+                    == fingerprint
+                    and store.load_card(identity) is not None
+                ):
+                    continue
+                ts = state["projection_timestamps"]["decision"].get(identity)
+                response_ts, fingerprint = controller.project(
+                    token,
+                    workspace_id=str(state.get("workspace_id") or ""),
+                    authorized_user_id=str(state.get("authorized_user_id") or ""),
+                    channel=channel,
+                    decision_id=identity,
+                    packet=packet,
+                    ts=ts,
+                )
+                state["projection_timestamps"]["decision"][identity] = response_ts
+                state["projection_fingerprints"]["decision"][identity] = fingerprint
+                self.write_state(state)
+                self.verify_message(token, channel, response_ts, text)
+                continue
             text = (
                 f"*AXIS Supervisor — Product Owner decision — {decision_id}*\n"
                 f"{packet.get('decision_requested')}\n"
@@ -1126,6 +1182,7 @@ class SlackProjection:
             }
             ts = state.get("ts")
             if state.get("fingerprint") == fingerprint and ts:
+                self.project_decisions(token, channel, graph, state)
                 self.verify_message(token, channel, ts, fallback)
                 state_stage("Slack_message_verified")
                 state["message_operation"] = "verified"

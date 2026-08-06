@@ -282,3 +282,314 @@ def test_incident_card_posts_once_then_updates(tmp_path: Path):
     assert calls.count("chat.postMessage") == 1
     assert calls.count("chat.update") == 1
     assert state["projection_timestamps"]["incident"]["incident-9"] == "2.1"
+
+
+def decision_packet() -> dict:
+    from axis_supervisor.decisions import DECISION_DIGEST, DECISION_ID
+
+    return {
+        "decision_id": DECISION_ID,
+        "current_record": "MCP tranche v2",
+        "current_digest": DECISION_DIGEST,
+        "decision_requested": "Approve the bounded MCP tranche v2 plan?",
+        "recommendation": "Approve",
+        "consequences": "Scheduling remains blocked until decided.",
+        "downstream_effects": ["rebuild frontier"],
+        "unresolved_assumptions": [],
+        "response_syntax": f"Approve exact digest {DECISION_DIGEST}",
+    }
+
+
+def test_exact_decision_card_is_interactive_immutable_and_replay_safe(tmp_path: Path):
+    from axis_supervisor.decisions import (
+        APPROVE_ACTION_ID,
+        APPROVE_CONDITIONS_ACTION_ID,
+        DECISION_ID,
+        REJECT_ACTION_ID,
+        SlackDecisionController,
+    )
+
+    write_control(tmp_path)
+    calls = []
+    rebuilds = []
+
+    def api(_token: str, method: str, payload: dict) -> dict:
+        calls.append((method, payload))
+        return {"ok": True, "channel": "D1", "ts": str(payload.get("ts") or "3.1")}
+
+    controller = SlackDecisionController(tmp_path, api, lambda: rebuilds.append(True))
+    ts, _fingerprint = controller.project(
+        "token",
+        workspace_id="T1",
+        authorized_user_id="U1",
+        channel="D1",
+        decision_id=DECISION_ID,
+        packet=decision_packet(),
+        ts=None,
+    )
+    blocks = calls[0][1]["blocks"]
+    assert [block["type"] for block in blocks[:3]] == ["header", "section", "section"]
+    assert {
+        element["action_id"]
+        for block in blocks
+        for element in block.get("elements", [])
+    } == {APPROVE_ACTION_ID, APPROVE_CONDITIONS_ACTION_ID, REJECT_ACTION_ID}
+
+    body = {
+        "team": {"id": "T1"},
+        "user": {"id": "U1"},
+        "channel": {"id": "D1"},
+        "message": {"ts": ts},
+    }
+    action = {
+        "action_id": APPROVE_ACTION_ID,
+        "action_ts": "4.1",
+        "value": controller.action_value(),
+    }
+    result = controller.handle_action("token", body, action)
+    assert result["status"] == "scheduling"
+    assert rebuilds == [True]
+    assert [payload["ts"] for method, payload in calls if method == "chat.update"] == [ts, ts]
+    record = controller.store.load(DECISION_ID)
+    assert record["outcome"] == "approved"
+
+    replay = controller.handle_action("token", body, action)
+    assert replay["replayed"] is True
+    assert rebuilds == [True]
+
+    try:
+        controller.handle_action(
+            "token",
+            body,
+            action | {"action_id": REJECT_ACTION_ID},
+        )
+    except ValueError as exc:
+        assert "conflicts with immutable outcome" in str(exc)
+    else:
+        raise AssertionError("conflicting replay was accepted")
+
+    bad_body = body | {"user": {"id": "U2"}}
+    try:
+        controller.handle_action("token", bad_body, action)
+    except PermissionError as exc:
+        assert "authorized_user_id mismatch" in str(exc)
+    else:
+        raise AssertionError("wrong Slack identity was accepted")
+
+
+def test_approve_with_conditions_modal_is_bounded_and_persists_fields(tmp_path: Path):
+    from axis_supervisor.decisions import (
+        APPROVE_CONDITIONS_ACTION_ID,
+        CONDITIONS_BLOCK_ID,
+        CONDITIONS_INPUT_ID,
+        CONDITIONS_SUBMIT_ACTION_ID,
+        DECISION_ID,
+        MAX_CONDITIONS_LENGTH,
+        MAX_VERIFICATION_LENGTH,
+        SlackDecisionController,
+        VERIFICATION_BLOCK_ID,
+        VERIFICATION_INPUT_ID,
+    )
+
+    write_control(tmp_path)
+    calls = []
+    rebuilds = []
+
+    def api(_token: str, method: str, payload: dict) -> dict:
+        calls.append((method, payload))
+        return {"ok": True, "channel": "D1", "ts": str(payload.get("ts") or "5.1")}
+
+    controller = SlackDecisionController(tmp_path, api, lambda: rebuilds.append(True))
+    ts, _fingerprint = controller.project(
+        "token",
+        workspace_id="T1",
+        authorized_user_id="U1",
+        channel="D1",
+        decision_id=DECISION_ID,
+        packet=decision_packet(),
+        ts=None,
+    )
+    body = {
+        "team": {"id": "T1"},
+        "user": {"id": "U1"},
+        "channel": {"id": "D1"},
+        "message": {"ts": ts},
+        "trigger_id": "trigger-1",
+    }
+    controller.handle_action(
+        "token",
+        body,
+        {
+            "action_id": APPROVE_CONDITIONS_ACTION_ID,
+            "value": controller.action_value(),
+        },
+    )
+    modal = next(payload["view"] for method, payload in calls if method == "views.open")
+    inputs = [block["element"] for block in modal["blocks"] if block["type"] == "input"]
+    assert [value["max_length"] for value in inputs] == [
+        MAX_CONDITIONS_LENGTH,
+        MAX_VERIFICATION_LENGTH,
+    ]
+
+    submit_body = {
+        "team": {"id": "T1"},
+        "user": {"id": "U1"},
+        "view": {
+            "private_metadata": modal["private_metadata"],
+            "state": {
+                "values": {
+                    CONDITIONS_BLOCK_ID: {
+                        CONDITIONS_INPUT_ID: {"value": "Keep the adapter behind the tranche flag."}
+                    },
+                    VERIFICATION_BLOCK_ID: {
+                        VERIFICATION_INPUT_ID: {"value": "Run the MCP conformance suite."}
+                    },
+                }
+            },
+        },
+    }
+    result = controller.handle_action(
+        "token",
+        submit_body,
+        {
+            "action_id": CONDITIONS_SUBMIT_ACTION_ID,
+            "action_ts": "6.1",
+            "value": controller.action_value(),
+        },
+    )
+    assert result["record"]["outcome"] == "approved-with-conditions"
+    assert result["record"]["conditions"].startswith("Keep the adapter")
+    assert rebuilds == [True]
+
+
+def test_decision_replay_resumes_an_interrupted_frontier_rebuild(tmp_path: Path):
+    from axis_supervisor.decisions import APPROVE_ACTION_ID, DECISION_ID, SlackDecisionController
+
+    write_control(tmp_path)
+
+    def api(_token: str, _method: str, payload: dict) -> dict:
+        return {"ok": True, "channel": "D1", "ts": str(payload.get("ts") or "7.1")}
+
+    def fail_rebuild() -> None:
+        raise RuntimeError("interrupted")
+
+    controller = SlackDecisionController(tmp_path, api, fail_rebuild)
+    ts, _fingerprint = controller.project(
+        "token",
+        workspace_id="T1",
+        authorized_user_id="U1",
+        channel="D1",
+        decision_id=DECISION_ID,
+        packet=decision_packet(),
+        ts=None,
+    )
+    body = {
+        "team": {"id": "T1"},
+        "user": {"id": "U1"},
+        "channel": {"id": "D1"},
+        "message": {"ts": ts},
+    }
+    action = {
+        "action_id": APPROVE_ACTION_ID,
+        "action_ts": "7.2",
+        "value": controller.action_value(),
+    }
+    try:
+        controller.handle_action("token", body, action)
+    except RuntimeError as exc:
+        assert str(exc) == "interrupted"
+    else:
+        raise AssertionError("failed frontier rebuild was hidden")
+    assert controller.store.load_frontier_request(DECISION_ID)["status"] == "pending"
+
+    rebuilds = []
+    recovered = SlackDecisionController(tmp_path, api, lambda: rebuilds.append(True))
+    result = recovered.handle_action("token", body, action)
+    assert result["replayed"] is True
+    assert result["status"] == "scheduling"
+    assert rebuilds == [True]
+    request = recovered.store.load_frontier_request(DECISION_ID)
+    assert request["status"] == "completed"
+    assert request["attempts"] == 2
+
+
+def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Path):
+    from axis_supervisor.dispatcher import Dispatcher
+    from axis_supervisor.noop import no_op_fingerprint
+
+    write_control(tmp_path)
+    item = {
+        "ref": "technical-revalidation:ghostspace/axis#1:tests",
+        "target_ref": "ghostspace/axis#1",
+        "kind": "technical-revalidation",
+        "assignment_type": "no-op-verification",
+        "project": "ghostspace/axis",
+        "title": "Re-run focused tests",
+        "authority": {"state": "preparation-only"},
+        "candidate": {
+            "slice_id": "tests",
+            "allowed_paths": [],
+            "required_tests": ["pytest -q tests/test_mcp.py"],
+        },
+        "source_item": {"repository_head": "abc", "state": "closed"},
+        "semantic_evidence_fingerprint": "evidence-1",
+    }
+    item["no_op_fingerprint"] = no_op_fingerprint(item)
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    completed = {
+        "schema": "axis.external-development-supervisor.assignment",
+        "schema_version": "1.0.0",
+        "assignment_id": "noop-complete",
+        "assignment_type": "no-op-verification",
+        "result_state": "no-op-verification-completed",
+        "work_item_disposition": "no-op-verified",
+        "lifecycle_state": "completed",
+        "kind": "technical-revalidation",
+        "project": "ghostspace/axis",
+        "work_item": "ghostspace/axis#1",
+        "planning_record": None,
+        "allowed_paths": [],
+        "required_tests": ["pytest -q tests/test_mcp.py"],
+        "created_by_run": "run-old",
+        "no_op_fingerprint": item["no_op_fingerprint"],
+    }
+    (assignments / "noop-complete.json").write_text(json.dumps(completed), encoding="utf-8")
+    graph = {"inventory_generation_id": "g1", "executable_queue": [item]}
+    dispatcher = Dispatcher(tmp_path)
+    assert dispatcher.dispatch(graph, "run-new", item) is None
+
+    changed = item | {
+        "source_item": {"repository_head": "def", "state": "closed"}
+    }
+    changed["no_op_fingerprint"] = no_op_fingerprint(changed)
+    assert changed["no_op_fingerprint"] != item["no_op_fingerprint"]
+    assert dispatcher.dispatch(graph, "run-new", changed) is not None
+
+
+def test_no_op_activity_collapses_across_assignment_ids(tmp_path: Path):
+    from axis_supervisor.slack_projection import SlackProjection
+
+    projection = SlackProjection(tmp_path)
+    notifications = [
+        {
+            "notification_id": str(index),
+            "event": {
+                "event_id": str(index),
+                "event_type": "assignment_disposition",
+                "created_at": "2026-08-06T00:00:00+00:00",
+                "created_at_epoch": 100 + index,
+                "assignment_id": f"noop-{index}",
+                "work_item": f"ghostspace/axis#{index}",
+                "lifecycle_state": "completed",
+                "details": {
+                    "assignment_type": "no-op-verification",
+                    "disposition": "no-op-verification-completed",
+                },
+            },
+        }
+        for index in (1, 2)
+    ]
+    groups = projection.aggregate_notifications(notifications)
+    assert len(groups) == 1
+    assert "Collapsed 2 read-only/no-op events" in projection.render_event_group(groups[0])

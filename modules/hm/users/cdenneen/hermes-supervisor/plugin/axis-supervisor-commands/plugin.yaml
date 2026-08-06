@@ -1,6 +1,6 @@
 name: axis-supervisor-commands
-version: 1.0.0
-description: Deterministic Product Owner Slack commands for the AXIS Development Supervisor.
+version: 1.1.0
+description: Deterministic Product Owner Slack commands and decision actions for the AXIS Development Supervisor.
 author: cdenneen
 hooks:
   - pre_gateway_dispatch

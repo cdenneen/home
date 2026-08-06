@@ -8,6 +8,7 @@ from .assignment_grants import create_grant
 from .frontier import compatible
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
+from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .schema_registry import write_record
 
@@ -44,6 +45,8 @@ class Dispatcher:
         ):
             return None
         item = selected or graph["executable_queue"][0]
+        if is_suppressed_no_op(item, active + self.completed_no_ops()):
+            return None
         quarantine_path = self.root / "quarantines.json"
         if quarantine_path.exists():
             quarantine = json.loads(quarantine_path.read_text(encoding="utf-8"))
@@ -68,6 +71,17 @@ class Dispatcher:
                 "revision": int(authority_facts.get("record_revision") or 1),
                 "digest": authority_facts.get("record_digest"),
                 "approval_note": authority_facts.get("approval_note"),
+            }
+        decision_record = (item.get("authority") or {}).get("decision_record")
+        if planning_record is None and isinstance(decision_record, dict):
+            planning_record = {
+                "revision": 1,
+                "digest": decision_record["digest"],
+                "approval_note": self.root.joinpath(
+                    "decisions", f"{decision_record['decision_id']}.json"
+                ).resolve().as_uri(),
+                "conditions": decision_record.get("conditions"),
+                "verification": decision_record.get("verification"),
             }
         assignment_id = f"assignment-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         assignment = {
@@ -104,6 +118,12 @@ class Dispatcher:
             "required_tests": (item.get("candidate") or {}).get("required_tests") or [],
             "source_item": source_item,
             "source_fingerprint": item.get("source_fingerprint"),
+            "no_op_fingerprint": item.get("no_op_fingerprint")
+            or (
+                no_op_fingerprint(item)
+                if item.get("assignment_type") == "no-op-verification"
+                else None
+            ),
             "source_inventory_generation_id": graph.get("inventory_generation_id"),
             "revalidation_tier": item.get("revalidation_tier"),
             "ranking_factors": item.get("ranking_factors"),
@@ -180,3 +200,16 @@ class Dispatcher:
             source="dispatcher",
         )
         return assignment
+
+    def completed_no_ops(self) -> list[dict]:
+        values = []
+        for path in self.assignments.glob("*.json"):
+            value = validate_assignment(
+                json.loads(path.read_text(encoding="utf-8")), self.root
+            )
+            if (
+                value.get("assignment_type") == "no-op-verification"
+                and value.get("result_state") == "no-op-verification-completed"
+            ):
+                values.append(value)
+        return values

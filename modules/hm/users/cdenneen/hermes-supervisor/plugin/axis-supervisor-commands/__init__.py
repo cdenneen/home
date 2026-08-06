@@ -14,6 +14,13 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from axis_supervisor.command_registry import command_specs, parse_command, usage  # noqa: E402
+from axis_supervisor.decisions import (  # noqa: E402
+    APPROVE_ACTION_ID,
+    APPROVE_CONDITIONS_ACTION_ID,
+    CONDITIONS_SUBMIT_ACTION_ID,
+    REJECT_ACTION_ID,
+    SlackDecisionController,
+)
 from axis_supervisor.schema_registry import read_record  # noqa: E402
 from axis_supervisor.slack_projection import SlackProjection  # noqa: E402
 
@@ -138,6 +145,27 @@ def _run_command(command_text: str) -> subprocess.CompletedProcess:
     )
 
 
+def _rebuild_frontier() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPTS / "axis_supervisor" / "cycle.py"), "rebuild"],
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr[-2000:].strip() or completed.stdout[-2000:].strip()
+        raise RuntimeError(f"frontier rebuild failed: {detail}")
+
+
+async def _handle_decision_action(ack, body, action) -> None:
+    await ack()
+    projection = SlackProjection(ROOT)
+    token = projection.env_file()["SLACK_BOT_TOKEN"]
+    controller = SlackDecisionController(ROOT, projection.api, _rebuild_frontier)
+    await asyncio.to_thread(controller.handle_action, token, body, action)
+
+
 async def _handle_axis(raw_args: str) -> str:
     authorized = _AUTHORIZED.get()
     _AUTHORIZED.set(False)
@@ -170,3 +198,10 @@ def register(ctx) -> None:
         description="Operate the AXIS Development Supervisor without an LLM.",
         args_hint="<" + "|".join(item["command"] for item in command_specs()) + ">",
     )
+    for action_id in (
+        APPROVE_ACTION_ID,
+        APPROVE_CONDITIONS_ACTION_ID,
+        REJECT_ACTION_ID,
+        CONDITIONS_SUBMIT_ACTION_ID,
+    ):
+        ctx.register_slack_action_handler(action_id, _handle_decision_action)

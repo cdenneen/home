@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.decision-frontier-request",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "decision_id",
+    "digest",
+    "status",
+    "attempts",
+    "requested_at",
+    "last_attempt_at",
+    "completed_at"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.decision-frontier-request"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "decision_id": { "const": "axis29-mcp-tranche-v2" },
+    "digest": {
+      "const": "sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d"
+    },
+    "status": { "enum": ["pending", "completed"] },
+    "attempts": { "type": "integer", "minimum": 1 },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "last_attempt_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "additionalProperties": false
+}

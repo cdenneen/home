@@ -30,6 +30,13 @@
   Slack briefings without a model. Its atomic state maps dashboard, assignment,
   incident, and decision IDs to message timestamps, aggregates related events
   over 60 seconds, and retains the latest Block Kit dashboard as a fallback.
+- The Slack decision controller accepts actions only for the exact
+  `axis29-mcp-tranche-v2` digest, binds each action to the configured Product
+  Owner/workspace/DM/message identity, persists one immutable outcome, and
+  rebuilds the execution frontier before updating the same card to scheduling.
+- Evidence-derived no-op fingerprints exclude completed technical verification
+  from both graph selection and dispatch until repository, semantic, authority,
+  acceptance, merge-request, source, or required-test evidence changes.
 - The shared command registry defines Slack command names, aliases, parameters,
   authority, confirmation, and handler keys for the CLI and gateway plugin.
 - Reconciler is the sole inventory writer.
