@@ -214,15 +214,16 @@ def _write_verified_identity(
     assignment: dict,
 ) -> dict:
     identity = dict(identity)
+    capability_revisions = dict(identity.get("capability_revisions") or {})
+    capability_revisions.update(
+        assignment["deployment_plan"].get("expected_capability_revisions") or {}
+    )
     identity.update(
         {
             "health": "healthy",
             "verification_status": "verified",
             "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-            "capability_revisions": assignment["deployment_plan"].get(
-                "expected_capability_revisions"
-            )
-            or {},
+            "capability_revisions": capability_revisions,
         }
     )
     payload = json.dumps(identity, sort_keys=True)
