@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .mutation import MutationGate, OperationClass
 from .observability import record_event
-from .schema_registry import read_record, write_record
+from .schema_registry import RecordError, read_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.capability-convergence"
 
@@ -296,7 +296,10 @@ class CapabilityConvergenceProjector:
             "deployment_assignments": assignments,
             "promotion_status": promotion_status,
         }
-        previous = read_record(self.path, SCHEMA) if self.path.exists() else None
+        try:
+            previous = read_record(self.path, SCHEMA) if self.path.exists() else None
+        except RecordError:
+            previous = None
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)
         write_record(self.path, projection, SCHEMA)
