@@ -28,15 +28,7 @@ DELIVERY_STAGES = frozenset(
 )
 NOTIFY_EVENT_TYPES = frozenset(
     {
-        "assignment_selected",
-        "worker_started",
         "assignment_retry",
-        "implementation_completed",
-        "mr_created",
-        "mr_merged",
-        "post_main_verified",
-        "grant_consumed",
-        "assignment_disposition",
         "observability_recovered",
     }
 )

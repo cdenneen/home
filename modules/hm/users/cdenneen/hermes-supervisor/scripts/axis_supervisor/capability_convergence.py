@@ -321,6 +321,6 @@ class CapabilityConvergenceProjector:
                     "deployment_assignments": assignments,
                 },
                 source="cycle",
-                notify=bool(assignments),
+                notify=False,
             )
         return projection

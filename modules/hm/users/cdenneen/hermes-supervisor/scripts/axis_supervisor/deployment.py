@@ -83,6 +83,7 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
             "selection_rationale": assignment["selection_rationale"],
         },
         source="cycle",
+        notify=False,
     )
     return assignment
 

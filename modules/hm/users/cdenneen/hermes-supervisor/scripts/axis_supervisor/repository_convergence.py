@@ -224,6 +224,6 @@ class RepositoryConvergenceProjector:
                     "convergence_digest": convergence_digest,
                 },
                 source="collector",
-                notify=status != "green",
+                notify=False,
             )
         return projection
