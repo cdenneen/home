@@ -17,6 +17,7 @@ from .frontier import ExecutableFrontier
 from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .repository_ownership import (
+    RepositoryOwnershipDenied,
     responsibility_for_repository,
     validate_repository_ownership,
 )
@@ -567,8 +568,10 @@ class ExecutionGraphBuilder:
                     source_fingerprint,
                     compatibility_fingerprints={legacy_fingerprint},
                 )
-            except ValueError as exc:
-                if "semantic evidence fingerprint mismatch" not in str(exc):
+            except (ValueError, RepositoryOwnershipDenied) as exc:
+                if not isinstance(
+                    exc, RepositoryOwnershipDenied
+                ) and "semantic evidence fingerprint mismatch" not in str(exc):
                     raise
                 semantic = None
             verification = verification_for(
