@@ -111,7 +111,6 @@ in
           ];
           qdrant_semantic_cache_embedding_model = "local-embed";
           qdrant_collection_name = "litellm_semantic_cache";
-          qdrant_semantic_cache_vector_size = 768;
         };
       };
 
@@ -161,16 +160,17 @@ in
           echo "Missing $secret_name at $secret_file" >&2
           exit 1
         fi
-        ${pkgs.coreutils}/bin/tr -d '\\n\\r' < "$secret_file"
+        ${pkgs.coreutils}/bin/tr -d '\n\r' < "$secret_file"
       }
 
       ${pkgs.coreutils}/bin/install -d -m 0700 /run/eros-litellm
       ${pkgs.coreutils}/bin/install -m 0600 /dev/null "${litellmEnvFile}"
       {
-        printf 'LITELLM_MASTER_KEY=%s\\n' "$(read_secret "${config.sops.secrets.eros_litellm_master_key.path}" "LiteLLM master key")"
-        printf 'OPENAI_API_KEY=%s\\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
-        printf 'GEMINI_API_KEY=%s\\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
-        printf 'QDRANT_API_BASE=http://127.0.0.1:%s\\n' "${toString qdrantPort}"
+        printf 'LITELLM_MASTER_KEY=%s\n' "$(read_secret "${config.sops.secrets.eros_litellm_master_key.path}" "LiteLLM master key")"
+        printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
+        printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
+        printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
+        printf 'QDRANT_VECTOR_SIZE=768\n'
       } > "${litellmEnvFile}"
     '';
   };
@@ -203,6 +203,10 @@ in
     path = [ pkgs.tailscale ];
     script = ''
       set -euo pipefail
+      if ! ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1; then
+        echo "Tailscale is not authenticated; skipping LiteLLM serve"
+        exit 0
+      fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
     '';
   };
