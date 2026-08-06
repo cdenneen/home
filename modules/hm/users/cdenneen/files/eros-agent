@@ -3,8 +3,8 @@ set -euo pipefail
 
 if [ -z "${EROS_LITELLM_API_KEY:-}" ]; then
   for secret in \
-    "$HOME/.config/sops-nix/secrets/eros_litellm_api_key" \
-    "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key"; do
+    "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key" \
+    "$HOME/.config/sops-nix/secrets/eros_litellm_api_key"; do
     if [ -r "$secret" ]; then
       export EROS_LITELLM_API_KEY="$(tr -d '\\r\\n' < "$secret")"
       break
