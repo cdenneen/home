@@ -253,7 +253,7 @@ let
     ${lib.optionalString (erosLitellmKeyName != null) ''
       if [ -r "${config.sops.secrets.eros_litellm_api_key.path}" ]; then
         export EROS_LITELLM_BASE_URL="http://eros.tail0e55.ts.net:4000/v1"
-        export EROS_LITELLM_API_KEY="$("${pkgs.coreutils}/bin/tr -d '[:space:]' < "${config.sops.secrets.eros_litellm_api_key.path}")"
+        export EROS_LITELLM_API_KEY="$(${pkgs.coreutils}/bin/tr -d '[:space:]' < "${config.sops.secrets.eros_litellm_api_key.path}")"
       fi
     ''}
   '';
