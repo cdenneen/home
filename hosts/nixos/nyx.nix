@@ -804,6 +804,17 @@ in
     mode = "0400";
   };
 
+  systemd.user.services.herdr = {
+    description = "Herdr persistent terminal workspace server";
+    wantedBy = [ "default.target" ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${config.users.users.cdenneen.home}/.local/bin/herdr server";
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
+
   systemd.user.services.nyx-mcp-warm-cache =
     let
       run = pkgs.writeShellScript "nyx-mcp-warm-cache" ''
