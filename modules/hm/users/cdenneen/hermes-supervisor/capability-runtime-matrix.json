@@ -110,7 +110,7 @@
       "ring": 0,
       "display_name": "Ghost",
       "host": "local",
-      "identity_path": "/var/lib/axis/deployment-identity.json",
+      "identity_path": "/run/axis-deployment-identity.json",
       "deployment_target": "nixosConfigurations.ghost"
     },
     "macbookpro": {

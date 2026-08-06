@@ -587,6 +587,8 @@ in
       EOF
       chown axis:axis /var/lib/axis/deployment-identity.json
       chmod 0644 /var/lib/axis/deployment-identity.json
+      cp /var/lib/axis/deployment-identity.json /run/axis-deployment-identity.json
+      chmod 0644 /run/axis-deployment-identity.json
     '';
   };
 
