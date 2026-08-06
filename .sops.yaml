@@ -26,4 +26,6 @@ creation_rules:
       - age:
           - *personal_current
           - *personal_old
+          - *server_vnjtecmbcd
+          - *server_nyx
           - *server_ghost
