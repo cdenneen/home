@@ -18,6 +18,7 @@ in
   };
 
   config = lib.mkIf cfg.podman.enable {
+    boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
     users.groups.podman = { };
     virtualisation.podman = {
       enable = true;
