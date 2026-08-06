@@ -213,6 +213,9 @@ in
 
   services.udisks2.enable = lib.mkForce false;
   services.openssh.settings.PermitRootLogin = lib.mkForce "prohibit-password";
+  users.users.cdenneen.openssh.authorizedKeys.keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII1avpzyzr4rhp/LyD9JrcO+DJP+6pBMwbOglSBXHudF cdenneen_ed25519_2024"
+  ];
 
   services.amazon-cloudwatch-agent = {
     enable = true;
