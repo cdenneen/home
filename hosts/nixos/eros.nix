@@ -34,7 +34,7 @@ in
     openFirewall = false;
     loadModels = [
       "qwen2.5-coder:7b"
-      "embeddinggemma"
+      "qwen3-embedding:0.6b"
     ];
     environmentVariables = {
       OLLAMA_MAX_LOADED_MODELS = "2";
@@ -172,9 +172,10 @@ in
           litellm_params:
             model: ollama/qwen2.5-coder:7b
             api_base: http://127.0.0.1:11434
+            caching: false
         - model_name: local-embed
           litellm_params:
-            model: ollama/embeddinggemma
+            model: ollama/qwen3-embedding:0.6b
             api_base: http://127.0.0.1:11434
         - model_name: coding-openai
           litellm_params:
