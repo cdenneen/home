@@ -175,7 +175,7 @@ def _legacy_slack_state(path: Path) -> None:
     )
 
 
-def test_slack_cards_persist_timestamp_update_and_aggregate_duplicates(tmp_path: Path):
+def test_routine_analysis_events_do_not_create_standalone_slack_messages(tmp_path: Path):
     from axis_supervisor.observability import record_event
     from axis_supervisor.slack_projection import SlackProjection
 
@@ -183,17 +183,10 @@ def test_slack_cards_persist_timestamp_update_and_aggregate_duplicates(tmp_path:
     projection = SlackProjection(tmp_path)
     _legacy_slack_state(projection.state_path)
     state = projection.load_state()
-    messages: dict[str, dict] = {}
     calls: list[str] = []
 
     def api(_token: str, method: str, payload: dict) -> dict:
         calls.append(method)
-        if method in {"chat.postMessage", "chat.update"}:
-            ts = str(payload.get("ts") or f"1.{len(messages) + 1}")
-            messages[ts] = {"ts": ts, "text": payload["text"]}
-            return {"ok": True, "channel": "D1", "ts": ts}
-        if method == "conversations.history":
-            return {"ok": True, "messages": list(messages.values())}
         raise AssertionError(method)
 
     projection.api = api
@@ -219,13 +212,7 @@ def test_slack_cards_persist_timestamp_update_and_aggregate_duplicates(tmp_path:
         source="worker",
     )
 
-    projection.process_outbox("token", "D1", state)
-    persisted = projection.load_state()
-    ts = persisted["projection_timestamps"]["assignment"]["assignment-1"]
-    assert calls.count("chat.postMessage") == 1
-    assert "Collapsed 2 read-only/no-op events" in messages[ts]["text"]
-
-    calls.clear()
+    assert not (tmp_path / "slack-outbox.json").exists()
     assignment["lifecycle_state"] = "completed"
     record_event(
         tmp_path,
@@ -234,10 +221,9 @@ def test_slack_cards_persist_timestamp_update_and_aggregate_duplicates(tmp_path:
         details=details | {"disposition": "analysis-completed"},
         source="worker",
     )
-    projection.process_outbox("token", "D1", persisted)
-    updated = projection.load_state()
-    assert updated["projection_timestamps"]["assignment"]["assignment-1"] == ts
-    assert calls.count("chat.update") == 1
+    projection.process_outbox("token", "D1", state)
+    assert calls == []
+    assert not (tmp_path / "slack-outbox.json").exists()
 
 
 def test_incident_card_posts_once_then_updates(tmp_path: Path):
@@ -519,8 +505,8 @@ def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Pa
 
     write_control(tmp_path)
     item = {
-        "ref": "technical-revalidation:ghostspace/axis#1:tests",
-        "target_ref": "ghostspace/axis#1",
+        "ref": "technical-revalidation:ghostspace/axis#5:tests",
+        "target_ref": "ghostspace/axis#5",
         "kind": "technical-revalidation",
         "assignment_type": "no-op-verification",
         "project": "ghostspace/axis",
@@ -531,7 +517,12 @@ def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Pa
             "allowed_paths": [],
             "required_tests": ["pytest -q tests/test_mcp.py"],
         },
-        "source_item": {"repository_head": "abc", "state": "closed"},
+        "source_item": {
+            "repository_head": "abc",
+            "state": "closed",
+            "updated_at": "2026-08-01T00:00:00Z",
+            "source_evidence": {"notes": [{"id": 1, "body": "proof"}]},
+        },
         "semantic_evidence_fingerprint": "evidence-1",
     }
     item["no_op_fingerprint"] = no_op_fingerprint(item)
@@ -547,7 +538,7 @@ def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Pa
         "lifecycle_state": "completed",
         "kind": "technical-revalidation",
         "project": "ghostspace/axis",
-        "work_item": "ghostspace/axis#1",
+        "work_item": "ghostspace/axis#5",
         "planning_record": None,
         "allowed_paths": [],
         "required_tests": ["pytest -q tests/test_mcp.py"],
@@ -559,37 +550,38 @@ def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Pa
     dispatcher = Dispatcher(tmp_path)
     assert dispatcher.dispatch(graph, "run-new", item) is None
 
+    refreshed = item | {
+        "source_item": item["source_item"]
+        | {"updated_at": "2026-08-06T00:00:00Z"}
+    }
+    refreshed["no_op_fingerprint"] = no_op_fingerprint(refreshed)
+    assert refreshed["no_op_fingerprint"] == item["no_op_fingerprint"]
+    assert dispatcher.dispatch(graph, "run-new", refreshed) is None
+
     changed = item | {
-        "source_item": {"repository_head": "def", "state": "closed"}
+        "source_item": item["source_item"]
+        | {"source_evidence": {"notes": [{"id": 2, "body": "new proof"}]}}
     }
     changed["no_op_fingerprint"] = no_op_fingerprint(changed)
     assert changed["no_op_fingerprint"] != item["no_op_fingerprint"]
     assert dispatcher.dispatch(graph, "run-new", changed) is not None
 
 
-def test_no_op_activity_collapses_across_assignment_ids(tmp_path: Path):
-    from axis_supervisor.slack_projection import SlackProjection
+def test_no_op_activity_is_dashboard_only():
+    from axis_supervisor.observability import is_routine_analysis_event
 
-    projection = SlackProjection(tmp_path)
-    notifications = [
+    assert is_routine_analysis_event(
         {
-            "notification_id": str(index),
-            "event": {
-                "event_id": str(index),
-                "event_type": "assignment_disposition",
-                "created_at": "2026-08-06T00:00:00+00:00",
-                "created_at_epoch": 100 + index,
-                "assignment_id": f"noop-{index}",
-                "work_item": f"ghostspace/axis#{index}",
-                "lifecycle_state": "completed",
-                "details": {
-                    "assignment_type": "no-op-verification",
-                    "disposition": "no-op-verification-completed",
-                },
+            "event_type": "assignment_disposition",
+            "details": {
+                "assignment_type": "no-op-verification",
+                "disposition": "no-op-verification-completed",
             },
         }
-        for index in (1, 2)
-    ]
-    groups = projection.aggregate_notifications(notifications)
-    assert len(groups) == 1
-    assert "Collapsed 2 read-only/no-op events" in projection.render_event_group(groups[0])
+    )
+    assert not is_routine_analysis_event(
+        {
+            "event_type": "assignment_retry",
+            "details": {"assignment_type": "no-op-verification"},
+        }
+    )

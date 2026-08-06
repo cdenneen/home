@@ -13,6 +13,7 @@ from .decisions import (
     SlackDecisionController,
     decision_identity,
 )
+from .dashboard import render_executive_dashboard
 from .lifecycle import is_terminal
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
@@ -20,6 +21,7 @@ from .observability import (
     DELIVERY_STAGES,
     OUTBOX_SCHEMA,
     OperationalEventLog,
+    is_routine_analysis_event,
     utc_now,
 )
 from .reporting import COMPOSITION, build_roadmap_semantics
@@ -309,6 +311,18 @@ class SlackProjection:
             {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
         )
         now = int(time.time())
+        suppressed = [
+            item
+            for item in outbox["notifications"]
+            if item["current_stage"] != "Slack_message_verified"
+            and is_routine_analysis_event(item.get("event") or {})
+        ]
+        if suppressed:
+            for item in suppressed:
+                self.advance(item, "Slack_message_verified")
+                item["last_error"] = None
+                item["next_attempt_epoch"] = 0
+            self.write_outbox(outbox)
         pending = [
             item
             for item in outbox["notifications"]
@@ -519,6 +533,24 @@ class SlackProjection:
         }.get(status, "⚪")
 
     def render(
+        self,
+        inventory: dict,
+        graph: dict,
+        control: dict,
+        semantics: dict | None = None,
+        state: dict | None = None,
+        outbox: dict | None = None,
+    ) -> tuple[str, list[dict], str]:
+        del state, outbox
+        semantics = semantics or build_roadmap_semantics(
+            inventory, graph, control, self.deployed_revision()
+        )
+        events = OperationalEventLog(self.root, "reporter").events(limit=50)
+        return render_executive_dashboard(
+            self.root, inventory, graph, semantics, events
+        )
+
+    def _render_internal_dashboard(
         self,
         inventory: dict,
         graph: dict,

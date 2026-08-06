@@ -1406,9 +1406,14 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "conversations.history",
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
-    assert "queue=1" in fallback
+    assert fallback.startswith("AXIS Executive Dashboard | Roadmap 1/2 verified")
     assert blocks[0]["type"] == "header"
+    assert len([block for block in blocks if block["type"] == "section"]) == 15
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
+    assert not any(
+        forbidden in json.dumps(blocks).lower()
+        for forbidden in ("worktree", "lease", "grant", "model", "lifecycle")
+    )
     record = json.loads((tmp_path / "slack-overview-record.json").read_text())
     state = json.loads((tmp_path / "slack-overview-state.json").read_text())
     assert state["schema_version"] == "1.1.0"
@@ -1419,10 +1424,11 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     assert sum(value["count"] for value in record["composition"].values()) == 2
     calls.clear()
     second = projection.update(inventory, graph, control_value)
-    assert second["updated"] is True
+    assert second["updated"] is False
     assert second["ts"] == first["ts"]
-    assert [method for method, _ in calls][-2:] == [
-        "chat.update",
+    assert [method for method, _ in calls] == [
+        "auth.test",
+        "conversations.open",
         "conversations.history",
     ]
     graph["queue_depth"] = 2
@@ -1461,12 +1467,9 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     live_path.write_text(json.dumps(live), encoding="utf-8")
     calls.clear()
     worker_change = projection.update(inventory, graph, control_value)
-    assert worker_change["updated"] is True
+    assert worker_change["updated"] is False
     assert worker_change["ts"] == first["ts"]
-    assert any(
-        "running-semantic" in json.dumps(call[1].get("blocks", []))
-        for call in calls
-    )
+    assert not any("running-semantic" in json.dumps(call) for call in calls)
 
     record_event(
         tmp_path,
@@ -1623,7 +1626,7 @@ def test_supervisor_slack_plugin_executes_typed_command_without_shell(
     monkeypatch.setattr(plugin.subprocess, "run", run)
     plugin._pre_gateway_dispatch(event=Event())
     response = asyncio.run(plugin._handle_axis("status"))
-    assert "AXIS Supervisor Status" in response
+    assert "AXIS Executive Status" in response
     assert captured["command"] == [
         plugin.sys.executable,
         str(plugin.COMMAND_SCRIPT),
