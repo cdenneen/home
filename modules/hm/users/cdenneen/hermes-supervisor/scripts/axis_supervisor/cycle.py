@@ -14,16 +14,19 @@ if __package__ in {None, ""}:
 from axis_supervisor.accounting import AccountingLedger
 from axis_supervisor.assignment_grants import (
     bind_mr as bind_assignment_grant_mr,
+)
+from axis_supervisor.assignment_grants import (
     finish_grant as finish_assignment_grant,
 )
 from axis_supervisor.canary import bind_mr as bind_canary_mr
 from axis_supervisor.canary import expire_grant
 from axis_supervisor.capability_convergence import CapabilityConvergenceProjector
-from axis_supervisor.dispatcher import Dispatcher
+from axis_supervisor.capability_graduation import CapabilityGraduationProjector
 from axis_supervisor.deployment import (
     create_deployment_assignment,
     execute_deployment_assignment,
 )
+from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.lifecycle import is_completed, is_integrable, set_lifecycle
@@ -39,8 +42,8 @@ from axis_supervisor.observability import (
     record_engineering_retrospective,
     record_event,
 )
-from axis_supervisor.roadmap_quality import RoadmapQualityProjector
 from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
+from axis_supervisor.roadmap_quality import RoadmapQualityProjector
 from axis_supervisor.schema_registry import (
     CorruptRecordError,
     read_record,
@@ -48,10 +51,15 @@ from axis_supervisor.schema_registry import (
     write_record,
 )
 from axis_supervisor.verification import completion_receipt
-from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
+from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
 
-ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
+ROOT = Path(
+    os.environ.get(
+        "AXIS_SUPERVISOR_ROOT",
+        Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor",
+    )
+)
 
 
 def deployed_source_revision() -> dict:
@@ -252,9 +260,8 @@ def close_work_item(
     description = str(current_issue.get("description") or "")
     completed_description = description.replace("- [ ]", "- [x]")
     if "## Supervisor completion evidence" not in completed_description:
-        completed_description += (
-            "\n\n## Supervisor completion evidence\n"
-            + "\n".join(f"- {ref}" for ref in evidence if ref)
+        completed_description += "\n\n## Supervisor completion evidence\n" + "\n".join(
+            f"- {ref}" for ref in evidence if ref
         )
     gate.require(
         evidence_decision,
@@ -370,7 +377,9 @@ def release_failed_assignment(
             if worker.get("custody") == "isolated-clone":
                 shutil.rmtree(worktree, ignore_errors=True)
             else:
-                recovery_worktree = recovery_dir / "worktrees" / assignment["assignment_id"]
+                recovery_worktree = (
+                    recovery_dir / "worktrees" / assignment["assignment_id"]
+                )
                 recovery_worktree.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 if recovery_worktree.exists():
                     shutil.rmtree(recovery_worktree)
@@ -448,7 +457,10 @@ def rebuild() -> dict:
     )
     RoadmapQualityProjector(ROOT).build(inventory, graph)
     repository_convergence = RepositoryConvergenceProjector(ROOT).build(inventory)
-    CapabilityConvergenceProjector(ROOT).build(repository_convergence)
+    capability_convergence = CapabilityConvergenceProjector(ROOT).build(
+        repository_convergence
+    )
+    CapabilityGraduationProjector(ROOT).build(inventory, graph, capability_convergence)
     return graph
 
 
@@ -471,8 +483,7 @@ def execute_new_assignment(
         resource,
         "--ttl",
         "1200"
-        if assignment["assignment_type"]
-        in {"read-only-analysis", "no-op-verification"}
+        if assignment["assignment_type"] in {"read-only-analysis", "no-op-verification"}
         else "3600",
     ]
     if assignment["assignment_type"] in {
@@ -502,9 +513,7 @@ def execute_new_assignment(
                 "requested_lease_key": assignment["assignment_id"],
                 "requested_scope": [resource],
                 "supervisor_revision": deployed_source_revision(),
-                "inventory_revision": assignment.get(
-                    "source_inventory_generation_id"
-                ),
+                "inventory_revision": assignment.get("source_inventory_generation_id"),
             }
             diagnostic_path = (
                 ROOT
@@ -562,13 +571,12 @@ def execute_new_assignment(
         raise
     assignment["lease_id"] = lease["lease_id"]
     assignment["lease_uri"] = (
-        ROOT / "leases" / lease["lease_id"] / "lease.json"
-    ).resolve().as_uri()
+        (ROOT / "leases" / lease["lease_id"] / "lease.json").resolve().as_uri()
+    )
     set_lifecycle(
         assignment,
         "running-semantic"
-        if assignment["assignment_type"]
-        in {"read-only-analysis", "no-op-verification"}
+        if assignment["assignment_type"] in {"read-only-analysis", "no-op-verification"}
         else "running-implementation",
     )
     save(path, assignment, gate)
@@ -636,9 +644,10 @@ def execute_new_assignment(
             )
             set_lifecycle(assignment, "completed")
         elif assignment["assignment_type"] == "repository-convergence":
-            repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
-                "project"
-            ].split("/")[-1]
+            repo = (
+                Path("/home/cdenneen/src/workspace/personal/work")
+                / assignment["project"].split("/")[-1]
+            )
             repository_decision = gate.decide(
                 OperationClass.REPOSITORY,
                 assignment=assignment,
@@ -646,14 +655,13 @@ def execute_new_assignment(
                 fencing_token=token,
                 effect="clone" if assignment.get("mutation_grant_id") else None,
             )
-            result = converge_repository(
-                assignment, repo, gate, repository_decision
-            )
+            result = converge_repository(assignment, repo, gate, repository_decision)
             set_lifecycle(assignment, "completed")
         else:
-            repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
-                "project"
-            ].split("/")[-1]
+            repo = (
+                Path("/home/cdenneen/src/workspace/personal/work")
+                / assignment["project"].split("/")[-1]
+            )
             repository_decision = gate.decide(
                 OperationClass.REPOSITORY,
                 assignment=assignment,
@@ -686,9 +694,7 @@ def execute_new_assignment(
                 },
                 source="cycle",
             )
-            record_engineering_retrospective(
-                ROOT, assignment, source="cycle"
-            )
+            record_engineering_retrospective(ROOT, assignment, source="cycle")
             gitlab_decision = gate.decide(
                 OperationClass.GITLAB,
                 assignment=assignment,
@@ -763,18 +769,14 @@ def execute_new_assignment(
                 assignment=assignment,
                 details={
                     "disposition": assignment["result_state"],
-                    "work_item_disposition": assignment[
-                        "work_item_disposition"
-                    ],
+                    "work_item_disposition": assignment["work_item_disposition"],
                     "assignment_type": assignment["assignment_type"],
                     "cleanup": {"lease_removed": True},
                     "next_scheduled_work": "recompute governed frontier",
                 },
                 source="cycle",
             )
-            record_engineering_retrospective(
-                ROOT, assignment, source="cycle"
-            )
+            record_engineering_retrospective(ROOT, assignment, source="cycle")
         rebuild()
         return {
             "result": assignment["lifecycle_state"],
@@ -845,10 +847,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 and (
                     not value.get("lease_id")
                     or not (
-                        ROOT
-                        / "leases"
-                        / str(value.get("lease_id"))
-                        / "lease.json"
+                        ROOT / "leases" / str(value.get("lease_id")) / "lease.json"
                     ).exists()
                 )
             ),
@@ -887,14 +886,11 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         return None
 
     def execute_with_continuation(assignment: dict) -> dict:
-        first = execute_new_assignment(
-            assignment, manager, supervisorctl, gate
-        )
+        first = execute_new_assignment(assignment, manager, supervisorctl, gate)
         if (
             assignment.get("assignment_type")
             not in {"read-only-analysis", "no-op-verification"}
-            or assignment.get("work_item_disposition")
-            != "requires-implementation"
+            or assignment.get("work_item_disposition") != "requires-implementation"
         ):
             return first
         continuation_graph = rebuild()
@@ -921,14 +917,10 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             "immediate authorized continuation from analysis; implementation-ready "
             "work preempts unrelated analysis"
         )
-        next_assignment = dispatcher.dispatch(
-            continuation_graph, run_id, continuation
-        )
+        next_assignment = dispatcher.dispatch(continuation_graph, run_id, continuation)
         if next_assignment is None:
             return first
-        second = execute_new_assignment(
-            next_assignment, manager, supervisorctl, gate
-        )
+        second = execute_new_assignment(next_assignment, manager, supervisorctl, gate)
         return {
             "result": "analysis-to-implementation-continuation",
             "analysis": first,
@@ -941,9 +933,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             return {
                 "result": "active-assignment-not-integrable",
                 "assignments": [value["assignment_id"] for value in active],
-                "lifecycle_states": [
-                    value.get("lifecycle_state") for value in active
-                ],
+                "lifecycle_states": [value.get("lifecycle_state") for value in active],
             }
         assignment = validate_assignment(integrable[0])
         path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
@@ -1004,12 +994,18 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         integration_result = (
             "integrated-existing"
             if inspection["mr"].get("state") == "merged"
-            else
-            "integrate"
+            else "integrate"
             if inspection.get("merge_ready")
             else "waiting"
             if pipeline_status
-            in {"created", "pending", "preparing", "running", "scheduled", "waiting_for_resource"}
+            in {
+                "created",
+                "pending",
+                "preparing",
+                "running",
+                "scheduled",
+                "waiting_for_resource",
+            }
             or inspection.get("review_pending")
             else "blocked"
         )
@@ -1051,7 +1047,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 else "blocked"
             ),
             main_advance=main_advance,
-            last_error=None if result != "blocked" else "merge request is not integrable",
+            last_error=None
+            if result != "blocked"
+            else "merge request is not integrable",
         )
         if result in {"integrate", "integrated-existing"}:
             if result == "integrate":
@@ -1095,6 +1093,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     merged_mr=merged_mr,
                     effect=effect if assignment.get("mutation_grant_id") else None,
                 )
+
             record_event(
                 ROOT,
                 "mr_merged",
@@ -1112,11 +1111,14 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             worktree_value = worker_record.get("worktree")
             branch = worker_record.get("branch")
             if not worktree_value or not branch:
-                raise RuntimeError("integration assignment has no worktree/branch custody")
+                raise RuntimeError(
+                    "integration assignment has no worktree/branch custody"
+                )
             worktree = Path(str(worktree_value))
-            repo = Path("/home/cdenneen/src/workspace/personal/work") / assignment[
-                "project"
-            ].split("/")[-1]
+            repo = (
+                Path("/home/cdenneen/src/workspace/personal/work")
+                / assignment["project"].split("/")[-1]
+            )
             recreated_worktree = not worktree.exists()
             if recreated_worktree:
                 gate.require(
@@ -1159,7 +1161,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 repository=assignment["project"],
                 effect="fetch" if assignment.get("mutation_grant_id") else None,
             )
-            subprocess.run(["git", "fetch", "--prune", "origin"], cwd=worktree, check=True)
+            subprocess.run(
+                ["git", "fetch", "--prune", "origin"], cwd=worktree, check=True
+            )
             gate.require(
                 post_merge_repository_decision("checkout-merged-main"),
                 OperationClass.REPOSITORY,
@@ -1284,7 +1288,14 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
                 cleanup["remote_source_branch_absent"] = (
                     subprocess.run(
-                        ["git", "ls-remote", "--exit-code", "--heads", "origin", branch],
+                        [
+                            "git",
+                            "ls-remote",
+                            "--exit-code",
+                            "--heads",
+                            "origin",
+                            branch,
+                        ],
                         cwd=repo,
                         text=True,
                         capture_output=True,
@@ -1309,9 +1320,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if not verification_error:
                 set_lifecycle(assignment, "integrated-post-main-verified")
                 assignment["result_state"] = "integrated-post-main-verified"
-                assignment["work_item_disposition"] = (
-                    "requires-repository-convergence"
-                )
+                assignment["work_item_disposition"] = "requires-repository-convergence"
                 record_event(
                     ROOT,
                     "post_main_verified",
@@ -1334,7 +1343,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                         post_merge_gitlab_decision("record-evidence"),
                         [
                             str(inspection["mr"].get("web_url") or ""),
-                            str((inspection.get("pipeline") or {}).get("web_url") or ""),
+                            str(
+                                (inspection.get("pipeline") or {}).get("web_url") or ""
+                            ),
                         ],
                     )
                 except Exception as exc:
@@ -1376,9 +1387,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
                 set_lifecycle(assignment, "repository-converged")
                 assignment["result_state"] = "repository-converged"
-                assignment["work_item_disposition"] = (
-                    "requires-runtime-convergence"
-                )
+                assignment["work_item_disposition"] = "requires-runtime-convergence"
                 result = "integrated"
                 workflow.update_integration(
                     assignment["assignment_id"],
@@ -1392,7 +1401,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                         "grant_consumed",
                         assignment=assignment,
                         details={
-                            "grant_id": (assignment.get("authority") or {}).get("grant_id"),
+                            "grant_id": (assignment.get("authority") or {}).get(
+                                "grant_id"
+                            ),
                             "status": "consumed",
                             "global_mutation_enabled": False,
                         },
@@ -1422,8 +1433,11 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     assignment=assignment,
                     details={
                         "disposition": "awaiting-integration",
-                        "mr_url": (assignment.get("worker") or {}).get("handoff", {}).get("mr_url"),
-                        "expected_next_phase": integration["result"].get("next") or "next scheduled integration check",
+                        "mr_url": (assignment.get("worker") or {})
+                        .get("handoff", {})
+                        .get("mr_url"),
+                        "expected_next_phase": integration["result"].get("next")
+                        or "next scheduled integration check",
                     },
                     source="cycle",
                 )
@@ -1473,12 +1487,12 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 assignment=assignment,
                 details={
                     "disposition": assignment.get("result_state"),
-                    "work_item_disposition": assignment.get(
-                        "work_item_disposition"
-                    ),
+                    "work_item_disposition": assignment.get("work_item_disposition"),
                     "assignment_type": assignment.get("assignment_type"),
                     "post_main_verification": integration.get("post_merge_tests") or [],
-                    "lease_state": "released" if assignment.get("lease_id") is None else "active",
+                    "lease_state": "released"
+                    if assignment.get("lease_id") is None
+                    else "active",
                     "grant_state": "consumed"
                     if result == "integrated"
                     and (
@@ -1490,9 +1504,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 },
                 source="cycle",
             )
-            record_engineering_retrospective(
-                ROOT, assignment, source="cycle"
-            )
+            record_engineering_retrospective(ROOT, assignment, source="cycle")
         current_graph = rebuild()
         response = {"result": result, "assignment": assignment["assignment_id"]}
         if result == "waiting":
@@ -1520,9 +1532,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if assignment is None:
                 break
             try:
-                results.append(
-                    execute_with_continuation(assignment)
-                )
+                results.append(execute_with_continuation(assignment))
             except Exception as exc:
                 return {
                     "result": "tier-a-batch-partial",
@@ -1547,9 +1557,7 @@ def run_canary(
     assignment_id: str, run_id: str, hermes: str, supervisorctl: str
 ) -> dict:
     path = ROOT / "assignments" / f"{assignment_id}.json"
-    assignment = validate_assignment(
-        json.loads(path.read_text(encoding="utf-8")), ROOT
-    )
+    assignment = validate_assignment(json.loads(path.read_text(encoding="utf-8")), ROOT)
     if assignment.get("lifecycle_state") != "ready-implementation":
         raise RuntimeError("canary assignment is not ready for implementation")
     if (assignment.get("authority") or {}).get("state") != "canary":
@@ -1569,7 +1577,9 @@ def main() -> int:
     parser.add_argument("--hermes", default="hermes")
     parser.add_argument(
         "--supervisorctl",
-        default=str(Path.home() / ".hermes" / "scripts" / "axis-development-supervisorctl.py"),
+        default=str(
+            Path.home() / ".hermes" / "scripts" / "axis-development-supervisorctl.py"
+        ),
     )
     args = parser.parse_args()
     if args.command == "rebuild":

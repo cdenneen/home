@@ -401,7 +401,7 @@ def test_slack_resume_cannot_enable_repository_mutation(monkeypatch, tmp_path, c
     assert persisted["allow_repository_mutation"] is False
 
 
-def test_executive_dashboard_has_fifteen_proof_sections_and_no_internal_text(
+def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     tmp_path: Path,
 ):
     from axis_supervisor.dashboard import (
@@ -501,7 +501,7 @@ def test_executive_dashboard_has_fifteen_proof_sections_and_no_internal_text(
         tmp_path, inventory, graph, semantics, events
     )
     sections = [block for block in blocks if block["type"] == "section"]
-    assert len(sections) == 15
+    assert len(sections) == 16
     assert tuple(
         block["text"]["text"].splitlines()[0].strip("*") for block in sections
     ) == DASHBOARD_PROOF_SECTIONS
@@ -528,7 +528,7 @@ def test_executive_dashboard_has_fifteen_proof_sections_and_no_internal_text(
     assert "█" in visible_blocks and "░" in visible_blocks
     assert "\n" not in fallback
     assert "*" not in fallback
-    assert fallback.startswith("AXIS Executive Dashboard | Roadmap")
+    assert fallback.startswith("AXIS Executive Dashboard | Graduated capabilities")
     assert len(fingerprint) == 64
 
 

@@ -1417,9 +1417,12 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "conversations.history",
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
-    assert fallback.startswith("AXIS Executive Dashboard | Roadmap 1/2 verified")
+    assert fallback.startswith(
+        "AXIS Executive Dashboard | Graduated capabilities 0/0 (0%) | "
+        "Roadmap 1/2 verified"
+    )
     assert blocks[0]["type"] == "header"
-    assert len([block for block in blocks if block["type"] == "section"]) == 15
+    assert len([block for block in blocks if block["type"] == "section"]) == 16
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
     assert not any(
         forbidden in json.dumps(blocks).lower()

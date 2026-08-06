@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.capability-graduation",
+  "$defs": {
+    "gate": {
+      "type": "object",
+      "required": ["state", "evidence"],
+      "properties": {
+        "state": { "enum": ["passed", "pending", "blocked", "not-required"] },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "risk": {
+      "type": "object",
+      "required": ["score", "level", "evidence"],
+      "properties": {
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "level": { "enum": ["low", "medium", "high", "critical"] },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generated_at",
+    "projection_digest",
+    "source_inventory_generation_id",
+    "source_graph_generation_id",
+    "source_convergence_digest",
+    "primary_kpi",
+    "program_risk",
+    "operator_confidence",
+    "denominator",
+    "capabilities",
+    "milestones",
+    "action_scores"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.capability-graduation"
+    },
+    "schema_version": { "const": "2.0.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "projection_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_inventory_generation_id": { "type": ["string", "null"] },
+    "source_graph_generation_id": { "type": ["string", "null"] },
+    "source_convergence_digest": { "type": ["string", "null"] },
+    "primary_kpi": {
+      "type": "object",
+      "required": ["name", "count", "denominator", "percent"],
+      "properties": {
+        "name": { "const": "graduated-capabilities" },
+        "count": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "percent": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "program_risk": { "$ref": "#/$defs/risk" },
+    "operator_confidence": { "type": "number", "minimum": 0, "maximum": 100 },
+    "denominator": {
+      "type": "object",
+      "required": [
+        "active",
+        "archive",
+        "historical",
+        "future",
+        "decision",
+        "blocked",
+        "graduated"
+      ],
+      "properties": {
+        "active": { "type": "integer", "minimum": 0 },
+        "archive": { "type": "integer", "minimum": 0 },
+        "historical": { "type": "integer", "minimum": 0 },
+        "future": { "type": "integer", "minimum": 0 },
+        "decision": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "graduated": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "capability",
+          "paths",
+          "projected_runtimes",
+          "linked_work_items",
+          "graduation_state",
+          "graduation_confidence",
+          "operator_confidence",
+          "program_risk",
+          "invalidation_fingerprint",
+          "scheduled_actions",
+          "graduated"
+        ],
+        "properties": {
+          "capability": { "type": "string", "minLength": 1 },
+          "paths": { "type": "array", "items": { "type": "string" } },
+          "projected_runtimes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "linked_work_items": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "graduation_state": {
+            "type": "object",
+            "required": [
+              "implementation",
+              "integration",
+              "deployment",
+              "validation",
+              "verification",
+              "operator_acceptance",
+              "program_risk",
+              "graduated"
+            ],
+            "properties": {
+              "implementation": { "$ref": "#/$defs/gate" },
+              "integration": { "$ref": "#/$defs/gate" },
+              "deployment": { "$ref": "#/$defs/gate" },
+              "validation": { "$ref": "#/$defs/gate" },
+              "verification": { "$ref": "#/$defs/gate" },
+              "operator_acceptance": { "$ref": "#/$defs/gate" },
+              "program_risk": { "$ref": "#/$defs/gate" },
+              "graduated": { "$ref": "#/$defs/gate" }
+            },
+            "additionalProperties": false
+          },
+          "graduation_confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "operator_confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "program_risk": { "$ref": "#/$defs/risk" },
+          "invalidation_fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "scheduled_actions": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "graduated": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "milestones": { "type": "array", "items": { "type": "object" } },
+    "action_scores": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}

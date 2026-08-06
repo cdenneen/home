@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 from collections import Counter
@@ -5,17 +6,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .authority import AuthorityResolver
+from .capability_graduation import (
+    SCHEMA as CAPABILITY_GRADUATION_SCHEMA,
+)
+from .capability_graduation import (
+    action_score,
+    capabilities_for_paths,
+)
 from .classifier import (
     CLASSIFICATIONS,
     adapt_source_item,
     classify_source_item,
     legacy_fingerprint_item,
 )
-from .decomposition import SemanticDecompositionEngine
 from .decisions import DecisionStore
+from .decomposition import SemanticDecompositionEngine
 from .frontier import ExecutableFrontier
 from .mutation import MutationGate, OperationClass
-from .noop import is_suppressed_no_op, no_op_fingerprint
+from .noop import (
+    is_suppressed_no_op,
+    no_op_fingerprint,
+    targeted_post_merge_fingerprint,
+)
 from .repository_ownership import (
     RepositoryOwnershipDenied,
     responsibility_for_repository,
@@ -26,9 +38,8 @@ from .revalidation import (
     revalidation_tier,
     select_tier_a_batch,
 )
-from .schema_registry import read_record, write_record
+from .schema_registry import RecordError, read_record, write_record
 from .verification import verification_for
-
 
 AUTHORITY_PRIORITY = {
     "direct": 30,
@@ -297,8 +308,7 @@ def _scheduler_state(
     active_assignments = context.get("active_assignments") or []
     wip_counts = {
         "analysis": sum(
-            assignment.get("assignment_type")
-            in {"read-only-analysis", "no-op-verification"}
+            assignment.get("assignment_type") == "read-only-analysis"
             and assignment.get("lifecycle_state") != "awaiting-integration"
             for assignment in active_assignments
         ),
@@ -315,28 +325,48 @@ def _scheduler_state(
             assignment.get("assignment_type") == "no-op-verification"
             for assignment in active_assignments
         ),
+        "validation": sum(
+            assignment.get("assignment_type") == "capability-deployment"
+            for assignment in active_assignments
+        ),
     }
     maximum_active = int(control.get("max_active_assignments", 1))
+    verification_limit = min(2, maximum_active)
+    validation_limit = min(1, maximum_active)
+    downstream_wip_high = (
+        wip_counts["validation"] >= validation_limit
+        or wip_counts["verification"] >= verification_limit
+        or wip_counts["validation"] + wip_counts["verification"] >= 2
+    )
     wip_limits = {
         "analysis": 1
         if wip_counts["implementation"] or wip_counts["integration"]
         else min(2, maximum_active),
-        "implementation": 1
+        "implementation": 0
+        if downstream_wip_high
+        else 1
         if wip_counts["integration"]
         else min(2, maximum_active),
         "integration": 1,
-        "verification": min(2, maximum_active),
+        "verification": verification_limit,
+        "validation": validation_limit,
     }
     available_slots = max(0, maximum_active - len(active_assignments))
     budget_present = scheduler_context is not None and (
-        "model_calls_remaining" in context
-        or "available_model_call_budget" in context
+        "model_calls_remaining" in context or "available_model_call_budget" in context
     )
     budget_value = context.get(
         "available_model_call_budget", context.get("model_calls_remaining")
     )
-    budget = max(0, int(budget_value)) if budget_present and budget_value is not None else None
+    budget = (
+        max(0, int(budget_value))
+        if budget_present and budget_value is not None
+        else None
+    )
     next_work = queue[0] if queue else None
+    implementation_ready = sum(
+        item.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES for item in queue
+    )
 
     implementation_selected = False
     limiting_constraint = "queue-depth"
@@ -354,12 +384,20 @@ def _scheduler_state(
             item for item in queue if item.get("kind") == "repository-convergence"
         ][:ceiling]
         limiting_constraint = (
-            "model-call-budget-exhausted" if not selected else "configured-batch-ceiling"
+            "model-call-budget-exhausted"
+            if not selected
+            else "configured-batch-ceiling"
         )
     else:
-        implementation_candidates = [
+        scheduling_queue = [
             item
             for item in queue
+            if not downstream_wip_high
+            or item.get("assignment_type") not in MUTATING_ASSIGNMENT_TYPES
+        ]
+        implementation_candidates = [
+            item
+            for item in scheduling_queue
             if item.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
         ]
         if wip_counts["implementation"] >= wip_limits["implementation"]:
@@ -385,21 +423,27 @@ def _scheduler_state(
         priority_refs = list(control.get("semantic_priority_refs") or [])
         priority_order = {ref: index for index, ref in enumerate(priority_refs)}
         priority_candidates = sorted(
-            [item for item in queue if item.get("target_ref") in priority_order],
+            [
+                item
+                for item in scheduling_queue
+                if item.get("target_ref") in priority_order
+            ],
             key=lambda item: priority_order[item["target_ref"]],
         )
         if not selected and wip_counts["analysis"] < wip_limits["analysis"]:
             selected = priority_candidates[:1]
         if not selected and wip_counts["analysis"] < wip_limits["analysis"]:
             selected = select_tier_a_batch(
-                queue, min(ceiling, available_slots), budget
+                scheduling_queue, min(ceiling, available_slots), budget
             )
         if not selected and wip_counts["analysis"] < wip_limits["analysis"]:
-            selected = queue[:1]
+            selected = scheduling_queue[:1]
         tier_a_candidates = [
             item for item in queue if item.get("revalidation_tier") == "A"
         ]
-        if implementation_selected:
+        if downstream_wip_high and implementation_ready and not selected:
+            limiting_constraint = "downstream-wip-throttle"
+        elif implementation_selected:
             pass
         elif len(selected) >= budget and budget < ceiling:
             limiting_constraint = "available-model-call-budget"
@@ -415,6 +459,7 @@ def _scheduler_state(
     selected_refs = {item["ref"] for item in selected}
     if selected:
         next_work = selected[0]
+
     def summary(item: dict | None) -> dict | None:
         if item is None:
             return None
@@ -434,9 +479,6 @@ def _scheduler_state(
             )
         }
 
-    implementation_ready = sum(
-        item.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES for item in queue
-    )
     analysis_ready = sum(
         item.get("assignment_type") in {"read-only-analysis", "no-op-verification"}
         for item in queue
@@ -449,15 +491,23 @@ def _scheduler_state(
         if verified_samples >= 3
         else None
     )
-    if wip_counts["integration"] >= wip_limits["integration"]:
+    if downstream_wip_high:
+        constraint_name = "validation-verification-wip"
+        evidence = [
+            f"validation WIP {wip_counts['validation']}/{wip_limits['validation']}",
+            f"verification WIP {wip_counts['verification']}/{wip_limits['verification']}",
+        ]
+        action = "drain validation and verification evidence before expanding implementation WIP"
+    elif wip_counts["integration"] >= wip_limits["integration"]:
         constraint_name = "integration"
         evidence = [
             f"integration WIP {wip_counts['integration']}/{wip_limits['integration']}"
         ]
         action = "resolve the oldest integration before starting same-repository work"
-    elif implementation_ready and wip_counts["implementation"] >= wip_limits[
-        "implementation"
-    ]:
+    elif (
+        implementation_ready
+        and wip_counts["implementation"] >= wip_limits["implementation"]
+    ):
         constraint_name = "implementation-wip"
         evidence = [
             f"implementation WIP {wip_counts['implementation']}/{wip_limits['implementation']}",
@@ -492,12 +542,17 @@ def _scheduler_state(
         "wip_limits": wip_limits,
         "wip_counts": wip_counts,
         "available_capacity": available_slots,
+        "capacity_rebalance": {
+            "implementation_throttled": downstream_wip_high,
+            "reason": "validation/verification WIP is at the downstream threshold"
+            if downstream_wip_high
+            else "downstream evidence WIP is below the throttle threshold",
+            "downstream_wip": wip_counts["validation"] + wip_counts["verification"],
+        },
         "current_constraint": {
             "name": constraint_name,
             "evidence": evidence,
-            "engineering_impact": (
-                "verified roadmap progress is paced by this stage"
-            ),
+            "engineering_impact": ("verified roadmap progress is paced by this stage"),
             "estimated_roadmap_delay_days": estimated_delay,
             "forecast_confidence": "insufficient-history"
             if estimated_delay is None
@@ -521,9 +576,7 @@ class ExecutionGraphBuilder:
         self.authority = AuthorityResolver()
         self.gate = MutationGate(root, source="graph")
 
-    def build(
-        self, inventory: dict, scheduler_context: dict | None = None
-    ) -> dict:
+    def build(self, inventory: dict, scheduler_context: dict | None = None) -> dict:
         control = read_record(
             self.root / "control.json",
             "axis.external-development-supervisor.control",
@@ -583,10 +636,8 @@ class ExecutionGraphBuilder:
             )
             tier = revalidation_tier(item, semantic, verification)
             controlling_parent = (
-                ((semantic or {}).get("authority_resolution") or {}).get(
-                    "controlling_parent"
-                )
-            )
+                (semantic or {}).get("authority_resolution") or {}
+            ).get("controlling_parent")
             authority = self.authority.resolve(
                 item, semantic, items_by_ref.get(controlling_parent)
             )
@@ -610,6 +661,8 @@ class ExecutionGraphBuilder:
                 "kind": item.get("kind"),
                 "project": item.get("project"),
                 "title": item.get("title"),
+                "labels": item.get("labels") or [],
+                "milestone": item.get("milestone"),
                 "source_state": item.get("source_state"),
                 "classification": item["classification"],
                 "blocker_type": item.get("blocker_type"),
@@ -628,7 +681,10 @@ class ExecutionGraphBuilder:
             }
             nodes.append(node)
 
-            if verification["verification_result"]["disposition"] == "verified-complete":
+            if (
+                verification["verification_result"]["disposition"]
+                == "verified-complete"
+            ):
                 continue
             if flow_stage in {"historical", "future", "decision", "superseded"}:
                 continue
@@ -671,13 +727,17 @@ class ExecutionGraphBuilder:
                 elif item["classification"] == "Executable":
                     policy_suppressed_executable += 1
                 continue
-            if item["classification"] in {
-                "Executable",
-                "Waiting",
-                "Revalidation",
-                "Integrated",
-                "Completed",
-            } and semantic is None:
+            if (
+                item["classification"]
+                in {
+                    "Executable",
+                    "Waiting",
+                    "Revalidation",
+                    "Integrated",
+                    "Completed",
+                }
+                and semantic is None
+            ):
                 if not item.get("project"):
                     continue
                 pending = self.decomposition.pending_item(item)
@@ -749,6 +809,12 @@ class ExecutionGraphBuilder:
                                     "evidence_fingerprint"
                                 ),
                             }
+                            targeted_fingerprint = targeted_post_merge_fingerprint(
+                                entry, assignments
+                            )
+                            entry["targeted_post_merge_fingerprint"] = (
+                                targeted_fingerprint
+                            )
                             entry["no_op_fingerprint"] = no_op_fingerprint(
                                 entry, semantic
                             )
@@ -763,7 +829,10 @@ class ExecutionGraphBuilder:
                 for candidate in semantic.get("candidate_slices") or []:
                     if candidate.get("result") != "Executable":
                         continue
-                    if tier == "B" and candidate.get("slice_id") in technical_candidate_ids:
+                    if (
+                        tier == "B"
+                        and candidate.get("slice_id") in technical_candidate_ids
+                    ):
                         continue
                     if authority["state"] not in {"direct", "inherited"}:
                         continue
@@ -823,6 +892,47 @@ class ExecutionGraphBuilder:
             for node in nodes
             if node["classification"] == "Waiting"
         )
+        matrix_path = self.root / "capability-runtime-matrix.json"
+        matrix = (
+            json.loads(matrix_path.read_text(encoding="utf-8"))
+            if matrix_path.exists()
+            else {}
+        )
+        graduation_path = self.root / "capability-graduation.json"
+        try:
+            graduation = (
+                read_record(graduation_path, CAPABILITY_GRADUATION_SCHEMA)
+                if graduation_path.exists()
+                else {}
+            )
+        except RecordError:
+            graduation = {}
+        capability_states = {
+            value["capability"]: value for value in graduation.get("capabilities") or []
+        }
+        for entry in queue:
+            candidate = entry.get("candidate") or {}
+            affected = capabilities_for_paths(
+                candidate.get("allowed_paths") or entry.get("allowed_paths") or [],
+                matrix,
+            )
+            entry["affected_capabilities"] = affected
+            scoring_input = entry | {"affected_capabilities": affected}
+            scoring = action_score(scoring_input, capability_states)
+            entry["action_score"] = scoring
+            entry["ranking_score"] = int(entry.get("ranking_score") or 0) + round(
+                float(scoring["score"]) * 10
+            )
+            entry.setdefault("ranking_factors", {})["graduation_action_score"] = scoring
+            entry["selection_rationale"] = _selection_rationale(entry)
+        queue.sort(
+            key=lambda entry: (
+                _execution_order(entry),
+                -float((entry.get("action_score") or {}).get("score") or 0),
+                -int(entry.get("ranking_score") or 0),
+                entry["ref"],
+            )
+        )
         collection = inventory.get("collection_status") or {}
         unresolved_convergence = any(
             node["kind"] == "repository-convergence"
@@ -850,16 +960,14 @@ class ExecutionGraphBuilder:
             == 0,
             "source_retrieval_complete": collection.get("retrieval_error_count", 0)
             == 0,
-            "repository_refs_current": collection.get("stale_repository_count", 0)
-            == 0,
+            "repository_refs_current": collection.get("stale_repository_count", 0) == 0,
             "no_running_items": classification_counts["Running"] == 0,
             "no_unqueued_executable_nodes": classification_counts["Executable"] == 0,
             "no_active_assignments": collection.get("active_assignment_count", 0) == 0,
             "no_active_leases": collection.get("active_lease_count", 0) == 0,
             "state_records_valid": not collection.get("state_record_errors"),
             "repository_convergence_resolved": not unresolved_convergence,
-            "no_policy_suppressed_executable_work": policy_suppressed_executable
-            == 0,
+            "no_policy_suppressed_executable_work": policy_suppressed_executable == 0,
         }
         governed_zero = all(proof_conditions.values())
         graph = {
@@ -890,7 +998,5 @@ class ExecutionGraphBuilder:
             "governed_queue_zero_proven": governed_zero,
         }
         write_execution_graph(self.root / "execution-graph.json", graph, self.gate)
-        ExecutableFrontier(self.root).build(
-            queue, assignments, graph["generation_id"]
-        )
+        ExecutableFrontier(self.root).build(queue, assignments, graph["generation_id"])
         return graph

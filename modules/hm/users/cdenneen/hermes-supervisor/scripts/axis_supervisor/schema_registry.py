@@ -28,6 +28,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.roadmap-quality": "roadmap-quality.schema.json",
     "axis.external-development-supervisor.repository-convergence": "repository-convergence.schema.json",
     "axis.external-development-supervisor.capability-convergence": "capability-convergence.schema.json",
+    "axis.external-development-supervisor.capability-graduation": "capability-graduation.schema.json",
     "axis.external-development-supervisor.run": "run.schema.json",
     "axis.external-development-supervisor.semantic-record": "semantic-record.schema.json",
     "axis.external-development-supervisor.slack-state": "slack-state.schema.json",
