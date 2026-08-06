@@ -533,6 +533,53 @@ in
     ''
   );
 
+  home.activation.verifySshKeyMaterialization =
+    lib.hm.dag.entryAfter
+      (
+        [ "linkGeneration" ]
+        ++ (
+          if pkgs.stdenv.isDarwin then
+            [ "materializeDarwinSopsSecrets" ]
+          else
+            [ "materializeLinuxSopsSecrets" ]
+        )
+      )
+      ''
+        set -euo pipefail
+
+        check_keys() {
+          local missing=0
+
+          for key in \
+            fortress_rsa \
+            github_ed25519 \
+            cdenneen_ed25519_2024 \
+            codecommit_rsa \
+            id_rsa_cloud9
+          do
+            if [ ! -r "$HOME/.ssh/$key" ]; then
+              echo "error: required SSH key is missing or unreadable: $HOME/.ssh/$key" >&2
+              missing=1
+            fi
+          done
+
+          return "$missing"
+        }
+
+        if ! check_keys; then
+          if command -v sops-nix-user >/dev/null 2>&1; then
+            echo "warning: retrying secret materialization via sops-nix-user" >&2
+            sops-nix-user || true
+          fi
+        fi
+
+        if ! check_keys; then
+          echo "error: aborting activation to avoid broken SSH key links." >&2
+          echo "hint: run ~/.local/bin/restore-age-key if your AGE key is missing, then retry switch." >&2
+          exit 1
+        fi
+      '';
+
   home.activation.materializeOciFiles =
     lib.hm.dag.entryAfter
       (if pkgs.stdenv.isDarwin then [ "materializeDarwinSopsSecrets" ] else [ "sops-nix" ])
