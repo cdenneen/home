@@ -111,6 +111,7 @@
         "wip_limits": { "type": "object" },
         "wip_counts": { "type": "object" },
         "available_capacity": { "type": "integer", "minimum": 0 },
+        "capacity_rebalance": { "type": "object" },
         "current_constraint": { "type": "object" }
       },
       "additionalProperties": false

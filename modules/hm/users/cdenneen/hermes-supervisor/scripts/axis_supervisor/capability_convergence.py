@@ -115,6 +115,7 @@ class CapabilityConvergenceProjector:
             expected_runtime_revision = expected_repository_revision
         capabilities = []
         expected_by_capability = {}
+        fingerprint_by_capability = {}
         for name, definition in matrix["capabilities"].items():
             paths = definition.get("paths") or []
             revision = (
@@ -123,10 +124,25 @@ class CapabilityConvergenceProjector:
                 else expected_repository_revision
             )
             expected_by_capability[name] = revision
+            fingerprint_by_capability[name] = (
+                "sha256:"
+                + hashlib.sha256(
+                    json.dumps(
+                        {
+                            "capability": name,
+                            "revision": revision,
+                            "paths": sorted(paths),
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                ).hexdigest()
+            )
             capabilities.append(
                 {
                     "capability": name,
                     "expected_revision": revision,
+                    "evidence_fingerprint": fingerprint_by_capability[name],
                     "paths": paths,
                     "projected_runtimes": definition.get("runtimes") or [],
                 }
@@ -141,8 +157,7 @@ class CapabilityConvergenceProjector:
             required_command_available = self._required_command_available(runtime)
             if not required_command_available and error is None:
                 error = "required-artifact-missing:" + str(
-                    runtime.get("required_path")
-                    or runtime.get("required_command")
+                    runtime.get("required_path") or runtime.get("required_command")
                 )
             running_revision = (identity or {}).get("runtime_revision")
             projected = [
@@ -153,6 +168,12 @@ class CapabilityConvergenceProjector:
             behind = []
             observed_capability_revisions = (identity or {}).get(
                 "capability_revisions"
+            ) or {}
+            observed_capability_fingerprints = (identity or {}).get(
+                "capability_fingerprints"
+            ) or {}
+            observed_capability_verification = (identity or {}).get(
+                "capability_verification"
             ) or {}
             for capability in projected:
                 expected = expected_by_capability[capability]
@@ -178,8 +199,24 @@ class CapabilityConvergenceProjector:
                 )
                 if not contained:
                     behind.append(capability)
-            verification_pending = (identity or {}).get("verification_status") != "verified"
-            deployment_capabilities = behind or (projected if verification_pending else [])
+            verification_pending = (identity or {}).get(
+                "verification_status"
+            ) != "verified"
+            verification_required = [
+                capability
+                for capability in projected
+                if verification_pending
+                and (
+                    observed_capability_fingerprints.get(capability)
+                    != fingerprint_by_capability[capability]
+                    or observed_capability_verification.get(capability) != "verified"
+                )
+            ]
+            deployment_capabilities = sorted(
+                set(behind)
+                | set(verification_required)
+                | (set(projected) if not running_revision else set())
+            )
             blocked_by_prior_ring = sorted(
                 set(deployment_capabilities) & blocked_capabilities
             )
@@ -196,6 +233,8 @@ class CapabilityConvergenceProjector:
                 else "unknown"
                 if error
                 else "converged"
+                if not deployment_capabilities and not verification_pending
+                else "verification-required"
                 if not deployment_capabilities
                 else "deployment-required"
             )
@@ -212,14 +251,17 @@ class CapabilityConvergenceProjector:
                     "expected_runtime_revision": expected_runtime_revision,
                     "capabilities_behind": behind,
                     "observed_capability_revisions": observed_capability_revisions,
+                    "observed_capability_fingerprints": observed_capability_fingerprints,
+                    "capabilities_verification_required": verification_required,
+                    "observed_capability_verification": observed_capability_verification,
                     "capabilities_blocked_by_prior_ring": blocked_by_prior_ring,
                     "capability_lag": len(behind),
                     "status": status,
                     "health": (identity or {}).get("health"),
                     "last_deployment": (identity or {}).get("deployment_time"),
-                    "verification_status": (identity or {}).get(
-                        "verification_status"
-                    ),
+                    "verification_status": (identity or {}).get("verification_status"),
+                    "operator_acceptance": (identity or {}).get("operator_acceptance"),
+                    "operator_evidence": (identity or {}).get("operator_evidence"),
                     "identity_error": error,
                     "required_command": runtime.get("required_command"),
                     "required_path": runtime.get("required_path"),
@@ -238,9 +280,18 @@ class CapabilityConvergenceProjector:
                             capability: expected_by_capability[capability]
                             for capability in deployable_capabilities
                         },
+                        "expected_capability_fingerprints": {
+                            capability: fingerprint_by_capability[capability]
+                            for capability in deployable_capabilities
+                        },
                         "expected_revision": expected_runtime_revision,
                         "expected_runtime_revision": expected_runtime_revision,
                         "deployment_target": runtime["deployment_target"],
+                        "axis_lab_project": "ghostspace/axis-lab",
+                        "post_merge_verification_required": True,
+                        "verification_only": not bool(
+                            set(deployable_capabilities) & set(behind)
+                        ),
                         "status": status,
                         "migration_requirements": "derive from verified capability changes before apply",
                         "verification_plan": "identity revision, service health, capability smoke tests, heartbeat",
@@ -283,11 +334,14 @@ class CapabilityConvergenceProjector:
             "runtimes": runtime_records,
             "assignments": assignments,
         }
-        convergence_digest = "sha256:" + hashlib.sha256(
-            json.dumps(
-                digest_payload, sort_keys=True, separators=(",", ":")
-            ).encode()
-        ).hexdigest()
+        convergence_digest = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    digest_payload, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest()
+        )
         projection = {
             "schema": SCHEMA,
             "schema_version": "1.0.0",

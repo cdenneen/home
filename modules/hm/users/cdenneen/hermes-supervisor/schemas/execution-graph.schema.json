@@ -48,6 +48,8 @@
         "kind": { "type": "string", "minLength": 1 },
         "project": { "type": ["string", "null"] },
         "title": { "type": ["string", "null"] },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "milestone": { "type": ["string", "null"] },
         "source_state": { "type": ["string", "null"] },
         "classification": { "$ref": "#/$defs/classification" },
         "blocker_type": { "type": ["string", "null"] },
@@ -246,7 +248,8 @@
             "single-item-dispatch",
             "queue-depth",
             "implementation-ready",
-            "wip-capacity"
+            "wip-capacity",
+            "downstream-wip-throttle"
           ]
         },
         "wip_limits": {
@@ -258,6 +261,16 @@
           "additionalProperties": { "type": "integer", "minimum": 0 }
         },
         "available_capacity": { "type": "integer", "minimum": 0 },
+        "capacity_rebalance": {
+          "type": "object",
+          "required": ["implementation_throttled", "reason", "downstream_wip"],
+          "properties": {
+            "implementation_throttled": { "type": "boolean" },
+            "reason": { "type": "string", "minLength": 1 },
+            "downstream_wip": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
         "current_constraint": {
           "type": "object",
           "required": [

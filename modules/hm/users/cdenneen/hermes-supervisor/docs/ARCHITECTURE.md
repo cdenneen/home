@@ -24,12 +24,16 @@
 - Mutation Gate is the only repository, GitLab, control and scheduler effect
   authority; read-only state writes use an explicit reconciliation operation.
 - Schema Registry validates runtime records on load and before atomic write.
+- Capability Graduation Projector persists the Mission v2 gate model for every
+  capability, milestone debt/graduation, evidence-derived risk and operator
+  confidence, mutually exclusive roadmap denominators, and scored actions.
 - Lifecycle and Accounting registries own assignment states and model attempts.
 - Hermes cron supervisor performs guarded graph rebuild and bounded work.
 - Block Kit `SlackProjection` is the sole reporter and renders deterministic
-  Slack briefings without a model. Its default dashboard is a fixed 15-section
-  executive proof view over roadmap, milestones, WIP, material activity,
-  constraints, engineering, deployment, runtime validation, capability gates,
+  Slack briefings without a model. Its default dashboard is a fixed 16-section
+  executive proof view over the primary graduation KPI, milestones, debt/risk,
+  WIP, material activity, constraints, engineering, separate deployment rings,
+  runtime validation, capability graduation,
   named runtime surfaces, and human action. Internal execution custody is not
   projected. Atomic state retains the latest Block Kit dashboard as a fallback.
 - The Slack decision controller accepts actions only for the exact
@@ -37,8 +41,11 @@
   Owner/workspace/DM/message identity, persists one immutable outcome, and
   rebuilds the execution frontier before updating the same card to scheduling.
 - Evidence-derived no-op fingerprints exclude completed technical verification
-  from both graph selection and dispatch until repository, semantic, authority,
-  acceptance, merge-request, source, or required-test evidence changes.
+  from both graph selection and dispatch until relevant semantic, authority,
+  acceptance, merge-request, required-test, or path-overlapping post-merge
+  evidence changes. Unrelated mainline changes do not invalidate the receipt.
+- Existing cron scheduling rebalances worker capacity by throttling new
+  implementation when validation/verification WIP reaches its downstream limit.
 - Routine analysis and unchanged no-op events remain in the operational event
   log for the dashboard recent-activity line but never enter standalone Slack
   delivery. Incidents and recovery events retain standalone delivery.

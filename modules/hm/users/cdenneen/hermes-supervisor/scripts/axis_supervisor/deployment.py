@@ -1,5 +1,5 @@
-import json
 import base64
+import json
 import subprocess
 import sys
 import time
@@ -49,6 +49,10 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
             "deployment_target": plan["deployment_target"],
             "verification_plan": plan["verification_plan"],
             "rollback_plan": plan["rollback_plan"],
+            "expected_capability_fingerprints": plan.get(
+                "expected_capability_fingerprints"
+            )
+            or {},
             "evidence": plan.get("evidence") or [],
         },
         "source_fingerprint": plan["assignment_id"],
@@ -146,9 +150,7 @@ def _command(home: Path, target: str) -> list[str]:
 def _identity(target: str, path: str) -> dict:
     if target == "ghost":
         return json.loads(
-            subprocess.check_output(
-                ["sudo", "-n", "cat", path], text=True, timeout=10
-            )
+            subprocess.check_output(["sudo", "-n", "cat", path], text=True, timeout=10)
         )
     remote = {
         "macbookpro": "VNJTECMBCD",
@@ -193,9 +195,8 @@ def _smoke(target: str, capabilities: list[str], runtime: dict) -> dict:
                         if required_path
                         else f"command -v {binary} >/dev/null && "
                     )
-                    +
-                    f"token=$(cat {token_path}) && "
-                    f"curl -fsS -H \"Authorization: Bearer $token\" "
+                    + f"token=$(cat {token_path}) && "
+                    f'curl -fsS -H "Authorization: Bearer $token" '
                     f"{service_url}/health"
                 ),
             ],
@@ -220,12 +221,28 @@ def _write_verified_identity(
     capability_revisions.update(
         assignment["deployment_plan"].get("expected_capability_revisions") or {}
     )
+    capability_fingerprints = dict(identity.get("capability_fingerprints") or {})
+    capability_fingerprints.update(
+        assignment["deployment_plan"].get("expected_capability_fingerprints") or {}
+    )
+    capability_verification = dict(identity.get("capability_verification") or {})
+    capability_verification.update(
+        {
+            capability: "verified"
+            for capability in assignment["deployment_plan"].get(
+                "affected_capabilities"
+            )
+            or []
+        }
+    )
     identity.update(
         {
             "health": "healthy",
             "verification_status": "verified",
             "last_heartbeat": datetime.now(timezone.utc).isoformat(),
             "capability_revisions": capability_revisions,
+            "capability_fingerprints": capability_fingerprints,
+            "capability_verification": capability_verification,
         }
     )
     payload = json.dumps(identity, sort_keys=True)
@@ -247,7 +264,9 @@ def _write_verified_identity(
             "mbair": "100.79.172.12",
             "nyx": "nyx",
         }[target]
-        owner = "cdenneen:staff" if target in {"macbookpro", "mbair"} else "cdenneen:users"
+        owner = (
+            "cdenneen:staff" if target in {"macbookpro", "mbair"} else "cdenneen:users"
+        )
         prefix = ""
         subprocess.run(
             [
@@ -287,8 +306,8 @@ def execute_deployment_assignment(
     lease = json.loads(claim)
     assignment["lease_id"] = lease["lease_id"]
     assignment["lease_uri"] = (
-        root / "leases" / lease["lease_id"] / "lease.json"
-    ).resolve().as_uri()
+        (root / "leases" / lease["lease_id"] / "lease.json").resolve().as_uri()
+    )
     set_lifecycle(assignment, "running-implementation")
     gate = MutationGate(root, source="cycle")
     decision = gate.decide(OperationClass.RECONCILIATION)
@@ -315,9 +334,10 @@ def execute_deployment_assignment(
             identity = _identity(target, identity_path)
         except Exception:
             identity = {}
-        already_deployed = identity.get("runtime_revision") == assignment[
-            "source_item"
-        ]["expected_revision"]
+        already_deployed = (
+            identity.get("runtime_revision")
+            == assignment["source_item"]["expected_revision"]
+        )
         if already_deployed:
             completed = subprocess.CompletedProcess(
                 args=["already-deployed"], returncode=0, stdout="", stderr=""
@@ -327,9 +347,10 @@ def execute_deployment_assignment(
                 _command(home, target), text=True, capture_output=True, timeout=3600
             )
             identity = _identity(target, identity_path)
-        if identity.get("runtime_revision") != assignment["source_item"][
-            "expected_revision"
-        ]:
+        if (
+            identity.get("runtime_revision")
+            != assignment["source_item"]["expected_revision"]
+        ):
             raise RuntimeError("runtime identity does not match expected revision")
         health = _smoke(
             target,
@@ -368,9 +389,7 @@ def execute_deployment_assignment(
                     "affected_capabilities"
                 ],
                 "expected_revision": identity.get("runtime_revision"),
-                "duration_seconds": assignment["deployment_result"][
-                    "duration_seconds"
-                ],
+                "duration_seconds": assignment["deployment_result"]["duration_seconds"],
             },
             source="cycle",
         )
@@ -396,7 +415,9 @@ def execute_deployment_assignment(
         assignment["lease_uri"] = None
         decision = gate.decide(OperationClass.RECONCILIATION)
         gate.require(decision, OperationClass.RECONCILIATION)
-        write_record(path, assignment, "axis.external-development-supervisor.assignment")
+        write_record(
+            path, assignment, "axis.external-development-supervisor.assignment"
+        )
     return {
         "assignment": assignment["assignment_id"],
         "result": assignment["result_state"],

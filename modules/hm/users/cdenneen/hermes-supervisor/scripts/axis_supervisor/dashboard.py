@@ -6,17 +6,17 @@ from pathlib import Path
 from .decisions import DECISION_ID, DecisionStore
 from .schema_registry import read_record
 
-
 DASHBOARD_PROOF_SECTIONS = (
-    "Executive Roadmap",
-    "Milestones",
+    "Primary KPI",
+    "Milestone Graduation",
+    "Milestone Debt, Risk, Confidence & Forecast",
     "Work In Progress",
     "Recent Activity",
     "Current Constraint",
     "Engineering Progress",
-    "Deployment Progress",
+    "Deployment Rings",
     "Runtime Validation",
-    "Capability Gates",
+    "Capability Graduation",
     "Ghost Runtime",
     "Ghost Web",
     "Nyx axis-node",
@@ -61,14 +61,30 @@ def _load_capabilities(root: Path) -> dict:
     )
 
 
+def _load_graduation(root: Path) -> dict:
+    path = root / "capability-graduation.json"
+    if not path.exists():
+        return {}
+    return read_record(
+        path, "axis.external-development-supervisor.capability-graduation"
+    )
+
+
 def _runtime_status(record: dict | None, *, offline: bool = False) -> tuple[str, str]:
     if offline:
         return "⚪", "Offline"
     if not record:
         return "⚪", "Not observed"
-    if record.get("status") == "converged" and record.get("verification_status") == "verified":
+    if (
+        record.get("status") == "converged"
+        and record.get("verification_status") == "verified"
+    ):
         return "🟢", "Verified"
-    if record.get("status") in {"deployment-required", "blocked-by-prior-ring"}:
+    if record.get("status") in {
+        "deployment-required",
+        "verification-required",
+        "blocked-by-prior-ring",
+    }:
         return "🟡", "Deployment pending"
     if record.get("status") == "unknown":
         return "🔴", "Validation unavailable"
@@ -79,8 +95,7 @@ def _recent_lines(events: list[dict]) -> tuple[list[str], int]:
     routine_no_ops = {
         event.get("assignment_id")
         for event in events
-        if (event.get("details") or {}).get("assignment_type")
-        == "no-op-verification"
+        if (event.get("details") or {}).get("assignment_type") == "no-op-verification"
     }
     labels = {
         "implementation_completed": "Engineering change prepared",
@@ -106,8 +121,7 @@ def _recent_lines(events: list[dict]) -> tuple[list[str], int]:
 
 def _capability_gate_counts(capabilities: dict) -> tuple[int, int]:
     runtimes = {
-        str(value.get("runtime")): value
-        for value in capabilities.get("runtimes") or []
+        str(value.get("runtime")): value for value in capabilities.get("runtimes") or []
     }
     passed = 0
     total = 0
@@ -154,9 +168,9 @@ def render_executive_dashboard(
     constraint = scheduler.get("current_constraint") or {}
     recent, routine_no_ops = _recent_lines(events)
     capabilities = _load_capabilities(root)
+    graduation = _load_graduation(root)
     runtime_records = {
-        str(value.get("runtime")): value
-        for value in capabilities.get("runtimes") or []
+        str(value.get("runtime")): value for value in capabilities.get("runtimes") or []
     }
     deployed = sum(
         runtime_name != "mbair" and value.get("status") == "converged"
@@ -168,14 +182,44 @@ def render_executive_dashboard(
     )
     runtime_total = max(4, len(runtime_records))
     gate_passed, gate_total = _capability_gate_counts(capabilities)
+    primary_kpi = graduation.get("primary_kpi") or {
+        "count": gate_passed,
+        "denominator": gate_total,
+        "percent": round(gate_passed * 100 / gate_total, 1) if gate_total else 0,
+    }
+    graduated_capabilities = int(primary_kpi.get("count") or 0)
+    capability_total = int(primary_kpi.get("denominator") or 0)
+    capability_percent = float(primary_kpi.get("percent") or 0)
+    program_risk = graduation.get("program_risk") or {
+        "score": 0,
+        "level": "unknown",
+    }
+    operator_confidence = float(graduation.get("operator_confidence") or 0)
+    milestone_graduation = graduation.get("milestones") or []
+    milestone_debts = sum(
+        len(value.get("debts") or []) for value in milestone_graduation
+    )
+    forecast_days = next(
+        (
+            (value.get("forecast") or {}).get("days")
+            for value in milestone_graduation
+            if not value.get("graduated")
+            and (value.get("forecast") or {}).get("days") is not None
+        ),
+        None,
+    )
     ghost = runtime_records.get("ghost")
     nyx = runtime_records.get("nyx")
     macbookpro = runtime_records.get("macbookpro")
     ghost_icon, ghost_status = _runtime_status(ghost)
     nyx_icon, nyx_status = _runtime_status(nyx)
     mac_icon, mac_status = _runtime_status(macbookpro)
-    mbair_icon, mbair_status = _runtime_status(runtime_records.get("mbair"), offline=True)
-    ghost_web_behind = "Web Presentation" in ((ghost or {}).get("capabilities_behind") or [])
+    mbair_icon, mbair_status = _runtime_status(
+        runtime_records.get("mbair"), offline=True
+    )
+    ghost_web_behind = "Web Presentation" in (
+        (ghost or {}).get("capabilities_behind") or []
+    )
     ghost_web_verified = bool(
         ghost
         and not ghost_web_behind
@@ -200,8 +244,7 @@ def render_executive_dashboard(
             continue
         pending_decisions.append(decision_id)
     need_human = bool(pending_decisions) or (
-        (semantics.get("supervisor_work") or {}).get("need_product_owner_now")
-        == "Yes"
+        (semantics.get("supervisor_work") or {}).get("need_product_owner_now") == "Yes"
     )
 
     milestone_lines = []
@@ -221,14 +264,23 @@ def render_executive_dashboard(
 
     sections = [
         (
-            "Executive Roadmap",
-            f"Roadmap proof `{progress_bar(verified, total)}` *{verified}/{total} verified* ({roadmap_percent}%)\n"
+            "Primary KPI",
+            f"Graduated capabilities `{progress_bar(graduated_capabilities, capability_total)}` "
+            f"*{graduated_capabilities}/{capability_total}* ({capability_percent:g}%)\n"
             f"Frontier: *{public_text(semantics.get('current_execution_frontier') or 'Not established')}*",
         ),
         (
-            "Milestones",
+            "Milestone Graduation",
             f"Milestone proof `{progress_bar(verified_milestones, len(milestones))}` "
-            f"*{verified_milestones}/{len(milestones)} verified*\n" + "\n".join(milestone_lines),
+            f"*{verified_milestones}/{len(milestones)} verified*\n"
+            + "\n".join(milestone_lines),
+        ),
+        (
+            "Milestone Debt, Risk, Confidence & Forecast",
+            f"Graduation debt: *{milestone_debts}* | Program risk: "
+            f"*{public_text(program_risk.get('level') or 'unknown')} ({int(program_risk.get('score') or 0)}/100)*\n"
+            f"Operator confidence: *{operator_confidence:g}%* | Forecast: "
+            f"*{str(forecast_days) + ' days' if forecast_days is not None else 'insufficient history'}*",
         ),
         (
             "Work In Progress",
@@ -252,7 +304,7 @@ def render_executive_dashboard(
             f"Ready roadmap items: *{int((semantics.get('supervisor_work') or {}).get('ready_work_item_count') or 0)}*",
         ),
         (
-            "Deployment Progress",
+            "Deployment Rings",
             f"Runtime deployment `{progress_bar(deployed, runtime_total)}` *{deployed}/{runtime_total} current*\n"
             f"Pending deployment plans: *{len(capabilities.get('deployment_assignments') or [])}*",
         ),
@@ -262,8 +314,9 @@ def render_executive_dashboard(
             "Deployment state and validation proof are reported separately.",
         ),
         (
-            "Capability Gates",
-            f"Capability proof `{progress_bar(gate_passed, gate_total)}` *{gate_passed}/{gate_total} passed*\n"
+            "Capability Graduation",
+            f"Graduation proof `{progress_bar(graduated_capabilities, capability_total)}` "
+            f"*{graduated_capabilities}/{capability_total} graduated*\n"
             f"Promotion: {public_text((capabilities.get('promotion_status') or {}).get('reason') or 'No capability projection available')}",
         ),
         (
@@ -290,7 +343,8 @@ def render_executive_dashboard(
         ),
         (
             "Human Action Required",
-            "*Yes* — " + ", ".join(f"`{public_text(value)}`" for value in pending_decisions)
+            "*Yes* — "
+            + ", ".join(f"`{public_text(value)}`" for value in pending_decisions)
             if pending_decisions
             else "*Yes* — review the current authority gate"
             if need_human
@@ -301,7 +355,8 @@ def render_executive_dashboard(
         raise ValueError("executive dashboard proof section contract changed")
 
     fallback = (
-        f"AXIS Executive Dashboard | Roadmap {verified}/{total} verified ({roadmap_percent}%) | "
+        f"AXIS Executive Dashboard | Graduated capabilities {graduated_capabilities}/{capability_total} "
+        f"({capability_percent:g}%) | Roadmap {verified}/{total} verified ({roadmap_percent}%) | "
         f"Milestones {verified_milestones}/{len(milestones)} | WIP {wip_total}/{wip_limit} | "
         f"Deployment {deployed}/{runtime_total} | Validation {validated}/{runtime_total} | "
         f"Human action {'yes' if need_human else 'no'}"
@@ -314,7 +369,8 @@ def render_executive_dashboard(
         *[
             {
                 "type": "section",
-                "block_id": "axis_" + re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_"),
+                "block_id": "axis_"
+                + re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_"),
                 "text": {"type": "mrkdwn", "text": f"*{title}*\n{text}"},
             }
             for title, text in sections

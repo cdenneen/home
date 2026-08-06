@@ -30,6 +30,14 @@ cleanup, and fresh-cycle recognition were all rechecked. Acceptance criteria,
 MRs, milestones, implementation slices, and evidence records are verification
 inputs or aggregates, not additional roadmap-denominator entities.
 
+Mission v2 additionally persists `capability-graduation.json`. Its primary KPI
+is graduated capabilities. Each capability exposes implementation, integration,
+deployment, validation, verification, operator acceptance, program risk, and
+graduated gates with source-linked evidence. Roadmap entities are partitioned
+exactly once into active, archive, historical, future, decision, blocked, or
+graduated denominators. Milestone debt, risk, confidence, and forecast are
+derived from that partition and the observed scheduler state.
+
 Audit and readiness coverage is reported separately and is not roadmap progress.
 It includes inventory classification, closed-item revalidation, Waiting-item
 decomposition, dependency evaluation, queue eligibility, source linkage, and

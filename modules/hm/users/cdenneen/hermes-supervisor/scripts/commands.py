@@ -63,6 +63,15 @@ def capability_projection() -> dict:
     )
 
 
+def graduation_projection() -> dict:
+    path = ROOT / "capability-graduation.json"
+    if not path.exists():
+        return {}
+    return read_record(
+        path, "axis.external-development-supervisor.capability-graduation"
+    )
+
+
 def public_runtime_status(value: dict) -> str:
     if value.get("runtime") == "mbair":
         return "offline"
@@ -122,6 +131,7 @@ def main() -> int:
         )
         return 0
     if command == "status":
+        graduation = graduation_projection()
         print(
             json.dumps(
                 with_semantic_metadata({
@@ -147,6 +157,9 @@ def main() -> int:
                         "inventory_classified"
                     ),
                     "scheduler_state": scheduler_summary(roadmap),
+                    "primary_kpi": graduation.get("primary_kpi") or {},
+                    "program_risk": graduation.get("program_risk") or {},
+                    "operator_confidence": graduation.get("operator_confidence"),
                 }, roadmap),
                 sort_keys=True,
             )
@@ -293,6 +306,7 @@ def main() -> int:
         return 0
     if command in {"deployments", "validation", "capabilities"}:
         capability = capability_projection()
+        graduation = graduation_projection()
         runtimes = capability.get("runtimes") or []
         if command == "deployments":
             items = [
@@ -334,6 +348,32 @@ def main() -> int:
                 "items": items,
             }
         else:
+            if graduation:
+                items = [
+                    {
+                        "capability": value.get("capability"),
+                        "graduated": value.get("graduated"),
+                        "graduation_confidence": value.get(
+                            "graduation_confidence"
+                        ),
+                        "operator_confidence": value.get("operator_confidence"),
+                        "program_risk": value.get("program_risk"),
+                        "gates": value.get("graduation_state") or {},
+                    }
+                    for value in graduation.get("capabilities") or []
+                ]
+                result = {
+                    "command": command,
+                    "primary_kpi": graduation.get("primary_kpi") or {},
+                    "denominator": graduation.get("denominator") or {},
+                    "items": items,
+                }
+                print(
+                    json.dumps(
+                        with_semantic_metadata(result, roadmap), sort_keys=True
+                    )
+                )
+                return 0
             runtime_by_name = {
                 str(value.get("runtime")): value for value in runtimes
             }
