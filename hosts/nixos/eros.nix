@@ -38,7 +38,8 @@ in
     ];
     environmentVariables = {
       OLLAMA_MAX_LOADED_MODELS = "2";
-      OLLAMA_NUM_PARALLEL = "2";
+      OLLAMA_CONTEXT_LENGTH = "32768";
+      OLLAMA_NUM_PARALLEL = "1";
     };
   };
 
@@ -172,7 +173,9 @@ in
           litellm_params:
             model: ollama/qwen2.5-coder:7b
             api_base: http://127.0.0.1:11434
-            caching: false
+          model_info:
+            max_input_tokens: 28672
+            max_output_tokens: 4096
         - model_name: local-embed
           litellm_params:
             model: ollama/qwen3-embedding:0.6b
@@ -211,6 +214,7 @@ in
           qdrant_semantic_cache_embedding_model: local-embed
           qdrant_collection_name: litellm_semantic_cache
       router_settings:
+        cache_responses: false
         fallbacks:
           - coding: [coding-openai, coding-haiku, coding-gemini]
           - coding-strong: [coding-gemini]
