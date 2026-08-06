@@ -586,7 +586,7 @@ in
       {"runtime":"ghost","ring":0,"runtime_revision":"${axisRevision}","supervisor_revision":"${supervisorRevision}","deployment_time":"$deployed_at","verification_status":"deployment-recorded","health":"pending-runtime-verification"}
       EOF
       chown axis:axis /var/lib/axis/deployment-identity.json
-      chmod 0640 /var/lib/axis/deployment-identity.json
+      chmod 0644 /var/lib/axis/deployment-identity.json
     '';
   };
 
