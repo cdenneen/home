@@ -65,10 +65,7 @@ in
     authentication = lib.mkAfter ''
       host litellm litellm 127.0.0.1/32 scram-sha-256
     '';
-    settings = {
-      listen_addresses = "127.0.0.1";
-      password_encryption = "scram-sha-256";
-    };
+    settings.password_encryption = "scram-sha-256";
   };
 
   services.litellm = {
