@@ -97,6 +97,8 @@ def active_leases(now: int) -> list[dict]:
 def all_leases() -> list[dict]:
     values = []
     for path in LEASES.glob("*/lease.json"):
+        if path.parent.name.startswith("stale-"):
+            continue
         lease = read_record(path, "axis.external-development-supervisor.lease")
         lease["path"] = str(path)
         values.append(lease)

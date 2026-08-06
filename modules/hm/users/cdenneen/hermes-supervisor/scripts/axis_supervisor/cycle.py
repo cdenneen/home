@@ -470,7 +470,48 @@ def execute_new_assignment(
     }:
         claim_command.append("--read-only")
     try:
-        lease_output = subprocess.check_output(claim_command, text=True, timeout=30)
+        claim_started = time.time()
+        completed_claim = subprocess.run(
+            claim_command, text=True, capture_output=True, timeout=30
+        )
+        if completed_claim.returncode != 0:
+            diagnostic = {
+                "schema": "axis.supervisor.lease-claim-diagnostic.v1",
+                "assignment_id": assignment["assignment_id"],
+                "work_item": assignment["work_item"],
+                "repository": assignment["project"],
+                "argv": claim_command,
+                "cwd": str(Path.cwd()),
+                "started_at_epoch": claim_started,
+                "ended_at_epoch": time.time(),
+                "exit_code": completed_claim.returncode,
+                "stdout": completed_claim.stdout,
+                "stderr": completed_claim.stderr,
+                "timeout": False,
+                "requested_lease_key": assignment["assignment_id"],
+                "requested_scope": [resource],
+                "supervisor_revision": deployed_source_revision(),
+                "inventory_revision": assignment.get(
+                    "source_inventory_generation_id"
+                ),
+            }
+            diagnostic_path = (
+                ROOT
+                / "engineering-memory"
+                / "lease-incidents"
+                / f"{assignment['assignment_id']}.json"
+            )
+            diagnostic_path.parent.mkdir(parents=True, exist_ok=True)
+            diagnostic_path.write_text(
+                json.dumps(diagnostic, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"lease infrastructure failure; diagnostic={diagnostic_path}; "
+                f"stdout={completed_claim.stdout[-1000:]}; "
+                f"stderr={completed_claim.stderr[-1000:]}"
+            )
+        lease_output = completed_claim.stdout
         lease = validate_record(
             json.loads(lease_output), "axis.external-development-supervisor.lease"
         )
@@ -1417,7 +1458,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         }
 
     selected = selected_batch[0] if selected_batch else None
-    assignment = dispatcher.dispatch(graph, run_id, selected)
+    assignment = dispatch_first_available(graph)
     if assignment is None:
         return {"result": "no-assignment", "queue_depth": graph["queue_depth"]}
     return execute_with_continuation(assignment)

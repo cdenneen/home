@@ -43,6 +43,16 @@ class Dispatcher:
         ):
             return None
         item = selected or graph["executable_queue"][0]
+        quarantine_path = self.root / "quarantines.json"
+        if quarantine_path.exists():
+            quarantine = json.loads(quarantine_path.read_text(encoding="utf-8"))
+            now = int(time.time())
+            if any(
+                value.get("work_item") == item.get("target_ref")
+                and int(value.get("expires_at_epoch") or 0) > now
+                for value in quarantine.get("items") or []
+            ):
+                return None
         if any(value.get("project") == item.get("project") for value in active):
             return None
         source_item = item.get("source_item") or {}
