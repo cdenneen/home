@@ -421,8 +421,8 @@ in
   };
   sops.secrets.axis_remote_client_token = {
     sopsFile = ../../secrets/axis.yaml;
-    owner = "caddy";
-    group = "caddy";
+    owner = "axis";
+    group = "axis";
     mode = "0440";
     restartUnits = [ "axis-api-auth-proxy.service" ];
   };
@@ -560,8 +560,8 @@ in
     requires = [ "axis.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
-      User = "caddy";
-      Group = "caddy";
+      User = "axis";
+      Group = "axis";
       ExecStart = "${pkgs.python3}/bin/python ${axisApiProxy}";
       Restart = "on-failure";
       RestartSec = 2;
