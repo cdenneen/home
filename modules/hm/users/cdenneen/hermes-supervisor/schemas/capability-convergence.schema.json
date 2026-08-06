@@ -9,6 +9,7 @@
     "convergence_digest",
     "repository_convergence_digest",
     "expected_repository_revision",
+    "expected_runtime_revision",
     "capabilities",
     "runtimes",
     "deployment_assignments",
@@ -26,6 +27,7 @@
     },
     "repository_convergence_digest": { "type": "string" },
     "expected_repository_revision": { "type": "string" },
+    "expected_runtime_revision": { "type": "string" },
     "capabilities": { "type": "array", "items": { "type": "object" } },
     "runtimes": { "type": "array", "items": { "type": "object" } },
     "deployment_assignments": {

@@ -2,6 +2,7 @@
   "schema_version": "1.0.0",
   "repository": "ghostspace/axis",
   "repository_path": "/home/cdenneen/src/workspace/personal/work/axis",
+  "deployment_lock_path": "/home/cdenneen/src/workspace/nix/home/flake.lock",
   "capabilities": {
     "Runtime Kernel": {
       "paths": ["src/axis_kernel", "src/axis_runtime/runtime.py"],

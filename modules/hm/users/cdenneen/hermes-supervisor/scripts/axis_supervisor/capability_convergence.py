@@ -99,6 +99,15 @@ class CapabilityConvergenceProjector:
         matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
         repository = Path(matrix["repository_path"])
         expected_repository_revision = self._run(repository, "rev-parse", "origin/main")
+        if matrix.get("deployment_lock_path"):
+            deployment_lock = json.loads(
+                Path(matrix["deployment_lock_path"]).read_text(encoding="utf-8")
+            )
+            expected_runtime_revision = str(
+                deployment_lock["nodes"]["axis"]["locked"]["rev"]
+            )
+        else:
+            expected_runtime_revision = expected_repository_revision
         capabilities = []
         expected_by_capability = {}
         for name, definition in matrix["capabilities"].items():
@@ -194,6 +203,7 @@ class CapabilityConvergenceProjector:
                     "deployment_target": runtime["deployment_target"],
                     "running_revision": running_revision,
                     "expected_repository_revision": expected_repository_revision,
+                    "expected_runtime_revision": expected_runtime_revision,
                     "capabilities_behind": behind,
                     "observed_capability_revisions": observed_capability_revisions,
                     "capabilities_blocked_by_prior_ring": blocked_by_prior_ring,
@@ -221,7 +231,8 @@ class CapabilityConvergenceProjector:
                             capability: expected_by_capability[capability]
                             for capability in deployable_capabilities
                         },
-                        "expected_revision": expected_repository_revision,
+                        "expected_revision": expected_runtime_revision,
+                        "expected_runtime_revision": expected_runtime_revision,
                         "deployment_target": runtime["deployment_target"],
                         "status": status,
                         "migration_requirements": "derive from verified capability changes before apply",
@@ -260,6 +271,7 @@ class CapabilityConvergenceProjector:
                 "convergence_digest"
             ),
             "expected_repository_revision": expected_repository_revision,
+            "expected_runtime_revision": expected_runtime_revision,
             "capabilities": capabilities,
             "runtimes": runtime_records,
             "assignments": assignments,
@@ -278,6 +290,7 @@ class CapabilityConvergenceProjector:
                 "convergence_digest"
             ),
             "expected_repository_revision": expected_repository_revision,
+            "expected_runtime_revision": expected_runtime_revision,
             "capabilities": capabilities,
             "runtimes": runtime_records,
             "deployment_assignments": assignments,
