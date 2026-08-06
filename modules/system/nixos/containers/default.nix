@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -26,6 +27,7 @@ in
     };
     virtualisation.arion = {
       backend = "podman-socket";
+      docker.client.package = lib.mkForce pkgs.docker_29;
     };
   };
 }
