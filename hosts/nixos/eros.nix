@@ -148,7 +148,7 @@ in
         printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
         printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
         printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
-        printf 'QDRANT_VECTOR_SIZE=768\n'
+        printf 'QDRANT_VECTOR_SIZE=1024\n'
       } > "${litellmEnvFile}"
     '';
   };
