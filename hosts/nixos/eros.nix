@@ -7,6 +7,7 @@
 let
   litellmPort = 4000;
   litellmEnvFile = "/run/eros-litellm/env";
+  litellmConfigFile = "/run/eros-litellm/config.yaml";
   qdrantPort = 6333;
 in
 {
@@ -43,11 +44,30 @@ in
 
   virtualisation.oci-containers = {
     backend = "podman";
-    containers.qdrant = {
-      image = "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286";
-      ports = [ "127.0.0.1:${toString qdrantPort}:6333" ];
-      volumes = [ "/var/lib/qdrant:/qdrant/storage:U" ];
-      autoStart = true;
+    containers = {
+      qdrant = {
+        image = "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286";
+        ports = [ "127.0.0.1:${toString qdrantPort}:6333" ];
+        volumes = [ "/var/lib/qdrant:/qdrant/storage:U" ];
+        autoStart = true;
+      };
+      litellm = {
+        image = "ghcr.io/berriai/litellm:v1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe";
+        volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
+        extraOptions = [
+          "--env-file=${litellmEnvFile}"
+          "--network=host"
+        ];
+        cmd = [
+          "--config"
+          "/app/config.yaml"
+          "--host"
+          "127.0.0.1"
+          "--port"
+          (toString litellmPort)
+        ];
+        autoStart = true;
+      };
     };
   };
 
@@ -66,94 +86,6 @@ in
       host litellm litellm 127.0.0.1/32 scram-sha-256
     '';
     settings.password_encryption = "scram-sha-256";
-  };
-
-  services.litellm = {
-    enable = true;
-    host = "127.0.0.1";
-    port = litellmPort;
-    environmentFile = litellmEnvFile;
-    settings = {
-      model_list = [
-        {
-          model_name = "coding";
-          litellm_params = {
-            model = "ollama/qwen2.5-coder:7b";
-            api_base = "http://127.0.0.1:11434";
-          };
-        }
-        {
-          model_name = "local-embed";
-          litellm_params = {
-            model = "ollama/embeddinggemma";
-            api_base = "http://127.0.0.1:11434";
-          };
-        }
-        {
-          model_name = "coding-openai";
-          litellm_params = {
-            model = "openai/gpt-5-mini";
-            api_key = "os.environ/OPENAI_API_KEY";
-          };
-        }
-        {
-          model_name = "coding-haiku";
-          litellm_params = {
-            model = "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0";
-            aws_region_name = "us-east-1";
-          };
-        }
-        {
-          model_name = "coding-gemini";
-          litellm_params = {
-            model = "gemini/gemini-2.5-flash";
-            api_key = "os.environ/GEMINI_API_KEY";
-          };
-        }
-        {
-          model_name = "coding-strong";
-          litellm_params = {
-            model = "bedrock/us.anthropic.claude-sonnet-4-6";
-            aws_region_name = "us-east-1";
-          };
-        }
-      ];
-
-      general_settings = {
-        master_key = "os.environ/LITELLM_MASTER_KEY";
-        database_url = "os.environ/DATABASE_URL";
-      };
-
-      litellm_settings = {
-        cache = true;
-        cache_params = {
-          type = "qdrant-semantic";
-          cache_policy = "semantic";
-          similarity_threshold = 0.95;
-          supported_call_types = [
-            "completion"
-            "acompletion"
-          ];
-          qdrant_semantic_cache_embedding_model = "local-embed";
-          qdrant_collection_name = "litellm_semantic_cache";
-        };
-      };
-
-      router_settings = {
-        fallbacks = [
-          {
-            "coding" = [
-              "coding-openai"
-              "coding-haiku"
-              "coding-gemini"
-            ];
-          }
-          { "coding-strong" = [ "coding-gemini" ]; }
-        ];
-        num_retries = 1;
-        timeout = 90;
-      };
-    };
   };
 
   sops.secrets = {
@@ -186,7 +118,7 @@ in
 
   systemd.services.eros-litellm-env = {
     description = "Render the LiteLLM secret environment";
-    before = [ "litellm.service" ];
+    before = [ "podman-litellm.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
@@ -221,11 +153,73 @@ in
     '';
   };
 
+  systemd.services.eros-litellm-config = {
+    description = "Render the LiteLLM configuration";
+    before = [ "podman-litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+      ${pkgs.coreutils}/bin/install -d -m 0700 /run/eros-litellm
+      cat > "${litellmConfigFile}" <<'EOF'
+      model_list:
+        - model_name: coding
+          litellm_params:
+            model: ollama/qwen2.5-coder:7b
+            api_base: http://127.0.0.1:11434
+        - model_name: local-embed
+          litellm_params:
+            model: ollama/embeddinggemma
+            api_base: http://127.0.0.1:11434
+        - model_name: coding-openai
+          litellm_params:
+            model: openai/gpt-5-mini
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: coding-haiku
+          litellm_params:
+            model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+            aws_region_name: us-east-1
+        - model_name: coding-gemini
+          litellm_params:
+            model: gemini/gemini-2.5-flash
+            api_key: os.environ/GEMINI_API_KEY
+        - model_name: coding-strong
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-4-6
+            aws_region_name: us-east-1
+      general_settings:
+        master_key: os.environ/LITELLM_MASTER_KEY
+        database_url: os.environ/DATABASE_URL
+      litellm_settings:
+        cache: true
+        cache_params:
+          type: qdrant-semantic
+          cache_policy: semantic
+          similarity_threshold: 0.95
+          supported_call_types: [completion, acompletion]
+          qdrant_semantic_cache_embedding_model: local-embed
+          qdrant_collection_name: litellm_semantic_cache
+      router_settings:
+        fallbacks:
+          - coding: [coding-openai, coding-haiku, coding-gemini]
+          - coding-strong: [coding-gemini]
+        num_retries: 1
+        timeout: 90
+      EOF
+      ${pkgs.coreutils}/bin/chmod 0600 "${litellmConfigFile}"
+    '';
+  };
+
   systemd.services.eros-litellm-db-user = {
     description = "Set the LiteLLM PostgreSQL role password";
     after = [ "postgresql.service" ];
     requires = [ "postgresql.service" ];
-    before = [ "litellm.service" ];
+    before = [ "podman-litellm.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
@@ -263,16 +257,18 @@ in
     '';
   };
 
-  systemd.services.litellm = {
+  systemd.services.podman-litellm = {
     requires = [
       "eros-litellm-db-user.service"
       "eros-litellm-env.service"
+      "eros-litellm-config.service"
       "ollama.service"
       "podman-qdrant.service"
     ];
     after = [
       "eros-litellm-db-user.service"
       "eros-litellm-env.service"
+      "eros-litellm-config.service"
       "ollama.service"
       "podman-qdrant.service"
     ];
@@ -282,11 +278,11 @@ in
     description = "Expose LiteLLM over Tailscale";
     after = [
       "tailscaled.service"
-      "litellm.service"
+      "podman-litellm.service"
     ];
     requires = [
       "tailscaled.service"
-      "litellm.service"
+      "podman-litellm.service"
     ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig.Type = "oneshot";
