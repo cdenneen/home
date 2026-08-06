@@ -5,7 +5,7 @@
 
     # Completion styling
     zstyle ':completion:*' auto-description 'specify: %d'
-    zstyle ':completion:*' completer _expand _complete _correct _approximate
+    zstyle ':completion:*' completer _complete _correct _approximate
     zstyle ':completion:*' format 'Completing %d'
     zstyle ':completion:*' group-name ""
     if command -v dircolors >/dev/null 2>&1; then
@@ -38,13 +38,5 @@
     fi
     bindkey -M emacs '^I' expand-or-complete
     bindkey -M viins '^I' expand-or-complete
-    _rm_files_or_options() {
-      if [[ $PREFIX == -* ]]; then
-        _rm "$@"
-      else
-        _files
-      fi
-    }
-    compdef _rm_files_or_options rm
   fi
 ''
