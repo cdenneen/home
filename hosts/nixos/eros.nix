@@ -4,15 +4,206 @@
   lib,
   ...
 }:
+let
+  litellmPort = 4000;
+  litellmEnvFile = "/run/eros-litellm/env";
+  qdrantPort = 6333;
+in
 {
   networking.hostName = "eros";
   ec2.efi = true;
 
-  # Switch display manager from Plasma to XFCE
+  # CPU-only LLM gateway: retain the host tooling but do not run a desktop.
+  profiles.gui.enable = false;
   services.desktopManager.plasma6.enable = false;
-  services.xserver.desktopManager.xfce.enable = true;
-  services.xserver.displayManager.lightdm.enable = true;
+  services.xserver.desktopManager.xfce.enable = false;
+  services.xserver.displayManager.lightdm.enable = false;
   services.displayManager.sddm.enable = false;
+
+  services.tailscale = {
+    enable = true;
+    openFirewall = false;
+  };
+
+  # Keep the raw Ollama API local. Clients use the authenticated LiteLLM
+  # gateway on the tailnet; do not expose port 11434.
+  services.ollama = {
+    enable = true;
+    host = "127.0.0.1";
+    openFirewall = false;
+    loadModels = [
+      "qwen2.5-coder:7b"
+      "embeddinggemma"
+    ];
+    environmentVariables = {
+      OLLAMA_MAX_LOADED_MODELS = "2";
+      OLLAMA_NUM_PARALLEL = "2";
+    };
+  };
+
+  virtualisation.oci-containers = {
+    backend = "podman";
+    containers.qdrant = {
+      image = "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286";
+      ports = [ "127.0.0.1:${toString qdrantPort}:6333" ];
+      volumes = [ "/var/lib/qdrant:/qdrant/storage:U" ];
+      autoStart = true;
+    };
+  };
+
+  services.litellm = {
+    enable = true;
+    host = "127.0.0.1";
+    port = litellmPort;
+    environmentFile = litellmEnvFile;
+    settings = {
+      model_list = [
+        {
+          model_name = "coding-local";
+          litellm_params = {
+            model = "ollama/qwen2.5-coder:7b";
+            api_base = "http://127.0.0.1:11434";
+          };
+        }
+        {
+          model_name = "local-embed";
+          litellm_params = {
+            model = "ollama/embeddinggemma";
+            api_base = "http://127.0.0.1:11434";
+          };
+        }
+        {
+          model_name = "coding-cloud";
+          litellm_params = {
+            model = "gemini/gemini-2.5-flash";
+            api_key = "os.environ/GEMINI_API_KEY";
+          };
+        }
+        {
+          model_name = "openai/*";
+          litellm_params = {
+            model = "openai/*";
+            api_key = "os.environ/OPENAI_API_KEY";
+          };
+        }
+        {
+          model_name = "gemini/*";
+          litellm_params = {
+            model = "gemini/*";
+            api_key = "os.environ/GEMINI_API_KEY";
+          };
+        }
+      ];
+
+      general_settings.master_key = "os.environ/LITELLM_MASTER_KEY";
+
+      litellm_settings = {
+        cache = true;
+        cache_params = {
+          type = "qdrant-semantic";
+          cache_policy = "semantic";
+          similarity_threshold = 0.95;
+          supported_call_types = [
+            "completion"
+            "acompletion"
+          ];
+          qdrant_semantic_cache_embedding_model = "local-embed";
+          qdrant_collection_name = "litellm_semantic_cache";
+          qdrant_semantic_cache_vector_size = 768;
+        };
+      };
+
+      router_settings = {
+        fallbacks = [ { "coding-local" = [ "coding-cloud" ]; } ];
+        num_retries = 1;
+        timeout = 90;
+      };
+    };
+  };
+
+  sops.secrets = {
+    eros_litellm_master_key = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+    openai_api_key = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+    gemini_api_key = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+  };
+
+  systemd.services.eros-litellm-env = {
+    description = "Render the LiteLLM secret environment";
+    before = [ "litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      set -euo pipefail
+
+      read_secret() {
+        local secret_file="$1"
+        local secret_name="$2"
+        if [ ! -r "$secret_file" ]; then
+          echo "Missing $secret_name at $secret_file" >&2
+          exit 1
+        fi
+        ${pkgs.coreutils}/bin/tr -d '\\n\\r' < "$secret_file"
+      }
+
+      ${pkgs.coreutils}/bin/install -d -m 0700 /run/eros-litellm
+      ${pkgs.coreutils}/bin/install -m 0600 /dev/null "${litellmEnvFile}"
+      {
+        printf 'LITELLM_MASTER_KEY=%s\\n' "$(read_secret "${config.sops.secrets.eros_litellm_master_key.path}" "LiteLLM master key")"
+        printf 'OPENAI_API_KEY=%s\\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
+        printf 'GEMINI_API_KEY=%s\\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
+        printf 'QDRANT_API_BASE=http://127.0.0.1:%s\\n' "${toString qdrantPort}"
+      } > "${litellmEnvFile}"
+    '';
+  };
+
+  systemd.services.litellm = {
+    requires = [
+      "eros-litellm-env.service"
+      "ollama.service"
+      "podman-qdrant.service"
+    ];
+    after = [
+      "eros-litellm-env.service"
+      "ollama.service"
+      "podman-qdrant.service"
+    ];
+  };
+
+  systemd.services.tailscale-serve-eros = {
+    description = "Expose LiteLLM over Tailscale";
+    after = [
+      "tailscaled.service"
+      "litellm.service"
+    ];
+    requires = [
+      "tailscaled.service"
+      "litellm.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig.Type = "oneshot";
+    path = [ pkgs.tailscale ];
+    script = ''
+      set -euo pipefail
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+    '';
+  };
 
   services.udisks2.enable = lib.mkForce false;
   services.openssh.settings.PermitRootLogin = lib.mkForce "prohibit-password";
