@@ -51,6 +51,8 @@ in
     };
   };
 
+  systemd.tmpfiles.rules = [ "d /var/lib/qdrant 0750 root root -" ];
+
   services.litellm = {
     enable = true;
     host = "127.0.0.1";
