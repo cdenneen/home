@@ -61,6 +61,40 @@ class CapabilityConvergenceProjector:
         except Exception as exc:
             return None, f"{type(exc).__name__}: {exc}"
 
+    @staticmethod
+    def _required_command_available(runtime: dict) -> bool:
+        command = str(runtime.get("required_command") or "")
+        if not command:
+            return True
+        if runtime["host"] == "local":
+            return (
+                subprocess.run(
+                    ["sh", "-c", f"command -v {command}"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                ).returncode
+                == 0
+            )
+        return (
+            subprocess.run(
+                [
+                    "ssh",
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=10",
+                    runtime["host"],
+                    f"command -v {command}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=20,
+            ).returncode
+            == 0
+        )
+
     def build(self, repository_convergence: dict) -> dict:
         matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
         repository = Path(matrix["repository_path"])
@@ -90,6 +124,11 @@ class CapabilityConvergenceProjector:
             matrix["runtimes"].items(), key=lambda value: int(value[1]["ring"])
         ):
             identity, error = self._identity(runtime)
+            required_command_available = self._required_command_available(runtime)
+            if not required_command_available and error is None:
+                error = "required-command-missing:" + str(
+                    runtime.get("required_command")
+                )
             running_revision = (identity or {}).get("runtime_revision")
             projected = [
                 capability
@@ -166,6 +205,8 @@ class CapabilityConvergenceProjector:
                         "verification_status"
                     ),
                     "identity_error": error,
+                    "required_command": runtime.get("required_command"),
+                    "required_command_available": required_command_available,
                 }
             )
             if deployable_capabilities:
