@@ -20,6 +20,12 @@ let
   isGhost = hostName == "ghost";
   isDarwin = pkgs.stdenv.isDarwin;
   isLinux = pkgs.stdenv.isLinux;
+  erosLitellmKeyName = lib.attrByPath [ hostName ] null {
+    VNJTECMBCD = "eros_litellm_api_key_vnjtecmbcd";
+    ghost = "eros_litellm_api_key_ghost";
+    nyx = "eros_litellm_api_key_nyx";
+    mbair = "eros_litellm_api_key_mbair";
+  };
   # Avoid runtime-dir secret paths on Linux (e.g. /run/user/$UID) which may be
   # missing when the user session is not active (notably on headless hosts).
   linuxSopsSecretsDir = "${config.home.homeDirectory}/.local/share/sops-nix/secrets";
@@ -243,6 +249,13 @@ let
         export GOOGLE_API_KEY="$gemini_api_key"
       fi
     fi
+
+    ${lib.optionalString (erosLitellmKeyName != null) ''
+      if [ -r "${config.sops.secrets.eros_litellm_api_key.path}" ]; then
+        export EROS_LITELLM_BASE_URL="http://eros.tail0e55.ts.net:4000/v1"
+        export EROS_LITELLM_API_KEY="$("${pkgs.coreutils}/bin/tr -d '\\n\\r' < "${config.sops.secrets.eros_litellm_api_key.path}")"
+      fi
+    ''}
   '';
 in
 {
@@ -322,6 +335,12 @@ in
   }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
+  }
+  // lib.optionalAttrs (erosLitellmKeyName != null) {
+    eros_litellm_api_key = {
+      key = erosLitellmKeyName;
+      mode = "0400";
+    };
   };
 
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''

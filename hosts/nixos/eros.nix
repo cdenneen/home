@@ -251,12 +251,15 @@ in
         echo "LiteLLM database password is empty" >&2
         exit 1
       fi
+      case "$password" in
+        *[!0-9a-f]*)
+          echo "LiteLLM database password must be lowercase hexadecimal" >&2
+          exit 1
+          ;;
+      esac
 
-      ${pkgs.util-linux}/bin/runuser -u postgres -- ${config.services.postgresql.package}/bin/psql \
-        --dbname=postgres \
-        --set=ON_ERROR_STOP=1 \
-        --set=password="$password" \
-        --command "ALTER ROLE litellm PASSWORD :'password';"
+      printf "ALTER ROLE litellm PASSWORD '%s';\\n" "$password" \
+        | ${pkgs.util-linux}/bin/runuser -u postgres -- ${config.services.postgresql.package}/bin/psql --dbname=postgres --set=ON_ERROR_STOP=1
     '';
   };
 
