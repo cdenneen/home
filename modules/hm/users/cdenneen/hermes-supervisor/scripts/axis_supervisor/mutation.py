@@ -102,6 +102,7 @@ class MutationGate:
             if self.source not in {
                 "collector",
                 "cycle",
+                "decision-controller",
                 "dispatcher",
                 "frontier",
                 "graph",

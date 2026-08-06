@@ -7,8 +7,10 @@ import sys
 from pathlib import Path
 
 from axis_supervisor.command_registry import command_specs, parse_command, usage
+from axis_supervisor.dashboard import progress_bar, public_text
 from axis_supervisor.lifecycle import is_terminal
 from axis_supervisor.mutation import MutationGate, OperationClass
+from axis_supervisor.observability import OperationalEventLog
 from axis_supervisor.reporting import build_roadmap_semantics, require_current_sources
 from axis_supervisor.schema_registry import read_record, write_record
 
@@ -50,6 +52,25 @@ def scheduler_summary(semantics: dict) -> dict:
         "next_eligible_work": scheduler.get("next_eligible_work"),
         "limiting_constraint": scheduler.get("limiting_constraint"),
     }
+
+
+def capability_projection() -> dict:
+    path = ROOT / "capability-convergence.json"
+    if not path.exists():
+        return {}
+    return read_record(
+        path, "axis.external-development-supervisor.capability-convergence"
+    )
+
+
+def public_runtime_status(value: dict) -> str:
+    if value.get("runtime") == "mbair":
+        return "offline"
+    if value.get("status") == "converged" and value.get("verification_status") == "verified":
+        return "verified"
+    if value.get("status") == "unknown":
+        return "validation-unavailable"
+    return public_text(value.get("status") or "not-observed").lower().replace(" ", "-")
 
 
 def main() -> int:
@@ -168,16 +189,51 @@ def main() -> int:
             )
         )
         return 0
+    if command == "milestone":
+        milestone = next(
+            (
+                value
+                for value in roadmap.get("complete_roadmap") or []
+                if str(value.get("key") or "").lower() == argument.lower()
+            ),
+            None,
+        )
+        result = (
+            {"command": "milestone", "item": milestone}
+            if milestone
+            else {"command": "milestone", "error": "milestone not found"}
+        )
+        print(json.dumps(with_semantic_metadata(result, roadmap), sort_keys=True))
+        return 0
     if command == "running":
         assignments = [
             item
             for item in inventory.get("supervisor_assignments") or []
             if not is_terminal(item)
         ]
+        items = []
+        for item in assignments:
+            assignment_type = str(item.get("assignment_type") or "")
+            focus = (
+                "deployment"
+                if assignment_type == "capability-deployment"
+                else "validation"
+                if assignment_type in {"read-only-analysis", "no-op-verification"}
+                else "review"
+                if item.get("lifecycle_state") == "awaiting-integration"
+                else "engineering"
+            )
+            items.append(
+                {
+                    "ref": item.get("work_item") or item.get("target_ref"),
+                    "title": item.get("title"),
+                    "focus": focus,
+                }
+            )
         print(
             json.dumps(
                 with_semantic_metadata(
-                    {"command": "running", "count": len(assignments), "items": assignments},
+                    {"command": "running", "count": len(items), "items": items},
                     roadmap,
                 ),
                 sort_keys=True,
@@ -208,9 +264,21 @@ def main() -> int:
         return 0
     if command == "decisions":
         decisions = [
-            node.get("semantic_record", {}).get("decision_packet")
+            {
+                key: packet.get(key)
+                for key in (
+                    "decision_id",
+                    "current_digest",
+                    "decision_requested",
+                    "recommendation",
+                    "consequences",
+                )
+            }
             for node in graph.get("nodes") or []
-            if node.get("semantic_record", {}).get("decision_packet")
+            if isinstance(
+                packet := (node.get("semantic_record") or {}).get("decision_packet"),
+                dict,
+            )
         ]
         print(
             json.dumps(
@@ -222,6 +290,85 @@ def main() -> int:
                 sort_keys=True,
             )
         )
+        return 0
+    if command in {"deployments", "validation", "capabilities"}:
+        capability = capability_projection()
+        runtimes = capability.get("runtimes") or []
+        if command == "deployments":
+            items = [
+                {
+                    "runtime": value.get("runtime"),
+                    "surface": "axis-node"
+                    if value.get("runtime") == "nyx"
+                    else "axis-desktop"
+                    if value.get("runtime") in {"macbookpro", "mbair"}
+                    else "runtime-and-web",
+                    "status": public_runtime_status(value),
+                    "capability_gaps": len(value.get("capabilities_behind") or []),
+                }
+                for value in runtimes
+            ]
+            result = {
+                "command": command,
+                "verified": sum(value["status"] == "verified" for value in items),
+                "total": max(4, len(items)),
+                "items": items,
+            }
+        elif command == "validation":
+            items = [
+                {
+                    "runtime": value.get("runtime"),
+                    "status": "offline"
+                    if value.get("runtime") == "mbair"
+                    else "verified"
+                    if value.get("verification_status") == "verified"
+                    else "pending",
+                    "health": public_text(value.get("health") or "not-observed"),
+                }
+                for value in runtimes
+            ]
+            result = {
+                "command": command,
+                "verified": sum(value["status"] == "verified" for value in items),
+                "total": max(4, len(items)),
+                "items": items,
+            }
+        else:
+            runtime_by_name = {
+                str(value.get("runtime")): value for value in runtimes
+            }
+            items = []
+            passed = total_gates = 0
+            for value in capability.get("capabilities") or []:
+                projected = value.get("projected_runtimes") or []
+                capability_passed = 0
+                for runtime_name in projected:
+                    runtime = runtime_by_name.get(str(runtime_name)) or {}
+                    total_gates += 1
+                    if (
+                        runtime_name != "mbair"
+                        and runtime.get("status") == "converged"
+                        and runtime.get("verification_status") == "verified"
+                        and value.get("capability")
+                        not in (runtime.get("capabilities_behind") or [])
+                    ):
+                        capability_passed += 1
+                        passed += 1
+                items.append(
+                    {
+                        "capability": value.get("capability"),
+                        "passed": capability_passed,
+                        "total": len(projected),
+                    }
+                )
+            result = {
+                "command": command,
+                "passed": passed,
+                "total": total_gates,
+                "progress": progress_bar(passed, total_gates),
+                "items": items,
+            }
+        print(json.dumps(with_semantic_metadata(result, roadmap), sort_keys=True))
         return 0
     if command == "inspect":
         item = next((item for item in graph.get("nodes") or [] if item.get("ref") == argument), None)
@@ -254,26 +401,38 @@ def main() -> int:
         print(json.dumps(with_semantic_metadata(result, roadmap), sort_keys=True))
         return 0
     if command == "recent":
-        recent = sorted(
-            [
-                {
-                    "ref": node.get("ref"),
-                    "revalidated_at": (node.get("semantic_record") or {}).get(
-                        "revalidated_at"
-                    ),
-                    "classification": node.get("classification"),
-                }
-                for node in graph.get("nodes") or []
-                if (node.get("semantic_record") or {}).get("revalidated_at")
-            ],
-            key=lambda item: str(item.get("revalidated_at") or ""),
-            reverse=True,
-        )[:10]
+        events = OperationalEventLog(ROOT, "reporter").events(limit=50)
+        no_op_count = len(
+            {
+                event.get("assignment_id")
+                for event in events
+                if (event.get("details") or {}).get("assignment_type")
+                == "no-op-verification"
+                and event.get("assignment_id")
+            }
+        )
+        recent = [
+            {
+                "activity": public_text(event.get("event_type")).replace("_", " "),
+                "ref": event.get("work_item"),
+            }
+            for event in reversed(events)
+            if event.get("event_type")
+            in {
+                "implementation_completed",
+                "mr_created",
+                "mr_merged",
+                "post_main_verified",
+                "capability_deployment_verified",
+                "assignment_retry",
+            }
+        ][:10]
         print(
             json.dumps(
                 with_semantic_metadata({
                     "command": "recent",
                     "items": recent,
+                    "routine_unchanged_evidence_checks": no_op_count,
                 }, roadmap),
                 sort_keys=True,
             )

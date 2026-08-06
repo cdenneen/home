@@ -364,6 +364,93 @@ def test_inherited_authority_semantic_slice_becomes_executable(tmp_path: Path):
     assert implementation["authority"]["state"] == "inherited"
 
 
+def test_exact_immutable_decision_releases_implementation_to_frontier(tmp_path: Path):
+    from axis_supervisor.decisions import DECISION_DIGEST, DECISION_ID, DecisionStore
+    from axis_supervisor.decomposition import SemanticDecompositionEngine
+    from axis_supervisor.graph import ExecutionGraphBuilder
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(semantic_priority_refs=[], allow_repository_mutation=True)),
+        encoding="utf-8",
+    )
+    source_item = {
+        "ref": DECISION_ID,
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "MCP tranche v2",
+        "classification": "Waiting",
+        "authority": {},
+        "dependencies": [],
+        "source_evidence": {"description": "Exact decision required"},
+    }
+    source_fingerprint = SemanticDecompositionEngine.source_fingerprint(source_item)
+    engine = SemanticDecompositionEngine(tmp_path)
+    evidence_fingerprint = engine.save_evidence(DECISION_ID, {"fixture": True})
+    record = semantic_record(
+        DECISION_ID,
+        [
+            {
+                "slice_id": "mcp-v2",
+                "title": "Implement MCP tranche v2",
+                "category": "implementation",
+                "result": "Executable",
+                "rationale": "exact Product Owner decision unlocks this slice",
+                "project": "ghostspace/axis",
+                "allowed_paths": ["src/mcp"],
+                "required_tests": ["pytest -q tests/test_mcp.py"],
+            }
+        ],
+        authority_state="needs-product-owner",
+        source_fingerprint=source_fingerprint,
+        evidence_fingerprint=evidence_fingerprint,
+    )
+    record["decision_packet"] = {
+        "decision_id": DECISION_ID,
+        "current_record": "MCP tranche v2",
+        "current_digest": DECISION_DIGEST,
+        "decision_requested": "Approve?",
+        "recommendation": "Approve",
+        "consequences": "Scheduling remains blocked.",
+        "downstream_effects": ["frontier rebuild"],
+        "unresolved_assumptions": [],
+        "response_syntax": f"Approve exact digest {DECISION_DIGEST}",
+    }
+    engine.save(record)
+    DecisionStore(tmp_path).persist(
+        {
+            "schema": "axis.external-development-supervisor.decision",
+            "schema_version": "1.0.0",
+            "decision_id": DECISION_ID,
+            "digest": DECISION_DIGEST,
+            "outcome": "approved-with-conditions",
+            "conditions": "Keep rollout bounded.",
+            "verification": "Run the MCP conformance suite.",
+            "decided_by": "U1",
+            "workspace_id": "T1",
+            "channel": "D1",
+            "message_ts": "1.1",
+            "action_id": "axis_decision_conditions_submit",
+            "action_ts": "1.2",
+            "decided_at": "2026-08-06T00:00:00+00:00",
+            "frontier_rebuild_requested_at": "2026-08-06T00:00:00+00:00",
+        }
+    )
+    graph = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "g1",
+            "work_items": [source_item],
+            "executable_queue": [],
+            "execution_graph": {"edges": []},
+            "idle_proof": {},
+        }
+    )
+    implementation = next(
+        item for item in graph["executable_queue"] if item["kind"] == "implementation"
+    )
+    assert implementation["authority"]["state"] == "direct"
+    assert implementation["authority"]["decision_record"]["conditions"] == "Keep rollout bounded."
+
+
 def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Path):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder
@@ -1319,9 +1406,14 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "conversations.history",
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
-    assert "queue=1" in fallback
+    assert fallback.startswith("AXIS Executive Dashboard | Roadmap 1/2 verified")
     assert blocks[0]["type"] == "header"
+    assert len([block for block in blocks if block["type"] == "section"]) == 15
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
+    assert not any(
+        forbidden in json.dumps(blocks).lower()
+        for forbidden in ("worktree", "lease", "grant", "model", "lifecycle")
+    )
     record = json.loads((tmp_path / "slack-overview-record.json").read_text())
     state = json.loads((tmp_path / "slack-overview-state.json").read_text())
     assert state["schema_version"] == "1.1.0"
@@ -1332,10 +1424,11 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     assert sum(value["count"] for value in record["composition"].values()) == 2
     calls.clear()
     second = projection.update(inventory, graph, control_value)
-    assert second["updated"] is True
+    assert second["updated"] is False
     assert second["ts"] == first["ts"]
-    assert [method for method, _ in calls][-2:] == [
-        "chat.update",
+    assert [method for method, _ in calls] == [
+        "auth.test",
+        "conversations.open",
         "conversations.history",
     ]
     graph["queue_depth"] = 2
@@ -1374,12 +1467,9 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     live_path.write_text(json.dumps(live), encoding="utf-8")
     calls.clear()
     worker_change = projection.update(inventory, graph, control_value)
-    assert worker_change["updated"] is True
+    assert worker_change["updated"] is False
     assert worker_change["ts"] == first["ts"]
-    assert any(
-        "running-semantic" in json.dumps(call[1].get("blocks", []))
-        for call in calls
-    )
+    assert not any("running-semantic" in json.dumps(call) for call in calls)
 
     record_event(
         tmp_path,
@@ -1536,10 +1626,43 @@ def test_supervisor_slack_plugin_executes_typed_command_without_shell(
     monkeypatch.setattr(plugin.subprocess, "run", run)
     plugin._pre_gateway_dispatch(event=Event())
     response = asyncio.run(plugin._handle_axis("status"))
-    assert "AXIS Supervisor Status" in response
+    assert "AXIS Executive Status" in response
     assert captured["command"] == [
         plugin.sys.executable,
         str(plugin.COMMAND_SCRIPT),
         "status",
     ]
     assert "shell" not in captured["kwargs"]
+
+
+def test_supervisor_slack_plugin_registers_stable_decision_actions():
+    from axis_supervisor.decisions import (
+        APPROVE_ACTION_ID,
+        APPROVE_CONDITIONS_ACTION_ID,
+        CONDITIONS_SUBMIT_ACTION_ID,
+        REJECT_ACTION_ID,
+    )
+
+    plugin = load_supervisor_slack_plugin()
+
+    class Context:
+        def __init__(self):
+            self.actions = []
+
+        def register_hook(self, *_args, **_kwargs):
+            pass
+
+        def register_command(self, *_args, **_kwargs):
+            pass
+
+        def register_slack_action_handler(self, action_id, _handler):
+            self.actions.append(action_id)
+
+    context = Context()
+    plugin.register(context)
+    assert context.actions == [
+        APPROVE_ACTION_ID,
+        APPROVE_CONDITIONS_ACTION_ID,
+        REJECT_ACTION_ID,
+        CONDITIONS_SUBMIT_ACTION_ID,
+    ]

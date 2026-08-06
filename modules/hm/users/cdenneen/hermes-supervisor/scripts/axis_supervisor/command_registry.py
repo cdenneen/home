@@ -40,6 +40,15 @@ COMMANDS = (
         "handler_key": "milestones",
     },
     {
+        "command": "milestone",
+        "aliases": (),
+        "description": "Show one milestone proof summary.",
+        "params": ("<AX-Mn>",),
+        "authority": "product-owner-slack-dm",
+        "confirmation": "none",
+        "handler_key": "milestone",
+    },
+    {
         "command": "running",
         "aliases": (),
         "description": "Show active supervisor assignments.",
@@ -65,6 +74,33 @@ COMMANDS = (
         "authority": "product-owner-slack-dm",
         "confirmation": "none",
         "handler_key": "decisions",
+    },
+    {
+        "command": "deployments",
+        "aliases": (),
+        "description": "Show deployment progress by runtime.",
+        "params": (),
+        "authority": "product-owner-slack-dm",
+        "confirmation": "none",
+        "handler_key": "deployments",
+    },
+    {
+        "command": "validation",
+        "aliases": (),
+        "description": "Show runtime validation proof.",
+        "params": (),
+        "authority": "product-owner-slack-dm",
+        "confirmation": "none",
+        "handler_key": "validation",
+    },
+    {
+        "command": "capabilities",
+        "aliases": (),
+        "description": "Show capability gate progress.",
+        "params": (),
+        "authority": "product-owner-slack-dm",
+        "confirmation": "none",
+        "handler_key": "capabilities",
     },
     {
         "command": "recent",
@@ -147,6 +183,9 @@ def parse_command(text: str) -> tuple[dict, str] | None:
         return None
     if spec["handler_key"] == "inspect":
         if not re.fullmatch(r"[^\s#]+/[^\s#]+#\d+", argument):
+            return None
+    elif spec["handler_key"] == "milestone":
+        if not re.fullmatch(r"AX-M\d+(?:\.\d+)?", argument, re.IGNORECASE):
             return None
     elif argument:
         return None

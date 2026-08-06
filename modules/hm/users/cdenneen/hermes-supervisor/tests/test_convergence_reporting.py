@@ -285,6 +285,62 @@ def test_live_command_ignores_persisted_overview(monkeypatch, tmp_path, capsys):
         commands.main()
 
 
+def test_focused_read_only_commands_execute_from_current_projections(
+    monkeypatch, tmp_path, capsys
+):
+    inventory, graph, control = current_sources()
+    for name, value in (
+        ("inventory.json", inventory),
+        ("execution-graph.json", graph),
+        ("control.json", control),
+    ):
+        (tmp_path / name).write_text(json.dumps(value), encoding="utf-8")
+    (tmp_path / "capability-convergence.json").write_text(
+        json.dumps(
+            {
+                "schema": "axis.external-development-supervisor.capability-convergence",
+                "schema_version": "1.0.0",
+                "generated_at": "2026-08-06T00:00:00+00:00",
+                "convergence_digest": "sha256:" + "a" * 64,
+                "repository_convergence_digest": "sha256:" + "b" * 64,
+                "expected_repository_revision": "main",
+                "expected_runtime_revision": "runtime",
+                "capabilities": [],
+                "runtimes": [],
+                "deployment_assignments": [],
+                "promotion_status": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location(
+        "focused_convergence_commands", SCRIPTS / "commands.py"
+    )
+    assert spec and spec.loader
+    commands = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(commands)
+    commands.ROOT = tmp_path
+
+    expected = {
+        "status": "status",
+        "roadmap": "roadmap",
+        "milestones": "milestones",
+        "milestone AX-M4": "milestone",
+        "running": "running",
+        "recent": "recent",
+        "decisions": "decisions",
+        "deployments": "deployments",
+        "validation": "validation",
+        "capabilities": "capabilities",
+        "inspect ghostspace/axis#1": "inspect",
+    }
+    for command, result_command in expected.items():
+        monkeypatch.setattr(sys, "argv", ["commands.py", *command.split()])
+        assert commands.main() == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["command"] == result_command
+
+
 def test_command_registry_is_the_single_parse_contract():
     from axis_supervisor.command_registry import command_specs, parse_command
 
@@ -300,7 +356,21 @@ def test_command_registry_is_the_single_parse_contract():
     assert all(required == set(spec) for spec in command_specs())
     assert parse_command("commands")[0]["command"] == "help"
     assert parse_command("inspect ghostspace/axis#119")[1] == "ghostspace/axis#119"
+    assert parse_command("milestone AX-M4")[1] == "AX-M4"
     assert parse_command("resume unexpected") is None
+    assert {
+        "status",
+        "roadmap",
+        "milestones",
+        "milestone",
+        "running",
+        "recent",
+        "decisions",
+        "deployments",
+        "validation",
+        "capabilities",
+        "inspect",
+    }.issubset({spec["command"] for spec in command_specs()})
     assert {spec["authority"] for spec in command_specs()} == {
         "product-owner-slack-dm"
     }
@@ -329,3 +399,143 @@ def test_slack_resume_cannot_enable_repository_mutation(monkeypatch, tmp_path, c
     persisted = json.loads((tmp_path / "control.json").read_text(encoding="utf-8"))
     assert persisted["mode"] == "enabled"
     assert persisted["allow_repository_mutation"] is False
+
+
+def test_executive_dashboard_has_fifteen_proof_sections_and_no_internal_text(
+    tmp_path: Path,
+):
+    from axis_supervisor.dashboard import (
+        DASHBOARD_PROOF_SECTIONS,
+        render_executive_dashboard,
+    )
+    from axis_supervisor.reporting import build_roadmap_semantics
+
+    inventory, graph, control = current_sources()
+    graph["scheduler_state"]["wip_counts"] = {
+        "analysis": 1,
+        "implementation": 1,
+        "integration": 0,
+        "verification": 1,
+    }
+    capability = {
+        "schema": "axis.external-development-supervisor.capability-convergence",
+        "schema_version": "1.0.0",
+        "generated_at": "2026-08-06T00:00:00+00:00",
+        "convergence_digest": "sha256:" + "a" * 64,
+        "repository_convergence_digest": "sha256:" + "b" * 64,
+        "expected_repository_revision": "main",
+        "expected_runtime_revision": "runtime",
+        "capabilities": [
+            {
+                "capability": "Web Presentation",
+                "projected_runtimes": ["ghost"],
+            },
+            {
+                "capability": "Node Runtime",
+                "projected_runtimes": ["nyx"],
+            },
+            {
+                "capability": "Desktop Presentation",
+                "projected_runtimes": ["macbookpro", "mbair"],
+            },
+        ],
+        "runtimes": [
+            {
+                "runtime": "ghost",
+                "status": "converged",
+                "verification_status": "verified",
+                "health": "healthy",
+                "capabilities_behind": [],
+                "required_command_available": True,
+            },
+            {
+                "runtime": "nyx",
+                "status": "deployment-required",
+                "verification_status": "pending",
+                "health": "healthy",
+                "capabilities_behind": ["Node Runtime"],
+                "required_command_available": True,
+            },
+            {
+                "runtime": "macbookpro",
+                "status": "converged",
+                "verification_status": "verified",
+                "health": "healthy",
+                "capabilities_behind": [],
+                "required_command_available": True,
+            },
+            {
+                "runtime": "mbair",
+                "status": "unknown",
+                "verification_status": None,
+                "health": None,
+                "capabilities_behind": ["Desktop Presentation"],
+                "required_command_available": False,
+            },
+        ],
+        "deployment_assignments": [{"target_runtime": "nyx"}],
+        "promotion_status": {
+            "blocked": False,
+            "reason": "promotion follows capability impact and ring order",
+        },
+    }
+    (tmp_path / "capability-convergence.json").write_text(
+        json.dumps(capability), encoding="utf-8"
+    )
+    events = [
+        {
+            "event_type": "assignment_disposition",
+            "assignment_id": "noop-axis5",
+            "work_item": "ghostspace/axis#5",
+            "details": {"assignment_type": "no-op-verification"},
+        },
+        {
+            "event_type": "implementation_completed",
+            "assignment_id": "implementation-1",
+            "work_item": "ghostspace/axis#29",
+            "details": {"worktree": "/internal", "lease": "secret"},
+        },
+    ]
+    semantics = build_roadmap_semantics(inventory, graph, control)
+    fallback, blocks, fingerprint = render_executive_dashboard(
+        tmp_path, inventory, graph, semantics, events
+    )
+    sections = [block for block in blocks if block["type"] == "section"]
+    assert len(sections) == 15
+    assert tuple(
+        block["text"]["text"].splitlines()[0].strip("*") for block in sections
+    ) == DASHBOARD_PROOF_SECTIONS
+    rendered = json.dumps(blocks).lower()
+    for forbidden in (
+        "worktree",
+        "lease",
+        "grant",
+        "model",
+        "accounting",
+        "lifecycle",
+        "timestamp",
+        "next: completed",
+    ):
+        assert forbidden not in rendered
+    visible_blocks = json.dumps(blocks, ensure_ascii=False)
+    assert "Ghost Runtime" in visible_blocks
+    assert "Ghost Web" in visible_blocks
+    assert "Nyx axis-node" in visible_blocks
+    assert "macbookpro axis-desktop" in visible_blocks
+    assert "mbair axis-desktop" in visible_blocks
+    assert "⚪ *Offline*" in visible_blocks
+    assert "Routine unchanged evidence checks: *1*" in visible_blocks
+    assert "█" in visible_blocks and "░" in visible_blocks
+    assert "\n" not in fallback
+    assert "*" not in fallback
+    assert fallback.startswith("AXIS Executive Dashboard | Roadmap")
+    assert len(fingerprint) == 64
+
+
+def test_progress_bar_is_deterministic_and_bounded():
+    from axis_supervisor.dashboard import progress_bar
+
+    assert progress_bar(5, 10, width=10) == "█████░░░░░"
+    assert progress_bar(20, 10, width=10) == "██████████"
+    assert progress_bar(-1, 10, width=10) == "░░░░░░░░░░"
+    assert progress_bar(0, 0, width=10) == "░░░░░░░░░░"

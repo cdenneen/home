@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.decision-card",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "decision_id",
+    "digest",
+    "packet",
+    "workspace_id",
+    "authorized_user_id",
+    "channel",
+    "ts",
+    "projected_at"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.decision-card" },
+    "schema_version": { "const": "1.0.0" },
+    "decision_id": { "const": "axis29-mcp-tranche-v2" },
+    "digest": {
+      "const": "sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d"
+    },
+    "packet": { "type": "object" },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "authorized_user_id": { "type": "string", "minLength": 1 },
+    "channel": { "type": "string", "minLength": 1 },
+    "ts": { "type": "string", "minLength": 1 },
+    "projected_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

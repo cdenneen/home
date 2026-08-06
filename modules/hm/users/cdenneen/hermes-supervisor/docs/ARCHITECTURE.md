@@ -27,9 +27,21 @@
 - Lifecycle and Accounting registries own assignment states and model attempts.
 - Hermes cron supervisor performs guarded graph rebuild and bounded work.
 - Block Kit `SlackProjection` is the sole reporter and renders deterministic
-  Slack briefings without a model. Its atomic state maps dashboard, assignment,
-  incident, and decision IDs to message timestamps, aggregates related events
-  over 60 seconds, and retains the latest Block Kit dashboard as a fallback.
+  Slack briefings without a model. Its default dashboard is a fixed 15-section
+  executive proof view over roadmap, milestones, WIP, material activity,
+  constraints, engineering, deployment, runtime validation, capability gates,
+  named runtime surfaces, and human action. Internal execution custody is not
+  projected. Atomic state retains the latest Block Kit dashboard as a fallback.
+- The Slack decision controller accepts actions only for the exact
+  `axis29-mcp-tranche-v2` digest, binds each action to the configured Product
+  Owner/workspace/DM/message identity, persists one immutable outcome, and
+  rebuilds the execution frontier before updating the same card to scheduling.
+- Evidence-derived no-op fingerprints exclude completed technical verification
+  from both graph selection and dispatch until repository, semantic, authority,
+  acceptance, merge-request, source, or required-test evidence changes.
+- Routine analysis and unchanged no-op events remain in the operational event
+  log for the dashboard recent-activity line but never enter standalone Slack
+  delivery. Incidents and recovery events retain standalone delivery.
 - The shared command registry defines Slack command names, aliases, parameters,
   authority, confirmation, and handler keys for the CLI and gateway plugin.
 - Reconciler is the sole inventory writer.

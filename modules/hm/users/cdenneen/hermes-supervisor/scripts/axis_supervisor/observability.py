@@ -46,6 +46,22 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def is_routine_analysis_event(event: dict[str, Any]) -> bool:
+    details = event.get("details") or {}
+    if details.get("assignment_type") not in {
+        "read-only-analysis",
+        "no-op-verification",
+    }:
+        return False
+    if event.get("event_type") in {"assignment_retry", "observability_recovered"}:
+        return False
+    return details.get("disposition") not in {
+        "blocked",
+        "failed",
+        "recovery-required",
+    }
+
+
 class OperationalEventLog:
     def __init__(self, root: Path, source: str):
         self.root = root
@@ -101,6 +117,8 @@ class OperationalEventLog:
             os.fsync(handle.fileno())
             fcntl.flock(handle, fcntl.LOCK_UN)
         should_notify = notify if notify is not None else event_type in NOTIFY_EVENT_TYPES
+        if is_routine_analysis_event(event):
+            should_notify = False
         if should_notify:
             outbox = self._load_outbox()
             pending = [

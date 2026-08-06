@@ -12,8 +12,10 @@ from .classifier import (
     legacy_fingerprint_item,
 )
 from .decomposition import SemanticDecompositionEngine
+from .decisions import DecisionStore
 from .frontier import ExecutableFrontier
 from .mutation import MutationGate, OperationClass
+from .noop import is_suppressed_no_op, no_op_fingerprint
 from .revalidation import (
     revalidation_priority,
     revalidation_tier,
@@ -510,6 +512,7 @@ class ExecutionGraphBuilder:
     def __init__(self, root: Path):
         self.root = root
         self.decomposition = SemanticDecompositionEngine(root)
+        self.decisions = DecisionStore(root)
         self.authority = AuthorityResolver()
         self.gate = MutationGate(root, source="graph")
 
@@ -580,6 +583,16 @@ class ExecutionGraphBuilder:
             authority = self.authority.resolve(
                 item, semantic, items_by_ref.get(controlling_parent)
             )
+            decision_record = self.decisions.approval_for(
+                item["ref"], (semantic or {}).get("decision_packet") or {}
+            )
+            if decision_record is not None:
+                authority = {
+                    "state": "direct",
+                    "source": decision_record,
+                    "reason": "exact immutable Product Owner decision",
+                    "decision_record": decision_record,
+                }
             flow_stage, flow_evidence = _flow_state(
                 item, semantic, verification, authority, assignments
             )
@@ -712,7 +725,16 @@ class ExecutionGraphBuilder:
                                 "source_fingerprint": source_fingerprint,
                                 "revalidation_tier": "B",
                                 "milestone": item.get("milestone"),
+                                "semantic_evidence_fingerprint": semantic.get(
+                                    "evidence_fingerprint"
+                                ),
                             }
+                            entry["no_op_fingerprint"] = no_op_fingerprint(
+                                entry, semantic
+                            )
+                            if is_suppressed_no_op(entry, assignments):
+                                policy_suppressed_executable += 1
+                                continue
                             _rank_queue_entry(entry, authority)
                             queue.append(entry)
                             break

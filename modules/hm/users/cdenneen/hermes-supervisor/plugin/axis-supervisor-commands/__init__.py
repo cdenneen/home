@@ -14,6 +14,14 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from axis_supervisor.command_registry import command_specs, parse_command, usage  # noqa: E402
+from axis_supervisor.decisions import (  # noqa: E402
+    APPROVE_ACTION_ID,
+    APPROVE_CONDITIONS_ACTION_ID,
+    CONDITIONS_SUBMIT_ACTION_ID,
+    REJECT_ACTION_ID,
+    SlackDecisionController,
+)
+from axis_supervisor.dashboard import progress_bar, public_text  # noqa: E402
 from axis_supervisor.schema_registry import read_record  # noqa: E402
 from axis_supervisor.slack_projection import SlackProjection  # noqa: E402
 
@@ -69,12 +77,11 @@ def _render(data: dict) -> str:
         focus = data.get("current_supervisor_focus") or {}
         focus_ref = focus.get("target_ref") or focus.get("ref") or "none"
         return (
-            "*AXIS Supervisor Status*\n"
-            f"Mode: `{data.get('mode')}` | Mutation: `{'enabled' if data.get('allow_repository_mutation') else 'disabled'}`\n"
+            "*AXIS Executive Status*\n"
             f"Verified: {_metric(composition.get('verified_complete') or {})}\n"
-            f"Work remaining: {work.get('supervisor_work_remaining', 0)} | Ready tasks: {work.get('ready_work_total', 0)}\n"
+            f"Roadmap remaining: {work.get('supervisor_work_remaining', 0)} | Ready: {work.get('ready_work_item_count', 0)}\n"
             f"Frontier: `{data.get('current_execution_frontier') or 'none'}`\n"
-            f"Focus: `{focus.get('kind') or 'none'}` — `{focus_ref}`"
+            f"Focus: `{public_text(focus.get('kind') or 'none')}` — `{public_text(focus_ref)}`"
         )
     if command in {"roadmap", "milestones"}:
         milestones = data.get("complete_roadmap") or data.get("milestones") or []
@@ -87,18 +94,33 @@ def _render(data: dict) -> str:
                 f"Work remaining: {work.get('supervisor_work_remaining', 0)}"
             )
         lines = [
-            f"• *{item.get('key')}* `{item.get('status')}` — progress {_metric(item.get('progress') or {})}; "
-            f"verified {item.get('verified_complete', 0)}/{item.get('total', 0)}; "
-            f"exec {item.get('executable', 0)}; revalidation {item.get('revalidation_ready', 0)}; "
-            f"waiting {item.get('waiting', 0)}; blocked {item.get('blocked', 0)}"
+            f"• *{item.get('key')}* `{progress_bar(int((item.get('progress') or {}).get('count') or 0), int((item.get('progress') or {}).get('denominator') or 0))}` "
+            f"{_metric(item.get('progress') or {})} — {public_text(item.get('status'))}"
             for item in milestones
         ]
         return (
             f"{header}\nFrontier: `{data.get('current_execution_frontier') or 'none'}`\n"
             + "\n".join(lines)
         )
+    if command == "milestone":
+        item = data.get("item") or {}
+        if data.get("error"):
+            return f"*Milestone:* {data['error']}"
+        progress = item.get("progress") or {}
+        return (
+            f"*{item.get('key')} — {public_text(item.get('title'))}*\n"
+            f"`{progress_bar(int(progress.get('count') or 0), int(progress.get('denominator') or 0))}` "
+            f"{_metric(progress)}\nStatus: *{public_text(item.get('status'))}* | "
+            f"Verified: {item.get('verified_complete', 0)}/{item.get('total', 0)}"
+        )
     if command == "running":
-        return f"*Running assignments:* {data.get('count', 0)}"
+        lines = [
+            f"• `{public_text(item.get('ref'))}` — {public_text(item.get('focus'))}: {public_text(item.get('title'))}"
+            for item in data.get("items") or []
+        ]
+        return f"*Active roadmap work:* {data.get('count', 0)}\n" + (
+            "\n".join(lines) or "No active roadmap work."
+        )
     if command == "blocked":
         items = data.get("items") or []
         lines = [
@@ -108,9 +130,49 @@ def _render(data: dict) -> str:
         suffix = f"\n…and {len(items) - 15} more" if len(items) > 15 else ""
         return f"*Waiting/blocked items:* {data.get('count', 0)}\n" + "\n".join(lines) + suffix
     if command == "decisions":
-        return f"*Product Owner decisions pending:* {data.get('count', 0)}"
+        lines = [
+            f"• `{item.get('decision_id') or 'unnamed'}` — {public_text(item.get('decision_requested'))}"
+            for item in data.get("items") or []
+        ]
+        return f"*Product Owner decisions pending:* {data.get('count', 0)}\n" + (
+            "\n".join(lines) or "No Product Owner decision is pending."
+        )
+    if command in {"deployments", "validation"}:
+        lines = [
+            f"• *{item.get('runtime')}* — {public_text(item.get('status'))}"
+            + (
+                f" | {public_text(item.get('surface'))} | gaps {item.get('capability_gaps', 0)}"
+                if command == "deployments"
+                else f" | health {public_text(item.get('health'))}"
+            )
+            for item in data.get("items") or []
+        ]
+        return (
+            f"*AXIS {command.title()}*\n"
+            f"`{progress_bar(int(data.get('verified') or 0), int(data.get('total') or 0))}` "
+            f"{data.get('verified', 0)}/{data.get('total', 0)} verified\n"
+            + ("\n".join(lines) or "No runtime projection is available.")
+        )
+    if command == "capabilities":
+        lines = [
+            f"• *{public_text(item.get('capability'))}* — {item.get('passed', 0)}/{item.get('total', 0)} passed"
+            for item in data.get("items") or []
+        ]
+        return (
+            "*AXIS Capability Gates*\n"
+            f"`{data.get('progress')}` {data.get('passed', 0)}/{data.get('total', 0)} passed\n"
+            + ("\n".join(lines) or "No capability projection is available.")
+        )
     if command == "recent":
-        return "*Recent supervisor activity*\n```" + json.dumps(data.get("items") or [], indent=2)[:3000] + "```"
+        lines = [
+            f"• {public_text(item.get('activity')).title()}"
+            + (f" — `{public_text(item.get('ref'))}`" if item.get("ref") else "")
+            for item in data.get("items") or []
+        ]
+        lines.append(
+            f"• Routine unchanged evidence checks: {data.get('routine_unchanged_evidence_checks', 0)}"
+        )
+        return "*Recent AXIS activity*\n" + "\n".join(lines)
     if command == "inspect":
         if data.get("error"):
             return f"*Inspect:* {data['error']}"
@@ -136,6 +198,27 @@ def _run_command(command_text: str) -> subprocess.CompletedProcess:
         env=environment,
         check=False,
     )
+
+
+def _rebuild_frontier() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPTS / "axis_supervisor" / "cycle.py"), "rebuild"],
+        text=True,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr[-2000:].strip() or completed.stdout[-2000:].strip()
+        raise RuntimeError(f"frontier rebuild failed: {detail}")
+
+
+async def _handle_decision_action(ack, body, action) -> None:
+    await ack()
+    projection = SlackProjection(ROOT)
+    token = projection.env_file()["SLACK_BOT_TOKEN"]
+    controller = SlackDecisionController(ROOT, projection.api, _rebuild_frontier)
+    await asyncio.to_thread(controller.handle_action, token, body, action)
 
 
 async def _handle_axis(raw_args: str) -> str:
@@ -170,3 +253,10 @@ def register(ctx) -> None:
         description="Operate the AXIS Development Supervisor without an LLM.",
         args_hint="<" + "|".join(item["command"] for item in command_specs()) + ">",
     )
+    for action_id in (
+        APPROVE_ACTION_ID,
+        APPROVE_CONDITIONS_ACTION_ID,
+        REJECT_ACTION_ID,
+        CONDITIONS_SUBMIT_ACTION_ID,
+    ):
+        ctx.register_slack_action_handler(action_id, _handle_decision_action)

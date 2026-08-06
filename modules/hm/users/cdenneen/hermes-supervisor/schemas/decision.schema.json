@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.decision",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "decision_id",
+    "digest",
+    "outcome",
+    "conditions",
+    "verification",
+    "decided_by",
+    "workspace_id",
+    "channel",
+    "message_ts",
+    "action_id",
+    "action_ts",
+    "decided_at",
+    "frontier_rebuild_requested_at"
+  ],
+  "properties": {
+    "schema": { "const": "axis.external-development-supervisor.decision" },
+    "schema_version": { "const": "1.0.0" },
+    "decision_id": { "const": "axis29-mcp-tranche-v2" },
+    "digest": {
+      "const": "sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d"
+    },
+    "outcome": { "enum": ["approved", "approved-with-conditions", "rejected"] },
+    "conditions": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 1200
+    },
+    "verification": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 600
+    },
+    "decided_by": { "type": "string", "minLength": 1 },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "channel": { "type": "string", "minLength": 1 },
+    "message_ts": { "type": "string", "minLength": 1 },
+    "action_id": { "type": "string", "minLength": 1 },
+    "action_ts": { "type": "string", "minLength": 1 },
+    "decided_at": { "type": "string", "format": "date-time" },
+    "frontier_rebuild_requested_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}
