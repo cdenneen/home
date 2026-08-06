@@ -175,7 +175,8 @@ def _smoke(target: str, capabilities: list[str], runtime: dict) -> dict:
             "mbair": "100.79.172.12",
             "nyx": "nyx",
         }[target]
-        binary = "axis-node" if target == "nyx" else "axis-desktop"
+        binary = "axis-node" if target == "nyx" else ""
+        required_path = str(runtime.get("required_path") or "")
         service_url = runtime["service_url"]
         token_path = runtime["token_path"]
         output = subprocess.check_output(
@@ -185,7 +186,12 @@ def _smoke(target: str, capabilities: list[str], runtime: dict) -> dict:
                 "BatchMode=yes",
                 remote,
                 (
-                    f"command -v {binary} >/dev/null && "
+                    (
+                        f"test -e {json.dumps(required_path)} && "
+                        if required_path
+                        else f"command -v {binary} >/dev/null && "
+                    )
+                    +
                     f"token=$(cat {token_path}) && "
                     f"curl -fsS -H \"Authorization: Bearer $token\" "
                     f"{service_url}/health"

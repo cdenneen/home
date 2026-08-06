@@ -63,10 +63,13 @@ class CapabilityConvergenceProjector:
 
     @staticmethod
     def _required_command_available(runtime: dict) -> bool:
+        required_path = str(runtime.get("required_path") or "")
         command = str(runtime.get("required_command") or "")
-        if not command:
+        if not command and not required_path:
             return True
         if runtime["host"] == "local":
+            if required_path:
+                return Path(required_path).exists()
             return (
                 subprocess.run(
                     ["sh", "-c", f"command -v {command}"],
@@ -85,7 +88,9 @@ class CapabilityConvergenceProjector:
                     "-o",
                     "ConnectTimeout=10",
                     runtime["host"],
-                    f"command -v {command}",
+                    f"test -e {json.dumps(required_path)}"
+                    if required_path
+                    else f"command -v {command}",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -135,8 +140,9 @@ class CapabilityConvergenceProjector:
             identity, error = self._identity(runtime)
             required_command_available = self._required_command_available(runtime)
             if not required_command_available and error is None:
-                error = "required-command-missing:" + str(
-                    runtime.get("required_command")
+                error = "required-artifact-missing:" + str(
+                    runtime.get("required_path")
+                    or runtime.get("required_command")
                 )
             running_revision = (identity or {}).get("runtime_revision")
             projected = [
@@ -216,6 +222,7 @@ class CapabilityConvergenceProjector:
                     ),
                     "identity_error": error,
                     "required_command": runtime.get("required_command"),
+                    "required_path": runtime.get("required_path"),
                     "required_command_available": required_command_available,
                 }
             )

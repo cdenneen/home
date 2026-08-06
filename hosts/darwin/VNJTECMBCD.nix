@@ -19,6 +19,7 @@ in
     pkgs.podman
     pkgs.uv
     axis.packages.${pkgs.system}.axis
+    axis.packages.${pkgs.system}.axis-desktop
   ];
 
   sops.secrets.axis_remote_client_token = {
