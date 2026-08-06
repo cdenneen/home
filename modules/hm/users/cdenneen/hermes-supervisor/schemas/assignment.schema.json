@@ -116,6 +116,15 @@
       ]
     },
     "project": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "responsibility": {
+      "enum": [
+        "supervisor-orchestration/temporary-slack/cron",
+        "axis-runtime/product",
+        "contracts/planning-records",
+        "deployment/realistic-validation"
+      ]
+    },
+    "repository_ownership": { "type": "object" },
     "work_item": { "type": "string", "minLength": 1 },
     "planning_record": {
       "type": ["object", "null"],

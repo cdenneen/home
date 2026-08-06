@@ -11,7 +11,9 @@
     "assignment_id",
     "assignment_type",
     "work_item",
+    "responsibility",
     "repository",
+    "repository_ownership",
     "source_sha",
     "source_fingerprint",
     "branch_prefix",
@@ -55,7 +57,16 @@
       ]
     },
     "work_item": { "type": "string", "minLength": 1 },
+    "responsibility": {
+      "enum": [
+        "supervisor-orchestration/temporary-slack/cron",
+        "axis-runtime/product",
+        "contracts/planning-records",
+        "deployment/realistic-validation"
+      ]
+    },
     "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "repository_ownership": { "type": "object" },
     "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "source_fingerprint": { "type": "string", "minLength": 1 },
     "branch_prefix": { "const": "hermes/" },

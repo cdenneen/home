@@ -61,6 +61,7 @@ def setup_canary(root: Path) -> tuple[dict, dict]:
     assignment = {
         "assignment_id": assignment_id,
         "project": grant["repository"],
+        "responsibility": "deployment/realistic-validation",
         "work_item": grant["target_ref"],
         "source_main_sha": grant["source_sha"],
         "canary_branch": branch,
@@ -258,6 +259,7 @@ def test_merge_readiness_fails_closed_before_successful_pipeline():
     inspection = FakeIntegrator().inspect_mr(
         "ghostspace/axis-lab",
         1,
+        responsibility="deployment/realistic-validation",
         expected_source_branch="hermes/canary-axis-lab-iac-kind",
         expected_sha="a" * 40,
     )

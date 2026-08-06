@@ -50,6 +50,7 @@ def assignment(root: Path, **overrides) -> dict:
         "work_item_disposition": "not-evaluated",
         "lifecycle_state": "running-implementation",
         "project": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
         "work_item": "ghostspace/axis#119",
         "planning_record": None,
         "allowed_paths": ["src/example.py"],
@@ -502,7 +503,12 @@ def test_mutation_is_default_denied_and_lower_helper_cannot_bypass(tmp_path: Pat
 
 def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path: Path):
     from axis_supervisor import assignment_grants
-    from axis_supervisor.assignment_grants import create_grant, grant_path
+    from axis_supervisor.assignment_grants import (
+        AssignmentGrantDenied,
+        create_grant,
+        grant_path,
+        validate_grant,
+    )
     from axis_supervisor.mutation import MutationDenied, MutationGate, OperationClass
     from axis_supervisor.schema_registry import write_record
 
@@ -534,7 +540,9 @@ def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path
         mutation_grant_id=None,
         mutation_grant_uri=None,
     )
-    create_grant(tmp_path, value, control_value)
+    grant = create_grant(tmp_path, value, control_value)
+    assert grant["responsibility"] == "axis-runtime/product"
+    assert grant["repository_ownership"]["status"] == "validated"
     write_record(
         tmp_path / "assignments" / "assignment-1.json",
         value,
@@ -546,6 +554,15 @@ def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path
         "axis.external-development-supervisor.lease",
     )
     monkeypatch.setattr(assignment_grants, "current_main_sha", lambda _repo: "c" * 40)
+    mismatched = value | {"project": "ghostspace/axis-governance"}
+    with pytest.raises(AssignmentGrantDenied, match="repository-ownership-denied"):
+        validate_grant(
+            tmp_path,
+            mismatched,
+            "repository-mutation",
+            "ghostspace/axis-governance",
+            effect="clone",
+        )
     gate = MutationGate(tmp_path, source="cycle")
     decision = gate.decide(
         OperationClass.REPOSITORY,
@@ -588,11 +605,17 @@ def test_implementation_worker_prompt_is_a_no_tool_patch_plan():
 
     prompts = PromptFactory()
     implementation = prompts.implementation_prompt(
-        {"assignment_id": "assignment-1"}, {"src/example.py": "value = 1\n"}
+        {
+            "assignment_id": "assignment-1",
+            "project": "ghostspace/axis",
+            "responsibility": "axis-runtime/product",
+        },
+        {"src/example.py": "value = 1\n"},
     )
     assert "no-tool patch planner" in implementation
     assert '"patch"' in implementation
     assert "Do not invoke tools" in implementation
+    assert "Canonical repository ownership boundary" in implementation
 
 
 def test_large_implementation_context_requires_and_uses_source_ranges():

@@ -184,6 +184,17 @@ def semantic_record(
     source_fingerprint: str = "fixture-fingerprint",
     evidence_fingerprint: str = "fixture-evidence",
 ):
+    canonical_responsibilities = {
+        "cdenneen/home": "supervisor-orchestration/temporary-slack/cron",
+        "ghostspace/axis": "axis-runtime/product",
+        "ghostspace/axis-governance": "contracts/planning-records",
+        "ghostspace/axis-lab": "deployment/realistic-validation",
+    }
+    for candidate in candidates:
+        if candidate.get("result") == "Executable":
+            candidate.setdefault(
+                "responsibility", canonical_responsibilities[candidate["project"]]
+            )
     return {
         "schema": "axis.external-development-supervisor.semantic-record",
         "schema_version": "1.0.0",
@@ -357,7 +368,7 @@ def test_inherited_authority_semantic_slice_becomes_executable(tmp_path: Path):
         "idle_proof": {},
     }
     graph = ExecutionGraphBuilder(tmp_path).build(inventory)
-    assert graph["semantic_decomposition_pending"] == 1
+    assert graph["semantic_decomposition_pending"] == 0
     implementation = next(
         item for item in graph["executable_queue"] if item["kind"] == "implementation"
     )

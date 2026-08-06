@@ -2,8 +2,13 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from .mutation import MutationGate, OperationClass
+from .repository_ownership import (
+    assignment_ownership,
+    ownership_denial,
+    ownership_evidence_matches,
+    validate_repository_ownership,
+)
 from .schema_registry import read_record, write_record
-
 
 HANDOFF_SCHEMA = "axis.external-development-supervisor.implementation-handoff"
 INTEGRATION_QUEUE_SCHEMA = "axis.external-development-supervisor.integration-queue"
@@ -73,6 +78,10 @@ class WorkflowState:
         write_record(self.queue_path, queue, INTEGRATION_QUEUE_SCHEMA)
 
     def persist_handoff(self, assignment: dict, result: dict) -> dict:
+        ownership = assignment_ownership(
+            assignment,
+            context=f"implementation-handoff:{assignment.get('assignment_id')}",
+        )
         worker_handoff = result.get("handoff") or {}
         handoff = {
             "schema": HANDOFF_SCHEMA,
@@ -80,6 +89,8 @@ class WorkflowState:
             "assignment_id": assignment["assignment_id"],
             "work_item": assignment["work_item"],
             "repository": assignment["project"],
+            "responsibility": ownership["responsibility"],
+            "repository_ownership": ownership,
             "branch": str(result.get("branch") or ""),
             "commit": str(result.get("commit") or ""),
             "allowed_paths": list(assignment.get("allowed_paths") or []),
@@ -104,12 +115,39 @@ class WorkflowState:
     def enqueue(
         self, assignment: dict, handoff: dict, reviewer: str
     ) -> dict:
+        ownership = assignment_ownership(
+            assignment,
+            context=f"reviewer-handoff:{assignment.get('assignment_id')}",
+        )
+        handoff_ownership = validate_repository_ownership(
+            handoff.get("responsibility"),
+            handoff.get("repository"),
+            context=f"reviewer-handoff-record:{assignment.get('assignment_id')}",
+        )
+        if any(
+            handoff_ownership.get(key) != ownership.get(key)
+            for key in ("responsibility", "repository", "canonical_repository")
+        ) or not ownership_evidence_matches(
+            handoff.get("repository_ownership"), handoff_ownership
+        ):
+            raise ownership_denial(
+                ownership,
+                context=f"reviewer-handoff:{assignment.get('assignment_id')}",
+                reason="handoff-does-not-match-assignment-ownership",
+                actual={
+                    "responsibility": handoff.get("responsibility"),
+                    "repository": handoff.get("repository"),
+                    "repository_ownership": handoff.get("repository_ownership"),
+                },
+            )
         queue = self.load_queue()
         now = utc_now()
         item = {
             "assignment_id": assignment["assignment_id"],
             "work_item": assignment["work_item"],
             "repository": assignment["project"],
+            "responsibility": ownership["responsibility"],
+            "repository_ownership": ownership,
             "handoff_uri": (
                 self.handoffs / f"{assignment['assignment_id']}.json"
             ).resolve().as_uri(),

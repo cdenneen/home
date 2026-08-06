@@ -3,9 +3,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .lifecycle import adapt_assignment
+from .repository_ownership import resolve_repository_ownership
 from .schema_registry import validate_record
 from .verification import normalize_verification_result
-
 
 SLICE_CATEGORIES = {
     "research",
@@ -133,6 +133,13 @@ def validate_semantic_record(value: dict) -> dict:
                 raise ValueError("executable implementation requires required_tests")
         for command in require_list(candidate.get("required_tests") or [], "required_tests"):
             test_command_argv(command)
+        if candidate.get("result") == "Executable":
+            candidate["repository_ownership"] = resolve_repository_ownership(
+                [candidate.get("responsibility")],
+                candidate.get("project"),
+                context=f"semantic-candidate:{candidate.get('slice_id')}",
+                allow_repository_inference=False,
+            )
     resolution = value.get("authority_resolution")
     if not isinstance(resolution, dict):
         raise ValueError("authority_resolution must be an object")

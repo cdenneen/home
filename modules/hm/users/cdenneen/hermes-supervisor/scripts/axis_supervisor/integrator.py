@@ -3,6 +3,7 @@ import subprocess
 from urllib.parse import quote
 
 from .mutation import GateDecision, MutationGate, OperationClass
+from .repository_ownership import validate_repository_ownership
 
 
 class Integrator:
@@ -23,9 +24,13 @@ class Integrator:
         project: str,
         iid: int,
         *,
+        responsibility: str,
         expected_source_branch: str | None = None,
         expected_sha: str | None = None,
     ) -> dict:
+        validate_repository_ownership(
+            responsibility, project, context=f"integration-review:{project}!{iid}"
+        )
         encoded = quote(project, safe="")
         mr = self.api(f"projects/{encoded}/merge_requests/{iid}")
         discussions = self.api(f"projects/{encoded}/merge_requests/{iid}/discussions")
@@ -75,9 +80,15 @@ class Integrator:
         decision: GateDecision,
     ) -> dict:
         worker = assignment.get("worker") or {}
+        validate_repository_ownership(
+            assignment.get("responsibility"),
+            project,
+            context=f"integration-merge:{assignment.get('assignment_id')}",
+        )
         inspection = self.inspect_mr(
             project,
             iid,
+            responsibility=str(assignment.get("responsibility") or ""),
             expected_source_branch=worker.get("branch"),
             expected_sha=worker.get("commit"),
         )

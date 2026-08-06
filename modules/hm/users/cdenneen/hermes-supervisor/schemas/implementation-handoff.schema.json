@@ -8,6 +8,8 @@
     "assignment_id",
     "work_item",
     "repository",
+    "responsibility",
+    "repository_ownership",
     "branch",
     "commit",
     "allowed_paths",
@@ -26,6 +28,15 @@
     "assignment_id": { "type": "string", "minLength": 1 },
     "work_item": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "minLength": 1 },
+    "responsibility": {
+      "enum": [
+        "supervisor-orchestration/temporary-slack/cron",
+        "axis-runtime/product",
+        "contracts/planning-records",
+        "deployment/realistic-validation"
+      ]
+    },
+    "repository_ownership": { "type": "object" },
     "branch": { "type": "string", "minLength": 1 },
     "commit": { "type": "string", "minLength": 1 },
     "allowed_paths": { "type": "array", "items": { "type": "string" } },
