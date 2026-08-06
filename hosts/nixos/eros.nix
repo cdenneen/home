@@ -197,6 +197,7 @@ in
         database_url: os.environ/DATABASE_URL
       litellm_settings:
         cache: true
+        drop_params: true
         cache_params:
           type: qdrant-semantic
           cache_policy: semantic
