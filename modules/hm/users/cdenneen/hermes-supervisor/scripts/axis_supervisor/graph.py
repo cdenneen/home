@@ -553,11 +553,16 @@ class ExecutionGraphBuilder:
             legacy_fingerprint = self.decomposition.legacy_source_fingerprint(
                 legacy_fingerprint_item(item)
             )
-            semantic = self.decomposition.load(
-                item["ref"],
-                source_fingerprint,
-                compatibility_fingerprints={legacy_fingerprint},
-            )
+            try:
+                semantic = self.decomposition.load(
+                    item["ref"],
+                    source_fingerprint,
+                    compatibility_fingerprints={legacy_fingerprint},
+                )
+            except ValueError as exc:
+                if "semantic evidence fingerprint mismatch" not in str(exc):
+                    raise
+                semantic = None
             verification = verification_for(
                 item,
                 assignments,
