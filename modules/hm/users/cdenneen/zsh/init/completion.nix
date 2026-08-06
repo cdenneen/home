@@ -36,5 +36,7 @@
       # switch group using `<` and `>`
       zstyle ':fzf-tab:*' switch-group '<' '>'
     fi
+    bindkey -M emacs '^I' expand-or-complete
+    bindkey -M viins '^I' expand-or-complete
   fi
 ''
