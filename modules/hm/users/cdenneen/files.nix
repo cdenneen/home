@@ -361,6 +361,8 @@ let
   codexProfileAttrs = {
     eros = {
       model = "coding";
+      model_reasoning_effort = "high";
+      model_reasoning_summary = "none";
       model_provider = "eros";
       model_providers.eros = {
         name = "Eros LiteLLM";
