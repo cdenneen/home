@@ -8,6 +8,8 @@
         "assignment_id",
         "work_item",
         "repository",
+        "responsibility",
+        "repository_ownership",
         "handoff_uri",
         "mr_iid",
         "mr_url",
@@ -21,6 +23,15 @@
         "assignment_id": { "type": "string", "minLength": 1 },
         "work_item": { "type": "string", "minLength": 1 },
         "repository": { "type": "string", "minLength": 1 },
+        "responsibility": {
+          "enum": [
+            "supervisor-orchestration/temporary-slack/cron",
+            "axis-runtime/product",
+            "contracts/planning-records",
+            "deployment/realistic-validation"
+          ]
+        },
+        "repository_ownership": { "type": "object" },
         "handoff_uri": { "type": "string", "format": "uri" },
         "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
         "mr_url": { "type": ["string", "null"], "format": "uri" },

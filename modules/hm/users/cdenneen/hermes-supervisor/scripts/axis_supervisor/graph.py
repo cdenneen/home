@@ -16,6 +16,10 @@ from .decisions import DecisionStore
 from .frontier import ExecutableFrontier
 from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
+from .repository_ownership import (
+    responsibility_for_repository,
+    validate_repository_ownership,
+)
 from .revalidation import (
     revalidation_priority,
     revalidation_tier,
@@ -645,9 +649,14 @@ class ExecutionGraphBuilder:
                     and authority["state"] == "direct"
                     and control.get("allow_repository_mutation")
                 ):
+                    responsibility = responsibility_for_repository(
+                        item.get("project"),
+                        context=f"repository-convergence:{item['ref']}",
+                    )
                     entry = {
                         **item,
                         "assignment_type": "repository-convergence",
+                        "responsibility": responsibility,
                         "flow_stage": "implementation-ready",
                         "authority": authority,
                         "source_item": item,
@@ -666,6 +675,8 @@ class ExecutionGraphBuilder:
                 "Integrated",
                 "Completed",
             } and semantic is None:
+                if not item.get("project"):
+                    continue
                 pending = self.decomposition.pending_item(item)
                 pending["source_fingerprint"] = source_fingerprint
                 pending["revalidation_tier"] = tier
@@ -706,14 +717,20 @@ class ExecutionGraphBuilder:
                             }
                             and candidate.get("required_tests")
                         ):
+                            ownership = validate_repository_ownership(
+                                candidate.get("responsibility"),
+                                candidate.get("project"),
+                                context=f"technical-revalidation:{candidate.get('slice_id')}",
+                            )
                             entry = {
                                 "ref": f"technical-revalidation:{item['ref']}:{candidate['slice_id']}",
                                 "kind": "technical-revalidation",
                                 "assignment_type": "no-op-verification",
                                 "flow_stage": "verification",
                                 "target_ref": item["ref"],
-                                "project": candidate.get("project")
-                                or item.get("project"),
+                                "project": ownership["canonical_repository"],
+                                "responsibility": ownership["responsibility"],
+                                "repository_ownership": ownership,
                                 "title": candidate.get("title"),
                                 "classification": "Executable",
                                 "ranking_score": int(
@@ -755,13 +772,20 @@ class ExecutionGraphBuilder:
                         if category in {"ci", "compatibility"}
                         else "code-implementation"
                     )
+                    ownership = validate_repository_ownership(
+                        candidate.get("responsibility"),
+                        candidate.get("project"),
+                        context=f"implementation-candidate:{candidate.get('slice_id')}",
+                    )
                     entry = {
                         "ref": f"slice:{item['ref']}:{candidate['slice_id']}",
                         "kind": "implementation",
                         "assignment_type": assignment_type,
                         "flow_stage": "implementation-ready",
                         "target_ref": item["ref"],
-                        "project": candidate.get("project") or item.get("project"),
+                        "project": ownership["canonical_repository"],
+                        "responsibility": ownership["responsibility"],
+                        "repository_ownership": ownership,
                         "title": candidate.get("title"),
                         "classification": "Executable",
                         "ranking_score": int(candidate.get("ranking_score") or 200),

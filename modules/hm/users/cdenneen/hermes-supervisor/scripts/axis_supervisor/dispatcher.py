@@ -1,15 +1,16 @@
+import json
 import time
 import uuid
-import json
 from pathlib import Path
 
-from .lifecycle import is_terminal
 from .assignment_grants import create_grant
 from .frontier import compatible
+from .lifecycle import is_terminal
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
+from .repository_ownership import resolve_repository_ownership
 from .schema_registry import write_record
 
 
@@ -83,21 +84,31 @@ class Dispatcher:
                 "conditions": decision_record.get("conditions"),
                 "verification": decision_record.get("verification"),
             }
+        assignment_type = item.get("assignment_type") or (
+            "read-only-analysis"
+            if item.get("kind") == "semantic-decomposition"
+            else "no-op-verification"
+            if item.get("kind") == "technical-revalidation"
+            else "repository-convergence"
+            if item.get("kind") == "repository-convergence"
+            else "code-implementation"
+        )
+        ownership = resolve_repository_ownership(
+            [
+                item.get("responsibility"),
+                (item.get("candidate") or {}).get("responsibility"),
+            ],
+            item.get("project"),
+            context=f"dispatcher:{item.get('ref')}",
+            allow_repository_inference=assignment_type
+            in {"read-only-analysis", "no-op-verification"},
+        )
         assignment_id = f"assignment-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         assignment = {
             "schema": "axis.external-development-supervisor.assignment",
             "schema_version": "1.0.0",
             "assignment_id": assignment_id,
-            "assignment_type": item.get("assignment_type")
-            or (
-                "read-only-analysis"
-                if item.get("kind") == "semantic-decomposition"
-                else "no-op-verification"
-                if item.get("kind") == "technical-revalidation"
-                else "repository-convergence"
-                if item.get("kind") == "repository-convergence"
-                else "code-implementation"
-            ),
+            "assignment_type": assignment_type,
             "result_state": "pending",
             "work_item_disposition": "not-evaluated",
             "lifecycle_state": "ready-semantic"
@@ -107,7 +118,9 @@ class Dispatcher:
             "queue_ref": item.get("ref"),
             "target_ref": item.get("target_ref") or item.get("ref"),
             "work_item": item.get("target_ref") or item.get("ref"),
-            "project": item.get("project"),
+            "project": ownership["canonical_repository"],
+            "responsibility": ownership["responsibility"],
+            "repository_ownership": ownership,
             "title": item.get("title"),
             "authority": item.get("authority"),
             "governance_state": item.get("classification")

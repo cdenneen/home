@@ -959,6 +959,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         inspection = integrator.inspect_mr(
             assignment["project"],
             iid,
+            responsibility=assignment["responsibility"],
             expected_source_branch=(assignment.get("worker") or {}).get("branch"),
             expected_sha=(assignment.get("worker") or {}).get("commit"),
         )
@@ -1066,7 +1067,11 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 integrator.merge_mr(
                     assignment["project"], iid, assignment, gate, gitlab_decision
                 )
-            inspection = integrator.inspect_mr(assignment["project"], iid)
+            inspection = integrator.inspect_mr(
+                assignment["project"],
+                iid,
+                responsibility=assignment["responsibility"],
+            )
             if inspection["mr"].get("state") != "merged":
                 raise RuntimeError("gated integration did not produce a merged MR")
             merged_mr = inspection["mr"]

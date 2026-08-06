@@ -28,7 +28,8 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
         "queue_ref": plan["assignment_id"],
         "target_ref": f"runtime:{plan['target_runtime']}",
         "work_item": f"runtime:{plan['target_runtime']}@{plan['expected_revision']}",
-        "project": "cdenneen/home",
+        "project": "ghostspace/axis-lab",
+        "responsibility": "deployment/realistic-validation",
         "title": f"Deploy {', '.join(plan['affected_capabilities'])} to {plan['target_runtime']}",
         "authority": {
             "state": "deployment-policy",

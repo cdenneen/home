@@ -23,6 +23,7 @@
   "report_cron_job_id": null,
   "cron_generation": 1,
   "repository_allowlist": [
+    "cdenneen/home",
     "ghostspace/axis",
     "ghostspace/axis-governance",
     "ghostspace/axis-lab"

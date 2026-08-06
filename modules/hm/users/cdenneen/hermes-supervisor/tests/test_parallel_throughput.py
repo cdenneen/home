@@ -110,6 +110,7 @@ def test_handoff_and_integration_queue_persist_reviewer(tmp_path: Path):
         "assignment_id": "assignment-1",
         "work_item": "ghostspace/axis#1",
         "project": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
         "allowed_paths": ["src/example.py"],
         "source_item": {"repository_head": "a" * 40},
     }

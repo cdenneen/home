@@ -7,13 +7,21 @@ from urllib.parse import unquote, urlparse
 from .accounting import AccountingLedger
 from .canary import current_main_sha
 from .models import validate_allowed_path
+from .repository_ownership import (
+    RepositoryOwnershipDenied,
+    assignment_ownership,
+    ownership_denial,
+    ownership_evidence_matches,
+)
 from .schema_registry import read_record, validate_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.mutation-grant"
 
 
 class AssignmentGrantDenied(PermissionError):
-    pass
+    def __init__(self, message: str, evidence: dict | None = None):
+        self.evidence = evidence
+        super().__init__(message)
 
 
 def grant_path(root: Path, assignment_id: str) -> Path:
@@ -43,7 +51,9 @@ def immutable_scope(grant: dict) -> dict:
             "assignment_id",
             "assignment_type",
             "work_item",
+            "responsibility",
             "repository",
+            "repository_ownership",
             "source_sha",
             "source_fingerprint",
             "branch_prefix",
@@ -83,6 +93,12 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
         "ci-integration-repair",
     }:
         raise AssignmentGrantDenied("assignment type is not grant-eligible")
+    try:
+        ownership = assignment_ownership(
+            assignment, context=f"mutation-grant-create:{assignment_id}"
+        )
+    except RepositoryOwnershipDenied as exc:
+        raise AssignmentGrantDenied(str(exc), exc.evidence) from exc
     if authority_state not in {"direct", "inherited"}:
         raise AssignmentGrantDenied("bounded mutation grant requires direct or inherited authority")
     if not planning.get("digest") or not planning.get("approval_note"):
@@ -126,7 +142,9 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
         "assignment_id": assignment_id,
         "assignment_type": assignment["assignment_type"],
         "work_item": assignment["work_item"],
-        "repository": assignment["project"],
+        "responsibility": ownership["responsibility"],
+        "repository": ownership["canonical_repository"],
+        "repository_ownership": ownership,
         "source_sha": source_sha,
         "source_fingerprint": assignment["source_fingerprint"],
         "branch_prefix": "hermes/",
@@ -248,6 +266,13 @@ def validate_grant(
     merged_mr: dict | None = None,
 ) -> dict:
     grant = load_grant(root, assignment)
+    try:
+        ownership = assignment_ownership(
+            assignment,
+            context=f"mutation-grant-validate:{assignment.get('assignment_id')}",
+        )
+    except RepositoryOwnershipDenied as exc:
+        raise AssignmentGrantDenied(str(exc), exc.evidence) from exc
     now = int(time.time())
     if grant["scope_digest"] != scope_digest(grant):
         raise AssignmentGrantDenied("mutation grant scope digest mismatch")
@@ -259,6 +284,21 @@ def validate_grant(
         raise AssignmentGrantDenied("mutation grant assignment type mismatch")
     if grant["work_item"] != assignment.get("work_item"):
         raise AssignmentGrantDenied("mutation grant work item mismatch")
+    if (
+        grant["responsibility"] != ownership["responsibility"]
+        or not ownership_evidence_matches(grant["repository_ownership"], ownership)
+    ):
+        denied = ownership_denial(
+            ownership,
+            context=f"mutation-grant-record:{assignment.get('assignment_id')}",
+            reason="mutation-grant-ownership-evidence-mismatch",
+            actual={
+                "responsibility": grant.get("responsibility"),
+                "repository": grant.get("repository"),
+                "repository_ownership": grant.get("repository_ownership"),
+            },
+        )
+        raise AssignmentGrantDenied(str(denied), denied.evidence) from denied
     if grant["repository"] != repository or repository != assignment.get("project"):
         raise AssignmentGrantDenied("mutation grant repository mismatch")
     if grant["source_fingerprint"] != assignment.get("source_fingerprint"):

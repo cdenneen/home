@@ -1,10 +1,11 @@
-import json
 import hashlib
+import json
 import re
 from pathlib import Path
 
 from .models import validate_semantic_record
 from .mutation import MutationGate, OperationClass
+from .repository_ownership import responsibility_for_repository
 from .schema_registry import write_record
 
 
@@ -102,12 +103,16 @@ class SemanticDecompositionEngine:
         return hashlib.sha256(payload).hexdigest()
 
     def pending_item(self, item: dict) -> dict:
+        responsibility = responsibility_for_repository(
+            item.get("project"), context=f"semantic-decomposition:{item['ref']}"
+        )
         return {
             "ref": f"semantic-decomposition:{item['ref']}",
             "kind": "semantic-decomposition",
             "assignment_type": "read-only-analysis",
             "target_ref": item["ref"],
             "project": item.get("project"),
+            "responsibility": responsibility,
             "title": f"Semantically decompose {item['ref']}: {item.get('title')}",
             "classification": "Executable",
             "ranking_score": 250,
