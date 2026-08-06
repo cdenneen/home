@@ -61,7 +61,7 @@ in
     settings = {
       model_list = [
         {
-          model_name = "coding-local";
+          model_name = "coding";
           litellm_params = {
             model = "ollama/qwen2.5-coder:7b";
             api_base = "http://127.0.0.1:11434";
@@ -75,24 +75,31 @@ in
           };
         }
         {
-          model_name = "coding-cloud";
+          model_name = "coding-openai";
+          litellm_params = {
+            model = "openai/gpt-5-mini";
+            api_key = "os.environ/OPENAI_API_KEY";
+          };
+        }
+        {
+          model_name = "coding-haiku";
+          litellm_params = {
+            model = "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0";
+            aws_region_name = "us-east-1";
+          };
+        }
+        {
+          model_name = "coding-gemini";
           litellm_params = {
             model = "gemini/gemini-2.5-flash";
             api_key = "os.environ/GEMINI_API_KEY";
           };
         }
         {
-          model_name = "openai/*";
+          model_name = "coding-strong";
           litellm_params = {
-            model = "openai/*";
-            api_key = "os.environ/OPENAI_API_KEY";
-          };
-        }
-        {
-          model_name = "gemini/*";
-          litellm_params = {
-            model = "gemini/*";
-            api_key = "os.environ/GEMINI_API_KEY";
+            model = "bedrock/us.anthropic.claude-sonnet-4-6";
+            aws_region_name = "us-east-1";
           };
         }
       ];
@@ -115,7 +122,16 @@ in
       };
 
       router_settings = {
-        fallbacks = [ { "coding-local" = [ "coding-cloud" ]; } ];
+        fallbacks = [
+          {
+            "coding" = [
+              "coding-openai"
+              "coding-haiku"
+              "coding-gemini"
+            ];
+          }
+          { "coding-strong" = [ "coding-gemini" ]; }
+        ];
         num_retries = 1;
         timeout = 90;
       };
