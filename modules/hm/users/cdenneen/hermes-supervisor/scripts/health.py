@@ -310,16 +310,26 @@ def main() -> int:
     else:
         warnings.append("repository convergence projection is not available")
     if capability_convergence:
-        runtime_unknown = [
+        required_runtime_unknown = [
             value.get("display_name")
             for value in capability_convergence.get("runtimes") or []
-            if value.get("status") == "unknown"
+            if value.get("status") == "unknown" and value.get("ring") == 0
+        ]
+        optional_runtime_unknown = [
+            value.get("display_name")
+            for value in capability_convergence.get("runtimes") or []
+            if value.get("status") == "unknown" and value.get("ring") != 0
         ]
         deployments = capability_convergence.get("deployment_assignments") or []
-        if runtime_unknown:
+        if required_runtime_unknown:
             errors.append(
                 "runtime capability identity unavailable: "
-                + ", ".join(str(value) for value in runtime_unknown)
+                + ", ".join(str(value) for value in required_runtime_unknown)
+            )
+        if optional_runtime_unknown:
+            warnings.append(
+                "optional runtime unavailable: "
+                + ", ".join(str(value) for value in optional_runtime_unknown)
             )
         elif deployments:
             warnings.append(
