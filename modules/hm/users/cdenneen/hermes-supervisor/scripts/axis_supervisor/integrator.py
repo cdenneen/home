@@ -1,6 +1,6 @@
 import json
 import subprocess
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from .mutation import GateDecision, MutationGate, OperationClass
 from .repository_ownership import validate_repository_ownership
@@ -27,6 +27,7 @@ class Integrator:
         responsibility: str,
         expected_source_branch: str | None = None,
         expected_sha: str | None = None,
+        source_main_sha: str | None = None,
     ) -> dict:
         validate_repository_ownership(
             responsibility, project, context=f"integration-review:{project}!{iid}"
@@ -35,6 +36,21 @@ class Integrator:
         mr = self.api(f"projects/{encoded}/merge_requests/{iid}")
         discussions = self.api(f"projects/{encoded}/merge_requests/{iid}/discussions")
         approvals = self.api(f"projects/{encoded}/merge_requests/{iid}/approvals")
+        diff_refs = mr.get("diff_refs") or {}
+        current_main_sha = diff_refs.get("start_sha") or diff_refs.get("base_sha")
+        main_changed_paths = []
+        if source_main_sha and current_main_sha and source_main_sha != current_main_sha:
+            query = urlencode({"from": source_main_sha, "to": current_main_sha})
+            comparison = self.api(f"projects/{encoded}/repository/compare?{query}")
+            main_changed_paths = sorted(
+                {
+                    str(diff.get("new_path") or diff.get("old_path"))
+                    for diff in comparison.get("diffs") or []
+                    if diff.get("new_path") or diff.get("old_path")
+                }
+            )
+        mr = dict(mr)
+        mr["main_changed_paths"] = main_changed_paths
         pipeline = mr.get("head_pipeline") or {}
         unresolved_discussions = [
             discussion
@@ -91,6 +107,9 @@ class Integrator:
             responsibility=str(assignment.get("responsibility") or ""),
             expected_source_branch=worker.get("branch"),
             expected_sha=worker.get("commit"),
+            source_main_sha=(assignment.get("source_item") or {}).get(
+                "repository_head"
+            ),
         )
         if not inspection["merge_ready"]:
             raise RuntimeError("merge request is not ready for deterministic integration")

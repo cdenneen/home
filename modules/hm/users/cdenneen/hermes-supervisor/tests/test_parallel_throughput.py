@@ -1,10 +1,48 @@
 import json
+import multiprocessing
 import sys
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+
+
+def _enqueue_concurrently(root: str, index: int) -> None:
+    from axis_supervisor.workflow_state import WorkflowState
+
+    path = Path(root)
+    assignment = {
+        "assignment_id": f"assignment-{index}",
+        "work_item": f"ghostspace/axis#{index}",
+        "project": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
+    }
+    handoff = {
+        "assignment_id": assignment["assignment_id"],
+        "repository": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
+        "repository_ownership": {
+            "schema": "axis.external-development-supervisor.repository-ownership-evidence",
+            "schema_version": "1.0.0",
+            "status": "validated",
+            "context": f"implementation-handoff:assignment-{index}",
+            "responsibility": "axis-runtime/product",
+            "repository": "ghostspace/axis",
+            "canonical_repository": "ghostspace/axis",
+            "reason": None,
+            "responsibility_to_canonical_repository": {
+                "supervisor-orchestration/temporary-slack/cron": "cdenneen/home",
+                "axis-runtime/product": "ghostspace/axis",
+                "contracts/planning-records": "ghostspace/axis-governance",
+                "deployment/realistic-validation": "ghostspace/axis-lab",
+            },
+        },
+        "mr_iid": index,
+        "mr_url": f"https://gitlab.com/ghostspace/axis/-/merge_requests/{index}",
+    }
+    WorkflowState(path).enqueue(assignment, handoff, "reviewer-one")
 
 
 def write_control(root: Path) -> None:
@@ -143,6 +181,97 @@ def test_handoff_and_integration_queue_persist_reviewer(tmp_path: Path):
     assert persisted_queue["items"][0]["handoff_uri"].endswith(
         "/implementation-handoffs/assignment-1.json"
     )
+
+
+def test_persisted_v1_integration_queue_migrates_ownership_in_place(tmp_path: Path):
+    from axis_supervisor.workflow_state import WorkflowState
+
+    write_control(tmp_path)
+    fixture = ROOT / "tests" / "fixtures" / "integration-queue-v1.json"
+    (tmp_path / "integration-queue.json").write_text(
+        fixture.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    updated = WorkflowState(tmp_path).update_integration(
+        "persisted-v1-assignment", state="waiting-ci"
+    )
+    persisted = json.loads(
+        (tmp_path / "integration-queue.json").read_text(encoding="utf-8")
+    )
+
+    assert updated is not None
+    assert persisted["schema_version"] == "2.0.0"
+    assert persisted["items"][0]["responsibility"] == "axis-runtime/product"
+    assert persisted["items"][0]["repository_ownership"]["status"] == "validated"
+
+
+def test_concurrent_queue_mutations_preserve_every_item_and_fault_is_atomic(tmp_path: Path):
+    from axis_supervisor.workflow_state import WorkflowState
+
+    write_control(tmp_path)
+    context = multiprocessing.get_context("fork")
+    processes = [
+        context.Process(target=_enqueue_concurrently, args=(str(tmp_path), index))
+        for index in range(1, 9)
+    ]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(10)
+        assert process.exitcode == 0
+
+    workflow = WorkflowState(tmp_path)
+    before = workflow.load_queue()
+    assert {value["assignment_id"] for value in before["items"]} == {
+        f"assignment-{index}" for index in range(1, 9)
+    }
+
+    def fail_after_mutation(queue: dict) -> None:
+        queue["items"].clear()
+        raise RuntimeError("injected mutation fault")
+
+    try:
+        workflow.mutate_queue(fail_after_mutation)
+    except RuntimeError as exc:
+        assert str(exc) == "injected mutation fault"
+    else:
+        raise AssertionError("queue mutation fault was hidden")
+    assert workflow.load_queue() == before
+
+
+def test_integrator_collects_main_advance_paths_from_compare_api():
+    from axis_supervisor.integrator import Integrator
+
+    class FakeIntegrator(Integrator):
+        def __init__(self):
+            super().__init__("glab")
+
+        def api(self, path: str):
+            if "/merge_requests/7/approvals" in path:
+                return {"approvals_left": 0}
+            if "/merge_requests/7/discussions" in path:
+                return []
+            if "/repository/compare?" in path:
+                return {"diffs": [{"new_path": "docs/readme.md"}]}
+            return {
+                "state": "opened",
+                "draft": False,
+                "has_conflicts": False,
+                "target_branch": "main",
+                "source_branch": "hermes/change",
+                "sha": "c" * 40,
+                "diff_refs": {"base_sha": "b" * 40},
+                "head_pipeline": {"status": "success"},
+            }
+
+    inspection = FakeIntegrator().inspect_mr(
+        "ghostspace/axis",
+        7,
+        responsibility="axis-runtime/product",
+        source_main_sha="a" * 40,
+    )
+
+    assert inspection["mr"]["main_changed_paths"] == ["docs/readme.md"]
 
 
 def test_main_advance_classification():
@@ -373,9 +502,9 @@ def test_approve_with_conditions_modal_is_bounded_and_persists_fields(tmp_path: 
         DECISION_ID,
         MAX_CONDITIONS_LENGTH,
         MAX_VERIFICATION_LENGTH,
-        SlackDecisionController,
         VERIFICATION_BLOCK_ID,
         VERIFICATION_INPUT_ID,
+        SlackDecisionController,
     )
 
     write_control(tmp_path)
@@ -450,7 +579,11 @@ def test_approve_with_conditions_modal_is_bounded_and_persists_fields(tmp_path: 
 
 
 def test_decision_replay_resumes_an_interrupted_frontier_rebuild(tmp_path: Path):
-    from axis_supervisor.decisions import APPROVE_ACTION_ID, DECISION_ID, SlackDecisionController
+    from axis_supervisor.decisions import (
+        APPROVE_ACTION_ID,
+        DECISION_ID,
+        SlackDecisionController,
+    )
 
     write_control(tmp_path)
 
@@ -498,6 +631,55 @@ def test_decision_replay_resumes_an_interrupted_frontier_rebuild(tmp_path: Path)
     request = recovered.store.load_frontier_request(DECISION_ID)
     assert request["status"] == "completed"
     assert request["attempts"] == 2
+
+
+def test_periodic_reconciliation_recovers_pending_decision_rebuild(tmp_path: Path):
+    from axis_supervisor.decisions import (
+        APPROVE_ACTION_ID,
+        DECISION_ID,
+        SlackDecisionController,
+        reconcile_pending_frontier_rebuilds,
+    )
+
+    write_control(tmp_path)
+
+    def api(_token: str, _method: str, payload: dict) -> dict:
+        return {"ok": True, "channel": "D1", "ts": str(payload.get("ts") or "8.1")}
+
+    controller = SlackDecisionController(
+        tmp_path, api, lambda: (_ for _ in ()).throw(RuntimeError("interrupted"))
+    )
+    ts, _ = controller.project(
+        "token",
+        workspace_id="T1",
+        authorized_user_id="U1",
+        channel="D1",
+        decision_id=DECISION_ID,
+        packet=decision_packet(),
+        ts=None,
+    )
+    with pytest.raises(RuntimeError, match="interrupted"):
+        controller.handle_action(
+            "token",
+            {
+                "team": {"id": "T1"},
+                "user": {"id": "U1"},
+                "channel": {"id": "D1"},
+                "message": {"ts": ts},
+            },
+            {
+                "action_id": APPROVE_ACTION_ID,
+                "action_ts": "8.2",
+                "value": controller.action_value(),
+            },
+        )
+
+    rebuilt = []
+    assert reconcile_pending_frontier_rebuilds(
+        tmp_path, lambda: rebuilt.append(True)
+    ) == [DECISION_ID]
+    assert rebuilt == [True]
+    assert controller.store.load_frontier_request(DECISION_ID)["status"] == "completed"
 
 
 def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Path):

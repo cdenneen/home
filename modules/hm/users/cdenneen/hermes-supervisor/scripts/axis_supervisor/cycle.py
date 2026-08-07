@@ -25,6 +25,7 @@ from axis_supervisor.capability_graduation import (
     CapabilityGraduationProjector,
     assignment_is_satisfied,
 )
+from axis_supervisor.decisions import reconcile_pending_frontier_rebuilds
 from axis_supervisor.deployment import (
     create_deployment_assignment,
     execute_deployment_assignment,
@@ -32,9 +33,14 @@ from axis_supervisor.deployment import (
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
-from axis_supervisor.lifecycle import is_completed, is_integrable, is_terminal, set_lifecycle
-from axis_supervisor.models import validate_assignment
+from axis_supervisor.lifecycle import (
+    is_completed,
+    is_integrable,
+    is_terminal,
+    set_lifecycle,
+)
 from axis_supervisor.missions import ActiveMissionState, mission_summary
+from axis_supervisor.models import validate_assignment
 from axis_supervisor.mutation import (
     GateDecision,
     MutationGate,
@@ -519,10 +525,11 @@ def rebuild() -> dict:
             },
         )
         RoadmapQualityProjector(ROOT).build(inventory, graph)
-        graduation = CapabilityGraduationProjector(ROOT).build(
-            inventory, graph, capability_convergence
-        )
+    graduation = CapabilityGraduationProjector(ROOT).build(
+        inventory, graph, capability_convergence
+    )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
+    reconcile_pending_frontier_rebuilds(ROOT, lambda: None)
     return graph
 
 
@@ -935,19 +942,24 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             item.get("ref"): item
             for item in current_graph.get("executable_queue") or []
         }
+        frontier = read_record(
+            ROOT / "executable-frontier.json",
+            "axis.external-development-supervisor.executable-frontier",
+        )
+        frontier_refs = set(frontier.get("selected") or [])
         ordered = [
             queue_by_ref[item.get("ref")]
             for item in (current_graph.get("scheduler_state") or {}).get(
                 "selected_batch"
             )
             or []
-            if item.get("ref") in queue_by_ref
+            if item.get("ref") in queue_by_ref and item.get("ref") in frontier_refs
         ]
         selected_refs = {item.get("ref") for item in ordered}
         ordered.extend(
-            item
-            for item in current_graph.get("executable_queue") or []
-            if item.get("ref") not in selected_refs
+            queue_by_ref[ref]
+            for ref in frontier.get("selected") or []
+            if ref in queue_by_ref and ref not in selected_refs
         )
         for item in ordered:
             dispatched = dispatcher.dispatch(current_graph, run_id, item)
@@ -1025,6 +1037,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             responsibility=assignment["responsibility"],
             expected_source_branch=(assignment.get("worker") or {}).get("branch"),
             expected_sha=(assignment.get("worker") or {}).get("commit"),
+            source_main_sha=(assignment.get("source_item") or {}).get(
+                "repository_head"
+            ),
         )
         try:
             lease = load_canonical_lease(ROOT, assignment)
@@ -1142,6 +1157,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 assignment["project"],
                 iid,
                 responsibility=assignment["responsibility"],
+                source_main_sha=(assignment.get("source_item") or {}).get(
+                    "repository_head"
+                ),
             )
             if inspection["mr"].get("state") != "merged":
                 raise RuntimeError("gated integration did not produce a merged MR")

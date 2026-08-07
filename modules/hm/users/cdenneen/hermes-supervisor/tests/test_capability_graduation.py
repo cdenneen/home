@@ -166,6 +166,22 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     )
     assert unchanged["capabilities"][0]["scheduled_actions"] == []
 
+    analysis = verified_node()
+    analysis.update(
+        {
+            "classification": "Running",
+            "source_state": "opened",
+            "flow_stage": "analysis",
+            "verification": {"state": "active-technical-revalidation"},
+        }
+    )
+    active_analysis = CapabilityGraduationProjector(tmp_path).build(
+        inventory, graph | {"nodes": [analysis]}, convergence()
+    )
+    assert active_analysis["capabilities"][0]["graduation_state"]["implementation"][
+        "state"
+    ] == "pending"
+
 
 def test_gate_applicability_has_no_implicit_defaults(tmp_path: Path):
     from axis_supervisor.capability_graduation import CapabilityGraduationProjector
@@ -395,8 +411,9 @@ def test_stale_downstream_assignments_are_satisfied_by_current_evidence():
     from axis_supervisor.capability_graduation import assignment_is_satisfied
 
     graph = {"nodes": [{"ref": "issue#1", "verification": {"state": "verified-complete"}}]}
-    repository = {"status": "green"}
+    repository = {"status": "green", "branches": [], "orphan_worktrees": []}
     current = convergence()
+    current["runtimes"][0]["running_revision"] = "main"
     graduation_state = {
         "capabilities": [
             {
@@ -406,8 +423,16 @@ def test_stale_downstream_assignments_are_satisfied_by_current_evidence():
         ]
     }
 
+    repository_assignment = {
+        "assignment_type": "repository-convergence",
+        "project": "ghostspace/axis",
+        "source_item": {
+            "ref": "local-convergence:ghostspace/axis:branch:hermes/old",
+            "convergence_facts": {"scope": "branch", "branch": "hermes/old"},
+        },
+    }
     assert assignment_is_satisfied(
-        {"assignment_type": "repository-convergence"},
+        repository_assignment,
         graph,
         repository,
         current,
@@ -419,6 +444,7 @@ def test_stale_downstream_assignments_are_satisfied_by_current_evidence():
             "source_item": {
                 "target_runtime": "ghost",
                 "affected_capabilities": ["Service"],
+                "expected_revision": "main",
             },
         },
         graph,
@@ -428,6 +454,28 @@ def test_stale_downstream_assignments_are_satisfied_by_current_evidence():
     )
     assert assignment_is_satisfied(
         {"assignment_type": "no-op-verification", "work_item": "issue#1"},
+        graph,
+        repository,
+        current,
+        graduation_state,
+    )
+
+    repository["branches"] = [
+        {"repository": "ghostspace/axis", "branch": "hermes/old"}
+    ]
+    assert not assignment_is_satisfied(
+        repository_assignment, graph, repository, current, graduation_state
+    )
+    current["runtimes"][0]["running_revision"] = "newer-main"
+    assert not assignment_is_satisfied(
+        {
+            "assignment_type": "capability-deployment",
+            "source_item": {
+                "target_runtime": "ghost",
+                "affected_capabilities": ["Service"],
+                "expected_revision": "main",
+            },
+        },
         graph,
         repository,
         current,

@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.review-evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "repository",
+    "pr_number",
+    "pr_url",
+    "current_sha",
+    "status",
+    "started_at",
+    "updated_at",
+    "deadline_at",
+    "poll_count",
+    "pr_state",
+    "is_draft",
+    "reviewers",
+    "checks",
+    "findings",
+    "independent_review",
+    "blockers",
+    "poll_history"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.review-evidence"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "pr_number": { "type": "integer", "minimum": 1 },
+    "pr_url": { "type": ["string", "null"], "format": "uri" },
+    "current_sha": { "type": ["string", "null"] },
+    "status": {
+      "enum": [
+        "settling",
+        "review-required",
+        "blocked",
+        "ready",
+        "timeout",
+        "unavailable"
+      ]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "deadline_at": { "type": "string", "format": "date-time" },
+    "poll_count": { "type": "integer", "minimum": 1 },
+    "pr_state": { "type": "string" },
+    "is_draft": { "type": "boolean" },
+    "reviewers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "reviewer",
+          "kind",
+          "required",
+          "state",
+          "reviewed_sha",
+          "reviewed_at"
+        ],
+        "properties": {
+          "reviewer": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["human", "bot"] },
+          "required": { "type": "boolean" },
+          "state": { "type": "string" },
+          "reviewed_sha": { "type": ["string", "null"] },
+          "reviewed_at": { "type": ["string", "null"], "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "state", "url"],
+        "properties": {
+          "name": { "type": "string" },
+          "state": { "enum": ["passed", "pending", "failed"] },
+          "url": { "type": ["string", "null"], "format": "uri" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "finding_id",
+          "reviewer",
+          "severity",
+          "path",
+          "line",
+          "body",
+          "url",
+          "reviewed_sha",
+          "disposition"
+        ],
+        "properties": {
+          "finding_id": { "type": "string", "minLength": 1 },
+          "reviewer": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["critical", "high", "medium", "low"] },
+          "path": { "type": ["string", "null"] },
+          "line": { "type": ["integer", "null"] },
+          "body": { "type": "string", "minLength": 1 },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "reviewed_sha": { "type": ["string", "null"] },
+          "disposition": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["status", "rationale", "evidence"],
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "fixed",
+                      "false-positive",
+                      "superseded",
+                      "accepted-risk",
+                      "deferred"
+                    ]
+                  },
+                  "rationale": { "type": "string", "minLength": 1 },
+                  "evidence": { "type": "array", "items": { "type": "string" } }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "independent_review": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": [
+            "reviewer",
+            "model",
+            "reviewed_sha",
+            "reviewed_at",
+            "summary",
+            "finding_ids"
+          ],
+          "properties": {
+            "reviewer": { "const": "gpt-5.4-independent" },
+            "model": { "const": "gpt-5.4" },
+            "reviewed_sha": { "type": "string", "minLength": 1 },
+            "reviewed_at": { "type": "string", "format": "date-time" },
+            "summary": { "type": "string" },
+            "finding_ids": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "poll_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["poll", "observed_at", "sha", "status"],
+        "properties": {
+          "poll": { "type": "integer", "minimum": 1 },
+          "observed_at": { "type": "string", "format": "date-time" },
+          "sha": { "type": ["string", "null"] },
+          "status": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

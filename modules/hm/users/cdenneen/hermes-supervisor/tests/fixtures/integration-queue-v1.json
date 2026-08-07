@@ -1,0 +1,21 @@
+{
+  "schema": "axis.external-development-supervisor.integration-queue",
+  "schema_version": "1.0.0",
+  "updated_at": "2026-08-06T00:00:00+00:00",
+  "items": [
+    {
+      "assignment_id": "persisted-v1-assignment",
+      "work_item": "ghostspace/axis#1",
+      "repository": "ghostspace/axis",
+      "handoff_uri": "file:///tmp/persisted-v1-handoff.json",
+      "mr_iid": 7,
+      "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/7",
+      "reviewer": "reviewer-one",
+      "state": "awaiting-review",
+      "main_advance": "unchanged",
+      "enqueued_at": "2026-08-06T00:00:00+00:00",
+      "updated_at": "2026-08-06T00:00:00+00:00",
+      "last_error": null
+    }
+  ]
+}

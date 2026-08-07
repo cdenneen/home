@@ -24,7 +24,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.implementation-handoff"
     },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "work_item": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "minLength": 1 },

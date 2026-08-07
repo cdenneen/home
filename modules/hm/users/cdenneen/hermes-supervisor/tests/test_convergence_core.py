@@ -40,10 +40,15 @@ def control(**overrides) -> dict:
 
 
 def assignment(root: Path, **overrides) -> dict:
+    from axis_supervisor.repository_ownership import validate_repository_ownership
+
     lease_path = root / "leases" / "assignment-1" / "lease.json"
+    ownership = validate_repository_ownership(
+        "axis-runtime/product", "ghostspace/axis", context="test-assignment"
+    )
     value = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "assignment_id": "assignment-1",
         "assignment_type": "code-implementation",
         "result_state": "pending",
@@ -51,6 +56,7 @@ def assignment(root: Path, **overrides) -> dict:
         "lifecycle_state": "running-implementation",
         "project": "ghostspace/axis",
         "responsibility": "axis-runtime/product",
+        "repository_ownership": ownership,
         "work_item": "ghostspace/axis#119",
         "planning_record": None,
         "allowed_paths": ["src/example.py"],
@@ -355,7 +361,7 @@ def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
     legacy_assignment["schema_version"] = "1.0.0"
     legacy_assignment.pop("action_contract")
     migrated_assignment = validate_assignment(legacy_assignment, tmp_path)
-    assert migrated_assignment["schema_version"] == "2.0.0"
+    assert migrated_assignment["schema_version"] == "3.0.0"
     assert migrated_assignment["action_contract"] is None
 
     corrupt = tmp_path / "corrupt.json"
@@ -516,6 +522,7 @@ def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path
         AssignmentGrantDenied,
         create_grant,
         grant_path,
+        load_grant,
         validate_grant,
     )
     from axis_supervisor.mutation import MutationDenied, MutationGate, OperationClass
@@ -552,6 +559,16 @@ def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path
     grant = create_grant(tmp_path, value, control_value)
     assert grant["responsibility"] == "axis-runtime/product"
     assert grant["repository_ownership"]["status"] == "validated"
+    legacy_grant = dict(grant)
+    legacy_grant["schema_version"] = "1.0.0"
+    legacy_grant.pop("responsibility")
+    legacy_grant.pop("repository_ownership")
+    grant_path(tmp_path, value["assignment_id"]).write_text(
+        json.dumps(legacy_grant), encoding="utf-8"
+    )
+    migrated_grant = load_grant(tmp_path, value)
+    assert migrated_grant["schema_version"] == "2.0.0"
+    assert migrated_grant["responsibility"] == "axis-runtime/product"
     write_record(
         tmp_path / "assignments" / "assignment-1.json",
         value,

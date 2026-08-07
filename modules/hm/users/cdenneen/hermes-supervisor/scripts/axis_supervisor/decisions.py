@@ -4,13 +4,12 @@ import json
 import os
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from .mutation import MutationGate, OperationClass
 from .schema_registry import read_record, validate_record, write_record
-
 
 DECISION_ID = "axis29-mcp-tranche-v2"
 DECISION_DIGEST = "sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d"
@@ -561,3 +560,25 @@ class SlackDecisionController:
             self._update_card(token, card, "scheduling", record)
             status = "scheduling"
         return {"record": record, "replayed": False, "status": status}
+
+
+def reconcile_pending_frontier_rebuilds(
+    root: Path,
+    rebuild: Callable[[], object],
+    *,
+    limit: int = 8,
+) -> list[str]:
+    store = DecisionStore(root)
+    completed = []
+    for path in sorted(store.decisions.glob("*.frontier.json"))[:limit]:
+        request = read_record(path, DECISION_FRONTIER_SCHEMA)
+        if request["status"] != "pending":
+            continue
+        record = store.load(str(request["decision_id"]))
+        if record is None or not record["outcome"].startswith("approved"):
+            continue
+        SlackDecisionController(root, lambda *_args: {}, rebuild)._ensure_frontier_rebuild(
+            record
+        )
+        completed.append(str(request["decision_id"]))
+    return completed

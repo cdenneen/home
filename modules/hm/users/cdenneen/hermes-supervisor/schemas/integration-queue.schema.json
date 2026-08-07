@@ -68,7 +68,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.integration-queue"
     },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "updated_at": { "type": "string", "format": "date-time" },
     "items": {
       "type": "array",

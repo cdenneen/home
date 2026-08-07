@@ -7,6 +7,8 @@
     "schema_version",
     "assignment_id",
     "project",
+    "responsibility",
+    "repository_ownership",
     "work_item",
     "planning_record",
     "allowed_paths",
@@ -20,7 +22,7 @@
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.assignment" },
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "assignment_type": {
       "enum": [

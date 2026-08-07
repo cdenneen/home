@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -182,6 +184,18 @@ def test_missing_internal_evidence_generates_bounded_action(tmp_path: Path):
     assert action["convergence_fingerprint"] == "sha256:" + "b" * 64
 
 
+def test_unbound_generated_action_does_not_claim_dispatchable_work(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState, has_runnable_action
+
+    write_control(tmp_path)
+    mission = ActiveMissionState(tmp_path).reconcile(
+        {}, graph(), graduation(capability("Service", missing_gate="verification"))
+    )
+
+    assert mission["generated_actions"][0]["kind"] == "reconcile-missing-evidence"
+    assert has_runnable_action(mission) is False
+
+
 def test_external_blocked_stream_does_not_stop_compatible_work(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 
@@ -255,15 +269,9 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 
     write_control(tmp_path)
+    fixture = ROOT / "tests" / "fixtures" / "active-mission-v1.json"
     (tmp_path / "active-mission.json").write_text(
-        json.dumps(
-            {
-                "mission_id": "legacy-mission",
-                "created_at": "2026-01-01T00:00:00+00:00",
-                "observations": ["legacy response"],
-            }
-        ),
-        encoding="utf-8",
+        fixture.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
     migrated = ActiveMissionState(tmp_path).reconcile(
@@ -271,10 +279,32 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
     )
 
     assert migrated["schema_version"] == "2.0.0"
-    assert migrated["mission_id"] == "legacy-mission"
-    assert migrated["created_at"] == "2026-01-01T00:00:00+00:00"
-    assert migrated["observations"][0]["source"] == "migration"
-    assert migrated["observations"][0]["summary"] == "legacy response"
+    assert migrated["mission_id"] == "persisted-v1-mission"
+    assert migrated["created_at"] == "2026-08-06T00:00:00+00:00"
+    assert migrated["observations"][0]["source"] == "cycle-response"
+    assert migrated["observations"][0]["summary"] == "persisted prior-version response"
+
+
+def test_malformed_current_mission_record_fails_closed(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+    from axis_supervisor.schema_registry import PartialRecordError
+
+    write_control(tmp_path)
+    (tmp_path / "active-mission.json").write_text(
+        json.dumps(
+            {
+                "schema": "axis.external-development-supervisor.active-mission",
+                "schema_version": "2.0.0",
+                "mission_id": "malformed-current",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PartialRecordError):
+        ActiveMissionState(tmp_path).reconcile(
+            {}, graph(), graduation(capability("Service", missing_gate="verification"))
+        )
 
 
 def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(
@@ -418,6 +448,102 @@ def test_action_48_backfill_records_partial_effect_without_suppression(tmp_path:
     assert evaluation["post_snapshot"]["confidence"] == 42.9
     assert evaluation["normalized_delta"]["gates_reduced"] == 2
     assert evaluation["normalized_delta"]["confidence_delta"] == 28.6
-    assert evaluation["classification"] == "effective"
+    assert evaluation["classification"] == "applicability-revised"
     assert mission["effectiveness_metrics"]["suppressed_fingerprints"] == 0
     assert mission["effectiveness_metrics"]["gates_reduced"] == 2
+
+
+def test_effectiveness_requires_exact_expected_gate_not_unrelated_progress(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    before = capability("Service", missing_gate="verification")
+    initial = graduation(before)
+    manager = ActiveMissionState(tmp_path)
+    action = manager.reconcile({}, graph(), initial)["generated_actions"][0]
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    contract = {
+        key: action[key]
+        for key in (
+            "engineering_purpose",
+            "gate_owner",
+            "expected_gates",
+            "expected_capabilities",
+            "expected_milestones",
+            "expected_debt_reduction",
+            "expected_evidence",
+            "convergence_fingerprint",
+            "evidence_model_fingerprint",
+            "applicability_model_revision",
+            "pre_snapshot",
+            "suppression_fingerprint",
+        )
+    }
+    (assignments / "completed.json").write_text(
+        json.dumps(
+            {
+                "assignment_id": "completed",
+                "project": "ghostspace/axis",
+                "work_item": "Service",
+                "lifecycle_state": "completed",
+                "result_state": "no-op-verification-completed",
+                "action_contract": {
+                    "action_id": action["action_id"],
+                    "source_ref": action["source_ref"],
+                    **contract,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    after = capability("Service", missing_gate="verification")
+    after["graduation_state"]["integration"] = gate("passed", "new unrelated proof")
+    changed = graduation(after)
+    changed["effectiveness_fingerprint"] = "sha256:" + "c" * 64
+
+    evaluation = manager.reconcile({}, graph(), changed)["action_effectiveness"][0]
+
+    assert evaluation["observed_gates"] == [
+        {"capability": "Service", "gate": "verification", "state": "pending"}
+    ]
+    assert evaluation["normalized_delta"]["confidence_delta"] >= 0
+    assert evaluation["classification"] == "zero-effect"
+
+
+def test_generated_action_dispatches_with_the_exact_action_contract(tmp_path: Path):
+    from axis_supervisor.dispatcher import Dispatcher
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    item = {
+        "ref": "semantic-decomposition:ghostspace/axis#1",
+        "target_ref": "ghostspace/axis#1",
+        "kind": "semantic-decomposition",
+        "assignment_type": "read-only-analysis",
+        "project": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
+        "title": "Collect exact verification evidence",
+        "classification": "Executable",
+        "authority": {"state": "preparation-only"},
+        "affected_capabilities": ["Service"],
+        "source_item": {},
+        "source_fingerprint": "source",
+    }
+    current_graph = graph(queue=[item])
+    mission = ActiveMissionState(tmp_path).reconcile(
+        {}, current_graph, graduation(capability("Service", missing_gate="verification"))
+    )
+    action = next(
+        value for value in mission["generated_actions"] if value["kind"] == "dispatch-executable"
+    )
+
+    assignment = Dispatcher(tmp_path).dispatch(
+        {"inventory_generation_id": "inventory", "executable_queue": [item]},
+        "run-1",
+        item,
+    )
+
+    assert assignment is not None
+    assert assignment["action_contract"]["action_id"] == action["action_id"]
+    assert assignment["action_contract"]["expected_gates"] == action["expected_gates"]

@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .repository_ownership import resolve_repository_ownership
+
 
 LIFECYCLE_STATES = frozenset(
     {
@@ -85,8 +87,18 @@ def adapt_assignment(
 ) -> dict[str, Any]:
     adapted = dict(value)
     adapted.setdefault("schema", "axis.external-development-supervisor.assignment")
-    if adapted.get("schema_version") in {None, "1.0.0"}:
-        adapted["schema_version"] = "2.0.0"
+    legacy = adapted.get("schema_version") in {None, "1.0.0", "2.0.0"}
+    if legacy:
+        adapted["schema_version"] = "3.0.0"
+    if legacy and adapted.get("project"):
+        ownership = resolve_repository_ownership(
+            [adapted.get("responsibility")],
+            adapted.get("project"),
+            context=f"assignment-v1-migration:{adapted.get('assignment_id')}",
+            allow_repository_inference=True,
+        )
+        adapted["responsibility"] = ownership["responsibility"]
+        adapted["repository_ownership"] = ownership
     adapted.setdefault("planning_record", None)
     adapted.setdefault("allowed_paths", [])
     adapted.setdefault("required_tests", [])

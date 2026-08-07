@@ -226,6 +226,20 @@ def _external_node(node: dict[str, Any]) -> bool:
     )
 
 
+def has_runnable_action(mission: dict[str, Any]) -> bool:
+    return any(
+        (
+            action.get("kind") == "dispatch-executable"
+            and bool(action.get("source_ref"))
+        )
+        or (
+            action.get("kind") == "reconcile-active-assignment"
+            and bool(action.get("assignment_id"))
+        )
+        for action in mission.get("generated_actions") or []
+    )
+
+
 class ActiveMissionState:
     def __init__(self, root: Path):
         self.root = root
@@ -238,12 +252,12 @@ class ActiveMissionState:
         try:
             return read_record(self.path, SCHEMA)
         except RecordError:
-            try:
-                legacy = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return {}
-            if not isinstance(legacy, dict):
-                return {}
+            legacy = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(legacy, dict) or (
+                legacy.get("schema") != SCHEMA
+                or legacy.get("schema_version") != "1.0.0"
+            ):
+                raise
             observations = []
             for observation in list(legacy.get("observations") or [])[
                 -MAX_OBSERVATIONS:
@@ -534,11 +548,13 @@ class ActiveMissionState:
                 }
                 for value in expected_gates
             ]
-            changed = bool(
-                normalized_delta["gates_reduced"]
-                > normalized_delta["gates_regressed"]
-                or normalized_delta["confidence_delta"] > 0
-                or (not observed_gates and baseline != current_fingerprint)
+            changed = (
+                all(
+                    value["state"] in {"passed", "not-required"}
+                    for value in observed_gates
+                )
+                if observed_gates
+                else baseline != current_fingerprint
             )
             model_revised = normalized_delta["applicability_revision_changed"]
             zero_effect_cycles = (
