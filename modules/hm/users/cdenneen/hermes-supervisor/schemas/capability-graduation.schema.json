@@ -4,8 +4,9 @@
   "$defs": {
     "gate": {
       "type": "object",
-      "required": ["state", "evidence"],
+      "required": ["applicable", "state", "evidence"],
       "properties": {
+        "applicable": { "type": "boolean" },
         "state": { "enum": ["passed", "pending", "blocked", "not-required"] },
         "evidence": { "type": "array", "items": { "type": "string" } }
       },
@@ -28,9 +29,11 @@
     "schema_version",
     "generated_at",
     "projection_digest",
+    "effectiveness_fingerprint",
     "source_inventory_generation_id",
     "source_graph_generation_id",
     "source_convergence_digest",
+    "repository_convergence_digest",
     "primary_kpi",
     "program_risk",
     "operator_confidence",
@@ -43,15 +46,20 @@
     "schema": {
       "const": "axis.external-development-supervisor.capability-graduation"
     },
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "generated_at": { "type": "string", "format": "date-time" },
     "projection_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "effectiveness_fingerprint": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "source_inventory_generation_id": { "type": ["string", "null"] },
     "source_graph_generation_id": { "type": ["string", "null"] },
     "source_convergence_digest": { "type": ["string", "null"] },
+    "repository_convergence_digest": { "type": ["string", "null"] },
     "primary_kpi": {
       "type": "object",
       "required": ["name", "count", "denominator", "percent"],
@@ -96,6 +104,7 @@
           "paths",
           "projected_runtimes",
           "linked_work_items",
+          "gate_applicability",
           "graduation_state",
           "graduation_confidence",
           "operator_confidence",
@@ -114,6 +123,28 @@
           "linked_work_items": {
             "type": "array",
             "items": { "type": "string" }
+          },
+          "gate_applicability": {
+            "type": "object",
+            "required": [
+              "implementation",
+              "integration",
+              "deployment",
+              "validation",
+              "verification",
+              "operator_acceptance",
+              "program_risk"
+            ],
+            "properties": {
+              "implementation": { "type": "boolean" },
+              "integration": { "type": "boolean" },
+              "deployment": { "type": "boolean" },
+              "validation": { "type": "boolean" },
+              "verification": { "type": "boolean" },
+              "operator_acceptance": { "type": "boolean" },
+              "program_risk": { "type": "boolean" }
+            },
+            "additionalProperties": false
           },
           "graduation_state": {
             "type": "object",

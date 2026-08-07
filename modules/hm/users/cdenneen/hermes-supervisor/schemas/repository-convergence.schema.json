@@ -8,6 +8,7 @@
     "generated_at",
     "inventory_generation_id",
     "convergence_digest",
+    "fingerprint_lifecycle",
     "status",
     "counts",
     "repositories",
@@ -20,12 +21,23 @@
     "schema": {
       "const": "axis.external-development-supervisor.repository-convergence"
     },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "generated_at": { "type": "string", "format": "date-time" },
     "inventory_generation_id": { "type": "string" },
     "convergence_digest": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "fingerprint_lifecycle": {
+      "type": "object",
+      "required": ["current", "previous", "changed", "stable_cycles"],
+      "properties": {
+        "current": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "previous": { "type": ["string", "null"] },
+        "changed": { "type": "boolean" },
+        "stable_cycles": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     },
     "status": { "enum": ["green", "amber", "red"] },
     "counts": {

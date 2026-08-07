@@ -8,6 +8,7 @@ from .schema_registry import read_record
 
 DASHBOARD_PROOF_SECTIONS = (
     "Primary KPI",
+    "Action Effectiveness",
     "Milestone Graduation",
     "Milestone Debt, Risk, Confidence & Forecast",
     "Work In Progress",
@@ -68,6 +69,13 @@ def _load_graduation(root: Path) -> dict:
     return read_record(
         path, "axis.external-development-supervisor.capability-graduation"
     )
+
+
+def _load_mission(root: Path) -> dict:
+    path = root / "active-mission.json"
+    if not path.exists():
+        return {}
+    return read_record(path, "axis.external-development-supervisor.active-mission")
 
 
 def _runtime_status(record: dict | None, *, offline: bool = False) -> tuple[str, str]:
@@ -169,6 +177,8 @@ def render_executive_dashboard(
     recent, routine_no_ops = _recent_lines(events)
     capabilities = _load_capabilities(root)
     graduation = _load_graduation(root)
+    mission = _load_mission(root)
+    effectiveness = mission.get("effectiveness_metrics") or {}
     runtime_records = {
         str(value.get("runtime")): value for value in capabilities.get("runtimes") or []
     }
@@ -270,6 +280,14 @@ def render_executive_dashboard(
             f"Frontier: *{public_text(semantics.get('current_execution_frontier') or 'Not established')}*",
         ),
         (
+            "Action Effectiveness",
+            f"Effective assignments: *{int(effectiveness.get('effective_assignments') or 0)}/"
+            f"{int(effectiveness.get('assignments_evaluated') or 0)}* "
+            f"({float(effectiveness.get('effectiveness_percent') or 100):g}%)\n"
+            f"Suppressed unchanged actions: *{int(effectiveness.get('suppressed_fingerprints') or 0)}* | "
+            f"State contract defects: *{int(effectiveness.get('state_model_defects') or 0)}*",
+        ),
+        (
             "Milestone Graduation",
             f"Milestone proof `{progress_bar(verified_milestones, len(milestones))}` "
             f"*{verified_milestones}/{len(milestones)} verified*\n"
@@ -357,6 +375,7 @@ def render_executive_dashboard(
     fallback = (
         f"AXIS Executive Dashboard | Graduated capabilities {graduated_capabilities}/{capability_total} "
         f"({capability_percent:g}%) | Roadmap {verified}/{total} verified ({roadmap_percent}%) | "
+        f"Action effectiveness {float(effectiveness.get('effectiveness_percent') or 100):g}% | "
         f"Milestones {verified_milestones}/{len(milestones)} | WIP {wip_total}/{wip_limit} | "
         f"Deployment {deployed}/{runtime_total} | Validation {validated}/{runtime_total} | "
         f"Human action {'yes' if need_human else 'no'}"

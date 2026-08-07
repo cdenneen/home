@@ -31,10 +31,12 @@ def verified_node() -> dict:
 def convergence() -> dict:
     return {
         "convergence_digest": "sha256:" + "a" * 64,
+        "repository_convergence_digest": "sha256:" + "b" * 64,
         "capabilities": [
             {
                 "capability": "Service",
                 "expected_revision": "main",
+                "evidence_fingerprint": "sha256:" + "c" * 64,
                 "projected_runtimes": ["ghost"],
             }
         ],
@@ -66,6 +68,15 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
                     "Service": {
                         "paths": ["src/service.py"],
                         "runtimes": ["ghost"],
+                        "gate_applicability": {
+                            "implementation": True,
+                            "integration": True,
+                            "deployment": True,
+                            "validation": True,
+                            "verification": True,
+                            "operator_acceptance": True,
+                            "program_risk": True,
+                        },
                     }
                 },
             }
@@ -110,7 +121,7 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     )
 
     assert persisted == projection
-    assert projection["schema_version"] == "2.0.0"
+    assert projection["schema_version"] == "3.0.0"
     assert projection["primary_kpi"] == {
         "name": "graduated-capabilities",
         "count": 1,
@@ -119,6 +130,11 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     }
     capability = projection["capabilities"][0]
     assert capability["graduated"] is True
+    assert all(
+        gate["applicable"]
+        for name, gate in capability["graduation_state"].items()
+        if name != "graduated"
+    )
     assert set(capability["graduation_state"]) == {
         "implementation",
         "integration",
@@ -146,6 +162,78 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
         inventory, graph, convergence()
     )
     assert unchanged["capabilities"][0]["scheduled_actions"] == []
+
+
+def test_gate_applicability_has_no_implicit_defaults(tmp_path: Path):
+    from axis_supervisor.capability_graduation import CapabilityGraduationProjector
+
+    write_control(tmp_path)
+    (tmp_path / "capability-runtime-matrix.json").write_text(
+        json.dumps(
+            {
+                "capabilities": {
+                    "Service": {"paths": ["src/service.py"], "runtimes": []}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "assignments").mkdir()
+
+    try:
+        CapabilityGraduationProjector(tmp_path).build(
+            {"supervisor_assignments": []},
+            {"nodes": [], "executable_queue": []},
+            {"capabilities": [], "runtimes": []},
+        )
+    except ValueError as exc:
+        assert "explicitly declare applicability for every gate" in str(exc)
+    else:
+        raise AssertionError("implicit capability gate defaults were accepted")
+
+
+def test_stale_downstream_assignments_are_satisfied_by_current_evidence():
+    from axis_supervisor.capability_graduation import assignment_is_satisfied
+
+    graph = {"nodes": [{"ref": "issue#1", "verification": {"state": "verified-complete"}}]}
+    repository = {"status": "green"}
+    current = convergence()
+    graduation_state = {
+        "capabilities": [
+            {
+                "capability": "Service",
+                "graduation_state": {"verification": {"state": "passed"}},
+            }
+        ]
+    }
+
+    assert assignment_is_satisfied(
+        {"assignment_type": "repository-convergence"},
+        graph,
+        repository,
+        current,
+        graduation_state,
+    )
+    assert assignment_is_satisfied(
+        {
+            "assignment_type": "capability-deployment",
+            "source_item": {
+                "target_runtime": "ghost",
+                "affected_capabilities": ["Service"],
+            },
+        },
+        graph,
+        repository,
+        current,
+        graduation_state,
+    )
+    assert assignment_is_satisfied(
+        {"assignment_type": "no-op-verification", "work_item": "issue#1"},
+        graph,
+        repository,
+        current,
+        graduation_state,
+    )
 
 
 def test_action_score_rewards_evidence_and_unblock_over_cost_and_risk():

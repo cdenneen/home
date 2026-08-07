@@ -9,16 +9,56 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from .lifecycle import set_lifecycle
+from .missions import ActiveMissionState
 from .mutation import MutationGate, OperationClass
 from .observability import record_event
-from .schema_registry import write_record
+from .schema_registry import RecordError, read_record, write_record
 
 
 def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
     assignment_id = f"deployment-{plan['target_runtime']}-{uuid.uuid4().hex[:8]}"
+    try:
+        graph = read_record(
+            root / "execution-graph.json",
+            "axis.external-development-supervisor.execution-graph",
+        )
+        graduation = read_record(
+            root / "capability-graduation.json",
+            "axis.external-development-supervisor.capability-graduation",
+        )
+    except RecordError:
+        graph = {}
+        graduation = {}
+    capability_states = {
+        value.get("capability"): value
+        for value in graduation.get("capabilities") or []
+    }
+    expected_gates = [
+        {
+            "capability": capability,
+            "gate": gate_name,
+            "from_state": str(gate.get("state") or "pending"),
+            "to_state": "passed",
+        }
+        for capability in plan["affected_capabilities"]
+        for gate_name, gate in (
+            (capability_states.get(capability) or {}).get("graduation_state") or {}
+        ).items()
+        if gate_name in {"deployment", "validation", "verification"}
+        and gate.get("state") not in {"passed", "not-required"}
+    ]
+    contract = ActiveMissionState._action_contract(
+        plan["assignment_id"],
+        "deployment",
+        list(plan["affected_capabilities"]),
+        expected_gates,
+        [str(value) for value in plan.get("evidence") or []],
+        graph,
+        graduation,
+    )
     assignment = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "assignment_id": assignment_id,
         "assignment_type": "capability-deployment",
         "result_state": "pending",
@@ -60,6 +100,11 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
         "revalidation_tier": None,
         "ranking_factors": {},
         "selection_rationale": "capability drift at the next eligible deployment ring",
+        "action_contract": {
+            "action_id": plan["assignment_id"],
+            "source_ref": plan["assignment_id"],
+            **contract,
+        },
         "created_by_run": run_id,
         "created_at_epoch": int(time.time()),
         "lease_id": None,

@@ -14,12 +14,13 @@
     "assignment_type",
     "result_state",
     "work_item_disposition",
+    "action_contract",
     "mutation_grant_id",
     "mutation_grant_uri"
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.assignment" },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "assignment_type": {
       "enum": [
@@ -151,7 +152,48 @@
     "completion_receipt": {
       "$ref": "axis.external-development-supervisor.verification"
     },
-    "source_inventory_generation_id": { "type": ["string", "null"] }
+    "source_inventory_generation_id": { "type": ["string", "null"] },
+    "action_contract": {
+      "type": ["object", "null"],
+      "required": [
+        "action_id",
+        "source_ref",
+        "engineering_purpose",
+        "gate_owner",
+        "expected_gates",
+        "expected_capabilities",
+        "expected_milestones",
+        "expected_debt_reduction",
+        "expected_evidence",
+        "convergence_fingerprint",
+        "evidence_model_fingerprint",
+        "suppression_fingerprint"
+      ],
+      "properties": {
+        "action_id": { "type": "string", "minLength": 1 },
+        "source_ref": { "type": ["string", "null"] },
+        "engineering_purpose": { "type": "string", "minLength": 1 },
+        "gate_owner": { "type": "string", "minLength": 1 },
+        "expected_gates": { "type": "array" },
+        "expected_capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_milestones": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_debt_reduction": { "type": "array" },
+        "expected_evidence": { "type": "array", "items": { "type": "string" } },
+        "convergence_fingerprint": { "type": ["string", "null"] },
+        "evidence_model_fingerprint": { "type": "string" },
+        "suppression_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "oneOf": [
     {

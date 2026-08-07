@@ -711,6 +711,7 @@ def test_dispatcher_reuses_capacity_only_across_independent_repositories(tmp_pat
     independent = same_project | {
         "ref": "semantic-decomposition:ghostspace/axis-governance#2",
         "target_ref": "ghostspace/axis-governance#2",
+        "kind": "capability-evidence-analysis",
         "project": "ghostspace/axis-governance",
         "title": "independent repository",
         "source_fingerprint": "independent",
@@ -718,6 +719,8 @@ def test_dispatcher_reuses_capacity_only_across_independent_repositories(tmp_pat
     created = dispatcher.dispatch(graph, "run-next", independent)
     assert created is not None
     assert created["project"] == "ghostspace/axis-governance"
+    assert created["assignment_type"] == "read-only-analysis"
+    assert created["lifecycle_state"] == "ready-semantic"
 
 
 def test_semantic_test_commands_reject_shell_control():
@@ -1422,7 +1425,7 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "Roadmap 1/2 verified"
     )
     assert blocks[0]["type"] == "header"
-    assert len([block for block in blocks if block["type"] == "section"]) == 16
+    assert len([block for block in blocks if block["type"] == "section"]) == 17
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
     assert not any(
         forbidden in json.dumps(blocks).lower()

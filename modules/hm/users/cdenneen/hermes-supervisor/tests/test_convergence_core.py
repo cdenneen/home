@@ -43,7 +43,7 @@ def assignment(root: Path, **overrides) -> dict:
     lease_path = root / "leases" / "assignment-1" / "lease.json"
     value = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "assignment_id": "assignment-1",
         "assignment_type": "code-implementation",
         "result_state": "pending",
@@ -55,6 +55,7 @@ def assignment(root: Path, **overrides) -> dict:
         "planning_record": None,
         "allowed_paths": ["src/example.py"],
         "required_tests": ["pytest tests/test_example.py"],
+        "action_contract": None,
         "kind": "implementation",
         "authority": {"state": "direct"},
         "governance_state": "Executable",
@@ -317,6 +318,7 @@ def test_semantic_verification_is_authoritative_for_positive_and_negative_result
 
 
 def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
+    from axis_supervisor.models import validate_assignment
     from axis_supervisor.schema_registry import (
         CorruptRecordError,
         PartialRecordError,
@@ -348,6 +350,13 @@ def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
     ]
     for value, schema in fixtures:
         assert validate_record(value, schema) is value
+
+    legacy_assignment = assignment(tmp_path)
+    legacy_assignment["schema_version"] = "1.0.0"
+    legacy_assignment.pop("action_contract")
+    migrated_assignment = validate_assignment(legacy_assignment, tmp_path)
+    assert migrated_assignment["schema_version"] == "2.0.0"
+    assert migrated_assignment["action_contract"] is None
 
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{", encoding="utf-8")
@@ -878,8 +887,25 @@ def test_repository_convergence_requires_disposition_for_human_remote_branch(
         "supervisor_assignments": [],
         "active_leases": [],
     }
+    (tmp_path / "repository-convergence.json").write_text(
+        json.dumps(
+            {
+                "schema": "axis.external-development-supervisor.repository-convergence",
+                "schema_version": "1.0.0",
+                "convergence_digest": "sha256:" + "f" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
     projector = RepositoryConvergenceProjector(tmp_path)
     ambiguous = projector.build(inventory_value)
+    assert ambiguous["schema_version"] == "2.0.0"
+    assert ambiguous["fingerprint_lifecycle"] == {
+        "current": ambiguous["convergence_digest"],
+        "previous": "sha256:" + "f" * 64,
+        "changed": True,
+        "stable_cycles": 0,
+    }
     assert ambiguous["status"] == "red"
     assert ambiguous["counts"]["ambiguous_branches"] == 1
     (tmp_path / "branch-dispositions.json").write_text(
@@ -905,6 +931,9 @@ def test_repository_convergence_requires_disposition_for_human_remote_branch(
     retained = projector.build(inventory_value)
     assert retained["status"] == "green"
     assert retained["counts"]["retained_branches"] == 1
+    stable = projector.build(inventory_value)
+    assert stable["fingerprint_lifecycle"]["changed"] is False
+    assert stable["fingerprint_lifecycle"]["stable_cycles"] == 1
 
 
 def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):

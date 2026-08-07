@@ -501,7 +501,7 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
         tmp_path, inventory, graph, semantics, events
     )
     sections = [block for block in blocks if block["type"] == "section"]
-    assert len(sections) == 16
+    assert len(sections) == 17
     assert tuple(
         block["text"]["text"].splitlines()[0].strip("*") for block in sections
     ) == DASHBOARD_PROOF_SECTIONS
@@ -525,6 +525,7 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     assert "mbair axis-desktop" in visible_blocks
     assert "⚪ *Offline*" in visible_blocks
     assert "Routine unchanged evidence checks: *1*" in visible_blocks
+    assert "Action Effectiveness" in visible_blocks
     assert "█" in visible_blocks and "░" in visible_blocks
     assert "\n" not in fallback
     assert "*" not in fallback

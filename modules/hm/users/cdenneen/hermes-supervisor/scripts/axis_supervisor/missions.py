@@ -9,7 +9,7 @@ from .mutation import MutationGate, OperationClass
 from .schema_registry import RecordError, read_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.active-mission"
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "2.0.0"
 DESIRED_END_STATE = "all-capabilities-graduated"
 MAX_ACTIONS = 8
 MAX_OBSERVATIONS = 100
@@ -26,6 +26,16 @@ EXTERNAL_AUTHORITY_STATES = {
     "needs-governance",
     "prohibited",
 }
+GATE_OWNERS = {
+    "analysis": "semantic-analysis",
+    "implementation": "engineering",
+    "integration": "repository-integration",
+    "deployment": "deployment",
+    "validation": "runtime-validation",
+    "verification": "technical-verification",
+    "operator_acceptance": "product-owner",
+    "program_risk": "mission-supervisor",
+}
 
 
 def utc_now() -> str:
@@ -37,14 +47,23 @@ def _stable_id(*parts: str) -> str:
     return f"mission-action-{digest}"
 
 
-def _assignment_summary(value: dict[str, Any]) -> dict[str, str]:
-    return {
+def _fingerprint(value: dict[str, Any]) -> str:
+    return "sha256:" + hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _assignment_summary(value: dict[str, Any]) -> dict[str, Any]:
+    summary = {
         "assignment_id": str(value.get("assignment_id") or "unknown"),
         "project": str(value.get("project") or ""),
         "work_item": str(value.get("work_item") or ""),
         "lifecycle_state": str(value.get("lifecycle_state") or "unknown"),
         "result_state": str(value.get("result_state") or "pending"),
     }
+    if value.get("action_contract"):
+        summary["action_contract"] = value["action_contract"]
+    return summary
 
 
 def _external_node(node: dict[str, Any]) -> bool:
@@ -104,6 +123,9 @@ class ActiveMissionState:
                 ),
                 "created_at": str(legacy.get("created_at") or utc_now()),
                 "observations": observations,
+                "action_effectiveness": list(
+                    legacy.get("action_effectiveness") or []
+                ),
             }
 
     def _assignments(self, inventory: dict[str, Any]) -> list[dict[str, Any]]:
@@ -202,11 +224,212 @@ class ActiveMissionState:
         return [unique[key] for key in sorted(unique)]
 
     @staticmethod
+    def _action_contract(
+        action_id: str,
+        gate_name: str,
+        capabilities: list[str],
+        expected_gates: list[dict[str, str]],
+        expected_evidence: list[str],
+        graph: dict[str, Any],
+        graduation: dict[str, Any],
+    ) -> dict[str, Any]:
+        nodes = {str(value.get("ref")): value for value in graph.get("nodes") or []}
+        capability_records = {
+            str(value.get("capability")): value
+            for value in graduation.get("capabilities") or []
+        }
+        linked_refs = {
+            str(ref)
+            for capability in capabilities
+            for ref in (capability_records.get(capability) or {}).get(
+                "linked_work_items"
+            )
+            or []
+        }
+        milestones = sorted(
+            {
+                str(nodes[ref].get("milestone"))
+                for ref in linked_refs
+                if ref in nodes and nodes[ref].get("milestone")
+            }
+        )
+        debt = sorted(
+            [
+                {
+                    "milestone": str(milestone.get("milestone") or "unmilestoned"),
+                    "kind": str(value.get("kind") or "unknown"),
+                    "ref": str(value.get("ref") or "unknown"),
+                    "gate": str(value.get("gate") or "unknown"),
+                    "reason": str(value.get("reason") or "evidence missing"),
+                }
+                for milestone in graduation.get("milestones") or []
+                for value in milestone.get("debts") or []
+                if value.get("ref") in capabilities or value.get("ref") in linked_refs
+            ],
+            key=lambda value: (
+                value["milestone"],
+                value["kind"],
+                value["ref"],
+                value["gate"],
+            ),
+        )
+        milestones = sorted(
+            set(milestones) | {value["milestone"] for value in debt}
+        )
+        convergence_fingerprint = graduation.get("repository_convergence_digest")
+        evidence_model_fingerprint = str(
+            graduation.get("effectiveness_fingerprint")
+            or graduation.get("projection_digest")
+            or ""
+        )
+        suppression_fingerprint = _fingerprint(
+            {
+                "action_id": action_id,
+                "convergence_fingerprint": convergence_fingerprint,
+                "evidence_model_fingerprint": evidence_model_fingerprint,
+            }
+        )
+        return {
+            "engineering_purpose": f"advance {gate_name} with one evidence-backed state change",
+            "gate_owner": GATE_OWNERS[gate_name],
+            "expected_gates": expected_gates,
+            "expected_capabilities": sorted(set(capabilities)),
+            "expected_milestones": milestones,
+            "expected_debt_reduction": debt,
+            "expected_evidence": sorted(set(filter(None, expected_evidence))),
+            "convergence_fingerprint": convergence_fingerprint,
+            "evidence_model_fingerprint": evidence_model_fingerprint,
+            "suppression_fingerprint": suppression_fingerprint,
+        }
+
+    @staticmethod
+    def _effectiveness(
+        previous: dict[str, Any],
+        assignments: list[dict[str, Any]],
+        graduation: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], set[str], list[dict[str, str]], dict[str, Any]]:
+        current_fingerprint = str(
+            graduation.get("effectiveness_fingerprint")
+            or graduation.get("projection_digest")
+            or ""
+        )
+        capability_states = {
+            str(value.get("capability")): value.get("graduation_state") or {}
+            for value in graduation.get("capabilities") or []
+        }
+        prior = {
+            str(value.get("assignment_id")): value
+            for value in previous.get("action_effectiveness") or []
+        }
+        evaluations: list[dict[str, Any]] = []
+        suppressed: set[str] = set()
+        observations: list[dict[str, str]] = []
+        for assignment in sorted(
+            assignments, key=lambda value: str(value.get("assignment_id") or "")
+        ):
+            if assignment.get("result_state") not in COMPLETED_RESULT_STATES:
+                continue
+            contract = assignment.get("action_contract") or {}
+            baseline = str(contract.get("evidence_model_fingerprint") or "")
+            suppression_fingerprint = str(
+                contract.get("suppression_fingerprint") or ""
+            )
+            if not baseline or not suppression_fingerprint:
+                continue
+            assignment_id = str(assignment.get("assignment_id"))
+            old = prior.get(assignment_id) or {}
+            expected_gates = list(contract.get("expected_gates") or [])
+            observed_gates = [
+                {
+                    "capability": str(value.get("capability") or "unknown"),
+                    "gate": str(value.get("gate") or "unknown"),
+                    "state": str(
+                        (
+                            capability_states.get(str(value.get("capability"))) or {}
+                        )
+                        .get(str(value.get("gate")), {})
+                        .get("state")
+                        or "missing"
+                    ),
+                }
+                for value in expected_gates
+            ]
+            changed = (
+                all(
+                    value["state"] in {"passed", "not-required"}
+                    for value in observed_gates
+                )
+                if observed_gates
+                else baseline != current_fingerprint
+            )
+            zero_effect_cycles = (
+                0
+                if changed
+                else 1
+                if old.get("observed_fingerprint") != current_fingerprint
+                else int(old.get("zero_effect_cycles") or 0) + 1
+            )
+            classification = (
+                "effective"
+                if changed
+                else "state-model-defect"
+                if zero_effect_cycles >= 3
+                else "zero-effect"
+            )
+            evaluation = {
+                "assignment_id": assignment_id,
+                "action_id": str(contract.get("action_id") or "unknown"),
+                "suppression_fingerprint": suppression_fingerprint,
+                "baseline_fingerprint": baseline,
+                "observed_fingerprint": current_fingerprint,
+                "expected_gates": expected_gates,
+                "observed_gates": observed_gates,
+                "observed_delta": changed,
+                "zero_effect_cycles": zero_effect_cycles,
+                "classification": classification,
+                "evaluated_at": utc_now(),
+            }
+            evaluations.append(evaluation)
+            if not changed:
+                suppressed.add(suppression_fingerprint)
+            if classification == "state-model-defect" and old.get(
+                "classification"
+            ) != "state-model-defect":
+                observations.append(
+                    {
+                        "observed_at": utc_now(),
+                        "source": "action-effectiveness",
+                        "summary": (
+                            f"state-model defect: assignment {assignment_id} produced "
+                            "no expected evidence delta for three reconciliation cycles; "
+                            f"fingerprint {suppression_fingerprint} remains suppressed"
+                        ),
+                    }
+                )
+        effective = sum(value["classification"] == "effective" for value in evaluations)
+        zero_effect = len(evaluations) - effective
+        defects = sum(
+            value["classification"] == "state-model-defect" for value in evaluations
+        )
+        metrics = {
+            "assignments_evaluated": len(evaluations),
+            "effective_assignments": effective,
+            "zero_effect_assignments": zero_effect,
+            "suppressed_fingerprints": len(suppressed),
+            "state_model_defects": defects,
+            "effectiveness_percent": round(effective * 100 / len(evaluations), 1)
+            if evaluations
+            else 100.0,
+        }
+        return evaluations, suppressed, observations, metrics
+
+    @staticmethod
     def _actions(
         missing: list[dict[str, Any]],
         graph: dict[str, Any],
         graduation: dict[str, Any],
-        active_assignments: list[dict[str, str]],
+        active_assignments: list[dict[str, Any]],
+        suppressed_fingerprints: set[str],
     ) -> list[dict[str, Any]]:
         actions: list[dict[str, Any]] = []
         internal = {
@@ -222,11 +445,24 @@ class ActiveMissionState:
                 if assignment["lifecycle_state"] == "awaiting-integration"
                 else "implementation"
             )
+            action_id = _stable_id(
+                "reconcile-assignment", assignment["assignment_id"]
+            )
+            contract = dict(assignment.get("action_contract") or {})
+            contract.pop("action_id", None)
+            if not contract:
+                contract = ActiveMissionState._action_contract(
+                    action_id,
+                    gate_name,
+                    [],
+                    [],
+                    [f"durable assignment {assignment['assignment_id']} advances"],
+                    graph,
+                    graduation,
+                )
             actions.append(
                 {
-                    "action_id": _stable_id(
-                        "reconcile-assignment", assignment["assignment_id"]
-                    ),
+                    "action_id": action_id,
                     "kind": "reconcile-active-assignment",
                     "target": target,
                     "gate": gate_name,
@@ -235,6 +471,7 @@ class ActiveMissionState:
                     "attempt_limit": 1,
                     "source_ref": target,
                     "assignment_id": assignment["assignment_id"],
+                    **contract,
                 }
             )
 
@@ -242,20 +479,38 @@ class ActiveMissionState:
             affected = [
                 str(value) for value in entry.get("affected_capabilities") or []
             ]
-            gate_name = next(
-                (
-                    gate
-                    for capability, gate in internal
-                    if not affected or capability in affected
-                ),
-                "implementation",
-            )
+            expected_pairs = [
+                (capability, gate)
+                for capability, gate in internal
+                if capability in affected
+            ]
+            gate_name = expected_pairs[0][1] if expected_pairs else "analysis"
             target = str(entry.get("target_ref") or entry.get("ref") or "unknown")
+            action_id = _stable_id("dispatch", str(entry.get("ref") or target))
+            contract = ActiveMissionState._action_contract(
+                action_id,
+                gate_name,
+                affected,
+                [
+                    {
+                        "capability": capability,
+                        "gate": gate,
+                        "from_state": str(internal[(capability, gate)]["state"]),
+                        "to_state": "passed",
+                    }
+                    for capability, gate in expected_pairs
+                ],
+                [
+                    evidence
+                    for capability, gate in expected_pairs
+                    for evidence in internal[(capability, gate)]["evidence"]
+                ],
+                graph,
+                graduation,
+            )
             actions.append(
                 {
-                    "action_id": _stable_id(
-                        "dispatch", str(entry.get("ref") or target)
-                    ),
+                    "action_id": action_id,
                     "kind": "dispatch-executable",
                     "target": target,
                     "gate": gate_name,
@@ -267,6 +522,7 @@ class ActiveMissionState:
                     "attempt_limit": 1,
                     "source_ref": str(entry.get("ref") or target),
                     "assignment_id": None,
+                    **contract,
                 }
             )
 
@@ -274,17 +530,41 @@ class ActiveMissionState:
             name = str(capability.get("capability") or "unknown")
             for scheduled in capability.get("scheduled_actions") or []:
                 stages = [str(value) for value in scheduled.get("stages") or []]
-                gate_name = next(
-                    (stage for stage in stages if (name, stage) in internal),
-                    "verification",
+                applicable_stages = [
+                    stage for stage in stages if (name, stage) in internal
+                ]
+                if not applicable_stages:
+                    continue
+                gate_name = applicable_stages[0]
+                action_id = _stable_id(
+                    "capability-evidence",
+                    name,
+                    str(scheduled.get("fingerprint") or gate_name),
+                )
+                contract = ActiveMissionState._action_contract(
+                    action_id,
+                    gate_name,
+                    [name],
+                    [
+                        {
+                            "capability": name,
+                            "gate": stage,
+                            "from_state": str(internal[(name, stage)]["state"]),
+                            "to_state": "passed",
+                        }
+                        for stage in applicable_stages
+                    ],
+                    [
+                        evidence
+                        for stage in applicable_stages
+                        for evidence in internal[(name, stage)]["evidence"]
+                    ],
+                    graph,
+                    graduation,
                 )
                 actions.append(
                     {
-                        "action_id": _stable_id(
-                            "capability-evidence",
-                            name,
-                            str(scheduled.get("fingerprint") or gate_name),
-                        ),
+                        "action_id": action_id,
                         "kind": "collect-capability-evidence",
                         "target": name,
                         "gate": gate_name,
@@ -296,18 +576,38 @@ class ActiveMissionState:
                         "attempt_limit": 1,
                         "source_ref": str(scheduled.get("repository") or "") or None,
                         "assignment_id": None,
+                        **contract,
                     }
                 )
 
-        covered = {(action["target"], action["gate"]) for action in actions}
+        covered = {
+            (gate["capability"], gate["gate"])
+            for action in actions
+            for gate in action["expected_gates"]
+        }
         for (capability, gate_name), gate in internal.items():
             if gate_name == "program_risk" or (capability, gate_name) in covered:
                 continue
+            action_id = _stable_id("reconcile-evidence", capability, gate_name)
+            contract = ActiveMissionState._action_contract(
+                action_id,
+                gate_name,
+                [capability],
+                [
+                    {
+                        "capability": capability,
+                        "gate": gate_name,
+                        "from_state": str(gate["state"]),
+                        "to_state": "passed",
+                    }
+                ],
+                gate["evidence"],
+                graph,
+                graduation,
+            )
             actions.append(
                 {
-                    "action_id": _stable_id(
-                        "reconcile-evidence", capability, gate_name
-                    ),
+                    "action_id": action_id,
                     "kind": "reconcile-missing-evidence",
                     "target": capability,
                     "gate": gate_name,
@@ -317,11 +617,16 @@ class ActiveMissionState:
                     "attempt_limit": 1,
                     "source_ref": None,
                     "assignment_id": None,
+                    **contract,
                 }
             )
 
         unique = {action["action_id"]: action for action in actions}
-        return list(unique.values())[:MAX_ACTIONS]
+        return [
+            action
+            for action in unique.values()
+            if action["suppression_fingerprint"] not in suppressed_fingerprints
+        ][:MAX_ACTIONS]
 
     def reconcile(
         self,
@@ -349,7 +654,12 @@ class ActiveMissionState:
         )
         missing = self._missing_gates(graduation, graph)
         blockers = self._external_blockers(missing, graph)
-        actions = self._actions(missing, graph, graduation, active)
+        effectiveness, suppressed, defect_observations, effectiveness_metrics = (
+            self._effectiveness(previous, assignments, graduation)
+        )
+        actions = self._actions(
+            missing, graph, graduation, active, suppressed
+        )
         kpi = graduation.get("primary_kpi") or {}
         graduated = int(kpi.get("count") or 0)
         denominator = int(kpi.get("denominator") or 0)
@@ -382,7 +692,9 @@ class ActiveMissionState:
             else "active"
         )
         now = utc_now()
-        observations = list(previous.get("observations") or [])[-MAX_OBSERVATIONS:]
+        observations = (
+            list(previous.get("observations") or []) + defect_observations
+        )[-MAX_OBSERVATIONS:]
         projection = {
             "schema": SCHEMA,
             "schema_version": SCHEMA_VERSION,
@@ -398,6 +710,8 @@ class ActiveMissionState:
             "active_assignments": active,
             "completed_assignments": completed,
             "external_blockers": blockers,
+            "action_effectiveness": effectiveness,
+            "effectiveness_metrics": effectiveness_metrics,
             "graduation_progress": {
                 "graduated": graduated,
                 "denominator": denominator,
@@ -405,6 +719,7 @@ class ActiveMissionState:
                 "missing_gate_count": len(missing),
                 "active_assignment_count": len(active),
                 "completed_assignment_count": len(completed),
+                "suppressed_action_count": len(suppressed),
             },
             "termination_condition": {
                 "desired_state_achieved": desired_achieved,
@@ -444,6 +759,7 @@ def mission_summary(mission: dict[str, Any]) -> dict[str, Any]:
         "current_state": mission.get("current_state"),
         "graduation_progress": mission.get("graduation_progress"),
         "generated_actions": mission.get("generated_actions") or [],
+        "effectiveness_metrics": mission.get("effectiveness_metrics") or {},
         "external_blockers": mission.get("external_blockers") or [],
         "termination_condition": mission.get("termination_condition"),
     }

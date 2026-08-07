@@ -21,7 +21,10 @@ from axis_supervisor.assignment_grants import (
 from axis_supervisor.canary import bind_mr as bind_canary_mr
 from axis_supervisor.canary import expire_grant
 from axis_supervisor.capability_convergence import CapabilityConvergenceProjector
-from axis_supervisor.capability_graduation import CapabilityGraduationProjector
+from axis_supervisor.capability_graduation import (
+    CapabilityGraduationProjector,
+    assignment_is_satisfied,
+)
 from axis_supervisor.deployment import (
     create_deployment_assignment,
     execute_deployment_assignment,
@@ -29,7 +32,7 @@ from axis_supervisor.deployment import (
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
-from axis_supervisor.lifecycle import is_completed, is_integrable, set_lifecycle
+from axis_supervisor.lifecycle import is_completed, is_integrable, is_terminal, set_lifecycle
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.missions import ActiveMissionState, mission_summary
 from axis_supervisor.mutation import (
@@ -431,26 +434,24 @@ def rebuild() -> dict:
         int(control.get("daily_model_call_limit", 0))
         - AccountingLedger(ROOT).model_attempts_today(),
     )
-    active_assignments = []
-    for path in (ROOT / "assignments").glob("*.json"):
-        assignment = validate_assignment(
-            json.loads(path.read_text(encoding="utf-8")), ROOT
-        )
-        if assignment.get("lifecycle_state") not in {
-            "completed",
-            "waiting",
-            "blocked",
-            "failed",
-            "cancelled",
-            "recovery-required",
-        }:
-            active_assignments.append(assignment)
+    def active_assignments() -> list[dict]:
+        return [
+            assignment
+            for path in (ROOT / "assignments").glob("*.json")
+            if not is_terminal(
+                assignment := validate_assignment(
+                    json.loads(path.read_text(encoding="utf-8")), ROOT
+                )
+            )
+        ]
+
+    active = active_assignments()
     now = int(time.time())
     graph = ExecutionGraphBuilder(ROOT).build(
         inventory,
         {
             "available_model_call_budget": remaining,
-            "active_assignments": active_assignments,
+            "active_assignments": active,
             "engineering_metrics": OperationalEventLog(
                 ROOT, "cycle"
             ).throughput_metrics(now - 30 * 86_400, now),
@@ -464,6 +465,63 @@ def rebuild() -> dict:
     graduation = CapabilityGraduationProjector(ROOT).build(
         inventory, graph, capability_convergence
     )
+    assignment_by_id = {
+        value.get("assignment_id"): value
+        for value in inventory.get("supervisor_assignments") or []
+    }
+    collapsed = []
+    collapse_gate = MutationGate(ROOT, source="cycle")
+    for path in sorted((ROOT / "assignments").glob("*.json")):
+        assignment = validate_assignment(
+            json.loads(path.read_text(encoding="utf-8")), ROOT
+        )
+        if is_terminal(assignment):
+            continue
+        lease_id = assignment.get("lease_id")
+        if lease_id and (ROOT / "leases" / str(lease_id) / "lease.json").exists():
+            continue
+        if not assignment_is_satisfied(
+            assignment,
+            graph,
+            repository_convergence,
+            capability_convergence,
+            graduation,
+        ):
+            continue
+        assignment_type = assignment.get("assignment_type")
+        if assignment_type == "capability-deployment":
+            set_lifecycle(assignment, "runtime-converged")
+            assignment["result_state"] = "runtime-converged"
+            assignment["work_item_disposition"] = "canonical-complete"
+        elif assignment_type == "repository-convergence":
+            set_lifecycle(assignment, "repository-converged")
+            assignment["result_state"] = "repository-converged"
+            assignment["work_item_disposition"] = "canonical-complete"
+        else:
+            set_lifecycle(assignment, "completed")
+            assignment["result_state"] = "no-op-verification-completed"
+            assignment["work_item_disposition"] = "no-op-verified"
+        assignment["collapsed_as_stale"] = True
+        save(path, assignment, collapse_gate)
+        assignment_by_id[assignment["assignment_id"]] = assignment
+        collapsed.append(assignment["assignment_id"])
+    if collapsed:
+        inventory["supervisor_assignments"] = list(assignment_by_id.values())
+        active = active_assignments()
+        graph = ExecutionGraphBuilder(ROOT).build(
+            inventory,
+            {
+                "available_model_call_budget": remaining,
+                "active_assignments": active,
+                "engineering_metrics": OperationalEventLog(
+                    ROOT, "cycle"
+                ).throughput_metrics(now - 30 * 86_400, now),
+            },
+        )
+        RoadmapQualityProjector(ROOT).build(inventory, graph)
+        graduation = CapabilityGraduationProjector(ROOT).build(
+            inventory, graph, capability_convergence
+        )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
     return graph
 
@@ -842,8 +900,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if (
                 value.get("assignment_type") == "capability-deployment"
                 and value.get("source_fingerprint") == plan["assignment_id"]
-                and value.get("lifecycle_state")
-                not in {"deployment-failed", "failed", "cancelled"}
+                and not is_terminal(value)
             ):
                 existing.append(value)
         if not existing:
