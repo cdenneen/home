@@ -438,6 +438,19 @@ def recover_pending_decisions() -> tuple[list[str], dict | None]:
     return completed, recovered_graph.get("graph")
 
 
+def recover_pending_decisions_safely() -> tuple[list[str], dict | None]:
+    try:
+        return recover_pending_decisions()
+    except Exception as exc:  # noqa: BLE001 - recovery remains pending for the next cycle
+        record_event(
+            ROOT,
+            "decision_frontier_recovery_deferred",
+            details={"error": f"{type(exc).__name__}: {exc}"},
+            source="cycle",
+        )
+        return [], None
+
+
 def rebuild(*, reconcile_decisions: bool = True) -> dict:
     inventory = read_record(
         ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
@@ -540,7 +553,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
     )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
     if reconcile_decisions:
-        completed, recovered_graph = recover_pending_decisions()
+        completed, recovered_graph = recover_pending_decisions_safely()
         if completed and recovered_graph is not None:
             graph = recovered_graph
     return graph

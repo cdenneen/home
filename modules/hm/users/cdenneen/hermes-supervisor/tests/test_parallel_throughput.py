@@ -764,6 +764,83 @@ def test_periodic_reconciliation_recovers_pending_decision_rebuild(tmp_path: Pat
     assert controller.store.load_frontier_request(DECISION_ID)["status"] == "completed"
 
 
+def test_restart_synthesizes_missing_frontier_request_after_approval_crash(
+    monkeypatch, tmp_path: Path
+):
+    from axis_supervisor.decisions import (
+        APPROVE_ACTION_ID,
+        DECISION_ID,
+        SlackDecisionController,
+        reconcile_pending_frontier_rebuilds,
+    )
+
+    write_control(tmp_path)
+    api_calls = []
+
+    def api(_token: str, method: str, payload: dict) -> dict:
+        api_calls.append(method)
+        return {"ok": True, "channel": "D1", "ts": str(payload.get("ts") or "9.1")}
+
+    controller = SlackDecisionController(tmp_path, api, lambda: None)
+    ts, _ = controller.project(
+        "token",
+        workspace_id="T1",
+        authorized_user_id="U1",
+        channel="D1",
+        decision_id=DECISION_ID,
+        packet=decision_packet(),
+        ts=None,
+    )
+
+    def crash_before_frontier_write(_record: dict) -> dict:
+        raise RuntimeError("crash between decision and frontier request writes")
+
+    monkeypatch.setattr(
+        controller.store,
+        "request_frontier_rebuild",
+        crash_before_frontier_write,
+    )
+    with pytest.raises(RuntimeError, match="crash between decision"):
+        controller.handle_action(
+            "token",
+            {
+                "team": {"id": "T1"},
+                "user": {"id": "U1"},
+                "channel": {"id": "D1"},
+                "message": {"ts": ts},
+            },
+            {
+                "action_id": APPROVE_ACTION_ID,
+                "action_ts": "9.2",
+                "value": controller.action_value(),
+            },
+        )
+
+    assert controller.store.load(DECISION_ID)["outcome"] == "approved"
+    assert controller.store.load_frontier_request(DECISION_ID) is None
+    slack_calls_after_crash = len(api_calls)
+    rebuilds = []
+
+    assert reconcile_pending_frontier_rebuilds(
+        tmp_path, lambda: rebuilds.append(True)
+    ) == [DECISION_ID]
+    assert reconcile_pending_frontier_rebuilds(
+        tmp_path, lambda: rebuilds.append(True)
+    ) == []
+
+    request = controller.store.load_frontier_request(DECISION_ID)
+    authority_files = [
+        path
+        for path in (tmp_path / "decisions").glob("*.json")
+        if not path.name.endswith(".frontier.json")
+    ]
+    assert len(api_calls) == slack_calls_after_crash
+    assert len(authority_files) == 1
+    assert rebuilds == [True]
+    assert request["status"] == "completed"
+    assert request["attempts"] == 1
+
+
 def test_cycle_periodic_recovery_invokes_a_real_nonrecursive_rebuild(monkeypatch):
     from axis_supervisor import cycle
 
@@ -785,6 +862,32 @@ def test_cycle_periodic_recovery_invokes_a_real_nonrecursive_rebuild(monkeypatch
     assert completed == ["decision-1"]
     assert graph == {"fresh": True}
     assert rebuild_calls == [False]
+
+
+def test_cycle_defers_recovery_failure_without_corrupting_completed_work(monkeypatch):
+    from axis_supervisor import cycle
+
+    events = []
+
+    def fail_recovery():
+        raise RuntimeError("nested frontier rebuild failed")
+
+    def record_event(_root: Path, event_type: str, **kwargs):
+        events.append((event_type, kwargs["details"]))
+
+    monkeypatch.setattr(cycle, "recover_pending_decisions", fail_recovery)
+    monkeypatch.setattr(cycle, "record_event", record_event)
+
+    completed, graph = cycle.recover_pending_decisions_safely()
+
+    assert completed == []
+    assert graph is None
+    assert events == [
+        (
+            "decision_frontier_recovery_deferred",
+            {"error": "RuntimeError: nested frontier rebuild failed"},
+        )
+    ]
 
 
 def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Path):

@@ -142,6 +142,11 @@ class DecisionStore:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.link(temporary, path)
+                directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
             finally:
                 temporary.unlink(missing_ok=True)
             return value, True
@@ -570,15 +575,20 @@ def reconcile_pending_frontier_rebuilds(
 ) -> list[str]:
     store = DecisionStore(root)
     completed = []
-    for path in sorted(store.decisions.glob("*.frontier.json"))[:limit]:
-        request = read_record(path, DECISION_FRONTIER_SCHEMA)
-        if request["status"] != "pending":
+    recoverable = []
+    for path in sorted(store.decisions.glob("*.json")):
+        if path.name.endswith(".frontier.json"):
             continue
-        record = store.load(str(request["decision_id"]))
-        if record is None or not record["outcome"].startswith("approved"):
+        record = read_record(path, DECISION_SCHEMA)
+        if not record["outcome"].startswith("approved"):
             continue
+        request = store.load_frontier_request(str(record["decision_id"]))
+        if request and request["status"] == "completed":
+            continue
+        recoverable.append(record)
+    for record in recoverable[:limit]:
         SlackDecisionController(root, lambda *_args: {}, rebuild)._ensure_frontier_rebuild(
             record
         )
-        completed.append(str(request["decision_id"]))
+        completed.append(str(record["decision_id"]))
     return completed
