@@ -1236,6 +1236,15 @@ class SlackProjection:
                     "message_operation": "verified",
                     "workspace_id": state["workspace_id"],
                 }
+            for block in blocks:
+                if block.get("type") != "section":
+                    continue
+                text_value = (block.get("text") or {}).get("text")
+                if isinstance(text_value, str) and len(text_value) > 2900:
+                    block["text"]["text"] = (
+                        text_value[:2820]
+                        + "\n… use `capabilities` or `capability <name>` for full detail"
+                    )
             payload = {"channel": channel, "text": fallback, "blocks": blocks}
             state_stage("notification_created")
             state_stage("notification_queued")
