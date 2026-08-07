@@ -16,6 +16,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.decision": "decision.schema.json",
     "axis.external-development-supervisor.decision-card": "decision-card.schema.json",
     "axis.external-development-supervisor.decision-frontier-request": "decision-frontier-request.schema.json",
+    "axis.external-development-supervisor.delivery-board": "delivery-board.schema.json",
     "axis.external-development-supervisor.executable-frontier": "executable-frontier.schema.json",
     "axis.external-development-supervisor.external-implementation-adoptions": "external-implementation-adoptions.schema.json",
     "axis.external-development-supervisor.execution-graph": "execution-graph.schema.json",

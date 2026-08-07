@@ -555,6 +555,15 @@ def main() -> int:
                 "sha": mr.get("sha"),
                 "web_url": mr.get("web_url"),
                 "pipeline_status": (mr.get("head_pipeline") or {}).get("status"),
+                "detailed_merge_status": mr.get("detailed_merge_status")
+                or mr.get("merge_status"),
+                "draft": bool(mr.get("draft")),
+                "has_conflicts": bool(mr.get("has_conflicts")),
+                "blocking_discussions_resolved": mr.get(
+                    "blocking_discussions_resolved"
+                ),
+                "updated_at": mr.get("updated_at"),
+                "merged_at": mr.get("merged_at"),
             }
             for mr in mrs
             if f"{project['path_with_namespace']}!{mr.get('iid')}" in external_refs
@@ -571,6 +580,13 @@ def main() -> int:
                 "web_url": mr.get("web_url"),
                 "merge_status": mr.get("detailed_merge_status")
                 or mr.get("merge_status"),
+                "pipeline_status": (mr.get("head_pipeline") or {}).get("status"),
+                "draft": bool(mr.get("draft")),
+                "has_conflicts": bool(mr.get("has_conflicts")),
+                "blocking_discussions_resolved": mr.get(
+                    "blocking_discussions_resolved"
+                ),
+                "updated_at": mr.get("updated_at"),
             }
             for mr in project_open_mrs
         )
@@ -693,6 +709,22 @@ def main() -> int:
                             "state": mr["state"],
                             "sha": mr.get("sha"),
                             "web_url": mr.get("web_url"),
+                            "source_branch": mr.get("source_branch"),
+                            "target_branch": mr.get("target_branch"),
+                            "pipeline_status": (mr.get("head_pipeline") or {}).get(
+                                "status"
+                            ),
+                            "detailed_merge_status": mr.get(
+                                "detailed_merge_status"
+                            )
+                            or mr.get("merge_status"),
+                            "draft": bool(mr.get("draft")),
+                            "has_conflicts": bool(mr.get("has_conflicts")),
+                            "blocking_discussions_resolved": mr.get(
+                                "blocking_discussions_resolved"
+                            ),
+                            "updated_at": mr.get("updated_at"),
+                            "merged_at": mr.get("merged_at"),
                         }
                         for mr in related_mrs
                     ],

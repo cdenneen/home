@@ -45,7 +45,28 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "expected_gate": { "type": ["string", "null"] }
+        "expected_gate": { "type": ["string", "null"] },
+        "delivery_lane": {
+          "enum": [
+            "BACKLOG",
+            "READY",
+            "IMPLEMENTATION",
+            "HANDOFF",
+            "REVIEW",
+            "REPAIR",
+            "INTEGRATION",
+            "MERGE_READY",
+            "POST_MAIN_VERIFICATION",
+            "DEPLOYMENT",
+            "VALIDATION",
+            "DECISION",
+            "GRADUATED",
+            "BLOCKED",
+            null
+          ]
+        },
+        "worker_pool": { "type": ["string", "null"] },
+        "dispatch_generation": { "enum": ["A", "B", null] }
       },
       "additionalProperties": false
     },

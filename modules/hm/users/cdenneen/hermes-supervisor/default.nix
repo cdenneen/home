@@ -109,6 +109,8 @@ in
       ".hermes/supervisor/axis-development-supervisor/VERSION".source = ./VERSION;
       ".hermes/supervisor/axis-development-supervisor/capability-runtime-matrix.json".source =
         ./capability-runtime-matrix.json;
+      ".hermes/supervisor/axis-development-supervisor/external-implementation-adoptions.defaults.json".source =
+        ./external-implementation-adoptions.defaults.json;
       ".hermes/supervisor/axis-development-supervisor/deployed-source-revision.json".text =
         builtins.toJSON
           {

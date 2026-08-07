@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.delivery-board",
+  "$defs": {
+    "laneName": {
+      "enum": [
+        "BACKLOG",
+        "READY",
+        "IMPLEMENTATION",
+        "HANDOFF",
+        "REVIEW",
+        "REPAIR",
+        "INTEGRATION",
+        "MERGE_READY",
+        "POST_MAIN_VERIFICATION",
+        "DEPLOYMENT",
+        "VALIDATION",
+        "DECISION",
+        "GRADUATED",
+        "BLOCKED"
+      ]
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "delivery_id",
+        "ref",
+        "source_kind",
+        "source_authority",
+        "lane",
+        "repository",
+        "title",
+        "assignment_id",
+        "mr_ref",
+        "capability",
+        "milestone",
+        "entered_at",
+        "updated_at",
+        "age_seconds",
+        "stalled",
+        "reason",
+        "conflict_domains",
+        "ranking_score"
+      ],
+      "properties": {
+        "delivery_id": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string", "minLength": 1 },
+        "source_kind": { "type": "string", "minLength": 1 },
+        "source_authority": {
+          "enum": ["gitlab", "local-execution", "capability", "validation"]
+        },
+        "lane": { "$ref": "#/$defs/laneName" },
+        "repository": { "type": ["string", "null"] },
+        "title": { "type": "string" },
+        "assignment_id": { "type": ["string", "null"] },
+        "mr_ref": { "type": ["string", "null"] },
+        "capability": { "type": ["string", "null"] },
+        "milestone": { "type": ["string", "null"] },
+        "entered_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "age_seconds": { "type": "integer", "minimum": 0 },
+        "stalled": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1 },
+        "conflict_domains": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "ranking_score": { "type": "integer" },
+        "ci_classification": {
+          "enum": [
+            "not-applicable",
+            "pending",
+            "passed",
+            "failed",
+            "manual",
+            "unknown"
+          ]
+        },
+        "main_advance": {
+          "enum": [
+            "unchanged",
+            "compatible",
+            "repair-required",
+            "advanced-unassessed",
+            "integrated",
+            "not-applicable"
+          ]
+        },
+        "origin_finding": { "type": ["object", "null"] },
+        "dispatch_generation": { "enum": ["A", "B", null] }
+      },
+      "additionalProperties": false
+    },
+    "lane": {
+      "type": "object",
+      "required": [
+        "lane",
+        "worker_pool",
+        "capacity",
+        "wip",
+        "available",
+        "items"
+      ],
+      "properties": {
+        "lane": { "$ref": "#/$defs/laneName" },
+        "worker_pool": { "type": ["string", "null"] },
+        "capacity": { "type": ["integer", "null"], "minimum": 0 },
+        "wip": { "type": "integer", "minimum": 0 },
+        "available": { "type": ["integer", "null"], "minimum": 0 },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generation_id",
+    "generation_number",
+    "generated_at",
+    "source_inventory_generation_id",
+    "source_graph_generation_id",
+    "lanes",
+    "worker_pools",
+    "dispatch_generations",
+    "stalled_items",
+    "transitions",
+    "source_reconciliation",
+    "flow_metrics"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.delivery-board"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "generation_id": { "type": "string", "minLength": 1 },
+    "generation_number": { "type": "integer", "minimum": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "source_inventory_generation_id": { "type": ["string", "null"] },
+    "source_graph_generation_id": { "type": ["string", "null"] },
+    "lanes": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": { "$ref": "#/$defs/lane" }
+    },
+    "worker_pools": { "type": "array", "items": { "type": "object" } },
+    "dispatch_generations": {
+      "type": "object",
+      "required": ["A", "B"],
+      "properties": {
+        "A": { "type": "object" },
+        "B": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "stalled_items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "transitions": { "type": "array", "items": { "type": "object" } },
+    "source_reconciliation": { "type": "object" },
+    "flow_metrics": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -14,6 +14,7 @@ DASHBOARD_PROOF_SECTIONS = (
     "ROADMAP",
     "CAPABILITIES",
     "ACTIVE PRODUCT WORK",
+    "DELIVERY FLOW",
     "DEPLOYMENT RING",
     "VALIDATION",
     "DECISIONS",
@@ -188,6 +189,11 @@ def render_executive_dashboard(
         "external-implementation-adoptions.json",
         "axis.external-development-supervisor.external-implementation-adoptions",
     )
+    delivery_board = _load(
+        root,
+        "delivery-board.json",
+        "axis.external-development-supervisor.delivery-board",
+    )
 
     total = int(semantics.get("total_governed_items") or 0)
     verified = int(
@@ -233,6 +239,29 @@ def render_executive_dashboard(
                 public_text(value) for value in adoption.get("capabilities") or []
             )
         )
+
+    delivery_lanes = [
+        value for value in delivery_board.get("lanes") or [] if value.get("wip")
+    ]
+    delivery_metrics = delivery_board.get("flow_metrics") or {}
+    generation_b = (delivery_board.get("dispatch_generations") or {}).get("B") or {}
+    delivery_lines = [
+        f"• *{public_text(value.get('lane')).replace('_', ' ').title()}* — "
+        f"{int(value.get('wip') or 0)} active | "
+        f"capacity {value.get('capacity') if value.get('capacity') is not None else 'unbounded'}"
+        for value in delivery_lanes[:8]
+    ]
+    if len(delivery_lanes) > 8:
+        delivery_lines.append(f"• +{len(delivery_lanes) - 8} additional active lanes")
+    delivery_lines.extend(
+        [
+            f"Stalled *{int(delivery_metrics.get('stalled') or 0)}* | "
+            f"Blocked *{int(delivery_metrics.get('blocked') or 0)}* | "
+            f"Graduated *{int(delivery_metrics.get('graduated') or 0)}*",
+            f"Compatible refill *{len(generation_b.get('selected_refs') or [])}* | "
+            f"Available capacity *{int(generation_b.get('available_capacity') or 0)}*",
+        ]
+    )
 
     runtimes = {
         str(value.get("runtime")): value for value in convergence.get("runtimes") or []
@@ -342,6 +371,11 @@ def render_executive_dashboard(
             "ACTIVE PRODUCT WORK",
             "\n".join(active_lines)
             + "\nDrill down to source-linked evidence with `!axis inspect group/project#id`",
+        ),
+        (
+            "DELIVERY FLOW",
+            "\n".join(delivery_lines)
+            + "\nDrill down to the durable delivery board for lane and stall evidence",
         ),
         (
             "DEPLOYMENT RING",

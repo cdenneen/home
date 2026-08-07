@@ -158,6 +158,27 @@
     "targeted_replay": { "type": ["object", "null"] },
     "worktree_context": { "type": ["object", "null"] },
     "bootstrap_override": { "type": ["object", "null"] },
+    "delivery_lane": {
+      "enum": [
+        "BACKLOG",
+        "READY",
+        "IMPLEMENTATION",
+        "HANDOFF",
+        "REVIEW",
+        "REPAIR",
+        "INTEGRATION",
+        "MERGE_READY",
+        "POST_MAIN_VERIFICATION",
+        "DEPLOYMENT",
+        "VALIDATION",
+        "DECISION",
+        "GRADUATED",
+        "BLOCKED",
+        null
+      ]
+    },
+    "dispatch_generation": { "enum": ["A", "B", null] },
+    "lane_entered_at": { "type": ["string", "null"], "format": "date-time" },
     "completion_receipt": {
       "$ref": "axis.external-development-supervisor.verification"
     },

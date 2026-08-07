@@ -235,6 +235,12 @@ def main() -> int:
     convergence = capability_projection()
     mission = mission_projection()
     milestones = milestone_projection(roadmap, graduation)
+    delivery_board_path = ROOT / "delivery-board.json"
+    delivery_board = (
+        load("delivery-board.json", "axis.external-development-supervisor.delivery-board")
+        if delivery_board_path.exists()
+        else {}
+    )
 
     if command == "help":
         return emit(
@@ -387,6 +393,22 @@ def main() -> int:
                 ),
                 "total": len(streams),
                 "items": streams,
+            },
+            roadmap,
+        )
+    if command == "flow":
+        return emit(
+            {
+                "command": "flow",
+                "generation": delivery_board.get("generation_number"),
+                "lanes": delivery_board.get("lanes") or [],
+                "worker_pools": delivery_board.get("worker_pools") or [],
+                "stalled_items": delivery_board.get("stalled_items") or [],
+                "dispatch_generations": delivery_board.get("dispatch_generations")
+                or {},
+                "flow_metrics": delivery_board.get("flow_metrics") or {},
+                "source_reconciliation": delivery_board.get("source_reconciliation")
+                or {},
             },
             roadmap,
         )

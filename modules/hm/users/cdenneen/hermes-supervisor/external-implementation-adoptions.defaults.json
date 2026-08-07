@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0.0",
+  "records": [
+    {
+      "mr_ref": "ghostspace/axis!155",
+      "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/155",
+      "capabilities": ["Desktop Presentation", "HUD", "Neural Map"],
+      "owner_refs": ["ghostspace/axis#16", "ghostspace/axis#43"],
+      "initial_state": "awaiting-integration"
+    },
+    {
+      "mr_ref": "ghostspace/axis!156",
+      "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/156",
+      "capabilities": ["Node Runtime"],
+      "owner_refs": ["ghostspace/axis#45", "ghostspace/axis#126"],
+      "initial_state": "merged-awaiting-replay"
+    },
+    {
+      "mr_ref": "ghostspace/axis!157",
+      "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/157",
+      "capabilities": ["CLI"],
+      "owner_refs": [
+        "ghostspace/axis#57",
+        "ghostspace/axis#76",
+        "ghostspace/axis#95"
+      ],
+      "initial_state": "awaiting-integration"
+    },
+    {
+      "mr_ref": "ghostspace/axis!158",
+      "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/158",
+      "capabilities": ["Web Presentation"],
+      "owner_refs": [
+        "ghostspace/axis#16",
+        "ghostspace/axis#37",
+        "ghostspace/axis#57",
+        "ghostspace/axis#105"
+      ],
+      "initial_state": "awaiting-integration"
+    }
+  ]
+}

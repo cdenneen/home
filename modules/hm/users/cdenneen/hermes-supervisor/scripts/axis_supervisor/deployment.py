@@ -117,6 +117,9 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
         "targeted_replay": plan.get("targeted_replay"),
         "worktree_context": None,
         "bootstrap_override": None,
+        "delivery_lane": "DEPLOYMENT",
+        "dispatch_generation": "A",
+        "lane_entered_at": datetime.now(timezone.utc).isoformat(),
         "deployment_plan": plan,
     }
     gate = MutationGate(root, source="cycle")

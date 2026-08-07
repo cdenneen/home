@@ -27,7 +27,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.implementation-handoff"
     },
-    "schema_version": { "const": "3.0.0" },
+    "schema_version": { "const": "4.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "work_item": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "minLength": 1 },
@@ -52,7 +52,27 @@
     "state": { "enum": ["ready-for-integration", "integrated", "blocked"] },
     "origin_finding": { "type": ["object", "null"] },
     "targeted_replay": { "type": ["object", "null"] },
-    "worktree_context": { "type": ["object", "null"] }
+    "worktree_context": { "type": ["object", "null"] },
+    "dispatch_generation": { "enum": ["A", "B", null] },
+    "delivery_lane": {
+      "enum": [
+        "BACKLOG",
+        "READY",
+        "IMPLEMENTATION",
+        "HANDOFF",
+        "REVIEW",
+        "REPAIR",
+        "INTEGRATION",
+        "MERGE_READY",
+        "POST_MAIN_VERIFICATION",
+        "DEPLOYMENT",
+        "VALIDATION",
+        "DECISION",
+        "GRADUATED",
+        "BLOCKED",
+        null
+      ]
+    }
   },
   "additionalProperties": false
 }

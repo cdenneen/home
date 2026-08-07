@@ -13,7 +13,7 @@ from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
-from .schema_registry import write_record
+from .schema_registry import read_record, write_record
 from .validation_findings import ValidationFindingStore
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
@@ -135,7 +135,19 @@ class Dispatcher:
             and mission_action.get("kind") == "dispatch-executable"
             and mission_action.get("executable") is True
         )
-        if not healthy_active or mission_authorized:
+        board_authorized = True
+        board_path = self.root / "delivery-board.json"
+        if board_path.exists():
+            board = read_record(
+                board_path, "axis.external-development-supervisor.delivery-board"
+            )
+            selected_refs = {
+                str(ref)
+                for generation in (board.get("dispatch_generations") or {}).values()
+                for ref in generation.get("selected_refs") or []
+            }
+            board_authorized = str(item.get("ref") or "") in selected_refs
+        if not healthy_active or (mission_authorized and board_authorized):
             return None
         override = item.get("bootstrap_override")
         if not isinstance(override, dict) or not all(
@@ -298,6 +310,9 @@ class Dispatcher:
             }
             else None,
             "bootstrap_override": bootstrap_override,
+            "delivery_lane": item.get("delivery_lane") or "READY",
+            "dispatch_generation": item.get("dispatch_generation") or "A",
+            "lane_entered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         if assignment["assignment_type"] == "code-implementation":
             prior_failures = []

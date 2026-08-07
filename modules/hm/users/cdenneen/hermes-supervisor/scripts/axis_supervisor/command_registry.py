@@ -34,6 +34,7 @@ COMMANDS = (
     ),
     _spec("deployments", "Show the product deployment ring."),
     _spec("validation", "Show product validation evidence."),
+    _spec("flow", "Show durable delivery lanes, capacity, stalls, and flow."),
     _spec("risk", "Show product risk, debt, and constraints."),
     _spec("decisions", "Show pending Product Owner decisions."),
     _spec("recent", "Show recent product progress."),

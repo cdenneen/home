@@ -26,6 +26,7 @@ from axis_supervisor.capability_graduation import (
     assignment_is_satisfied,
 )
 from axis_supervisor.decisions import reconcile_pending_frontier_rebuilds
+from axis_supervisor.delivery_lanes import DeliveryLaneProjector
 from axis_supervisor.deployment import (
     create_deployment_assignment,
     execute_deployment_assignment,
@@ -575,6 +576,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
         inventory, graph, capability_convergence
     )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
+    DeliveryLaneProjector(ROOT).build(inventory, graph, graduation)
     if reconcile_decisions:
         completed, recovered_graph = recover_pending_decisions_safely()
         if completed and recovered_graph is not None:
@@ -1014,7 +1016,12 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     gate = MutationGate(ROOT, source="cycle")
     manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
 
-    def dispatch_first_available(current_graph: dict) -> dict | None:
+    def dispatch_first_available(
+        current_graph: dict,
+        *,
+        allowed_refs: set[str] | None = None,
+        generation: str = "A",
+    ) -> dict | None:
         queue_by_ref = {
             item.get("ref"): item
             for item in current_graph.get("executable_queue") or []
@@ -1039,7 +1046,12 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if ref in queue_by_ref and ref not in selected_refs
         )
         for item in ordered:
-            dispatched = dispatcher.dispatch(current_graph, run_id, item)
+            if allowed_refs is not None and item.get("ref") not in allowed_refs:
+                continue
+            selected_item = dict(item)
+            selected_item["delivery_lane"] = "READY"
+            selected_item["dispatch_generation"] = generation
+            dispatched = dispatcher.dispatch(current_graph, run_id, selected_item)
             if dispatched is not None:
                 return dispatched
         return None
@@ -1097,6 +1109,22 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "assignments": [value["assignment_id"] for value in active],
                 "lifecycle_states": [value.get("lifecycle_state") for value in active],
             }
+        board = read_record(
+            ROOT / "delivery-board.json",
+            "axis.external-development-supervisor.delivery-board",
+        )
+        generation_b_refs = set(
+            (board.get("dispatch_generations") or {}).get("B", {}).get(
+                "selected_refs"
+            )
+            or []
+        )
+        if generation_b_refs:
+            assignment = dispatch_first_available(
+                graph, allowed_refs=generation_b_refs, generation="B"
+            )
+            if assignment is not None:
+                return execute_with_continuation(assignment)
         assignment = validate_assignment(integrable[0])
         path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
         if not is_integrable(assignment):
@@ -1209,6 +1237,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             state=(
                 "integrating"
                 if result in {"integrate", "integrated-existing"}
+                else "awaiting-review"
+                if result == "waiting" and inspection.get("review_pending")
                 else "waiting-ci"
                 if result == "waiting"
                 else "blocked"

@@ -979,6 +979,10 @@ class CapabilityGraduationProjector:
             promoted_findings = ValidationFindingStore(self.root).promote_evidence(
                 stream_name, evidence, findings, inventory
             )
+            ValidationFindingStore(self.root).reconcile_observed(
+                stream_name,
+                {finding["finding_id"] for finding in promoted_findings},
+            )
             validation_streams.append(
                 {
                     "stream": stream_name,

@@ -63,7 +63,27 @@
         "last_error": { "type": ["string", "null"] },
         "origin_finding": { "type": ["object", "null"] },
         "targeted_replay": { "type": ["object", "null"] },
-        "worktree_context": { "type": ["object", "null"] }
+        "worktree_context": { "type": ["object", "null"] },
+        "dispatch_generation": { "enum": ["A", "B", null] },
+        "delivery_lane": {
+          "enum": [
+            "BACKLOG",
+            "READY",
+            "IMPLEMENTATION",
+            "HANDOFF",
+            "REVIEW",
+            "REPAIR",
+            "INTEGRATION",
+            "MERGE_READY",
+            "POST_MAIN_VERIFICATION",
+            "DEPLOYMENT",
+            "VALIDATION",
+            "DECISION",
+            "GRADUATED",
+            "BLOCKED",
+            null
+          ]
+        }
       },
       "additionalProperties": false
     }
@@ -74,7 +94,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.integration-queue"
     },
-    "schema_version": { "const": "3.0.0" },
+    "schema_version": { "const": "4.0.0" },
     "updated_at": { "type": "string", "format": "date-time" },
     "items": {
       "type": "array",

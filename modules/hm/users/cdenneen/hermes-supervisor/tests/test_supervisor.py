@@ -1429,12 +1429,13 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "ROADMAP",
         "CAPABILITIES",
         "ACTIVE PRODUCT WORK",
+        "DELIVERY FLOW",
         "DEPLOYMENT RING",
         "VALIDATION",
         "DECISIONS",
         "RECENT PRODUCT PROGRESS",
     ]
-    assert len([block for block in blocks if block["type"] == "section"]) == 8
+    assert len([block for block in blocks if block["type"] == "section"]) == 9
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
     assert not any(
         forbidden in json.dumps(blocks).lower()

@@ -110,6 +110,16 @@ def main() -> int:
         if capability_convergence_path.exists()
         else {}
     )
+    delivery_board_path = ROOT / "delivery-board.json"
+    delivery_board = (
+        validated(
+            delivery_board_path,
+            "axis.external-development-supervisor.delivery-board",
+            errors,
+        )
+        if delivery_board_path.exists()
+        else {}
+    )
     deployed_revision = load(ROOT / "deployed-source-revision.json")
     assignments = []
     for path in (ROOT / "assignments").glob("*.json"):
@@ -509,6 +519,10 @@ def main() -> int:
         "engineering_metrics_24h": engineering_metrics,
         "engineering_metrics_30d": engineering_metrics_30d,
         "validation_finding_metrics": ValidationFindingStore(ROOT).metrics(),
+        "delivery_flow_metrics": delivery_board.get("flow_metrics") or {},
+        "delivery_worker_pools": delivery_board.get("worker_pools") or [],
+        "delivery_stalled_items": delivery_board.get("stalled_items") or [],
+        "dispatch_generations": delivery_board.get("dispatch_generations") or {},
         "flow_counts": graph.get("flow_counts") or {},
         "wip_limits": (graph.get("scheduler_state") or {}).get("wip_limits") or {},
         "wip_counts": (graph.get("scheduler_state") or {}).get("wip_counts") or {},

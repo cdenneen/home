@@ -301,6 +301,26 @@ def test_direct_dispatch_guardrail_and_auditable_bootstrap_override(
         "mission_id": "healthy-mission",
         "item_ref": "direct",
     }
+    (tmp_path / "delivery-board.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        dispatcher_module,
+        "read_record",
+        lambda _path, _schema: {
+            "dispatch_generations": {
+                "A": {"selected_refs": ["direct"]},
+                "B": {"selected_refs": []},
+            }
+        },
+    )
+    item.pop("bootstrap_override")
+    assert (
+        dispatcher._enforce_direct_dispatch_guardrail(
+            item,
+            "code-implementation",
+            {"kind": "dispatch-executable", "executable": True},
+        )
+        is None
+    )
 
 
 def test_assignment_handoff_and_queue_migrations_add_explicit_provenance(tmp_path: Path):
@@ -351,7 +371,7 @@ def test_assignment_handoff_and_queue_migrations_add_explicit_provenance(tmp_pat
         "state": "ready-for-integration",
     }
     migrated = WorkflowState(tmp_path).adapt_handoff(handoff)
-    assert migrated["schema_version"] == "3.0.0"
+    assert migrated["schema_version"] == "4.0.0"
     assert migrated["origin_finding"] is None
 
 

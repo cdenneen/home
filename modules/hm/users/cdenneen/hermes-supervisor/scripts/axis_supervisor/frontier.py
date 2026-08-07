@@ -138,6 +138,9 @@ def build_executable_frontier(
             "targeted_replay": value.get("targeted_replay"),
             "affected_capabilities": value.get("affected_capabilities") or [],
             "expected_gate": value.get("expected_gate"),
+            "delivery_lane": value.get("delivery_lane") or "READY",
+            "worker_pool": value.get("worker_pool") or stage,
+            "dispatch_generation": value.get("dispatch_generation"),
         }
         entries.append(entry)
         if entry_id in seen:

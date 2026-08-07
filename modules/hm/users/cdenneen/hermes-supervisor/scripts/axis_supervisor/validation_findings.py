@@ -28,45 +28,22 @@ FINDING_CLASSIFICATIONS = frozenset(
 )
 MUTATING_CLASSIFICATIONS = frozenset({"PRODUCT_DEFECT", "ROADMAP_GAP"})
 
-EXTERNAL_IMPLEMENTATION_SEEDS = (
-    {
-        "mr_ref": "ghostspace/axis!155",
-        "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/155",
-        "capabilities": ["Desktop Presentation", "HUD", "Neural Map"],
-        "owner_refs": ["ghostspace/axis#16", "ghostspace/axis#43"],
-        "state": "awaiting-integration",
-    },
-    {
-        "mr_ref": "ghostspace/axis!156",
-        "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/156",
-        "capabilities": ["Node Runtime"],
-        "owner_refs": ["ghostspace/axis#45", "ghostspace/axis#126"],
-        "state": "merged-awaiting-replay",
-    },
-    {
-        "mr_ref": "ghostspace/axis!157",
-        "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/157",
-        "capabilities": ["CLI"],
-        "owner_refs": [
-            "ghostspace/axis#57",
-            "ghostspace/axis#76",
-            "ghostspace/axis#95",
-        ],
-        "state": "awaiting-integration",
-    },
-    {
-        "mr_ref": "ghostspace/axis!158",
-        "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/158",
-        "capabilities": ["Web Presentation"],
-        "owner_refs": [
-            "ghostspace/axis#16",
-            "ghostspace/axis#37",
-            "ghostspace/axis#57",
-            "ghostspace/axis#105",
-        ],
-        "state": "awaiting-integration",
-    },
+ADOPTION_DEFAULTS = (
+    Path(__file__).resolve().parents[2]
+    / "external-implementation-adoptions.defaults.json"
 )
+
+
+def _read_adoption_seeds(path: Path = ADOPTION_DEFAULTS) -> tuple[dict[str, Any], ...]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if value.get("schema_version") != "1.0.0" or not isinstance(
+        value.get("records"), list
+    ):
+        raise ValueError("unsupported external implementation adoption defaults")
+    return tuple(dict(record) for record in value["records"])
+
+
+EXTERNAL_IMPLEMENTATION_SEEDS = _read_adoption_seeds()
 
 
 def utc_now() -> str:
@@ -221,6 +198,10 @@ class ExternalImplementationAdoptions:
         self.root = root
         self.path = root / "external-implementation-adoptions.json"
         self.gate = MutationGate(root, source="finding-reconciler")
+        defaults = root / "external-implementation-adoptions.defaults.json"
+        self.seeds = _read_adoption_seeds(
+            defaults if defaults.exists() else ADOPTION_DEFAULTS
+        )
 
     def _authorize(self) -> None:
         decision = self.gate.decide(OperationClass.RECONCILIATION)
@@ -251,10 +232,10 @@ class ExternalImplementationAdoptions:
                 mr_facts.setdefault(ref, mr)
         now = utc_now()
         records = []
-        for seed in EXTERNAL_IMPLEMENTATION_SEEDS:
+        for seed in self.seeds:
             fact = mr_facts.get(seed["mr_ref"]) or {}
             prior = previous.get(seed["mr_ref"]) or {}
-            state = str(prior.get("state") or seed["state"])
+            state = str(prior.get("state") or seed["initial_state"])
             mr_state = str(fact.get("state") or "")
             pipeline = str(
                 fact.get("pipeline_status")
@@ -532,6 +513,35 @@ class ValidationFindingStore:
         inventory: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         return [self.promote(stream, evidence, value, inventory) for value in findings]
+
+    def reconcile_observed(
+        self, stream: str, observed_finding_ids: set[str]
+    ) -> list[dict[str, Any]]:
+        closed = []
+        for record in self.all():
+            if (
+                record.get("stream") != stream
+                or record["finding_id"] in observed_finding_ids
+                or record.get("status") == "CLOSED"
+                or record.get("classification")
+                not in {"EVIDENCE_ONLY", "CONFIGURATION", "DEPLOYMENT"}
+            ):
+                continue
+
+            def close(value: dict[str, Any]) -> None:
+                now = utc_now()
+                value["status"] = "CLOSED"
+                value["gate_resolution"] = "passed"
+                value["history"].append(
+                    {
+                        "event": "finding-closed",
+                        "at": now,
+                        "reason": "no-longer-observed-in-source-stream",
+                    }
+                )
+
+            closed.append(self._update(record["finding_id"], close))
+        return closed
 
     def _update(self, finding_id: str, mutation) -> dict[str, Any]:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)

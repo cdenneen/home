@@ -103,6 +103,7 @@ class MutationGate:
                 "collector",
                 "cycle",
                 "decision-controller",
+                "delivery-lane-reconciler",
                 "dispatcher",
                 "frontier",
                 "finding-reconciler",

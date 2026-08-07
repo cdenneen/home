@@ -166,6 +166,9 @@ def adapt_assignment(
     adapted.setdefault("targeted_replay", None)
     adapted.setdefault("worktree_context", None)
     adapted.setdefault("bootstrap_override", None)
+    adapted.setdefault("delivery_lane", None)
+    adapted.setdefault("dispatch_generation", None)
+    adapted.setdefault("lane_entered_at", None)
     legacy_lease = adapted.pop("lease", None)
     if legacy_lease and not adapted.get("lease_id"):
         runtime_root = root or Path(

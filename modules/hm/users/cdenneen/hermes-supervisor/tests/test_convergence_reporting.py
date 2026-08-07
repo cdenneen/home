@@ -401,6 +401,7 @@ def test_command_registry_is_the_single_parse_contract():
         "capability",
         "deployments",
         "validation",
+        "flow",
         "risk",
         "decisions",
         "recent",
@@ -566,7 +567,7 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     )
     headers = [block["text"]["text"] for block in blocks if block["type"] == "header"]
     sections = [block for block in blocks if block["type"] == "section"]
-    assert len(sections) == 8
+    assert len(sections) == 9
     assert tuple(headers) == DASHBOARD_PROOF_SECTIONS
     rendered = json.dumps(blocks).lower()
     for forbidden in (

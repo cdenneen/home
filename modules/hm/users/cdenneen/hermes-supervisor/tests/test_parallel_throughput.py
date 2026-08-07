@@ -211,7 +211,7 @@ def test_persisted_v1_integration_queue_migrates_ownership_in_place(tmp_path: Pa
     )
 
     assert updated is not None
-    assert persisted["schema_version"] == "3.0.0"
+    assert persisted["schema_version"] == "4.0.0"
     assert updated["origin_finding"] is None
     assert updated["targeted_replay"] is None
     assert updated["worktree_context"] is None
@@ -233,7 +233,7 @@ def test_persisted_v1_handoff_migrates_ownership_in_place(tmp_path: Path):
     persisted = json.loads(path.read_text(encoding="utf-8"))
 
     assert migrated == persisted
-    assert persisted["schema_version"] == "3.0.0"
+    assert persisted["schema_version"] == "4.0.0"
     assert persisted["origin_finding"] is None
     assert persisted["targeted_replay"] is None
     assert persisted["worktree_context"] is None
