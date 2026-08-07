@@ -79,7 +79,7 @@ class WorkflowState:
                 return read_record(self.queue_path, INTEGRATION_QUEUE_SCHEMA)
             except RecordVersionError:
                 legacy = json.loads(self.queue_path.read_text(encoding="utf-8"))
-                if legacy.get("schema_version") != "1.0.0":
+                if legacy.get("schema_version") not in {"1.0.0", "2.0.0"}:
                     raise
                 for item in legacy.get("items") or []:
                     ownership = resolve_repository_ownership(
@@ -90,11 +90,14 @@ class WorkflowState:
                     )
                     item["responsibility"] = ownership["responsibility"]
                     item["repository_ownership"] = ownership
-                legacy["schema_version"] = "2.0.0"
+                    item.setdefault("origin_finding", None)
+                    item.setdefault("targeted_replay", None)
+                    item.setdefault("worktree_context", None)
+                legacy["schema_version"] = "3.0.0"
                 return legacy
         return {
             "schema": INTEGRATION_QUEUE_SCHEMA,
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "updated_at": utc_now(),
             "items": [],
         }
@@ -122,7 +125,7 @@ class WorkflowState:
         worker_handoff = result.get("handoff") or {}
         handoff = {
             "schema": HANDOFF_SCHEMA,
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "assignment_id": assignment["assignment_id"],
             "work_item": assignment["work_item"],
             "repository": assignment["project"],
@@ -140,6 +143,9 @@ class WorkflowState:
             ),
             "created_at": utc_now(),
             "state": "ready-for-integration",
+            "origin_finding": assignment.get("origin_finding"),
+            "targeted_replay": assignment.get("targeted_replay"),
+            "worktree_context": assignment.get("worktree_context"),
         }
         self._authorize()
         write_record(
@@ -153,16 +159,19 @@ class WorkflowState:
         value = dict(handoff)
         if value.get("schema") != HANDOFF_SCHEMA:
             validate_record(value, HANDOFF_SCHEMA)
-        if value.get("schema_version") == "1.0.0":
+        if value.get("schema_version") in {"1.0.0", "2.0.0"}:
             ownership = resolve_repository_ownership(
                 [value.get("responsibility")],
                 value.get("repository"),
                 context=f"implementation-handoff-v1-migration:{value.get('assignment_id')}",
                 allow_repository_inference=True,
             )
-            value["schema_version"] = "2.0.0"
+            value["schema_version"] = "3.0.0"
             value["responsibility"] = ownership["responsibility"]
             value["repository_ownership"] = ownership
+            value.setdefault("origin_finding", None)
+            value.setdefault("targeted_replay", None)
+            value.setdefault("worktree_context", None)
         validate_record(value, HANDOFF_SCHEMA)
         return value
 
@@ -227,6 +236,9 @@ class WorkflowState:
             "enqueued_at": now,
             "updated_at": now,
             "last_error": None,
+            "origin_finding": assignment.get("origin_finding"),
+            "targeted_replay": assignment.get("targeted_replay"),
+            "worktree_context": assignment.get("worktree_context"),
         }
 
         def append(queue: dict) -> dict:

@@ -88,9 +88,9 @@ def adapt_assignment(
     adapted = dict(value)
     adapted.setdefault("schema", "axis.external-development-supervisor.assignment")
     original_version = adapted.get("schema_version")
-    legacy = original_version in {None, "1.0.0", "2.0.0", "3.0.0"}
+    legacy = original_version in {None, "1.0.0", "2.0.0", "3.0.0", "4.0.0"}
     if legacy:
-        adapted["schema_version"] = "4.0.0"
+        adapted["schema_version"] = "5.0.0"
     if original_version in {None, "1.0.0", "2.0.0"} and adapted.get("project"):
         ownership = resolve_repository_ownership(
             [adapted.get("responsibility")],
@@ -162,6 +162,10 @@ def adapt_assignment(
             adapted["work_item_disposition"] = "not-evaluated"
     adapted.setdefault("mutation_grant_id", None)
     adapted.setdefault("mutation_grant_uri", None)
+    adapted.setdefault("origin_finding", None)
+    adapted.setdefault("targeted_replay", None)
+    adapted.setdefault("worktree_context", None)
+    adapted.setdefault("bootstrap_override", None)
     legacy_lease = adapted.pop("lease", None)
     if legacy_lease and not adapted.get("lease_id"):
         runtime_root = root or Path(

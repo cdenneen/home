@@ -17,7 +17,10 @@
         "state",
         "main_advance",
         "enqueued_at",
-        "updated_at"
+        "updated_at",
+        "origin_finding",
+        "targeted_replay",
+        "worktree_context"
       ],
       "properties": {
         "assignment_id": { "type": "string", "minLength": 1 },
@@ -57,7 +60,10 @@
         },
         "enqueued_at": { "type": "string", "format": "date-time" },
         "updated_at": { "type": "string", "format": "date-time" },
-        "last_error": { "type": ["string", "null"] }
+        "last_error": { "type": ["string", "null"] },
+        "origin_finding": { "type": ["object", "null"] },
+        "targeted_replay": { "type": ["object", "null"] },
+        "worktree_context": { "type": ["object", "null"] }
       },
       "additionalProperties": false
     }
@@ -68,7 +74,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.integration-queue"
     },
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "updated_at": { "type": "string", "format": "date-time" },
     "items": {
       "type": "array",

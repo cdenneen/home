@@ -7,6 +7,7 @@ from .capability_graduation import read_capability_graduation
 from .decisions import DecisionStore
 from .missions import read_mission_record
 from .schema_registry import read_record
+from .validation_findings import ValidationFindingStore
 
 DASHBOARD_PROOF_SECTIONS = (
     "AXIS",
@@ -182,6 +183,11 @@ def render_executive_dashboard(
     )
     mission_path = root / "active-mission.json"
     mission = read_mission_record(mission_path) if mission_path.exists() else {}
+    adoptions = _load(
+        root,
+        "external-implementation-adoptions.json",
+        "axis.external-development-supervisor.external-implementation-adoptions",
+    )
 
     total = int(semantics.get("total_governed_items") or 0)
     verified = int(
@@ -218,6 +224,15 @@ def render_executive_dashboard(
         )
     if not active_lines:
         active_lines.append("• No active product change; evidence reconciliation may continue")
+    for adoption in (adoptions.get("records") or [])[:4]:
+        active_lines.append(
+            f"• *External implementation {public_text(adoption.get('mr_ref'))}* — "
+            f"{public_text(adoption.get('state')).replace('-', ' ').title()} | "
+            "Capabilities: "
+            + ", ".join(
+                public_text(value) for value in adoption.get("capabilities") or []
+            )
+        )
 
     runtimes = {
         str(value.get("runtime")): value for value in convergence.get("runtimes") or []
@@ -255,12 +270,26 @@ def render_executive_dashboard(
     ]
 
     validation_streams = graduation.get("validation_streams") or []
+    validation_findings = ValidationFindingStore(root).all()
+    open_findings = [
+        value for value in validation_findings if value.get("status") != "CLOSED"
+    ]
     validation_lines = [
         f"• *{public_text(value.get('title') or value.get('stream'))}* — "
         f"{public_text(value.get('status') or 'pending')} | "
         f"Evidence: `{public_text((value.get('evidence') or {}).get('uri') or 'not yet available')}`"
         for value in validation_streams
-    ] or ["• No product validation evidence is available"]
+    ]
+    validation_lines.extend(
+        f"• *{public_text(value.get('capability') or value.get('stream'))}* — "
+        f"{public_text(value.get('classification')).replace('_', ' ').title()}: "
+        f"{public_text(value.get('status')).replace('_', ' ').title()}"
+        for value in open_findings[:6]
+    )
+    if len(open_findings) > 6:
+        validation_lines.append(f"• +{len(open_findings) - 6} additional findings")
+    if not validation_lines:
+        validation_lines = ["• No product validation evidence is available"]
 
     decision_store = DecisionStore(root)
     decisions = []
@@ -274,6 +303,19 @@ def render_executive_dashboard(
         decisions.append(
             f"• `{public_text(decision_id)}` — {public_text(packet.get('decision_requested'))}"
         )
+    finding_decisions = [
+        value
+        for value in validation_findings
+        if value.get("status") == "DECISION_REQUIRED"
+        and isinstance(value.get("decision_packet"), dict)
+    ]
+    decisions.extend(
+        f"• `{public_text((value.get('decision_packet') or {}).get('decision_id'))}` — "
+        f"{public_text((value.get('decision_packet') or {}).get('decision_requested'))}"
+        for value in finding_decisions[:4]
+    )
+    if len(finding_decisions) > 4:
+        decisions.append(f"• +{len(finding_decisions) - 4} additional decisions")
     decision_lines = decisions or ["• No Product Owner decision is pending"]
 
     sections = (

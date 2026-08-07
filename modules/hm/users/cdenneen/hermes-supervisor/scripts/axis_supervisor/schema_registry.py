@@ -17,6 +17,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.decision-card": "decision-card.schema.json",
     "axis.external-development-supervisor.decision-frontier-request": "decision-frontier-request.schema.json",
     "axis.external-development-supervisor.executable-frontier": "executable-frontier.schema.json",
+    "axis.external-development-supervisor.external-implementation-adoptions": "external-implementation-adoptions.schema.json",
     "axis.external-development-supervisor.execution-graph": "execution-graph.schema.json",
     "axis.external-development-supervisor.implementation-handoff": "implementation-handoff.schema.json",
     "axis.external-development-supervisor.independent-review-output": "independent-review.schema.json",
@@ -38,6 +39,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.slack-state": "slack-state.schema.json",
     "axis.external-development-supervisor.slack-outbox": "slack-outbox.schema.json",
     "axis.external-development-supervisor.validation-evidence": "validation-evidence.schema.json",
+    "axis.external-development-supervisor.validation-finding": "validation-finding.schema.json",
     "axis.external-development-supervisor.verification": "verification.schema.json",
 }
 SOURCE_SCHEMAS = Path(__file__).resolve().parents[2] / "schemas"

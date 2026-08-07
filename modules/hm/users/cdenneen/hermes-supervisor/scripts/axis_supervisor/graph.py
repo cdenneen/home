@@ -38,6 +38,7 @@ from .revalidation import (
 )
 from .schema_registry import RecordError, read_record, write_record
 from .verification import verification_for
+from .validation_findings import ValidationFindingStore
 
 AUTHORITY_PRIORITY = {
     "direct": 30,
@@ -869,6 +870,23 @@ class ExecutionGraphBuilder:
                     _rank_queue_entry(entry, authority)
                     queue.append(entry)
 
+        finding_entries = ValidationFindingStore(self.root).executable_entries(
+            inventory, assignments
+        )
+        finding_targets = {
+            entry.get("target_ref")
+            for entry in finding_entries
+            if entry.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
+        }
+        queue = [
+            entry
+            for entry in queue
+            if not (
+                entry.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
+                and entry.get("target_ref") in finding_targets
+            )
+        ]
+        queue.extend(finding_entries)
         for entry in queue:
             entry["selection_rationale"] = _selection_rationale(entry)
         queue.sort(
@@ -910,9 +928,8 @@ class ExecutionGraphBuilder:
         }
         for entry in queue:
             candidate = entry.get("candidate") or {}
-            affected = capabilities_for_paths(
-                candidate.get("allowed_paths") or entry.get("allowed_paths") or [],
-                matrix,
+            affected = entry.get("affected_capabilities") or capabilities_for_paths(
+                candidate.get("allowed_paths") or entry.get("allowed_paths") or [], matrix
             )
             entry["affected_capabilities"] = affected
             scoring_input = entry | {"affected_capabilities": affected}

@@ -38,7 +38,14 @@
           "uniqueItems": true
         },
         "ranking_score": { "type": "integer" },
-        "assignment_type": { "type": ["string", "null"] }
+        "assignment_type": { "type": ["string", "null"] },
+        "origin_finding": { "type": ["object", "null"] },
+        "targeted_replay": { "type": ["object", "null"] },
+        "affected_capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_gate": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },

@@ -48,7 +48,7 @@ def assignment(root: Path, **overrides) -> dict:
     )
     value = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "4.0.0",
+        "schema_version": "5.0.0",
         "assignment_id": "assignment-1",
         "assignment_type": "code-implementation",
         "result_state": "pending",
@@ -70,6 +70,10 @@ def assignment(root: Path, **overrides) -> dict:
         "lease_uri": lease_path.resolve().as_uri(),
         "mutation_grant_id": None,
         "mutation_grant_uri": None,
+        "origin_finding": None,
+        "targeted_replay": None,
+        "worktree_context": None,
+        "bootstrap_override": None,
     }
     value.update(overrides)
     return value
@@ -361,7 +365,7 @@ def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
     legacy_assignment["schema_version"] = "1.0.0"
     legacy_assignment.pop("action_contract")
     migrated_assignment = validate_assignment(legacy_assignment, tmp_path)
-    assert migrated_assignment["schema_version"] == "4.0.0"
+    assert migrated_assignment["schema_version"] == "5.0.0"
     assert migrated_assignment["action_contract"] is None
 
     persisted_v3 = json.loads(
@@ -370,7 +374,7 @@ def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
         )
     )
     migrated_v3 = validate_assignment(persisted_v3, tmp_path)
-    assert migrated_v3["schema_version"] == "4.0.0"
+    assert migrated_v3["schema_version"] == "5.0.0"
     assert migrated_v3["action_contract"]["capability_context"] == [
         {"capability": "CLI"}
     ]
@@ -585,7 +589,7 @@ def test_bounded_assignment_grant_allows_only_exact_effect(monkeypatch, tmp_path
         json.dumps(legacy_grant), encoding="utf-8"
     )
     migrated_grant = load_grant(tmp_path, value)
-    assert migrated_grant["schema_version"] == "2.0.0"
+    assert migrated_grant["schema_version"] == "3.0.0"
     assert migrated_grant["responsibility"] == "axis-runtime/product"
     write_record(
         tmp_path / "assignments" / "assignment-1.json",

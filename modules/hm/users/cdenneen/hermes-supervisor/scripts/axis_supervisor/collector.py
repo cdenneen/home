@@ -15,11 +15,13 @@ try:
     from .models import validate_assignment
     from .mutation import MutationGate, OperationClass
     from .schema_registry import read_record, write_record
+    from .validation_findings import EXTERNAL_IMPLEMENTATION_SEEDS
 except ImportError:
     from axis_supervisor.lifecycle import is_terminal
     from axis_supervisor.models import validate_assignment
     from axis_supervisor.mutation import MutationGate, OperationClass
     from axis_supervisor.schema_registry import read_record, write_record
+    from axis_supervisor.validation_findings import EXTERNAL_IMPLEMENTATION_SEEDS
 
 ROOT = Path(
     os.environ.get(
@@ -506,6 +508,7 @@ def main() -> int:
 
     source_items = []
     open_mrs = []
+    external_implementation_mrs = []
     repositories = {}
     dependency_edges = []
     milestones = []
@@ -542,6 +545,20 @@ def main() -> int:
             for milestone in project_milestones
         )
         project_open_mrs = [mr for mr in mrs if mr.get("state") == "opened"]
+        external_refs = {seed["mr_ref"] for seed in EXTERNAL_IMPLEMENTATION_SEEDS}
+        external_implementation_mrs.extend(
+            {
+                "project": project["path_with_namespace"],
+                "iid": mr["iid"],
+                "state": mr["state"],
+                "source_branch": mr.get("source_branch"),
+                "sha": mr.get("sha"),
+                "web_url": mr.get("web_url"),
+                "pipeline_status": (mr.get("head_pipeline") or {}).get("status"),
+            }
+            for mr in mrs
+            if f"{project['path_with_namespace']}!{mr.get('iid')}" in external_refs
+        )
         open_mrs.extend(
             {
                 "project": project["path_with_namespace"],
@@ -935,6 +952,13 @@ def main() -> int:
         ),
         "open_merge_requests": sorted(
             open_mrs,
+            key=lambda value: (
+                str(value.get("project") or ""),
+                int(value.get("iid") or 0),
+            ),
+        ),
+        "external_implementation_merge_requests": sorted(
+            external_implementation_mrs,
             key=lambda value: (
                 str(value.get("project") or ""),
                 int(value.get("iid") or 0),

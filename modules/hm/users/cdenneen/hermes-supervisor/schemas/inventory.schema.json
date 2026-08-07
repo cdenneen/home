@@ -143,6 +143,10 @@
     },
     "milestones": { "type": "array", "items": { "type": "object" } },
     "open_merge_requests": { "type": "array", "items": { "type": "object" } },
+    "external_implementation_merge_requests": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
     "supervisor_assignments": {
       "type": "array",
       "items": { "$ref": "axis.external-development-supervisor.assignment" }

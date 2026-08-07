@@ -73,6 +73,9 @@ def immutable_scope(grant: dict) -> dict:
             "approval_source",
             "required_evidence",
             "integration_conditions",
+            "origin_finding",
+            "targeted_replay",
+            "worktree_context",
         )
     }
 
@@ -135,7 +138,7 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     now = int(time.time())
     grant = {
         "schema": SCHEMA,
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "grant_id": f"grant-{assignment_id}",
         "scope_digest": "sha256:" + "0" * 64,
         "status": "active",
@@ -222,6 +225,9 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
             "post_main_tests": True,
             "fresh_cycle_recognition": True,
         },
+        "origin_finding": assignment.get("origin_finding"),
+        "targeted_replay": assignment.get("targeted_replay"),
+        "worktree_context": assignment.get("worktree_context"),
         "mr_iid": None,
         "mr_sha": None,
         "events": [{"event": "grant-created", "recorded_at_epoch": now}],
@@ -241,15 +247,21 @@ def load_grant(root: Path, assignment: dict) -> dict:
         return read_record(path, SCHEMA)
     except RecordVersionError:
         legacy = json.loads(path.read_text(encoding="utf-8"))
-        if legacy.get("schema") != SCHEMA or legacy.get("schema_version") != "1.0.0":
+        if legacy.get("schema") != SCHEMA or legacy.get("schema_version") not in {
+            "1.0.0",
+            "2.0.0",
+        }:
             raise
         ownership = assignment_ownership(
             assignment,
             context=f"mutation-grant-v1-migration:{assignment.get('assignment_id')}",
         )
-        legacy["schema_version"] = "2.0.0"
+        legacy["schema_version"] = "3.0.0"
         legacy["responsibility"] = ownership["responsibility"]
         legacy["repository_ownership"] = ownership
+        legacy["origin_finding"] = assignment.get("origin_finding")
+        legacy["targeted_replay"] = assignment.get("targeted_replay")
+        legacy["worktree_context"] = assignment.get("worktree_context")
         legacy["scope_digest"] = scope_digest(legacy)
         write_record(path, legacy, SCHEMA)
         return legacy
@@ -319,6 +331,11 @@ def validate_grant(
         raise AssignmentGrantDenied("mutation grant repository mismatch")
     if grant["source_fingerprint"] != assignment.get("source_fingerprint"):
         raise AssignmentGrantDenied("mutation grant source fingerprint mismatch")
+    if any(
+        grant.get(field) != assignment.get(field)
+        for field in ("origin_finding", "targeted_replay", "worktree_context")
+    ):
+        raise AssignmentGrantDenied("mutation grant validation finding scope changed")
     planning = assignment.get("planning_record") or {}
     authority_state = (assignment.get("authority") or {}).get("state")
     approval = grant["approval_source"]

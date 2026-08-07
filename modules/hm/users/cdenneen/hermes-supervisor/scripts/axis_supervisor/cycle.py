@@ -66,6 +66,10 @@ from axis_supervisor.schema_registry import (
     write_record,
 )
 from axis_supervisor.verification import completion_receipt
+from axis_supervisor.validation_findings import (
+    ExternalImplementationAdoptions,
+    ValidationFindingStore,
+)
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
 from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
 
@@ -480,6 +484,8 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
         int(control.get("daily_model_call_limit", 0))
         - AccountingLedger(ROOT).model_attempts_today(),
     )
+    ExternalImplementationAdoptions(ROOT).reconcile(inventory)
+
     def active_assignments() -> list[dict]:
         return [
             assignment
@@ -755,6 +761,16 @@ def execute_new_assignment(
                 else "analyzed-only"
             )
             set_lifecycle(assignment, "completed")
+            if assignment.get("origin_finding") and assignment.get(
+                "targeted_replay"
+            ):
+                ValidationFindingStore(ROOT).complete_replay(
+                    assignment["origin_finding"]["finding_id"],
+                    passed=verification.get("disposition") == "verified-complete",
+                    evidence=[
+                        str(value) for value in verification.get("evidence") or []
+                    ],
+                )
         elif assignment["assignment_type"] == "repository-convergence":
             repo = (
                 Path("/home/cdenneen/src/workspace/personal/work")
@@ -789,6 +805,9 @@ def execute_new_assignment(
             result = manager.implementation(
                 assignment, repo, repository_decision, model_decision
             )
+            result["origin_finding"] = assignment.get("origin_finding")
+            result["targeted_replay"] = assignment.get("targeted_replay")
+            result["worktree_context"] = assignment.get("worktree_context")
             set_lifecycle(assignment, "implementation-complete")
             assignment["result_state"] = "implementation-complete"
             assignment["work_item_disposition"] = "requires-integration"
@@ -843,6 +862,11 @@ def execute_new_assignment(
             integration_item = workflow.enqueue(
                 assignment, implementation_handoff, str(reviewers[0])
             )
+            if assignment.get("origin_finding"):
+                ValidationFindingStore(ROOT).mark_integrating(
+                    assignment["origin_finding"]["finding_id"],
+                    assignment["assignment_id"],
+                )
             result["implementation_handoff_uri"] = integration_item["handoff_uri"]
             set_lifecycle(assignment, "awaiting-integration")
             assignment["result_state"] = "awaiting-integration"
@@ -896,6 +920,19 @@ def execute_new_assignment(
         }
     except Exception as exc:
         assignment["error"] = f"{type(exc).__name__}: {exc}"
+        if assignment.get("origin_finding") and assignment.get("targeted_replay"):
+            try:
+                replay = ValidationFindingStore(ROOT).load(
+                    assignment["origin_finding"]["finding_id"]
+                )
+                if (replay or {}).get("status") == "REPLAY_PENDING":
+                    ValidationFindingStore(ROOT).complete_replay(
+                        assignment["origin_finding"]["finding_id"],
+                        passed=False,
+                        evidence=[assignment["error"]],
+                    )
+            except Exception:  # noqa: BLE001 - preserve the primary assignment failure
+                pass
         release_failed_assignment(assignment, path, supervisorctl, gate)
         record_event(
             ROOT,
@@ -1466,7 +1503,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     },
                     source="cycle",
                 )
-            if not verification_error:
+            if not verification_error and not assignment.get("origin_finding"):
                 try:
                     close_work_item(
                         assignment,
@@ -1509,8 +1546,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 if assignment.get("mutation_grant_id"):
                     finish_assignment_grant(ROOT, assignment, "failed")
             else:
-                assignment["source_item"]["source_state"] = "closed"
-                assignment["source_item"]["state"] = "closed"
+                if not assignment.get("origin_finding"):
+                    assignment["source_item"]["source_state"] = "closed"
+                    assignment["source_item"]["state"] = "closed"
                 assignment["completion_receipt"] = completion_receipt(
                     assignment,
                     inspection,
@@ -1520,8 +1558,27 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
                 set_lifecycle(assignment, "repository-converged")
                 assignment["result_state"] = "repository-converged"
-                assignment["work_item_disposition"] = "requires-runtime-convergence"
+                assignment["work_item_disposition"] = (
+                    "evidence-recorded-awaiting-fresh-recognition"
+                    if assignment.get("origin_finding")
+                    else "requires-runtime-convergence"
+                )
                 result = "integrated"
+                if assignment.get("origin_finding"):
+                    ValidationFindingStore(ROOT).schedule_replay(
+                        assignment,
+                        [
+                            str(inspection["mr"].get("web_url") or ""),
+                            str(
+                                (inspection.get("pipeline") or {}).get("web_url")
+                                or ""
+                            ),
+                            *[
+                                f"{test['command']}={test['returncode']}"
+                                for test in test_results
+                            ],
+                        ],
+                    )
                 workflow.update_integration(
                     assignment["assignment_id"],
                     state="integrated",

@@ -18,13 +18,16 @@
     "mr_iid",
     "mr_url",
     "created_at",
-    "state"
+    "state",
+    "origin_finding",
+    "targeted_replay",
+    "worktree_context"
   ],
   "properties": {
     "schema": {
       "const": "axis.external-development-supervisor.implementation-handoff"
     },
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "work_item": { "type": "string", "minLength": 1 },
     "repository": { "type": "string", "minLength": 1 },
@@ -46,7 +49,10 @@
     "mr_url": { "type": ["string", "null"], "format": "uri" },
     "source_main_sha": { "type": ["string", "null"] },
     "created_at": { "type": "string", "format": "date-time" },
-    "state": { "enum": ["ready-for-integration", "integrated", "blocked"] }
+    "state": { "enum": ["ready-for-integration", "integrated", "blocked"] },
+    "origin_finding": { "type": ["object", "null"] },
+    "targeted_replay": { "type": ["object", "null"] },
+    "worktree_context": { "type": ["object", "null"] }
   },
   "additionalProperties": false
 }

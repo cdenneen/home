@@ -18,11 +18,16 @@ class ValidationEvidenceStore:
         self.root = root / "validation-evidence"
 
     def persist(self, stream: str, evidence: dict[str, Any]) -> dict[str, Any]:
+        findings = [
+            dict(value) if isinstance(value, dict) else str(value)
+            for value in evidence.get("findings") or []
+        ]
         immutable = {
             "stream": stream,
             "evidence": evidence,
             "findings": sorted(
-                [str(value) for value in evidence.get("findings") or []]
+                findings,
+                key=lambda value: json.dumps(value, sort_keys=True),
             ),
         }
         evidence_id = "sha256:" + hashlib.sha256(

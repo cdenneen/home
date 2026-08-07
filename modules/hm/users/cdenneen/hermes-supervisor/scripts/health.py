@@ -8,6 +8,7 @@ from pathlib import Path
 from axis_supervisor.schema_registry import read_record
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.observability import OperationalEventLog
+from axis_supervisor.validation_findings import ValidationFindingStore
 
 HOME = Path.home()
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", HOME / ".hermes" / "supervisor" / "axis-development-supervisor"))
@@ -507,6 +508,7 @@ def main() -> int:
         "post_main_verified_last_24h": recent_integrated,
         "engineering_metrics_24h": engineering_metrics,
         "engineering_metrics_30d": engineering_metrics_30d,
+        "validation_finding_metrics": ValidationFindingStore(ROOT).metrics(),
         "flow_counts": graph.get("flow_counts") or {},
         "wip_limits": (graph.get("scheduler_state") or {}).get("wip_limits") or {},
         "wip_counts": (graph.get("scheduler_state") or {}).get("wip_counts") or {},

@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.validation-finding",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "finding_id",
+    "fingerprint",
+    "classification",
+    "status",
+    "summary",
+    "stream",
+    "capability",
+    "gate",
+    "gate_resolution",
+    "repository",
+    "responsibility",
+    "owner_resolution",
+    "authority",
+    "planning_record",
+    "decision_packet",
+    "allowed_paths",
+    "required_tests",
+    "targeted_replay",
+    "evidence",
+    "external_implementation",
+    "assignment_id",
+    "created_at",
+    "updated_at",
+    "history"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.validation-finding"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "finding_id": {
+      "type": "string",
+      "pattern": "^validation-finding-[0-9a-f]{24}$"
+    },
+    "fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "classification": {
+      "enum": [
+        "EVIDENCE_ONLY",
+        "CONFIGURATION",
+        "DEPLOYMENT",
+        "PRODUCT_DEFECT",
+        "ROADMAP_GAP",
+        "AUTHORITY_BLOCKED",
+        "EXTERNAL_BLOCKED"
+      ]
+    },
+    "status": {
+      "enum": [
+        "EVIDENCE_ONLY",
+        "ACTION_REQUIRED",
+        "DECISION_REQUIRED",
+        "EXTERNAL_BLOCKED",
+        "EXECUTABLE",
+        "ASSIGNED",
+        "INTEGRATING",
+        "REPLAY_PENDING",
+        "CLOSED",
+        "REOPENED",
+        "EXTERNAL_IMPLEMENTATION_ADOPTED"
+      ]
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "stream": { "type": "string", "minLength": 1 },
+    "capability": { "type": ["string", "null"] },
+    "gate": { "type": ["string", "null"] },
+    "gate_resolution": { "enum": ["pending", "passed", "failed"] },
+    "repository": { "type": ["string", "null"] },
+    "responsibility": { "type": ["string", "null"] },
+    "owner_resolution": {
+      "type": "object",
+      "required": ["status", "owner_ref", "candidate_refs", "child_required"],
+      "properties": {
+        "status": {
+          "enum": ["existing-owner", "child-required", "not-required"]
+        },
+        "owner_ref": { "type": ["string", "null"] },
+        "candidate_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "child_required": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "authority": { "type": "object" },
+    "planning_record": { "type": ["object", "null"] },
+    "decision_packet": { "type": ["object", "null"] },
+    "allowed_paths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "required_tests": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "targeted_replay": {
+      "type": ["object", "null"],
+      "required": [
+        "stream",
+        "capability",
+        "gate",
+        "required_tests",
+        "attempt",
+        "state",
+        "scheduled_at",
+        "completed_at",
+        "evidence"
+      ],
+      "properties": {
+        "stream": { "type": "string", "minLength": 1 },
+        "capability": { "type": ["string", "null"] },
+        "gate": { "type": ["string", "null"] },
+        "required_tests": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "state": { "enum": ["not-scheduled", "pending", "passed", "failed"] },
+        "scheduled_at": { "type": ["string", "null"], "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "uri", "observed_at"],
+        "properties": {
+          "evidence_id": { "type": "string", "minLength": 1 },
+          "uri": { "type": "string", "format": "uri" },
+          "observed_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "external_implementation": { "type": ["object", "null"] },
+    "assignment_id": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "history": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}

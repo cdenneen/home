@@ -105,6 +105,7 @@ class MutationGate:
                 "decision-controller",
                 "dispatcher",
                 "frontier",
+                "finding-reconciler",
                 "graph",
                 "lease-controller",
                 "mission-reconciler",

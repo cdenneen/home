@@ -18,11 +18,14 @@
     "work_item_disposition",
     "action_contract",
     "mutation_grant_id",
-    "mutation_grant_uri"
+    "mutation_grant_uri",
+    "origin_finding",
+    "targeted_replay",
+    "worktree_context"
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.assignment" },
-    "schema_version": { "const": "4.0.0" },
+    "schema_version": { "const": "5.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "assignment_type": {
       "enum": [
@@ -151,6 +154,10 @@
     "lease_uri": { "type": ["string", "null"], "format": "uri" },
     "mutation_grant_id": { "type": ["string", "null"] },
     "mutation_grant_uri": { "type": ["string", "null"], "format": "uri" },
+    "origin_finding": { "type": ["object", "null"] },
+    "targeted_replay": { "type": ["object", "null"] },
+    "worktree_context": { "type": ["object", "null"] },
+    "bootstrap_override": { "type": ["object", "null"] },
     "completion_receipt": {
       "$ref": "axis.external-development-supervisor.verification"
     },

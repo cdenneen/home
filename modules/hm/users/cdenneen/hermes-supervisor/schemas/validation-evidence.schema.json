@@ -25,7 +25,37 @@
     "evidence": { "type": "object" },
     "findings": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["summary"],
+            "properties": {
+              "summary": { "type": "string", "minLength": 1 },
+              "classification": { "type": "string" },
+              "capability": { "type": ["string", "null"] },
+              "gate": { "type": ["string", "null"] },
+              "repository": { "type": ["string", "null"] },
+              "responsibility": { "type": ["string", "null"] },
+              "owner_ref": { "type": ["string", "null"] },
+              "owner_refs": { "type": "array", "items": { "type": "string" } },
+              "allowed_paths": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "required_tests": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "roadmap_authorized": { "type": "boolean" },
+              "planning_record": { "type": ["object", "null"] },
+              "replay": { "type": ["object", "null"] }
+            },
+            "additionalProperties": true
+          }
+        ]
+      }
     }
   },
   "additionalProperties": false

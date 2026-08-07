@@ -676,7 +676,11 @@ class HermesWorkerManager:
                 "all_passed": bool(results)
                 and all(result["returncode"] == 0 for result in results),
             }
-            return self.semantic(assignment, decision)
+            result = self.semantic(assignment, decision)
+            result["origin_finding"] = assignment.get("origin_finding")
+            result["targeted_replay"] = assignment.get("targeted_replay")
+            result["worktree_context"] = assignment.get("worktree_context")
+            return result
         finally:
             self.gate.require(
                 reconciliation,
@@ -716,6 +720,11 @@ class HermesWorkerManager:
         )
         branch = f"hermes/{assignment['assignment_id']}"
         worktree = self.root / "worktrees" / assignment["assignment_id"]
+        expected_context = assignment.get("worktree_context") or {}
+        if expected_context and Path(
+            str(expected_context.get("path") or "")
+        ).resolve() != worktree.resolve():
+            raise RuntimeError("assignment worktree context does not match canonical custody")
         if assignment.get("canary_branch") and assignment["canary_branch"] != branch:
             raise RuntimeError("canary branch does not match assignment custody")
         if assignment.get("canary_worktree") and Path(
@@ -993,6 +1002,9 @@ class HermesWorkerManager:
             "commit": head,
             "handoff": handoff,
             "raw_output": output[-4000:],
+            "origin_finding": assignment.get("origin_finding"),
+            "targeted_replay": assignment.get("targeted_replay"),
+            "worktree_context": assignment.get("worktree_context"),
         }
 
     def _git_mutation(

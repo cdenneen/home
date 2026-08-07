@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from .mutation import MutationGate, OperationClass
 from .schema_registry import RecordError, validate_record, write_record
 from .validation_evidence import ValidationEvidenceStore
+from .validation_findings import ValidationFindingStore
 
 SCHEMA = "axis.external-development-supervisor.capability-graduation"
 SCHEMA_VERSION = "5.0.0"
@@ -945,7 +946,23 @@ class CapabilityGraduationProjector:
                 != "passed"
             ]
             findings = [
-                f"{value['capability']}:{value['gate']}={value['from_state']}"
+                {
+                    "summary": (
+                        f"{value['capability']} {value['gate']} gate is "
+                        f"{value['from_state']}"
+                    ),
+                    "classification": "DEPLOYMENT"
+                    if value["gate"] == "deployment"
+                    else "EVIDENCE_ONLY",
+                    "capability": value["capability"],
+                    "gate": value["gate"],
+                    "repository": "ghostspace/axis-lab"
+                    if value["gate"] == "deployment"
+                    else None,
+                    "responsibility": "deployment/realistic-validation"
+                    if value["gate"] == "deployment"
+                    else None,
+                }
                 for value in expected_gates
             ]
             evidence = evidence_store.persist(
@@ -958,6 +975,9 @@ class CapabilityGraduationProjector:
                     "expected_gates": expected_gates,
                     "findings": findings,
                 },
+            )
+            promoted_findings = ValidationFindingStore(self.root).promote_evidence(
+                stream_name, evidence, findings, inventory
             )
             validation_streams.append(
                 {
@@ -978,6 +998,9 @@ class CapabilityGraduationProjector:
                     if expected_gates
                     else "evidence-promoted",
                     "evidence": evidence,
+                    "finding_ids": [
+                        finding["finding_id"] for finding in promoted_findings
+                    ],
                 }
             )
         scored_actions = []

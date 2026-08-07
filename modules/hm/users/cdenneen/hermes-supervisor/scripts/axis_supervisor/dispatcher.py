@@ -14,6 +14,7 @@ from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
 from .schema_registry import write_record
+from .validation_findings import ValidationFindingStore
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
 ACTION_CONTRACT_FIELDS = {
@@ -105,6 +106,53 @@ class Dispatcher:
                 return True
         return False
 
+    def _enforce_direct_dispatch_guardrail(
+        self,
+        item: dict,
+        assignment_type: str,
+        mission_action: dict | None,
+    ) -> dict | None:
+        if assignment_type not in {
+            "governance-document-mutation",
+            "code-implementation",
+            "ci-integration-repair",
+        } or (item.get("project") or (item.get("candidate") or {}).get("project")) not in {
+            "ghostspace/axis",
+            "ghostspace/axis-governance",
+            "ghostspace/axis-lab",
+        }:
+            return None
+        mission_path = self.root / "active-mission.json"
+        if not mission_path.exists():
+            return None
+        mission = read_mission_record(mission_path)
+        healthy_active = bool(
+            mission.get("current_state") == "active"
+            and not (mission.get("termination_condition") or {}).get("should_terminate")
+        )
+        mission_authorized = bool(
+            mission_action
+            and mission_action.get("kind") == "dispatch-executable"
+            and mission_action.get("executable") is True
+        )
+        if not healthy_active or mission_authorized:
+            return None
+        override = item.get("bootstrap_override")
+        if not isinstance(override, dict) or not all(
+            str(override.get(field) or "").strip()
+            for field in ("authorized_by", "reason")
+        ):
+            raise PermissionError(
+                "direct AXIS product/governance/axis-lab coding is blocked while a "
+                "healthy mission is active"
+            )
+        return {
+            "authorized_by": str(override["authorized_by"]),
+            "reason": str(override["reason"]),
+            "mission_id": mission.get("mission_id"),
+            "item_ref": item.get("ref"),
+        }
+
     def dispatch(self, graph: dict, run_id: str, selected: dict | None = None) -> dict | None:
         active = self.active()
         control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
@@ -131,8 +179,8 @@ class Dispatcher:
             return None
         source_item = item.get("source_item") or {}
         authority_facts = source_item.get("authority_facts") or {}
-        planning_record = None
-        if (
+        planning_record = item.get("planning_record")
+        if planning_record is None and (
             authority_facts.get("approval_matches_record")
             and authority_facts.get("record_digest")
             and authority_facts.get("approval_note")
@@ -163,6 +211,9 @@ class Dispatcher:
             else "code-implementation"
         )
         mission_action = self._mission_action(item)
+        bootstrap_override = self._enforce_direct_dispatch_guardrail(
+            item, assignment_type, mission_action
+        )
         action_contract = (
             {
                 "action_id": mission_action["action_id"],
@@ -188,7 +239,7 @@ class Dispatcher:
         assignment_id = f"assignment-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         assignment = {
             "schema": "axis.external-development-supervisor.assignment",
-            "schema_version": "4.0.0",
+            "schema_version": "5.0.0",
             "assignment_id": assignment_id,
             "assignment_type": assignment_type,
             "result_state": "pending",
@@ -232,6 +283,21 @@ class Dispatcher:
             "worker": None,
             "mutation_grant_id": None,
             "mutation_grant_uri": None,
+            "origin_finding": item.get("origin_finding"),
+            "targeted_replay": item.get("targeted_replay"),
+            "worktree_context": {
+                "path": str(self.root / "worktrees" / assignment_id),
+                "origin_finding": item.get("origin_finding"),
+                "targeted_replay": item.get("targeted_replay"),
+            }
+            if assignment_type
+            in {
+                "governance-document-mutation",
+                "code-implementation",
+                "ci-integration-repair",
+            }
+            else None,
+            "bootstrap_override": bootstrap_override,
         }
         if assignment["assignment_type"] == "code-implementation":
             prior_failures = []
@@ -279,6 +345,19 @@ class Dispatcher:
             create_grant(self.root, assignment, control)
         validate_assignment(assignment)
         write_record(path, assignment, "axis.external-development-supervisor.assignment")
+        if assignment.get("origin_finding"):
+            ValidationFindingStore(self.root).mark_assigned(
+                assignment["origin_finding"]["finding_id"], assignment_id
+            )
+        if bootstrap_override:
+            record_event(
+                self.root,
+                "bootstrap_override_used",
+                assignment=assignment,
+                details=bootstrap_override,
+                source="dispatcher",
+                notify=True,
+            )
         record_event(
             self.root,
             "assignment_selected",

@@ -58,7 +58,7 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
     )
     assignment = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "4.0.0",
+        "schema_version": "5.0.0",
         "assignment_id": assignment_id,
         "assignment_type": "capability-deployment",
         "result_state": "pending",
@@ -113,6 +113,10 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
         "worker": None,
         "mutation_grant_id": None,
         "mutation_grant_uri": None,
+        "origin_finding": plan.get("origin_finding"),
+        "targeted_replay": plan.get("targeted_replay"),
+        "worktree_context": None,
+        "bootstrap_override": None,
         "deployment_plan": plan,
     }
     gate = MutationGate(root, source="cycle")
