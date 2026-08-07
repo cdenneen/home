@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.validation-evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "evidence_id",
+    "recorded_at",
+    "stream",
+    "evidence",
+    "findings"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.validation-evidence"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "stream": { "type": "string", "minLength": 1 },
+    "evidence": { "type": "object" },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

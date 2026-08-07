@@ -6,9 +6,10 @@ from pathlib import Path, PurePosixPath
 
 from .mutation import MutationGate, OperationClass
 from .schema_registry import RecordError, read_record, write_record
+from .validation_evidence import ValidationEvidenceStore
 
 SCHEMA = "axis.external-development-supervisor.capability-graduation"
-SCHEMA_VERSION = "3.0.0"
+SCHEMA_VERSION = "4.0.0"
 GATES = (
     "implementation",
     "integration",
@@ -33,6 +34,7 @@ COMPLETED_ASSIGNMENT_STATES = {
     "runtime-converged",
     "canonical-complete",
 }
+APPLICABILITY_STATES = {"required", "conditional", "not-applicable"}
 
 
 def _normalized_path(value: str) -> str:
@@ -143,24 +145,59 @@ def denominator_state(node: dict) -> str:
     return "active"
 
 
-def _gate(state: str, evidence: list[str], *, applicable: bool = True) -> dict:
+def _gate(
+    state: str,
+    evidence: list[str],
+    *,
+    applicability: str = "required",
+    condition_met: bool = False,
+) -> dict:
+    applicable = applicability == "required" or (
+        applicability == "conditional" and condition_met
+    )
     return {
         "applicable": applicable,
+        "applicability": applicability,
         "state": state if applicable else "not-required",
         "evidence": sorted(set(filter(None, evidence))),
     }
 
 
-def _gate_applicability(capability: str, definition: dict) -> dict[str, bool]:
+def _gate_applicability(capability: str, definition: dict) -> dict[str, str]:
     applicability = definition.get("gate_applicability")
     if not isinstance(applicability, dict) or set(applicability) != set(GATES):
         raise ValueError(
             f"capability {capability!r} must explicitly declare applicability for "
             f"every gate: {', '.join(GATES)}"
         )
-    if any(type(value) is not bool for value in applicability.values()):
-        raise ValueError(f"capability {capability!r} gate applicability must be boolean")
-    return {gate: applicability[gate] for gate in GATES}
+    normalized = {
+        gate: (
+            "required"
+            if applicability[gate] is True
+            else "not-applicable"
+            if applicability[gate] is False
+            else applicability[gate]
+        )
+        for gate in GATES
+    }
+    if any(value not in APPLICABILITY_STATES for value in normalized.values()):
+        raise ValueError(
+            f"capability {capability!r} gate applicability must be one of "
+            f"{', '.join(sorted(APPLICABILITY_STATES))}"
+        )
+    return normalized
+
+
+def _first_failing_gate(states: dict[str, dict]) -> str | None:
+    return next(
+        (
+            gate
+            for gate in GATES
+            if (states.get(gate) or {}).get("applicable")
+            and (states.get(gate) or {}).get("state") not in {"passed", "not-required"}
+        ),
+        None,
+    )
 
 
 def _fingerprint(value: dict) -> str:
@@ -380,6 +417,11 @@ class CapabilityGraduationProjector:
 
     def build(self, inventory: dict, graph: dict, convergence: dict) -> dict:
         matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
+        applicability_model_revision = str(
+            matrix.get("applicability_model_revision") or "legacy-boolean-v1"
+        )
+        if matrix.get("authoritative") and len(matrix.get("capabilities") or {}) != 18:
+            raise ValueError("authoritative capability applicability matrix must have exactly 18 rows")
         assignments = self._assignments(inventory)
         nodes = graph.get("nodes") or []
         runtime_by_name = {
@@ -454,8 +496,16 @@ class CapabilityGraduationProjector:
                 for node in linked_nodes
             )
             projected_runtimes = definition.get("runtimes") or []
+            required_runtime_names = [
+                value
+                for value in projected_runtimes
+                if (matrix.get("runtimes", {}).get(value) or {}).get(
+                    "participation", "required"
+                )
+                != "optional"
+            ]
             runtimes = [
-                runtime_by_name.get(value) or {} for value in projected_runtimes
+                runtime_by_name.get(value) or {} for value in required_runtime_names
             ]
             deployment_passed = bool(runtimes) and all(
                 runtime.get("status") == "converged"
@@ -499,7 +549,7 @@ class CapabilityGraduationProjector:
                             for value in completed
                         ],
                     ],
-                    applicable=applicability["implementation"],
+                    applicability=applicability["implementation"],
                 ),
                 "integration": _gate(
                     "passed" if integration_passed else "pending",
@@ -513,12 +563,12 @@ class CapabilityGraduationProjector:
                             ]
                         ),
                     ],
-                    applicable=applicability["integration"],
+                    applicability=applicability["integration"],
                 ),
                 "deployment": _gate(
                     "passed" if deployment_passed else "pending",
                     [f"runtime {value}" for value in projected_runtimes],
-                    applicable=applicability["deployment"],
+                    applicability=applicability["deployment"],
                 ),
                 "validation": _gate(
                     "passed" if validation_passed else "pending",
@@ -526,7 +576,7 @@ class CapabilityGraduationProjector:
                         f"{value.get('runtime')}: health={value.get('health') or 'unknown'}"
                         for value in runtimes
                     ],
-                    applicable=applicability["validation"],
+                    applicability=applicability["validation"],
                 ),
                 "verification": _gate(
                     "passed" if verification_passed else "pending",
@@ -534,13 +584,14 @@ class CapabilityGraduationProjector:
                         f"{value.get('runtime')}: verification={value.get('verification_status') or 'pending'}"
                         for value in runtimes
                     ],
-                    applicable=applicability["verification"],
+                    applicability=applicability["verification"],
                 ),
                 "operator_acceptance": _gate(
                     "passed" if operator_accepted else "pending",
                     operator_evidence
                     or ["explicit source-linked operator acceptance is required"],
-                    applicable=applicability["operator_acceptance"],
+                    applicability=applicability["operator_acceptance"],
+                    condition_met=operator_accepted,
                 ),
             }
             pending_gates = sum(
@@ -561,17 +612,25 @@ class CapabilityGraduationProjector:
                     f"{pending_gates} pending gate(s)",
                     f"{blocked_nodes} blocked linked work item(s)",
                 ],
-                applicable=applicability["program_risk"],
+                applicability=applicability["program_risk"],
             )
+            gate_denominator = sum(value["applicable"] for value in states.values())
             passed = sum(
+                value["applicable"] and value["state"] == "passed"
+                for value in states.values()
+            )
+            confidence = (
+                round(passed * 100 / gate_denominator, 1)
+                if gate_denominator
+                else 100.0
+            )
+            graduated = all(
                 value["state"] in {"passed", "not-required"}
                 for value in states.values()
             )
-            confidence = round(passed * 100 / len(GATES), 1)
-            graduated = passed == len(GATES)
             states["graduated"] = _gate(
                 "passed" if graduated else "pending",
-                [f"{passed}/{len(GATES)} graduation gates passed"],
+                [f"{passed}/{gate_denominator} applicable graduation gates passed"],
             )
             invalidation_payload = {
                 "capability": name,
@@ -601,12 +660,14 @@ class CapabilityGraduationProjector:
             ).get("invalidation_fingerprint")
             pending_runtimes = [
                 value
-                for value in projected_runtimes
+                for value in required_runtime_names
                 if name
                 in ((runtime_by_name.get(value) or {}).get("capabilities_behind") or [])
             ]
             scheduled_actions = []
-            if invalidated or pending_runtimes:
+            if (invalidated or pending_runtimes) and not matrix.get(
+                "validation_streams"
+            ):
                 scheduled_actions.append(
                     {
                         "fingerprint": invalidation_fingerprint,
@@ -632,11 +693,17 @@ class CapabilityGraduationProjector:
                     "capability": name,
                     "paths": owned_paths,
                     "projected_runtimes": projected_runtimes,
+                    "required_runtimes": required_runtime_names,
                     "linked_work_items": linked_refs,
                     "gate_applicability": applicability,
                     "graduation_state": states,
                     "graduation_confidence": confidence,
-                    "operator_confidence": round(
+                    "gate_denominator": gate_denominator,
+                    "gates_passed": passed,
+                    "first_failing_gate": _first_failing_gate(states),
+                    "operator_confidence": confidence
+                    if states["operator_acceptance"]["state"] == "not-required"
+                    else round(
                         (confidence + (100 if operator_accepted else 0)) / 2, 1
                     ),
                     "program_risk": {
@@ -652,6 +719,69 @@ class CapabilityGraduationProjector:
         capability_by_name = {
             value["capability"]: value for value in capability_records
         }
+        validation_streams = []
+        evidence_store = ValidationEvidenceStore(self.root)
+        for stream_name, stream in sorted(
+            (matrix.get("validation_streams") or {}).items()
+        ):
+            stream_capabilities = [
+                name
+                for name in stream.get("capabilities") or []
+                if name in capability_by_name
+            ]
+            expected_gates = [
+                {
+                    "capability": name,
+                    "gate": gate_name,
+                    "from_state": capability_by_name[name]["graduation_state"][
+                        gate_name
+                    ]["state"],
+                    "to_state": "passed",
+                }
+                for name in stream_capabilities
+                for gate_name in stream.get("gates") or []
+                if capability_by_name[name]["graduation_state"].get(gate_name, {}).get(
+                    "applicable"
+                )
+                and capability_by_name[name]["graduation_state"][gate_name]["state"]
+                != "passed"
+            ]
+            findings = [
+                f"{value['capability']}:{value['gate']}={value['from_state']}"
+                for value in expected_gates
+            ]
+            evidence = evidence_store.persist(
+                stream_name,
+                {
+                    "applicability_model_revision": applicability_model_revision,
+                    "source_convergence_digest": convergence.get("convergence_digest"),
+                    "runtimes": list(stream.get("runtimes") or []),
+                    "capabilities": stream_capabilities,
+                    "expected_gates": expected_gates,
+                    "findings": findings,
+                },
+            )
+            validation_streams.append(
+                {
+                    "stream": stream_name,
+                    "title": str(stream.get("title") or stream_name),
+                    "runtimes": list(stream.get("runtimes") or []),
+                    "capabilities": stream_capabilities,
+                    "expected_gates": expected_gates,
+                    "first_failing_gate": (
+                        {
+                            "capability": expected_gates[0]["capability"],
+                            "gate": expected_gates[0]["gate"],
+                        }
+                        if expected_gates
+                        else None
+                    ),
+                    "status": "assignment-required"
+                    if expected_gates
+                    else "evidence-promoted",
+                    "evidence": evidence,
+                }
+            )
         scored_actions = []
         for entry in graph.get("executable_queue") or []:
             paths = (
@@ -682,6 +812,7 @@ class CapabilityGraduationProjector:
             1,
         )
         payload = {
+            "applicability_model_revision": applicability_model_revision,
             "source_inventory_generation_id": inventory.get("generation_id"),
             "source_graph_generation_id": graph.get("generation_id"),
             "source_convergence_digest": convergence.get("convergence_digest"),
@@ -689,6 +820,7 @@ class CapabilityGraduationProjector:
                 "repository_convergence_digest"
             ),
             "capabilities": capability_records,
+            "validation_streams": validation_streams,
             "milestones": milestones,
             "denominator": denominator,
             "action_scores": scored_actions,

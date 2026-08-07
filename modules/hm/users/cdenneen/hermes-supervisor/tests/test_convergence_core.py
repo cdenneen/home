@@ -988,6 +988,10 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
         "capabilities": {
             "Service": {"paths": ["src/service.py"], "runtimes": ["ghost"]},
             "Documentation": {"paths": ["docs"], "runtimes": []},
+            "Optional Desktop": {
+                "paths": ["src/service.py"],
+                "runtimes": ["mbair"],
+            },
         },
         "runtimes": {
             "ghost": {
@@ -996,7 +1000,15 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
                 "host": "local",
                 "identity_path": str(identity),
                 "deployment_target": "nixosConfigurations.ghost",
-            }
+            },
+            "mbair": {
+                "ring": 1,
+                "display_name": "mbair",
+                "participation": "optional",
+                "host": "local",
+                "identity_path": str(tmp_path / "offline-identity.json"),
+                "deployment_target": "darwinConfigurations.mbair",
+            },
         },
     }
     projector = CapabilityConvergenceProjector(tmp_path)
@@ -1009,6 +1021,11 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
     assert lagging["deployment_assignments"][0]["affected_capabilities"] == [
         "Service"
     ]
+    assert all(
+        value["target_runtime"] != "mbair"
+        for value in lagging["deployment_assignments"]
+    )
+    assert lagging["promotion_status"]["blocked"] is False
     identity.write_text(
         json.dumps(
             {

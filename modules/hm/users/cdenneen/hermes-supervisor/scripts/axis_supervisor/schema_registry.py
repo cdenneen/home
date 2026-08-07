@@ -34,6 +34,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.semantic-record": "semantic-record.schema.json",
     "axis.external-development-supervisor.slack-state": "slack-state.schema.json",
     "axis.external-development-supervisor.slack-outbox": "slack-outbox.schema.json",
+    "axis.external-development-supervisor.validation-evidence": "validation-evidence.schema.json",
     "axis.external-development-supervisor.verification": "verification.schema.json",
 }
 SOURCE_SCHEMAS = Path(__file__).resolve().parents[2] / "schemas"

@@ -121,7 +121,7 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     )
 
     assert persisted == projection
-    assert projection["schema_version"] == "3.0.0"
+    assert projection["schema_version"] == "4.0.0"
     assert projection["primary_kpi"] == {
         "name": "graduated-capabilities",
         "count": 1,
@@ -130,6 +130,9 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     }
     capability = projection["capabilities"][0]
     assert capability["graduated"] is True
+    assert capability["gate_denominator"] == 7
+    assert capability["gates_passed"] == 7
+    assert capability["first_failing_gate"] is None
     assert all(
         gate["applicable"]
         for name, gate in capability["graduation_state"].items()
@@ -190,6 +193,202 @@ def test_gate_applicability_has_no_implicit_defaults(tmp_path: Path):
         assert "explicitly declare applicability for every gate" in str(exc)
     else:
         raise AssertionError("implicit capability gate defaults were accepted")
+
+
+def test_authoritative_applicability_has_exactly_18_explicit_rows():
+    from axis_supervisor.capability_graduation import (
+        GATES,
+        _gate,
+        _gate_applicability,
+    )
+
+    matrix = json.loads(
+        (ROOT / "capability-runtime-matrix.json").read_text(encoding="utf-8")
+    )
+
+    assert matrix["authoritative"] is True
+    assert matrix["applicability_model_revision"] == "ax-m4-calibration-v1"
+    assert len(matrix["capabilities"]) == 18
+    for name, definition in matrix["capabilities"].items():
+        applicability = _gate_applicability(name, definition)
+        assert set(applicability) == set(GATES)
+        assert all(
+            state in {"required", "conditional", "not-applicable"}
+            for state in applicability.values()
+        )
+
+    documentation = _gate_applicability(
+        "Documentation", matrix["capabilities"]["Documentation"]
+    )
+    assert documentation == {
+        "implementation": "required",
+        "integration": "required",
+        "deployment": "not-applicable",
+        "validation": "not-applicable",
+        "verification": "not-applicable",
+        "operator_acceptance": "not-applicable",
+        "program_risk": "not-applicable",
+    }
+    assert matrix["runtimes"]["mbair"]["participation"] == "optional"
+    assert _gate("pending", [], applicability="conditional") == {
+        "applicable": False,
+        "applicability": "conditional",
+        "state": "not-required",
+        "evidence": [],
+    }
+    assert _gate(
+        "passed", ["operator proof"], applicability="conditional", condition_met=True
+    )["state"] == "passed"
+
+
+def test_optional_runtime_is_excluded_from_gate_denominator(tmp_path: Path):
+    from axis_supervisor.capability_graduation import CapabilityGraduationProjector
+
+    write_control(tmp_path)
+    (tmp_path / "assignments").mkdir()
+    (tmp_path / "capability-runtime-matrix.json").write_text(
+        json.dumps(
+            {
+                "applicability_model_revision": "test-v1",
+                "capabilities": {
+                    "Service": {
+                        "paths": ["src/service.py"],
+                        "runtimes": ["ghost", "mbair"],
+                        "gate_applicability": {gate: True for gate in (
+                            "implementation",
+                            "integration",
+                            "deployment",
+                            "validation",
+                            "verification",
+                            "operator_acceptance",
+                            "program_risk",
+                        )},
+                    }
+                },
+                "runtimes": {
+                    "ghost": {"participation": "required"},
+                    "mbair": {"participation": "optional"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    current = convergence()
+    current["runtimes"].append(
+        {
+            "runtime": "mbair",
+            "status": "unknown",
+            "health": None,
+            "verification_status": None,
+            "capabilities_behind": ["Service"],
+        }
+    )
+
+    projection = CapabilityGraduationProjector(tmp_path).build(
+        {"generation_id": "inventory", "supervisor_assignments": []},
+        {
+            "generation_id": "graph",
+            "nodes": [verified_node()],
+            "executable_queue": [],
+        },
+        current,
+    )
+
+    capability = projection["capabilities"][0]
+    assert capability["required_runtimes"] == ["ghost"]
+    assert capability["graduated"] is True
+    assert projection["primary_kpi"]["denominator"] == 1
+
+
+def test_validation_streams_promote_evidence_and_consolidate_actions(tmp_path: Path):
+    from axis_supervisor.capability_graduation import CapabilityGraduationProjector
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    (tmp_path / "assignments").mkdir()
+    gates = (
+        "implementation",
+        "integration",
+        "deployment",
+        "validation",
+        "verification",
+        "operator_acceptance",
+        "program_risk",
+    )
+    streams = {
+        name: {
+            "title": title,
+            "runtimes": ["ghost"],
+            "capabilities": ["Service"],
+            "gates": ["deployment", "validation", "verification"],
+        }
+        for name, title in (
+            ("ghost-operator", "Ghost operator validation"),
+            ("macbookpro-desktop", "macbookpro Desktop validation"),
+            ("nyx-node", "Nyx Node validation"),
+            ("cross-interface-cli", "cross-interface CLI validation"),
+        )
+    }
+    (tmp_path / "capability-runtime-matrix.json").write_text(
+        json.dumps(
+            {
+                "applicability_model_revision": "test-v1",
+                "capabilities": {
+                    "Service": {
+                        "paths": ["src/service.py"],
+                        "runtimes": ["ghost"],
+                        "gate_applicability": {gate: True for gate in gates},
+                    }
+                },
+                "runtimes": {"ghost": {"participation": "required"}},
+                "validation_streams": streams,
+            }
+        ),
+        encoding="utf-8",
+    )
+    inventory = {"generation_id": "inventory", "supervisor_assignments": []}
+    graph = {
+        "generation_id": "graph",
+        "nodes": [verified_node()],
+        "executable_queue": [],
+    }
+    projector = CapabilityGraduationProjector(tmp_path)
+    promoted = projector.build(inventory, graph, convergence())
+    evidence_ids = [
+        stream["evidence"]["evidence_id"] for stream in promoted["validation_streams"]
+    ]
+    promoted_again = projector.build(inventory, graph, convergence())
+
+    assert len(promoted["validation_streams"]) == 4
+    assert {stream["status"] for stream in promoted["validation_streams"]} == {
+        "evidence-promoted"
+    }
+    assert evidence_ids == [
+        stream["evidence"]["evidence_id"]
+        for stream in promoted_again["validation_streams"]
+    ]
+    assert len(list((tmp_path / "validation-evidence").glob("*.json"))) == 4
+
+    pending_convergence = convergence()
+    pending_convergence["runtimes"][0].update(
+        {
+            "status": "deployment-required",
+            "health": None,
+            "verification_status": None,
+            "operator_acceptance": None,
+            "operator_evidence": None,
+            "capabilities_behind": ["Service"],
+        }
+    )
+    pending = projector.build(inventory, graph, pending_convergence)
+    mission = ActiveMissionState(tmp_path).reconcile(inventory, graph, pending)
+    stream_actions = [
+        action
+        for action in mission["generated_actions"]
+        if action["kind"] == "validate-capability-stream"
+    ]
+    assert len(stream_actions) == 4
+    assert {action["target"] for action in stream_actions} == set(streams)
 
 
 def test_stale_downstream_assignments_are_satisfied_by_current_evidence():

@@ -24,6 +24,8 @@ ACTION_CONTRACT_FIELDS = {
     "expected_evidence",
     "convergence_fingerprint",
     "evidence_model_fingerprint",
+    "applicability_model_revision",
+    "pre_snapshot",
     "suppression_fingerprint",
 }
 

@@ -136,11 +136,12 @@ def _capability_gate_counts(capabilities: dict) -> tuple[int, int]:
     for capability in capabilities.get("capabilities") or []:
         name = str(capability.get("capability") or "")
         for runtime_name in capability.get("projected_runtimes") or []:
-            total += 1
             runtime = runtimes.get(str(runtime_name)) or {}
+            if runtime_name == "mbair" or runtime.get("participation") == "optional":
+                continue
+            total += 1
             if (
-                runtime_name != "mbair"
-                and runtime.get("status") == "converged"
+                runtime.get("status") == "converged"
                 and runtime.get("verification_status") == "verified"
                 and name not in (runtime.get("capabilities_behind") or [])
             ):
@@ -182,15 +183,20 @@ def render_executive_dashboard(
     runtime_records = {
         str(value.get("runtime")): value for value in capabilities.get("runtimes") or []
     }
+    required_runtime_records = {
+        name: value
+        for name, value in runtime_records.items()
+        if name != "mbair" and value.get("participation") != "optional"
+    }
     deployed = sum(
-        runtime_name != "mbair" and value.get("status") == "converged"
-        for runtime_name, value in runtime_records.items()
+        value.get("status") == "converged"
+        for value in required_runtime_records.values()
     )
     validated = sum(
-        runtime_name != "mbair" and value.get("verification_status") == "verified"
-        for runtime_name, value in runtime_records.items()
+        value.get("verification_status") == "verified"
+        for value in required_runtime_records.values()
     )
-    runtime_total = max(4, len(runtime_records))
+    runtime_total = len(required_runtime_records)
     gate_passed, gate_total = _capability_gate_counts(capabilities)
     primary_kpi = graduation.get("primary_kpi") or {
         "count": gate_passed,
@@ -206,6 +212,14 @@ def render_executive_dashboard(
     }
     operator_confidence = float(graduation.get("operator_confidence") or 0)
     milestone_graduation = graduation.get("milestones") or []
+    validation_streams = graduation.get("validation_streams") or []
+    promoted_streams = sum(
+        value.get("status") == "evidence-promoted" for value in validation_streams
+    )
+    validation_findings = sum(
+        len((value.get("evidence") or {}).get("findings") or [])
+        for value in validation_streams
+    )
     milestone_debts = sum(
         len(value.get("debts") or []) for value in milestone_graduation
     )
@@ -285,7 +299,9 @@ def render_executive_dashboard(
             f"{int(effectiveness.get('assignments_evaluated') or 0)}* "
             f"({float(effectiveness.get('effectiveness_percent') or 100):g}%)\n"
             f"Suppressed unchanged actions: *{int(effectiveness.get('suppressed_fingerprints') or 0)}* | "
-            f"State contract defects: *{int(effectiveness.get('state_model_defects') or 0)}*",
+            f"State contract defects: *{int(effectiveness.get('state_model_defects') or 0)}*\n"
+            f"Gates reduced: *{int(effectiveness.get('gates_reduced') or 0)}* | "
+            f"Confidence delta: *{float(effectiveness.get('confidence_delta') or 0):+g} points*",
         ),
         (
             "Milestone Graduation",
@@ -335,6 +351,8 @@ def render_executive_dashboard(
             "Capability Graduation",
             f"Graduation proof `{progress_bar(graduated_capabilities, capability_total)}` "
             f"*{graduated_capabilities}/{capability_total} graduated*\n"
+            f"Validation streams: *{promoted_streams}/{len(validation_streams)} evidence promoted* | "
+            f"Findings: *{validation_findings}*\n"
             f"Promotion: {public_text((capabilities.get('promotion_status') or {}).get('reason') or 'No capability projection available')}",
         ),
         (

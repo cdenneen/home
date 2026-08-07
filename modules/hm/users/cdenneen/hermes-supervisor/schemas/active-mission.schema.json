@@ -75,6 +75,8 @@
           "expected_evidence",
           "convergence_fingerprint",
           "evidence_model_fingerprint",
+          "applicability_model_revision",
+          "pre_snapshot",
           "suppression_fingerprint"
         ],
         "properties": {
@@ -111,6 +113,8 @@
           },
           "convergence_fingerprint": { "type": ["string", "null"] },
           "evidence_model_fingerprint": { "type": "string" },
+          "applicability_model_revision": { "type": "string", "minLength": 1 },
+          "pre_snapshot": { "type": "object" },
           "suppression_fingerprint": {
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$"
@@ -153,6 +157,9 @@
           "expected_gates",
           "observed_gates",
           "observed_delta",
+          "pre_snapshot",
+          "post_snapshot",
+          "normalized_delta",
           "zero_effect_cycles",
           "classification",
           "evaluated_at"
@@ -181,9 +188,17 @@
             }
           },
           "observed_delta": { "type": "boolean" },
+          "pre_snapshot": { "type": "object" },
+          "post_snapshot": { "type": "object" },
+          "normalized_delta": { "type": "object" },
           "zero_effect_cycles": { "type": "integer", "minimum": 0 },
           "classification": {
-            "enum": ["effective", "zero-effect", "state-model-defect"]
+            "enum": [
+              "effective",
+              "applicability-revised",
+              "zero-effect",
+              "state-model-defect"
+            ]
           },
           "evaluated_at": { "type": "string", "format": "date-time" }
         },
@@ -198,6 +213,9 @@
         "zero_effect_assignments",
         "suppressed_fingerprints",
         "state_model_defects",
+        "applicability_revisions",
+        "gates_reduced",
+        "confidence_delta",
         "effectiveness_percent"
       ],
       "properties": {
@@ -206,6 +224,9 @@
         "zero_effect_assignments": { "type": "integer", "minimum": 0 },
         "suppressed_fingerprints": { "type": "integer", "minimum": 0 },
         "state_model_defects": { "type": "integer", "minimum": 0 },
+        "applicability_revisions": { "type": "integer", "minimum": 0 },
+        "gates_reduced": { "type": "integer", "minimum": 0 },
+        "confidence_delta": { "type": "number" },
         "effectiveness_percent": {
           "type": "number",
           "minimum": 0,

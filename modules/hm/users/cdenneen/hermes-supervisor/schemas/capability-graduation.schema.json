@@ -2,11 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "axis.external-development-supervisor.capability-graduation",
   "$defs": {
+    "applicability": {
+      "enum": ["required", "conditional", "not-applicable"]
+    },
     "gate": {
       "type": "object",
-      "required": ["applicable", "state", "evidence"],
+      "required": ["applicable", "applicability", "state", "evidence"],
       "properties": {
         "applicable": { "type": "boolean" },
+        "applicability": {
+          "enum": ["required", "conditional", "not-applicable"]
+        },
         "state": { "enum": ["passed", "pending", "blocked", "not-required"] },
         "evidence": { "type": "array", "items": { "type": "string" } }
       },
@@ -30,6 +36,7 @@
     "generated_at",
     "projection_digest",
     "effectiveness_fingerprint",
+    "applicability_model_revision",
     "source_inventory_generation_id",
     "source_graph_generation_id",
     "source_convergence_digest",
@@ -39,6 +46,7 @@
     "operator_confidence",
     "denominator",
     "capabilities",
+    "validation_streams",
     "milestones",
     "action_scores"
   ],
@@ -46,7 +54,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.capability-graduation"
     },
-    "schema_version": { "const": "3.0.0" },
+    "schema_version": { "const": "4.0.0" },
     "generated_at": { "type": "string", "format": "date-time" },
     "projection_digest": {
       "type": "string",
@@ -56,6 +64,7 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "applicability_model_revision": { "type": "string", "minLength": 1 },
     "source_inventory_generation_id": { "type": ["string", "null"] },
     "source_graph_generation_id": { "type": ["string", "null"] },
     "source_convergence_digest": { "type": ["string", "null"] },
@@ -103,10 +112,14 @@
           "capability",
           "paths",
           "projected_runtimes",
+          "required_runtimes",
           "linked_work_items",
           "gate_applicability",
           "graduation_state",
           "graduation_confidence",
+          "gate_denominator",
+          "gates_passed",
+          "first_failing_gate",
           "operator_confidence",
           "program_risk",
           "invalidation_fingerprint",
@@ -117,6 +130,10 @@
           "capability": { "type": "string", "minLength": 1 },
           "paths": { "type": "array", "items": { "type": "string" } },
           "projected_runtimes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "required_runtimes": {
             "type": "array",
             "items": { "type": "string" }
           },
@@ -136,13 +153,13 @@
               "program_risk"
             ],
             "properties": {
-              "implementation": { "type": "boolean" },
-              "integration": { "type": "boolean" },
-              "deployment": { "type": "boolean" },
-              "validation": { "type": "boolean" },
-              "verification": { "type": "boolean" },
-              "operator_acceptance": { "type": "boolean" },
-              "program_risk": { "type": "boolean" }
+              "implementation": { "$ref": "#/$defs/applicability" },
+              "integration": { "$ref": "#/$defs/applicability" },
+              "deployment": { "$ref": "#/$defs/applicability" },
+              "validation": { "$ref": "#/$defs/applicability" },
+              "verification": { "$ref": "#/$defs/applicability" },
+              "operator_acceptance": { "$ref": "#/$defs/applicability" },
+              "program_risk": { "$ref": "#/$defs/applicability" }
             },
             "additionalProperties": false
           },
@@ -175,6 +192,9 @@
             "minimum": 0,
             "maximum": 100
           },
+          "gate_denominator": { "type": "integer", "minimum": 0 },
+          "gates_passed": { "type": "integer", "minimum": 0 },
+          "first_failing_gate": { "type": ["string", "null"] },
           "operator_confidence": {
             "type": "number",
             "minimum": 0,
@@ -194,6 +214,7 @@
         "additionalProperties": false
       }
     },
+    "validation_streams": { "type": "array", "items": { "type": "object" } },
     "milestones": { "type": "array", "items": { "type": "object" } },
     "action_scores": { "type": "array", "items": { "type": "object" } }
   },
