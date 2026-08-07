@@ -13,7 +13,12 @@ from .repository_ownership import (
     resolve_repository_ownership,
     validate_repository_ownership,
 )
-from .schema_registry import RecordVersionError, read_record, write_record
+from .schema_registry import (
+    RecordVersionError,
+    read_record,
+    validate_record,
+    write_record,
+)
 
 HANDOFF_SCHEMA = "axis.external-development-supervisor.implementation-handoff"
 INTEGRATION_QUEUE_SCHEMA = "axis.external-development-supervisor.integration-queue"
@@ -144,9 +149,41 @@ class WorkflowState:
         )
         return handoff
 
+    def adapt_handoff(self, handoff: dict) -> dict:
+        value = dict(handoff)
+        if value.get("schema") != HANDOFF_SCHEMA:
+            validate_record(value, HANDOFF_SCHEMA)
+        if value.get("schema_version") == "1.0.0":
+            ownership = resolve_repository_ownership(
+                [value.get("responsibility")],
+                value.get("repository"),
+                context=f"implementation-handoff-v1-migration:{value.get('assignment_id')}",
+                allow_repository_inference=True,
+            )
+            value["schema_version"] = "2.0.0"
+            value["responsibility"] = ownership["responsibility"]
+            value["repository_ownership"] = ownership
+        validate_record(value, HANDOFF_SCHEMA)
+        return value
+
+    def load_handoff(self, assignment_id: str) -> dict:
+        path = self.handoffs / f"{assignment_id}.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        migrated = self.adapt_handoff(value)
+        if migrated != value:
+            self._authorize()
+            write_record(path, migrated, HANDOFF_SCHEMA)
+        return migrated
+
     def enqueue(
         self, assignment: dict, handoff: dict, reviewer: str
     ) -> dict:
+        original_handoff = handoff
+        handoff = self.adapt_handoff(handoff)
+        handoff_path = self.handoffs / f"{assignment['assignment_id']}.json"
+        if handoff != original_handoff or not handoff_path.exists():
+            self._authorize()
+            write_record(handoff_path, handoff, HANDOFF_SCHEMA)
         ownership = assignment_ownership(
             assignment,
             context=f"reviewer-handoff:{assignment.get('assignment_id')}",

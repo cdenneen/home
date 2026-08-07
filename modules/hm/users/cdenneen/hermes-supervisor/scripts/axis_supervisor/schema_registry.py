@@ -19,6 +19,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.executable-frontier": "executable-frontier.schema.json",
     "axis.external-development-supervisor.execution-graph": "execution-graph.schema.json",
     "axis.external-development-supervisor.implementation-handoff": "implementation-handoff.schema.json",
+    "axis.external-development-supervisor.independent-review-output": "independent-review.schema.json",
     "axis.external-development-supervisor.integration-queue": "integration-queue.schema.json",
     "axis.external-development-supervisor.inventory": "inventory.schema.json",
     "axis.external-development-supervisor.lease": "lease.schema.json",

@@ -453,6 +453,46 @@ def test_action_48_backfill_records_partial_effect_without_suppression(tmp_path:
     assert mission["effectiveness_metrics"]["gates_reduced"] == 2
 
 
+def test_empty_expected_gates_never_use_aggregate_fingerprint_effectiveness(
+    tmp_path: Path,
+):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    current = graduation(capability("Service", missing_gate="verification"))
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "empty-gates.json").write_text(
+        json.dumps(
+            {
+                "assignment_id": "empty-gates",
+                "project": "ghostspace/axis",
+                "work_item": "Service",
+                "lifecycle_state": "completed",
+                "result_state": "no-op-verification-completed",
+                "action_contract": {
+                    "action_id": "empty-gates",
+                    "source_ref": "Service",
+                    "expected_gates": [],
+                    "expected_capabilities": ["Service"],
+                    "evidence_model_fingerprint": "sha256:" + "0" * 64,
+                    "applicability_model_revision": "legacy-boolean-v1",
+                    "suppression_fingerprint": "sha256:" + "1" * 64,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    current["effectiveness_fingerprint"] = "sha256:" + "f" * 64
+
+    evaluation = ActiveMissionState(tmp_path).reconcile(
+        {}, graph(), current
+    )["action_effectiveness"][0]
+
+    assert evaluation["observed_gates"] == []
+    assert evaluation["classification"] == "zero-effect"
+
+
 def test_effectiveness_requires_exact_expected_gate_not_unrelated_progress(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 

@@ -20,7 +20,10 @@ def _enqueue_concurrently(root: str, index: int) -> None:
         "responsibility": "axis-runtime/product",
     }
     handoff = {
+        "schema": "axis.external-development-supervisor.implementation-handoff",
+        "schema_version": "2.0.0",
         "assignment_id": assignment["assignment_id"],
+        "work_item": assignment["work_item"],
         "repository": "ghostspace/axis",
         "responsibility": "axis-runtime/product",
         "repository_ownership": {
@@ -39,8 +42,16 @@ def _enqueue_concurrently(root: str, index: int) -> None:
                 "deployment/realistic-validation": "ghostspace/axis-lab",
             },
         },
+        "branch": f"hermes/assignment-{index}",
+        "commit": "a" * 40,
+        "allowed_paths": [],
+        "changed_paths": [],
+        "tests": [],
         "mr_iid": index,
         "mr_url": f"https://gitlab.com/ghostspace/axis/-/merge_requests/{index}",
+        "source_main_sha": "b" * 40,
+        "created_at": "2026-08-07T00:00:00+00:00",
+        "state": "ready-for-integration",
     }
     WorkflowState(path).enqueue(assignment, handoff, "reviewer-one")
 
@@ -205,6 +216,25 @@ def test_persisted_v1_integration_queue_migrates_ownership_in_place(tmp_path: Pa
     assert persisted["items"][0]["repository_ownership"]["status"] == "validated"
 
 
+def test_persisted_v1_handoff_migrates_ownership_in_place(tmp_path: Path):
+    from axis_supervisor.workflow_state import WorkflowState
+
+    write_control(tmp_path)
+    handoffs = tmp_path / "implementation-handoffs"
+    handoffs.mkdir()
+    fixture = ROOT / "tests" / "fixtures" / "implementation-handoff-v1.json"
+    path = handoffs / "persisted-v1-handoff.json"
+    path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    migrated = WorkflowState(tmp_path).load_handoff("persisted-v1-handoff")
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+
+    assert migrated == persisted
+    assert persisted["schema_version"] == "2.0.0"
+    assert persisted["responsibility"] == "axis-runtime/product"
+    assert persisted["repository_ownership"]["status"] == "validated"
+
+
 def test_concurrent_queue_mutations_preserve_every_item_and_fault_is_atomic(tmp_path: Path):
     from axis_supervisor.workflow_state import WorkflowState
 
@@ -272,6 +302,58 @@ def test_integrator_collects_main_advance_paths_from_compare_api():
     )
 
     assert inspection["mr"]["main_changed_paths"] == ["docs/readme.md"]
+    assert inspection["mr"]["main_changed_paths_complete"] is True
+
+
+@pytest.mark.parametrize("truncation", ["compare_timeout", "too_large"])
+def test_integrator_marks_truncated_main_compare_unassessed(truncation: str):
+    from axis_supervisor.integrator import Integrator
+    from axis_supervisor.workflow_state import classify_main_advance
+
+    class FakeIntegrator(Integrator):
+        def __init__(self):
+            super().__init__("glab")
+
+        def api(self, path: str):
+            if "/merge_requests/7/approvals" in path:
+                return {"approvals_left": 0}
+            if "/merge_requests/7/discussions" in path:
+                return []
+            if "/repository/compare?" in path:
+                return {
+                    truncation: True,
+                    "diffs": [{"new_path": "docs/readme.md"}],
+                }
+            return {
+                "state": "opened",
+                "draft": False,
+                "has_conflicts": False,
+                "target_branch": "main",
+                "diff_refs": {"base_sha": "b" * 40},
+                "head_pipeline": {"status": "success"},
+            }
+
+    inspection = FakeIntegrator().inspect_mr(
+        "ghostspace/axis",
+        7,
+        responsibility="axis-runtime/product",
+        source_main_sha="a" * 40,
+    )
+    mr = inspection["mr"]
+
+    assert mr["main_changed_paths_complete"] is False
+    assert mr["main_changed_paths"] == []
+    assert (
+        classify_main_advance(
+            "a" * 40,
+            "b" * 40,
+            ["src/example.py"],
+            mr["main_changed_paths"]
+            if mr["main_changed_paths_complete"]
+            else None,
+        )
+        == "advanced-unassessed"
+    )
 
 
 def test_main_advance_classification():
@@ -680,6 +762,29 @@ def test_periodic_reconciliation_recovers_pending_decision_rebuild(tmp_path: Pat
     ) == [DECISION_ID]
     assert rebuilt == [True]
     assert controller.store.load_frontier_request(DECISION_ID)["status"] == "completed"
+
+
+def test_cycle_periodic_recovery_invokes_a_real_nonrecursive_rebuild(monkeypatch):
+    from axis_supervisor import cycle
+
+    rebuild_calls = []
+
+    def rebuild(*, reconcile_decisions: bool = True):
+        rebuild_calls.append(reconcile_decisions)
+        return {"fresh": True}
+
+    def reconcile(_root: Path, callback):
+        callback()
+        return ["decision-1"]
+
+    monkeypatch.setattr(cycle, "rebuild", rebuild)
+    monkeypatch.setattr(cycle, "reconcile_pending_frontier_rebuilds", reconcile)
+
+    completed, graph = cycle.recover_pending_decisions()
+
+    assert completed == ["decision-1"]
+    assert graph == {"fresh": True}
+    assert rebuild_calls == [False]
 
 
 def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Path):

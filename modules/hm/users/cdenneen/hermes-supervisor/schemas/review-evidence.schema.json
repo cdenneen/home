@@ -1,6 +1,49 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "axis.external-development-supervisor.review-evidence",
+  "$defs": {
+    "channel": {
+      "type": "object",
+      "required": ["complete", "count", "digest"],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "count": { "type": "integer", "minimum": 0 },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "disposition": {
+      "type": "object",
+      "required": [
+        "disposition_id",
+        "finding_id",
+        "reviewed_sha",
+        "status",
+        "rationale",
+        "evidence"
+      ],
+      "properties": {
+        "disposition_id": {
+          "type": "string",
+          "pattern": "^disposition-[0-9a-f]{24}$"
+        },
+        "finding_id": { "type": "string", "pattern": "^finding-[0-9a-f]{24}$" },
+        "reviewed_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "status": {
+          "enum": [
+            "fixed",
+            "false-positive",
+            "superseded",
+            "accepted-risk",
+            "deferred"
+          ]
+        },
+        "rationale": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
   "type": "object",
   "required": [
     "schema",
@@ -8,30 +51,37 @@
     "repository",
     "pr_number",
     "pr_url",
+    "author",
     "current_sha",
     "status",
+    "session_id",
     "started_at",
     "updated_at",
     "deadline_at",
     "poll_count",
     "pr_state",
     "is_draft",
+    "policy",
     "reviewers",
     "checks",
+    "channels",
+    "diff",
     "findings",
     "independent_review",
     "blockers",
-    "poll_history"
+    "poll_history",
+    "last_error"
   ],
   "properties": {
     "schema": {
       "const": "axis.external-development-supervisor.review-evidence"
     },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
     "pr_number": { "type": "integer", "minimum": 1 },
     "pr_url": { "type": ["string", "null"], "format": "uri" },
-    "current_sha": { "type": ["string", "null"] },
+    "author": { "type": "string", "minLength": 1 },
+    "current_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
     "status": {
       "enum": [
         "settling",
@@ -42,12 +92,37 @@
         "unavailable"
       ]
     },
+    "session_id": { "type": "string", "format": "uuid" },
     "started_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
     "deadline_at": { "type": "string", "format": "date-time" },
-    "poll_count": { "type": "integer", "minimum": 1 },
+    "poll_count": { "type": "integer", "minimum": 0 },
     "pr_state": { "type": "string" },
     "is_draft": { "type": "boolean" },
+    "policy": {
+      "type": "object",
+      "required": [
+        "required_human_approvals",
+        "required_reviewers",
+        "required_checks"
+      ],
+      "properties": {
+        "required_human_approvals": { "type": "integer", "minimum": 1 },
+        "required_reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "required_checks": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
     "reviewers": {
       "type": "array",
       "items": {
@@ -55,7 +130,6 @@
         "required": [
           "reviewer",
           "kind",
-          "required",
           "state",
           "reviewed_sha",
           "reviewed_at"
@@ -63,9 +137,11 @@
         "properties": {
           "reviewer": { "type": "string", "minLength": 1 },
           "kind": { "enum": ["human", "bot"] },
-          "required": { "type": "boolean" },
           "state": { "type": "string" },
-          "reviewed_sha": { "type": ["string", "null"] },
+          "reviewed_sha": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{40}$"
+          },
           "reviewed_at": { "type": ["string", "null"], "format": "date-time" }
         },
         "additionalProperties": false
@@ -75,14 +151,49 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "state", "url"],
+        "required": ["name", "state", "url", "sha"],
         "properties": {
-          "name": { "type": "string" },
-          "state": { "enum": ["passed", "pending", "failed"] },
-          "url": { "type": ["string", "null"], "format": "uri" }
+          "name": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["passed", "pending", "failed", "skipped"] },
+          "url": { "type": ["string", "null"], "format": "uri" },
+          "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
         },
         "additionalProperties": false
       }
+    },
+    "channels": {
+      "type": "object",
+      "required": [
+        "reviews",
+        "review_comments",
+        "issue_comments",
+        "checks",
+        "diff"
+      ],
+      "properties": {
+        "reviews": { "$ref": "#/$defs/channel" },
+        "review_comments": { "$ref": "#/$defs/channel" },
+        "issue_comments": { "$ref": "#/$defs/channel" },
+        "checks": { "$ref": "#/$defs/channel" },
+        "diff": { "$ref": "#/$defs/channel" }
+      },
+      "additionalProperties": false
+    },
+    "diff": {
+      "type": "object",
+      "required": ["reviewed_sha", "digest", "size_bytes"],
+      "properties": {
+        "reviewed_sha": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "size_bytes": { "type": "integer", "minimum": 0, "maximum": 500000 }
+      },
+      "additionalProperties": false
     },
     "findings": {
       "type": "array",
@@ -90,6 +201,8 @@
         "type": "object",
         "required": [
           "finding_id",
+          "channel",
+          "external_id",
           "reviewer",
           "severity",
           "path",
@@ -97,39 +210,33 @@
           "body",
           "url",
           "reviewed_sha",
+          "state",
           "disposition"
         ],
         "properties": {
-          "finding_id": { "type": "string", "minLength": 1 },
+          "finding_id": {
+            "type": "string",
+            "pattern": "^finding-[0-9a-f]{24}$"
+          },
+          "channel": {
+            "enum": [
+              "reviews",
+              "review_comments",
+              "issue_comments",
+              "independent_review"
+            ]
+          },
+          "external_id": { "type": "string", "minLength": 1 },
           "reviewer": { "type": "string", "minLength": 1 },
           "severity": { "enum": ["critical", "high", "medium", "low"] },
           "path": { "type": ["string", "null"] },
-          "line": { "type": ["integer", "null"] },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
           "body": { "type": "string", "minLength": 1 },
           "url": { "type": ["string", "null"], "format": "uri" },
-          "reviewed_sha": { "type": ["string", "null"] },
+          "reviewed_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "state": { "enum": ["active", "stale"] },
           "disposition": {
-            "oneOf": [
-              { "type": "null" },
-              {
-                "type": "object",
-                "required": ["status", "rationale", "evidence"],
-                "properties": {
-                  "status": {
-                    "enum": [
-                      "fixed",
-                      "false-positive",
-                      "superseded",
-                      "accepted-risk",
-                      "deferred"
-                    ]
-                  },
-                  "rationale": { "type": "string", "minLength": 1 },
-                  "evidence": { "type": "array", "items": { "type": "string" } }
-                },
-                "additionalProperties": false
-              }
-            ]
+            "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/disposition" }]
           }
         },
         "additionalProperties": false
@@ -144,6 +251,7 @@
             "reviewer",
             "model",
             "reviewed_sha",
+            "diff_digest",
             "reviewed_at",
             "summary",
             "finding_ids"
@@ -151,10 +259,17 @@
           "properties": {
             "reviewer": { "const": "gpt-5.4-independent" },
             "model": { "const": "gpt-5.4" },
-            "reviewed_sha": { "type": "string", "minLength": 1 },
+            "reviewed_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "diff_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
             "reviewed_at": { "type": "string", "format": "date-time" },
             "summary": { "type": "string" },
-            "finding_ids": { "type": "array", "items": { "type": "string" } }
+            "finding_ids": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^finding-[0-9a-f]{24}$" }
+            }
           },
           "additionalProperties": false
         }
@@ -169,12 +284,13 @@
         "properties": {
           "poll": { "type": "integer", "minimum": 1 },
           "observed_at": { "type": "string", "format": "date-time" },
-          "sha": { "type": ["string", "null"] },
+          "sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
           "status": { "type": "string" }
         },
         "additionalProperties": false
       }
-    }
+    },
+    "last_error": { "type": ["string", "null"] }
   },
   "additionalProperties": false
 }

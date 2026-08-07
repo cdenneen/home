@@ -1,25 +1,44 @@
 import argparse
+import fcntl
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .schema_registry import read_record, write_record
+from .schema_registry import RecordVersionError, read_record, validate_record
 
 SCHEMA = "axis.external-development-supervisor.review-evidence"
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "2.0.0"
+INDEPENDENT_SCHEMA = "axis.external-development-supervisor.independent-review-output"
 RESOLVED_DISPOSITIONS = {"fixed", "false-positive", "superseded"}
 BOT_REVIEWERS = {"greptile-apps", "greptile-apps[bot]"}
 SEVERITY = {"P0": "critical", "P1": "high", "P2": "medium", "P3": "low"}
+CHANNELS = ("reviews", "review_comments", "issue_comments", "checks", "diff")
+
+
+class HeadChanged(RuntimeError):
+    pass
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _digest(value: object) -> str:
+    payload = (
+        value.encode()
+        if isinstance(value, str)
+        else json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    )
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 def _json(command: list[str], timeout: int = 120) -> object:
@@ -27,9 +46,40 @@ def _json(command: list[str], timeout: int = 120) -> object:
     return json.loads(output)
 
 
-def _finding_id(reviewer: str, path: str | None, body: str) -> str:
-    payload = "\x00".join((reviewer, path or "", body)).encode()
-    return "finding-" + hashlib.sha256(payload).hexdigest()[:20]
+def _pages(command: list[str], timeout: int = 120) -> list:
+    value = _json([*command, "--paginate", "--slurp"], timeout)
+    if not isinstance(value, list):
+        raise TypeError("paginated GitHub response must be an array")
+    return value
+
+
+def _flatten_pages(pages: list, key: str | None = None) -> list[dict]:
+    values = []
+    for page in pages:
+        page_values = page.get(key) if key and isinstance(page, dict) else page
+        if not isinstance(page_values, list):
+            raise TypeError("paginated GitHub page has an unexpected shape")
+        values.extend(value for value in page_values if isinstance(value, dict))
+    return values
+
+
+def _finding_id(
+    channel: str,
+    external_id: str,
+    reviewer: str,
+    reviewed_sha: str,
+    body: str,
+) -> str:
+    payload = "\x00".join(
+        (channel, external_id, reviewer, reviewed_sha, _digest(body))
+    ).encode()
+    return "finding-" + hashlib.sha256(payload).hexdigest()[:24]
+
+
+def _disposition_id(disposition: dict) -> str:
+    return "disposition-" + hashlib.sha256(
+        json.dumps(disposition, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()[:24]
 
 
 def _severity(body: str) -> str | None:
@@ -37,195 +87,581 @@ def _severity(body: str) -> str | None:
     return SEVERITY.get(next(value for value in match.groups() if value)) if match else None
 
 
-def _extract_json(text: str) -> dict:
-    decoder = json.JSONDecoder()
-    for match in re.finditer(r"\{", text):
-        try:
-            value, _ = decoder.raw_decode(text[match.start() :])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            return value
-    raise ValueError("independent review output contained no JSON object")
+def _reviewed_sha(value: dict, fallback: str) -> str:
+    explicit = str(value.get("commit_id") or "")
+    if re.fullmatch(r"[0-9a-f]{40}", explicit):
+        return explicit
+    body_match = re.search(r"/(?:commit|commits)/([0-9a-f]{40})\b", str(value.get("body") or ""))
+    return body_match.group(1) if body_match else fallback
+
+
+def _finding(channel: str, value: dict, head_sha: str) -> dict | None:
+    body = str(value.get("body") or "")
+    severity = _severity(body)
+    if severity is None:
+        return None
+    reviewed_sha = _reviewed_sha(value, head_sha)
+    reviewer = str((value.get("user") or {}).get("login") or "unknown")
+    external_id = str(value.get("id") or value.get("node_id") or _digest(body))
+    return {
+        "finding_id": _finding_id(
+            channel, external_id, reviewer, reviewed_sha, body
+        ),
+        "channel": channel,
+        "external_id": external_id,
+        "reviewer": reviewer,
+        "severity": severity,
+        "path": value.get("path"),
+        "line": value.get("line") or value.get("original_line"),
+        "body": body,
+        "url": value.get("html_url"),
+        "reviewed_sha": reviewed_sha,
+        "state": "active" if reviewed_sha == head_sha else "stale",
+        "disposition": None,
+    }
 
 
 def _check_state(check: dict) -> str:
     conclusion = str(check.get("conclusion") or "").upper()
     status = str(check.get("status") or check.get("state") or "").upper()
-    if conclusion in {"SUCCESS", "NEUTRAL", "SKIPPED"} or status == "SUCCESS":
+    if conclusion in {"SUCCESS", "NEUTRAL"} or status == "SUCCESS":
         return "passed"
+    if conclusion == "SKIPPED":
+        return "skipped"
     if conclusion in {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"}:
         return "failed"
     return "pending"
 
 
+def _channel(values: object, *, complete: bool = True) -> dict:
+    count = len(values) if isinstance(values, list) else 1
+    return {"complete": complete, "count": count, "digest": _digest(values)}
+
+
 def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
-    pr = _json(
+    endpoint = f"repos/{repo}/pulls/{pr_number}"
+    pr = _json([gh, "api", endpoint])
+    if not isinstance(pr, dict):
+        raise TypeError("GitHub pull request response must be an object")
+    head_sha = str((pr.get("head") or {}).get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+        raise ValueError("GitHub pull request response omitted an exact head SHA")
+    reviews = _flatten_pages(
+        _pages([gh, "api", f"{endpoint}/reviews?per_page=100"])
+    )
+    review_comments = _flatten_pages(
+        _pages([gh, "api", f"{endpoint}/comments?per_page=100"])
+    )
+    issue_comments = _flatten_pages(
+        _pages([gh, "api", f"repos/{repo}/issues/{pr_number}/comments?per_page=100"])
+    )
+    check_runs = _flatten_pages(
+        _pages(
+            [
+                gh,
+                "api",
+                f"repos/{repo}/commits/{head_sha}/check-runs?filter=latest&per_page=100",
+            ]
+        ),
+        "check_runs",
+    )
+    status_response = _json([gh, "api", f"repos/{repo}/commits/{head_sha}/status"])
+    if not isinstance(status_response, dict):
+        raise TypeError("GitHub combined status response must be an object")
+    statuses = [
+        value
+        for value in status_response.get("statuses") or []
+        if isinstance(value, dict)
+    ]
+    diff = subprocess.check_output(
         [
             gh,
-            "pr",
-            "view",
-            str(pr_number),
-            "--repo",
-            repo,
-            "--json",
-            "number,url,headRefOid,isDraft,state,reviewDecision,reviews,reviewRequests,statusCheckRollup",
-        ]
-    )
-    comments = _json(
-        [gh, "api", f"repos/{repo}/pulls/{pr_number}/comments", "--paginate"]
-    )
-    if not isinstance(pr, dict) or not isinstance(comments, list):
-        raise TypeError("GitHub review evidence response has an unexpected shape")
-    requested = {
-        str((value.get("login") or (value.get("requestedReviewer") or {}).get("login")) or "")
-        for value in pr.get("reviewRequests") or []
-    }
-    requested.discard("")
-    latest_reviews = {}
-    for review in pr.get("reviews") or []:
-        login = str((review.get("author") or {}).get("login") or "")
-        if login:
-            latest_reviews[login] = review
-    reviewers = []
-    for login in sorted(requested | set(latest_reviews)):
-        review = latest_reviews.get(login) or {}
-        commit = review.get("commit") or {}
-        reviewers.append(
-            {
-                "reviewer": login,
-                "kind": "bot" if login in BOT_REVIEWERS else "human",
-                "required": login in requested and login not in BOT_REVIEWERS,
-                "state": str(review.get("state") or "PENDING").lower(),
-                "reviewed_sha": commit.get("oid"),
-                "reviewed_at": review.get("submittedAt"),
-            }
-        )
-    findings = []
-    for comment in comments:
-        body = str(comment.get("body") or "")
-        severity = _severity(body)
-        if severity is None:
-            continue
-        reviewer = str((comment.get("user") or {}).get("login") or "unknown")
-        path = comment.get("path")
-        findings.append(
-            {
-                "finding_id": _finding_id(reviewer, path, body),
-                "reviewer": reviewer,
-                "severity": severity,
-                "path": path,
-                "line": comment.get("line") or comment.get("original_line"),
-                "body": body,
-                "url": comment.get("html_url"),
-                "reviewed_sha": comment.get("commit_id"),
-                "disposition": None,
-            }
-        )
-    checks = [
-        {
-            "name": str(value.get("name") or value.get("context") or "unknown"),
-            "state": _check_state(value),
-            "url": value.get("detailsUrl") or value.get("targetUrl"),
-        }
-        for value in pr.get("statusCheckRollup") or []
-    ]
-    return {
-        "repository": repo,
-        "pr_number": pr_number,
-        "pr_url": pr["url"],
-        "current_sha": pr["headRefOid"],
-        "pr_state": str(pr.get("state") or "UNKNOWN").lower(),
-        "is_draft": bool(pr.get("isDraft")),
-        "reviewers": reviewers,
-        "findings": findings,
-        "checks": checks,
-    }
-
-
-def default_model_review(repo: str, pr_number: int, sha: str, gh: str, hermes: str) -> dict:
-    diff = subprocess.check_output(
-        [gh, "pr", "diff", str(pr_number), "--repo", repo],
+            "api",
+            endpoint,
+            "-H",
+            "Accept: application/vnd.github.v3.diff",
+        ],
         text=True,
         timeout=120,
     )
     if len(diff.encode()) > 500_000:
         raise RuntimeError("PR diff exceeds independent review bound")
+    refreshed = _json([gh, "api", endpoint])
+    refreshed_sha = (
+        str((refreshed.get("head") or {}).get("sha") or "")
+        if isinstance(refreshed, dict)
+        else ""
+    )
+    if refreshed_sha != head_sha:
+        raise HeadChanged(f"pull request head changed from {head_sha} to {refreshed_sha}")
+
+    requested = {
+        str(value.get("login") or "")
+        for value in pr.get("requested_reviewers") or []
+        if value.get("login")
+    }
+    latest_reviews = {}
+    for review in sorted(reviews, key=lambda value: str(value.get("submitted_at") or "")):
+        login = str((review.get("user") or {}).get("login") or "")
+        if login:
+            latest_reviews[login] = review
+    reviewers = []
+    for login in sorted(requested | set(latest_reviews)):
+        review = latest_reviews.get(login) or {}
+        reviewers.append(
+            {
+                "reviewer": login,
+                "kind": "bot" if login in BOT_REVIEWERS else "human",
+                "state": str(review.get("state") or "PENDING").lower(),
+                "reviewed_sha": review.get("commit_id"),
+                "reviewed_at": review.get("submitted_at"),
+            }
+        )
+    findings = [
+        finding
+        for channel_name, values in (
+            ("reviews", reviews),
+            ("review_comments", review_comments),
+            ("issue_comments", issue_comments),
+        )
+        for value in values
+        if (finding := _finding(channel_name, value, head_sha)) is not None
+    ]
+    checks = [
+        {
+            "name": str(value.get("name") or "unknown"),
+            "state": _check_state(value),
+            "url": value.get("details_url"),
+            "sha": head_sha,
+        }
+        for value in check_runs
+    ]
+    checks.extend(
+        {
+            "name": str(value.get("context") or "unknown"),
+            "state": "passed"
+            if value.get("state") == "success"
+            else "pending"
+            if value.get("state") in {"pending", "expected"}
+            else "failed",
+            "url": value.get("target_url"),
+            "sha": head_sha,
+        }
+        for value in statuses
+    )
+    return {
+        "repository": repo,
+        "pr_number": pr_number,
+        "pr_url": pr.get("html_url"),
+        "author": str((pr.get("user") or {}).get("login") or ""),
+        "current_sha": head_sha,
+        "pr_state": str(pr.get("state") or "unknown").lower(),
+        "is_draft": bool(pr.get("draft")),
+        "reviewers": reviewers,
+        "findings": findings,
+        "checks": checks,
+        "channels": {
+            "reviews": _channel(reviews),
+            "review_comments": _channel(review_comments),
+            "issue_comments": _channel(issue_comments),
+            "checks": _channel([check_runs, statuses]),
+            "diff": _channel(diff),
+        },
+        "diff": {
+            "reviewed_sha": head_sha,
+            "digest": _digest(diff),
+            "size_bytes": len(diff.encode()),
+        },
+        "_diff_text": diff,
+    }
+
+
+def default_model_review(
+    repo: str,
+    pr_number: int,
+    sha: str,
+    diff: str,
+    diff_digest: str,
+    hermes: str,
+) -> dict:
+    if _digest(diff) != diff_digest:
+        raise ValueError("independent review diff digest mismatch")
     prompt = f"""You are the independent GPT-5.4 merge reviewer for {repo}#{pr_number} at exact SHA {sha}.
-Review the complete diff below for correctness, durable-state migration, concurrency, security, and missing tests.
-Return only JSON: {{"summary":"...","findings":[{{"severity":"critical|high|medium|low","path":"path","line":1,"body":"actionable finding"}}]}}.
+Review the exact complete diff below for correctness, durable-state migration, concurrency, security, and missing tests.
+Return only this strict JSON object:
+{{"schema":"{INDEPENDENT_SCHEMA}","schema_version":"1.0.0","reviewed_sha":"{sha}","diff_digest":"{diff_digest}","summary":"...","findings":[{{"severity":"critical|high|medium|low","path":"path or null","line":1,"body":"actionable finding"}}]}}
 Do not approve based on another reviewer. Empty findings is valid only when no defect remains.
 
 {diff}
 """
-    output = subprocess.check_output(
+    launcher = Path(shutil.which(hermes) or hermes).resolve()
+    match = re.search(
+        r"export HERMES_PYTHON='([^']+)'", launcher.read_text(encoding="utf-8")
+    )
+    if not match or not Path(match.group(1)).is_file():
+        raise RuntimeError("Hermes launcher does not declare a valid HERMES_PYTHON")
+    completed = subprocess.run(
         [
-            hermes,
-            "--model",
-            "gpt-5.4",
+            match.group(1),
+            str(Path(__file__).with_name("oneshot_stdin.py")),
             "--provider",
             "openai-api",
+            "--model",
+            "gpt-5.4",
             "--reasoning",
             "high",
             "--toolsets",
             "",
-            "--ignore-rules",
-            "--oneshot",
-            prompt,
         ],
+        input=prompt,
         text=True,
+        capture_output=True,
+        check=False,
         timeout=900,
     )
-    result = _extract_json(output)
-    findings = result.get("findings") or []
-    if not isinstance(findings, list):
-        raise TypeError("independent review findings must be an array")
-    return {"summary": str(result.get("summary") or ""), "findings": findings}
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"independent review failed ({completed.returncode}): {completed.stdout[-4000:]}"
+        )
+    output = completed.stdout
+    decoder = json.JSONDecoder()
+    result = None
+    for match in re.finditer(r"\{", output):
+        try:
+            candidate, _ = decoder.raw_decode(output[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            result = candidate
+            break
+    if result is None:
+        raise ValueError("independent review output contained no JSON object")
+    validate_record(result, INDEPENDENT_SCHEMA)
+    if result["reviewed_sha"] != sha or result["diff_digest"] != diff_digest:
+        raise ValueError("independent review output is not bound to the fetched diff")
+    return result
 
 
-def _merge_dispositions(
-    findings: list[dict], existing: dict | None, supplied: dict[str, dict]
-) -> list[dict]:
-    prior = {
-        value["finding_id"]: value.get("disposition")
-        for value in (existing or {}).get("findings") or []
+def _validate_policy(policy: dict) -> dict:
+    required = {
+        "required_human_approvals",
+        "required_reviewers",
+        "required_checks",
     }
-    for finding in findings:
-        finding["disposition"] = supplied.get(finding["finding_id"], prior.get(finding["finding_id"]))
-    return findings
+    if set(policy) != required:
+        raise ValueError("review policy must define exactly the required policy fields")
+    if type(policy["required_human_approvals"]) is not int or policy[
+        "required_human_approvals"
+    ] < 1:
+        raise ValueError("review policy requires at least one human approval")
+    for key in ("required_reviewers", "required_checks"):
+        values = policy[key]
+        if not isinstance(values, list) or not values or any(
+            not isinstance(value, str) or not value for value in values
+        ):
+            raise ValueError(f"review policy {key} must be a non-empty string array")
+        if len(values) != len(set(values)):
+            raise ValueError(f"review policy {key} must not contain duplicates")
+    return policy
+
+
+def _normalize_disposition(finding: dict, value: dict) -> dict:
+    required = {"finding_id", "reviewed_sha", "status", "rationale", "evidence"}
+    if set(value) - {"disposition_id"} != required:
+        raise ValueError("finding disposition has an unexpected shape")
+    if (
+        value["finding_id"] != finding["finding_id"]
+        or value["reviewed_sha"] != finding["reviewed_sha"]
+    ):
+        raise ValueError("finding disposition is not bound to the finding SHA")
+    body = {key: value[key] for key in sorted(required)}
+    disposition_id = _disposition_id(body)
+    if value.get("disposition_id") not in {None, disposition_id}:
+        raise ValueError("finding disposition ID does not match its content")
+    return {"disposition_id": disposition_id, **body}
+
+
+def _merge_findings(
+    current_sha: str,
+    collected: list[dict],
+    existing: dict | None,
+    supplied: dict[str, dict],
+) -> list[dict]:
+    values = {
+        finding["finding_id"]: dict(finding)
+        for finding in (existing or {}).get("findings") or []
+    }
+    for finding in values.values():
+        finding["state"] = (
+            "active" if finding["reviewed_sha"] == current_sha else "stale"
+        )
+        if finding["state"] == "stale":
+            finding["disposition"] = None
+    for finding in collected:
+        previous = values.get(finding["finding_id"])
+        current = dict(finding)
+        if (
+            previous
+            and previous.get("reviewed_sha") == current.get("reviewed_sha")
+            and current.get("disposition") is None
+        ):
+            current["disposition"] = previous.get("disposition")
+        values[finding["finding_id"]] = current
+    for finding_id, disposition in supplied.items():
+        finding = values.get(finding_id)
+        if finding is None:
+            raise ValueError(f"disposition references unknown finding {finding_id}")
+        finding["disposition"] = _normalize_disposition(finding, disposition)
+    for finding in values.values():
+        disposition = finding.get("disposition")
+        if disposition is not None:
+            finding["disposition"] = _normalize_disposition(finding, disposition)
+    return sorted(
+        values.values(),
+        key=lambda value: (
+            value["state"] != "active",
+            value["severity"],
+            value["finding_id"],
+        ),
+    )
 
 
 def _status(record: dict) -> tuple[str, list[str]]:
     blockers = []
     if record["pr_state"] != "open" or record["is_draft"]:
         blockers.append("pull request is not an open non-draft change")
-    failed_checks = [value["name"] for value in record["checks"] if value["state"] == "failed"]
-    if failed_checks:
-        blockers.append("failed checks: " + ", ".join(failed_checks))
+    incomplete = [name for name in CHANNELS if not record["channels"][name]["complete"]]
+    if incomplete:
+        blockers.append("incomplete review channels: " + ", ".join(incomplete))
+    check_by_name = {}
+    for check in record["checks"]:
+        if check["sha"] == record["current_sha"]:
+            check_by_name.setdefault(check["name"], []).append(check)
+    for name in record["policy"]["required_checks"]:
+        matches = check_by_name.get(name) or []
+        if not matches:
+            blockers.append(f"required check is absent: {name}")
+        elif any(value["state"] == "failed" for value in matches):
+            blockers.append(f"required check failed: {name}")
+        elif not any(value["state"] == "passed" for value in matches):
+            return "settling", blockers
     if blockers:
         return "blocked", blockers
-    if any(value["state"] == "pending" for value in record["checks"]):
-        return "settling", blockers
-    required = [value for value in record["reviewers"] if value["required"]]
+
+    humans = [
+        value
+        for value in record["reviewers"]
+        if value["kind"] == "human" and value["reviewer"] != record["author"]
+    ]
+    fresh_approvals = {
+        value["reviewer"]
+        for value in humans
+        if value["state"] == "approved"
+        and value["reviewed_sha"] == record["current_sha"]
+    }
+    for reviewer in record["policy"]["required_reviewers"]:
+        if reviewer not in fresh_approvals:
+            return "settling", [f"fresh approval is absent for required reviewer: {reviewer}"]
+    if len(fresh_approvals) < record["policy"]["required_human_approvals"]:
+        return "settling", ["required fresh human approval count is not satisfied"]
     if any(
-        value["state"] != "approved" or value["reviewed_sha"] != record["current_sha"]
-        for value in required
+        value["state"] == "changes_requested"
+        and value["reviewed_sha"] == record["current_sha"]
+        for value in humans
     ):
-        return "settling", blockers
+        return "blocked", ["a fresh human review requests changes"]
+
     independent = record.get("independent_review")
-    if not independent or independent.get("reviewed_sha") != record["current_sha"]:
-        return "review-required", blockers + ["independent GPT-5.4 review is missing or stale"]
+    if (
+        not independent
+        or independent.get("reviewed_sha") != record["current_sha"]
+        or independent.get("diff_digest") != record["diff"]["digest"]
+    ):
+        return "review-required", ["independent GPT-5.4 review is missing or stale"]
     for finding in record["findings"]:
+        if finding["state"] != "active":
+            continue
         disposition = finding.get("disposition") or {}
+        if (
+            disposition.get("finding_id") != finding["finding_id"]
+            or disposition.get("reviewed_sha") != finding["reviewed_sha"]
+        ):
+            blockers.append(
+                f"{finding['severity']} finding {finding['finding_id']} lacks a SHA-bound disposition"
+            )
+            continue
         state = disposition.get("status")
         if state in RESOLVED_DISPOSITIONS:
             continue
         if state == "accepted-risk" and finding["severity"] in {"medium", "low"}:
             continue
         blockers.append(
-            f"{finding['severity']} finding {finding['finding_id']} requires a blocking disposition"
+            f"{finding['severity']} finding {finding['finding_id']} has a blocking disposition"
         )
     return ("blocked", blockers) if blockers else ("ready", [])
+
+
+def _migrate_v1(value: dict, policy: dict) -> dict:
+    if value.get("schema") != SCHEMA or value.get("schema_version") != "1.0.0":
+        raise RecordVersionError("unsupported review evidence migration source")
+    current_sha = str(value.get("current_sha") or "")
+    findings = []
+    for old in value.get("findings") or []:
+        reviewed_sha = str(old.get("reviewed_sha") or current_sha)
+        body = str(old.get("body") or "legacy finding")
+        finding = {
+            "finding_id": _finding_id(
+                "review_comments",
+                str(old.get("finding_id") or _digest(body)),
+                str(old.get("reviewer") or "unknown"),
+                reviewed_sha,
+                body,
+            ),
+            "channel": "review_comments",
+            "external_id": str(old.get("finding_id") or _digest(body)),
+            "reviewer": str(old.get("reviewer") or "unknown"),
+            "severity": str(old.get("severity") or "high"),
+            "path": old.get("path"),
+            "line": old.get("line"),
+            "body": body,
+            "url": old.get("url"),
+            "reviewed_sha": reviewed_sha,
+            "state": "stale",
+            "disposition": None,
+        }
+        findings.append(finding)
+    now = utc_now()
+    return {
+        "schema": SCHEMA,
+        "schema_version": SCHEMA_VERSION,
+        "repository": value["repository"],
+        "pr_number": value["pr_number"],
+        "pr_url": value.get("pr_url"),
+        "author": "unknown",
+        "current_sha": current_sha or None,
+        "status": "unavailable",
+        "session_id": str(uuid.uuid4()),
+        "started_at": value.get("started_at") or now,
+        "updated_at": now,
+        "deadline_at": value.get("deadline_at") or now,
+        "poll_count": int(value.get("poll_count") or 0),
+        "pr_state": value.get("pr_state") or "unknown",
+        "is_draft": bool(value.get("is_draft")),
+        "policy": policy,
+        "reviewers": [
+            {
+                key: reviewer.get(key)
+                for key in (
+                    "reviewer",
+                    "kind",
+                    "state",
+                    "reviewed_sha",
+                    "reviewed_at",
+                )
+            }
+            for reviewer in value.get("reviewers") or []
+        ],
+        "checks": [
+            {**check, "sha": current_sha}
+            for check in value.get("checks") or []
+        ],
+        "channels": {
+            name: {"complete": False, "count": 0, "digest": _digest([])}
+            for name in CHANNELS
+        },
+        "diff": {"reviewed_sha": None, "digest": None, "size_bytes": 0},
+        "findings": findings,
+        "independent_review": None,
+        "blockers": ["v1 review evidence requires complete recollection"],
+        "poll_history": value.get("poll_history") or [],
+        "last_error": None,
+    }
+
+
+def _load_existing(path: Path, policy: dict) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return read_record(path, SCHEMA)
+    except RecordVersionError:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return _migrate_v1(value, policy)
+
+
+@contextmanager
+def _transaction(path: Path) -> Iterator[None]:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a", encoding="utf-8") as lock:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _write_record(path: Path, value: dict) -> None:
+    validate_record(value, SCHEMA, record_path=path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            os.chmod(temporary, 0o600)
+            handle.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _base_record(
+    existing: dict | None,
+    policy: dict,
+    repo: str,
+    pr_number: int,
+    started: datetime,
+    deadline: datetime,
+) -> dict:
+    now = utc_now()
+    if existing:
+        value = dict(existing)
+        value["policy"] = policy
+        value["updated_at"] = now
+        return value
+    return {
+        "schema": SCHEMA,
+        "schema_version": SCHEMA_VERSION,
+        "repository": repo,
+        "pr_number": pr_number,
+        "pr_url": None,
+        "author": "unknown",
+        "current_sha": None,
+        "status": "settling",
+        "session_id": str(uuid.uuid4()),
+        "started_at": started.isoformat(),
+        "updated_at": now,
+        "deadline_at": deadline.isoformat(),
+        "poll_count": 0,
+        "pr_state": "unknown",
+        "is_draft": False,
+        "policy": policy,
+        "reviewers": [],
+        "checks": [],
+        "channels": {
+            name: {"complete": False, "count": 0, "digest": _digest([])}
+            for name in CHANNELS
+        },
+        "diff": {"reviewed_sha": None, "digest": None, "size_bytes": 0},
+        "findings": [],
+        "independent_review": None,
+        "blockers": [],
+        "poll_history": [],
+        "last_error": None,
+    }
 
 
 def settle(
@@ -233,127 +669,241 @@ def settle(
     repo: str,
     pr_number: int,
     *,
+    policy: dict,
     max_polls: int = 6,
     interval_seconds: int = 30,
     timeout_seconds: int = 300,
     run_independent_review: bool = False,
     dispositions: dict[str, dict] | None = None,
     collector: Callable[[str, int], dict] = collect_github,
-    model_reviewer: Callable[[str, int, str], dict] | None = None,
+    model_reviewer: Callable[[str, int, str, str, str], dict] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
-    started = datetime.now(timezone.utc)
-    deadline = started + timedelta(seconds=timeout_seconds)
-    existing = read_record(state_path, SCHEMA) if state_path.exists() else None
+    policy = _validate_policy(dict(policy))
     supplied = dispositions or {}
-    history = list((existing or {}).get("poll_history") or [])
-    for poll in range(1, max_polls + 1):
-        try:
-            evidence = collector(repo, pr_number)
-        except Exception as exc:  # noqa: BLE001 - unavailability must become durable evidence
-            record = {
-                "schema": SCHEMA,
-                "schema_version": SCHEMA_VERSION,
-                "repository": repo,
-                "pr_number": pr_number,
-                "pr_url": (existing or {}).get("pr_url"),
-                "current_sha": (existing or {}).get("current_sha"),
-                "status": "unavailable",
-                "started_at": (existing or {}).get("started_at") or started.isoformat(),
-                "updated_at": utc_now(),
-                "deadline_at": deadline.isoformat(),
-                "poll_count": poll,
-                "pr_state": "unknown",
-                "is_draft": False,
-                "reviewers": [],
-                "checks": [],
-                "findings": [],
-                "independent_review": (existing or {}).get("independent_review"),
-                "blockers": [f"GitHub review evidence unavailable: {type(exc).__name__}: {exc}"],
-                "poll_history": history,
-            }
-            write_record(state_path, record, SCHEMA)
-            return record
-        independent = (existing or {}).get("independent_review")
-        if run_independent_review and (
-            not independent or independent.get("reviewed_sha") != evidence["current_sha"]
-        ):
-            if model_reviewer is None:
-                raise RuntimeError("independent review requested without a model reviewer")
-            model_result = model_reviewer(repo, pr_number, evidence["current_sha"])
-            independent_findings = []
-            for value in model_result.get("findings") or []:
-                body = str(value.get("body") or "")
-                path = value.get("path")
-                independent_findings.append(
+    if max_polls < 1 or timeout_seconds < 1:
+        raise ValueError("review settling bounds must be positive")
+    with _transaction(state_path):
+        invocation_started = now()
+        existing = _load_existing(state_path, policy)
+        if existing and existing["policy"] != policy:
+            raise ValueError("review policy cannot change during a settling session")
+        started = (
+            datetime.fromisoformat(existing["started_at"])
+            if existing
+            else invocation_started
+        )
+        deadline = (
+            datetime.fromisoformat(existing["deadline_at"])
+            if existing
+            else started + timedelta(seconds=timeout_seconds)
+        )
+        record = _base_record(existing, policy, repo, pr_number, started, deadline)
+        for local_poll in range(1, max_polls + 1):
+            if now() >= deadline:
+                record["status"] = "timeout"
+                record["updated_at"] = utc_now()
+                record["blockers"] = ["review settling exceeded its durable deadline"]
+                _write_record(state_path, record)
+                return record
+            record["poll_count"] += 1
+            poll_number = record["poll_count"]
+            try:
+                evidence = collector(repo, pr_number)
+            except HeadChanged as exc:
+                record["status"] = "settling"
+                record["updated_at"] = utc_now()
+                record["last_error"] = str(exc)
+                record["poll_history"].append(
                     {
-                        "finding_id": _finding_id("gpt-5.4-independent", path, body),
-                        "reviewer": "gpt-5.4-independent",
-                        "severity": str(value.get("severity") or "high"),
-                        "path": path,
-                        "line": value.get("line"),
-                        "body": body,
-                        "url": None,
-                        "reviewed_sha": evidence["current_sha"],
-                        "disposition": None,
+                        "poll": poll_number,
+                        "observed_at": record["updated_at"],
+                        "sha": record.get("current_sha"),
+                        "status": "head-changed",
                     }
                 )
-            independent = {
-                "reviewer": "gpt-5.4-independent",
-                "model": "gpt-5.4",
-                "reviewed_sha": evidence["current_sha"],
-                "reviewed_at": utc_now(),
-                "summary": str(model_result.get("summary") or ""),
-                "finding_ids": [value["finding_id"] for value in independent_findings],
-            }
-            evidence["findings"].extend(independent_findings)
-        elif independent:
-            prior_by_id = {
-                value["finding_id"]: value for value in (existing or {}).get("findings") or []
-            }
-            evidence["findings"].extend(
-                prior_by_id[finding_id]
-                for finding_id in independent.get("finding_ids") or []
-                if finding_id in prior_by_id
+                _write_record(state_path, record)
+                if local_poll < max_polls:
+                    sleeper(interval_seconds)
+                    continue
+                record["status"] = "timeout"
+                record["blockers"] = ["head changed throughout the bounded review window"]
+                _write_record(state_path, record)
+                return record
+            except Exception as exc:  # noqa: BLE001 - preserve evidence on outage
+                record["status"] = "unavailable"
+                record["updated_at"] = utc_now()
+                record["last_error"] = f"{type(exc).__name__}: {exc}"
+                record["blockers"] = [
+                    f"GitHub review evidence unavailable: {type(exc).__name__}: {exc}"
+                ]
+                record["poll_history"].append(
+                    {
+                        "poll": poll_number,
+                        "observed_at": record["updated_at"],
+                        "sha": record.get("current_sha"),
+                        "status": "unavailable",
+                    }
+                )
+                _write_record(state_path, record)
+                return record
+
+            diff_text = str(evidence.pop("_diff_text"))
+            current_sha = evidence["current_sha"]
+            prior_sha = record.get("current_sha")
+            record.update(evidence)
+            record["last_error"] = None
+            if prior_sha and prior_sha != current_sha:
+                record["independent_review"] = None
+            record["findings"] = _merge_findings(
+                current_sha,
+                record["findings"],
+                existing,
+                {},
             )
-        evidence["findings"] = _merge_dispositions(
-            evidence["findings"], existing, supplied
-        )
-        record = {
-            "schema": SCHEMA,
-            "schema_version": SCHEMA_VERSION,
-            **evidence,
-            "status": "settling",
-            "started_at": (existing or {}).get("started_at") or started.isoformat(),
-            "updated_at": utc_now(),
-            "deadline_at": deadline.isoformat(),
-            "poll_count": poll,
-            "independent_review": independent,
-            "blockers": [],
-            "poll_history": history,
-        }
-        record["status"], record["blockers"] = _status(record)
-        history.append(
-            {
-                "poll": poll,
-                "observed_at": record["updated_at"],
-                "sha": record["current_sha"],
-                "status": record["status"],
-            }
-        )
-        record["poll_history"] = history
-        write_record(state_path, record, SCHEMA)
-        existing = record
-        if record["status"] in {"ready", "blocked", "review-required"}:
+            independent = record.get("independent_review")
+            if run_independent_review and (
+                not independent
+                or independent.get("reviewed_sha") != current_sha
+                or independent.get("diff_digest") != record["diff"]["digest"]
+            ):
+                if model_reviewer is None:
+                    raise RuntimeError("independent review requested without a model reviewer")
+                try:
+                    model_result = model_reviewer(
+                        repo,
+                        pr_number,
+                        current_sha,
+                        diff_text,
+                        record["diff"]["digest"],
+                    )
+                    validate_record(model_result, INDEPENDENT_SCHEMA)
+                    if (
+                        model_result["reviewed_sha"] != current_sha
+                        or model_result["diff_digest"] != record["diff"]["digest"]
+                    ):
+                        raise ValueError(
+                            "independent review is not bound to the fetched diff"
+                        )
+                except Exception as exc:  # noqa: BLE001 - model evidence fails closed
+                    record["status"] = "unavailable"
+                    record["updated_at"] = utc_now()
+                    record["last_error"] = f"{type(exc).__name__}: {exc}"
+                    record["blockers"] = [
+                        f"independent review unavailable: {type(exc).__name__}: {exc}"
+                    ]
+                    _write_record(state_path, record)
+                    return record
+                try:
+                    refreshed = collector(repo, pr_number)
+                except Exception as exc:  # noqa: BLE001 - preserve pre-review evidence
+                    record["status"] = "unavailable"
+                    record["updated_at"] = utc_now()
+                    record["last_error"] = f"{type(exc).__name__}: {exc}"
+                    record["blockers"] = [
+                        f"post-review head verification unavailable: {type(exc).__name__}: {exc}"
+                    ]
+                    _write_record(state_path, record)
+                    return record
+                if refreshed["current_sha"] != current_sha:
+                    record["status"] = "settling"
+                    record["updated_at"] = utc_now()
+                    record["last_error"] = "head changed during independent review"
+                    record["poll_history"].append(
+                        {
+                            "poll": poll_number,
+                            "observed_at": record["updated_at"],
+                            "sha": current_sha,
+                            "status": "head-changed",
+                        }
+                    )
+                    _write_record(state_path, record)
+                    if local_poll < max_polls:
+                        existing = dict(record)
+                        sleeper(interval_seconds)
+                        continue
+                    record["status"] = "timeout"
+                    record["blockers"] = ["head changed during independent review"]
+                    _write_record(state_path, record)
+                    return record
+                independent_findings = []
+                for index, value in enumerate(model_result["findings"]):
+                    body = value["body"]
+                    external_id = f"gpt-5.4-{index}"
+                    independent_findings.append(
+                        {
+                            "finding_id": _finding_id(
+                                "independent_review",
+                                external_id,
+                                "gpt-5.4-independent",
+                                current_sha,
+                                body,
+                            ),
+                            "channel": "independent_review",
+                            "external_id": external_id,
+                            "reviewer": "gpt-5.4-independent",
+                            "severity": value["severity"],
+                            "path": value.get("path"),
+                            "line": value.get("line"),
+                            "body": body,
+                            "url": None,
+                            "reviewed_sha": current_sha,
+                            "state": "active",
+                            "disposition": None,
+                        }
+                    )
+                record["independent_review"] = {
+                    "reviewer": "gpt-5.4-independent",
+                    "model": "gpt-5.4",
+                    "reviewed_sha": current_sha,
+                    "diff_digest": record["diff"]["digest"],
+                    "reviewed_at": utc_now(),
+                    "summary": model_result["summary"],
+                    "finding_ids": [
+                        value["finding_id"] for value in independent_findings
+                    ],
+                }
+                record["findings"].extend(independent_findings)
+            elif independent:
+                current_independent_ids = set(independent.get("finding_ids") or [])
+                record["findings"].extend(
+                    finding
+                    for finding in (existing or {}).get("findings") or []
+                    if finding["finding_id"] in current_independent_ids
+                )
+
+            record["findings"] = _merge_findings(
+                current_sha,
+                record["findings"],
+                existing,
+                supplied,
+            )
+            record["status"], record["blockers"] = _status(record)
+            record["updated_at"] = utc_now()
+            record["poll_history"].append(
+                {
+                    "poll": poll_number,
+                    "observed_at": record["updated_at"],
+                    "sha": current_sha,
+                    "status": record["status"],
+                }
+            )
+            _write_record(state_path, record)
+            existing = dict(record)
+            if record["status"] in {"ready", "blocked", "review-required"}:
+                return record
+            if local_poll < max_polls:
+                sleeper(interval_seconds)
+                continue
+            record["status"] = "timeout"
+            record["updated_at"] = utc_now()
+            record["blockers"] = [
+                *record["blockers"],
+                "review settling exceeded its polling bound",
+            ]
+            _write_record(state_path, record)
             return record
-        if poll < max_polls and datetime.now(timezone.utc) < deadline:
-            sleeper(interval_seconds)
-            continue
-        record["status"] = "timeout"
-        record["updated_at"] = utc_now()
-        record["blockers"].append("review settling exceeded its polling bound")
-        write_record(state_path, record, SCHEMA)
-        return record
     raise AssertionError("unreachable")
 
 
@@ -361,7 +911,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Bounded GitHub review-settling merge gate")
     parser.add_argument("--repo", required=True)
     parser.add_argument("--pr", type=int, required=True)
-    parser.add_argument("--state-dir", type=Path, default=Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor" / "review-evidence")
+    parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument(
+        "--state-dir",
+        type=Path,
+        default=Path.home()
+        / ".hermes"
+        / "supervisor"
+        / "axis-development-supervisor"
+        / "review-evidence",
+    )
     parser.add_argument("--max-polls", type=int, default=6)
     parser.add_argument("--interval-seconds", type=int, default=30)
     parser.add_argument("--timeout-seconds", type=int, default=300)
@@ -370,6 +929,7 @@ def main() -> int:
     parser.add_argument("--gh", default=shutil.which("gh") or "gh")
     parser.add_argument("--hermes", default=shutil.which("hermes") or "hermes")
     args = parser.parse_args()
+    policy = json.loads(args.policy.read_text(encoding="utf-8"))
     dispositions = (
         json.loads(args.dispositions.read_text(encoding="utf-8"))
         if args.dispositions
@@ -380,14 +940,15 @@ def main() -> int:
         path,
         args.repo,
         args.pr,
+        policy=policy,
         max_polls=args.max_polls,
         interval_seconds=args.interval_seconds,
         timeout_seconds=args.timeout_seconds,
         run_independent_review=args.run_independent_review,
         dispositions=dispositions,
         collector=lambda repo, number: collect_github(repo, number, args.gh),
-        model_reviewer=lambda repo, number, sha: default_model_review(
-            repo, number, sha, args.gh, args.hermes
+        model_reviewer=lambda repo, number, sha, diff, digest: default_model_review(
+            repo, number, sha, diff, digest, args.hermes
         ),
     )
     print(json.dumps(record, sort_keys=True))

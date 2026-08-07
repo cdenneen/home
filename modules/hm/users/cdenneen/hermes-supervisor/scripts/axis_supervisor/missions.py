@@ -548,13 +548,9 @@ class ActiveMissionState:
                 }
                 for value in expected_gates
             ]
-            changed = (
-                all(
-                    value["state"] in {"passed", "not-required"}
-                    for value in observed_gates
-                )
-                if observed_gates
-                else baseline != current_fingerprint
+            changed = bool(observed_gates) and all(
+                value["state"] in {"passed", "not-required"}
+                for value in observed_gates
             )
             model_revised = normalized_delta["applicability_revision_changed"]
             zero_effect_cycles = (

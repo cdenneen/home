@@ -39,18 +39,29 @@ class Integrator:
         diff_refs = mr.get("diff_refs") or {}
         current_main_sha = diff_refs.get("start_sha") or diff_refs.get("base_sha")
         main_changed_paths = []
+        main_changed_paths_complete = True
         if source_main_sha and current_main_sha and source_main_sha != current_main_sha:
             query = urlencode({"from": source_main_sha, "to": current_main_sha})
             comparison = self.api(f"projects/{encoded}/repository/compare?{query}")
-            main_changed_paths = sorted(
-                {
-                    str(diff.get("new_path") or diff.get("old_path"))
+            main_changed_paths_complete = not bool(
+                comparison.get("compare_timeout")
+                or comparison.get("too_large")
+                or any(
+                    diff.get("too_large")
                     for diff in comparison.get("diffs") or []
-                    if diff.get("new_path") or diff.get("old_path")
-                }
+                )
             )
+            if main_changed_paths_complete:
+                main_changed_paths = sorted(
+                    {
+                        str(diff.get("new_path") or diff.get("old_path"))
+                        for diff in comparison.get("diffs") or []
+                        if diff.get("new_path") or diff.get("old_path")
+                    }
+                )
         mr = dict(mr)
         mr["main_changed_paths"] = main_changed_paths
+        mr["main_changed_paths_complete"] = main_changed_paths_complete
         pipeline = mr.get("head_pipeline") or {}
         unresolved_discussions = [
             discussion

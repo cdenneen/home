@@ -428,7 +428,17 @@ def release_failed_assignment(
     save(path, assignment, gate)
 
 
-def rebuild() -> dict:
+def recover_pending_decisions() -> tuple[list[str], dict | None]:
+    recovered_graph = {}
+
+    def rebuild_pending_decision() -> None:
+        recovered_graph["graph"] = rebuild(reconcile_decisions=False)
+
+    completed = reconcile_pending_frontier_rebuilds(ROOT, rebuild_pending_decision)
+    return completed, recovered_graph.get("graph")
+
+
+def rebuild(*, reconcile_decisions: bool = True) -> dict:
     inventory = read_record(
         ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
     )
@@ -529,7 +539,10 @@ def rebuild() -> dict:
         inventory, graph, capability_convergence
     )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
-    reconcile_pending_frontier_rebuilds(ROOT, lambda: None)
+    if reconcile_decisions:
+        completed, recovered_graph = recover_pending_decisions()
+        if completed and recovered_graph is not None:
+            graph = recovered_graph
     return graph
 
 
@@ -1117,7 +1130,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             (assignment.get("source_item") or {}).get("repository_head"),
             diff_refs.get("start_sha") or diff_refs.get("base_sha"),
             worker_record.get("changed_paths") or assignment.get("allowed_paths"),
-            mr_value.get("main_changed_paths"),
+            mr_value.get("main_changed_paths")
+            if mr_value.get("main_changed_paths_complete", True)
+            else None,
             merge_commit_sha=mr_value.get("merge_commit_sha"),
         )
         integration["main_advance"] = main_advance

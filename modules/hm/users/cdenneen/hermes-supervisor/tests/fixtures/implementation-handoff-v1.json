@@ -1,0 +1,17 @@
+{
+  "schema": "axis.external-development-supervisor.implementation-handoff",
+  "schema_version": "1.0.0",
+  "assignment_id": "persisted-v1-handoff",
+  "work_item": "ghostspace/axis#1",
+  "repository": "ghostspace/axis",
+  "branch": "hermes/persisted-v1-handoff",
+  "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "allowed_paths": ["src/example.py"],
+  "changed_paths": ["src/example.py"],
+  "tests": [],
+  "mr_iid": 7,
+  "mr_url": "https://gitlab.com/ghostspace/axis/-/merge_requests/7",
+  "source_main_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-08-06T00:00:00+00:00",
+  "state": "ready-for-integration"
+}
