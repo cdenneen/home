@@ -9,6 +9,7 @@ from referencing import Registry, Resource
 
 
 SCHEMA_FILES = {
+    "axis.external-development-supervisor.active-mission": "active-mission.schema.json",
     "axis.external-development-supervisor.assignment": "assignment.schema.json",
     "axis.external-development-supervisor.canary-grant": "canary-grant.schema.json",
     "axis.external-development-supervisor.control": "control.schema.json",

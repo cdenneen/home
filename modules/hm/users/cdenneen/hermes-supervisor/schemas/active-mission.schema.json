@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.external-development-supervisor.active-mission",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "mission_id",
+    "created_at",
+    "updated_at",
+    "desired_end_state",
+    "current_state",
+    "missing_gates",
+    "generated_actions",
+    "active_assignments",
+    "completed_assignments",
+    "external_blockers",
+    "graduation_progress",
+    "termination_condition",
+    "observations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "axis.external-development-supervisor.active-mission"
+    },
+    "schema_version": { "const": "1.0.0" },
+    "mission_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "desired_end_state": { "const": "all-capabilities-graduated" },
+    "current_state": {
+      "enum": ["active", "completed", "blocked-external"]
+    },
+    "missing_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "capability",
+          "gate",
+          "state",
+          "evidence",
+          "external_only"
+        ],
+        "properties": {
+          "capability": { "type": "string", "minLength": 1 },
+          "gate": { "type": "string", "minLength": 1 },
+          "state": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "external_only": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "generated_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action_id",
+          "kind",
+          "target",
+          "gate",
+          "reason",
+          "executable",
+          "attempt_limit"
+        ],
+        "properties": {
+          "action_id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "target": { "type": "string", "minLength": 1 },
+          "gate": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "executable": { "const": true },
+          "attempt_limit": { "type": "integer", "const": 1 },
+          "source_ref": { "type": ["string", "null"] },
+          "assignment_id": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "active_assignments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assignment" }
+    },
+    "completed_assignments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assignment" }
+    },
+    "external_blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ref", "kind", "reason"],
+        "properties": {
+          "ref": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "graduation_progress": {
+      "type": "object",
+      "required": [
+        "graduated",
+        "denominator",
+        "percent",
+        "missing_gate_count",
+        "active_assignment_count",
+        "completed_assignment_count"
+      ],
+      "properties": {
+        "graduated": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "percent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "missing_gate_count": { "type": "integer", "minimum": 0 },
+        "active_assignment_count": { "type": "integer", "minimum": 0 },
+        "completed_assignment_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "termination_condition": {
+      "type": "object",
+      "required": [
+        "desired_state_achieved",
+        "every_remaining_path_external_only",
+        "should_terminate",
+        "reason"
+      ],
+      "properties": {
+        "desired_state_achieved": { "type": "boolean" },
+        "every_remaining_path_external_only": { "type": "boolean" },
+        "should_terminate": { "type": "boolean" },
+        "reason": {
+          "enum": [
+            "desired-state-achieved",
+            "all-remaining-paths-external-only",
+            "work-remains"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["observed_at", "source", "summary"],
+        "properties": {
+          "observed_at": { "type": "string", "format": "date-time" },
+          "source": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "maxLength": 4096 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "assignment": {
+      "type": "object",
+      "required": [
+        "assignment_id",
+        "project",
+        "work_item",
+        "lifecycle_state",
+        "result_state"
+      ],
+      "properties": {
+        "assignment_id": { "type": "string", "minLength": 1 },
+        "project": { "type": "string" },
+        "work_item": { "type": "string" },
+        "lifecycle_state": { "type": "string" },
+        "result_state": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

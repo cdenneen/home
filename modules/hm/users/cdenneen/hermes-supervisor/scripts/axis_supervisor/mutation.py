@@ -107,6 +107,7 @@ class MutationGate:
                 "frontier",
                 "graph",
                 "lease-controller",
+                "mission-reconciler",
                 "preflight",
                 "reporter",
                 "worker",

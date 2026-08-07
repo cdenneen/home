@@ -38,8 +38,11 @@ Organism, scheduler, authority, cognition, planning, evidence, or product state.
 10. Treat Hermes cron's native run claim as the singleton lock. The preflight
     script writes the durable start record; Hermes cron stores the completed
     prompt/response under `~/.hermes/cron/output/`.
-11. Return a concise local audit handoff; do not format or send Slack reports.
-12. After the proof assignment is complete, continue normal unattended governed
+11. Treat every model and cycle response as an observation only. Reconcile the
+    schema-versioned `active-mission.json`; only its deterministic termination
+    condition may complete the mission.
+12. Return a concise local audit handoff; do not format or send Slack reports.
+13. After the proof assignment is complete, continue normal unattended governed
     work selection. Do not return globally to read-only mode merely because the
     proof ended.
 
@@ -163,8 +166,10 @@ evidence is sufficient. Record and isolate genuinely authority-blocked streams,
 then continue independent executable work. A blocked axis#104 or axis-lab#15
 stream must not globally stop other governed executable work.
 
-Worker final responses are local audit handoffs, not Slack briefings. Keep them
-short and source-linked:
+Worker final responses are local audit observations, not mission termination or
+Slack briefings. Missing evidence, waiting CI/deployments, and blocked streams
+must update durable observations and generate bounded compatible work. Keep the
+handoff short and source-linked:
 
 ```text
 Run: <run-id>
