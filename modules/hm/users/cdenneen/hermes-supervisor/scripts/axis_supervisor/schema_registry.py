@@ -26,6 +26,7 @@ SCHEMA_FILES = {
     "axis.external-development-supervisor.model-attempt": "model-attempt.schema.json",
     "axis.external-development-supervisor.mutation-grant": "mutation-grant.schema.json",
     "axis.external-development-supervisor.operational-event": "operational-event.schema.json",
+    "axis.external-development-supervisor.observability-health": "observability-health.schema.json",
     "axis.external-development-supervisor.roadmap-semantics": "roadmap-semantics.schema.json",
     "axis.external-development-supervisor.roadmap-quality": "roadmap-quality.schema.json",
     "axis.external-development-supervisor.repository-convergence": "repository-convergence.schema.json",

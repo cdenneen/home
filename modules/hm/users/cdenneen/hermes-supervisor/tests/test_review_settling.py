@@ -16,7 +16,7 @@ SHA_B = "b" * 40
 def policy(**overrides) -> dict:
     value = {
         "required_human_approvals": 1,
-        "approved_human_reviewers": [{"id": "1001", "login": "alice"}],
+        "approved_human_reviewers": [{"id": "1001", "login": "ALICE"}],
         "required_checks": [
             {
                 "name": "hermes-supervisor",
@@ -168,6 +168,9 @@ def test_greptile_approval_is_not_required_when_human_policy_is_satisfied(
     )
 
     assert record["status"] == "ready"
+    assert record["policy"]["approved_human_reviewers"] == [
+        {"id": "1001", "login": "alice"}
+    ]
     assert record["reviewers"][1]["state"] == "commented"
     assert record["independent_review"]["reviewed_sha"] == SHA_A
 
@@ -177,8 +180,8 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
 
     pr = {
         "head": {"sha": SHA_A},
-        "user": {"login": "cdenneen"},
-        "requested_reviewers": [{"id": 1001, "login": "alice", "type": "User"}],
+        "user": {"login": "CDenneen"},
+        "requested_reviewers": [{"id": 1001, "login": "Alice", "type": "User"}],
         "html_url": "https://github.com/cdenneen/home/pull/656",
         "state": "open",
         "draft": False,
@@ -213,7 +216,7 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
         if endpoint.endswith("/reviews?per_page=100"):
             return [[{
                 "id": 1,
-                "user": {"id": 1001, "login": "alice", "type": "User"},
+                "user": {"id": 1001, "login": "aLiCe", "type": "User"},
                 "state": "APPROVED",
                 "commit_id": SHA_A,
                 "submitted_at": "2026-08-07T00:00:00+00:00",
@@ -267,6 +270,9 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
     assert all(evidence["channels"][name]["complete"] for name in review.CHANNELS)
     assert evidence["diff"]["reviewed_sha"] == SHA_A
     assert evidence["reviewers"][0]["state"] == "approved"
+    assert evidence["author"] == "cdenneen"
+    assert evidence["requested_reviewers"] == ["alice"]
+    assert evidence["reviewers"][0]["reviewer"] == "alice"
     assert evidence["reviewers"][0]["user_type"] == "User"
     assert evidence["reviewers"][0]["is_automation"] is False
     assert evidence["checks"][0]["producer"] == {
@@ -279,6 +285,27 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
         "id": "42",
         "login": "legacy-ci[bot]",
     }
+
+
+def test_policy_rejects_case_variant_duplicate_human_logins(tmp_path: Path):
+    from axis_supervisor.review_settling import settle
+
+    duplicate_policy = policy(
+        required_human_approvals=2,
+        approved_human_reviewers=[
+            {"id": "1001", "login": "Alice"},
+            {"id": "1002", "login": "aLiCe"},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="must not contain duplicates"):
+        settle(
+            tmp_path / "duplicate-login-policy.json",
+            "cdenneen/home",
+            656,
+            policy=duplicate_policy,
+            collector=lambda _repo, _number: github_evidence(),
+        )
 
 
 def test_required_reviewer_and_check_absence_fail_closed(tmp_path: Path):

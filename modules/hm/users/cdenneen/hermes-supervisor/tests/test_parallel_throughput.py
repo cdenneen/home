@@ -890,6 +890,52 @@ def test_cycle_defers_recovery_failure_without_corrupting_completed_work(monkeyp
     ]
 
 
+def test_cycle_persists_observability_failure_without_rewriting_completion(
+    monkeypatch, tmp_path: Path
+):
+    from axis_supervisor import cycle
+    from axis_supervisor.schema_registry import read_record
+
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    assignment_path = assignments / "completed.json"
+    assignment = {
+        "assignment_id": "completed",
+        "lifecycle_state": "completed",
+        "result_state": "repository-converged",
+    }
+    assignment_path.write_text(json.dumps(assignment), encoding="utf-8")
+    before = assignment_path.read_bytes()
+
+    def fail_recovery():
+        raise RuntimeError("nested frontier rebuild failed")
+
+    def fail_event(*_args, **_kwargs):
+        raise OSError("operational event log unavailable")
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "recover_pending_decisions", fail_recovery)
+    monkeypatch.setattr(cycle, "record_event", fail_event)
+
+    completed, graph = cycle.recover_pending_decisions_safely()
+
+    health = read_record(
+        tmp_path / "observability-health.json",
+        "axis.external-development-supervisor.observability-health",
+    )
+    assert completed == []
+    assert graph is None
+    assert assignment_path.read_bytes() == before
+    assert health["status"] == "degraded"
+    assert health["errors"][-1]["operation"] == "decision-frontier-recovery"
+    assert health["errors"][-1]["primary_error"] == (
+        "RuntimeError: nested frontier rebuild failed"
+    )
+    assert health["errors"][-1]["observability_error"] == (
+        "OSError: operational event log unavailable"
+    )
+
+
 def test_no_op_fingerprint_blocks_redispatch_until_evidence_changes(tmp_path: Path):
     from axis_supervisor.dispatcher import Dispatcher
     from axis_supervisor.noop import no_op_fingerprint

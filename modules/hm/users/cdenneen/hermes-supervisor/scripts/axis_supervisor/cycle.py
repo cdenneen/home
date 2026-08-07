@@ -51,6 +51,7 @@ from axis_supervisor.observability import (
     OperationalEventLog,
     record_engineering_retrospective,
     record_event,
+    record_observability_failure,
 )
 from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
 from axis_supervisor.roadmap_quality import RoadmapQualityProjector
@@ -442,12 +443,24 @@ def recover_pending_decisions_safely() -> tuple[list[str], dict | None]:
     try:
         return recover_pending_decisions()
     except Exception as exc:  # noqa: BLE001 - recovery remains pending for the next cycle
-        record_event(
-            ROOT,
-            "decision_frontier_recovery_deferred",
-            details={"error": f"{type(exc).__name__}: {exc}"},
-            source="cycle",
-        )
+        try:
+            record_event(
+                ROOT,
+                "decision_frontier_recovery_deferred",
+                details={"error": f"{type(exc).__name__}: {exc}"},
+                source="cycle",
+            )
+        except Exception as observability_exc:  # noqa: BLE001 - assignment state is already durable
+            try:
+                record_observability_failure(
+                    ROOT,
+                    operation="decision-frontier-recovery",
+                    source="cycle",
+                    primary_error=exc,
+                    observability_error=observability_exc,
+                )
+            except Exception:  # noqa: BLE001 - never rewrite durable assignment completion
+                pass
         return [], None
 
 

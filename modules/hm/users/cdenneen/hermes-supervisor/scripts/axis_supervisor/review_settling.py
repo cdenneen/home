@@ -31,6 +31,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _normalize_login(value: object) -> str:
+    return str(value or "").strip().casefold()
+
+
 def _digest(value: object) -> str:
     payload = (
         value.encode()
@@ -100,7 +104,7 @@ def _finding(channel: str, value: dict, head_sha: str) -> dict | None:
     if severity is None:
         return None
     reviewed_sha = _reviewed_sha(value, head_sha)
-    reviewer = str((value.get("user") or {}).get("login") or "unknown")
+    reviewer = _normalize_login((value.get("user") or {}).get("login")) or "unknown"
     external_id = str(value.get("id") or value.get("node_id") or _digest(body))
     return {
         "finding_id": _finding_id(
@@ -140,7 +144,7 @@ def _channel(values: object, *, complete: bool = True) -> dict:
 def _account_identity(value: dict) -> dict:
     user = value.get("user") or value
     app = value.get("performed_via_github_app") or value.get("app")
-    login = str(user.get("login") or "")
+    login = _normalize_login(user.get("login"))
     user_type = str(user.get("type") or "") or None
     app_slug = str((app or {}).get("slug") or "") or None
     is_automation = bool(
@@ -163,7 +167,7 @@ def _check_producer(value: dict) -> dict:
         return {
             "kind": "github_app",
             "id": str(app["id"]),
-            "login": str(app.get("slug") or ""),
+            "login": _normalize_login(app.get("slug")),
         }
     creator = value.get("creator") or {}
     identity = _account_identity(creator)
@@ -232,13 +236,13 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
         raise HeadChanged(f"pull request head changed from {head_sha} to {refreshed_sha}")
 
     requested_by_login = {
-        str(value.get("login") or ""): value
+        _normalize_login(value.get("login")): value
         for value in pr.get("requested_reviewers") or []
         if value.get("login")
     }
     latest_reviews = {}
     for review in sorted(reviews, key=lambda value: str(value.get("submitted_at") or "")):
-        login = str((review.get("user") or {}).get("login") or "")
+        login = _normalize_login((review.get("user") or {}).get("login"))
         if login:
             latest_reviews[login] = review
     reviewers = []
@@ -304,7 +308,7 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
         "repository": repo,
         "pr_number": pr_number,
         "pr_url": pr.get("html_url"),
-        "author": str((pr.get("user") or {}).get("login") or ""),
+        "author": _normalize_login((pr.get("user") or {}).get("login")),
         "current_sha": head_sha,
         "pr_state": str(pr.get("state") or "unknown").lower(),
         "is_draft": bool(pr.get("draft")),
@@ -420,8 +424,15 @@ def _validate_policy(policy: dict) -> dict:
             )
         ):
             raise ValueError("approved human reviewer identity is invalid")
-        identities.append((reviewer["id"], reviewer["login"]))
-    if len(identities) != len(set(identities)):
+        normalized_login = _normalize_login(reviewer["login"])
+        if not normalized_login:
+            raise ValueError("approved human reviewer login is invalid")
+        reviewer["login"] = normalized_login
+        identities.append((reviewer["id"], normalized_login))
+    if (
+        len(identities) != len({value[0] for value in identities})
+        or len(identities) != len({value[1] for value in identities})
+    ):
         raise ValueError("approved human reviewer identities must not contain duplicates")
     if policy["required_human_approvals"] > len(identities):
         raise ValueError("required human approvals exceed the approved identity allowlist")
@@ -542,7 +553,7 @@ def _status(record: dict) -> tuple[str, list[str]]:
         return "blocked", blockers
 
     approved_identities = {
-        (value["id"], value["login"])
+        (value["id"], _normalize_login(value["login"]))
         for value in record["policy"]["approved_human_reviewers"]
     }
     humans = [
@@ -551,13 +562,17 @@ def _status(record: dict) -> tuple[str, list[str]]:
         if value["kind"] == "human"
         and not value["is_automation"]
         and value["user_type"] != "Bot"
-        and not value["reviewer"].lower().endswith("[bot]")
+        and not _normalize_login(value["reviewer"]).endswith("[bot]")
         and value["app_slug"] is None
-        and value["reviewer"] != record["author"]
-        and (value["account_id"], value["reviewer"]) in approved_identities
+        and _normalize_login(value["reviewer"]) != _normalize_login(record["author"])
+        and (
+            value["account_id"],
+            _normalize_login(value["reviewer"]),
+        )
+        in approved_identities
     ]
     fresh_approvals = {
-        value["reviewer"]
+        _normalize_login(value["reviewer"])
         for value in humans
         if value["state"] == "approved"
         and value["reviewed_sha"] == record["current_sha"]
@@ -619,13 +634,13 @@ def _migrate_prior(value: dict, policy: dict) -> dict:
             "finding_id": _finding_id(
                 "review_comments",
                 str(old.get("finding_id") or _digest(body)),
-                str(old.get("reviewer") or "unknown"),
+                _normalize_login(old.get("reviewer")) or "unknown",
                 reviewed_sha,
                 body,
             ),
             "channel": "review_comments",
             "external_id": str(old.get("finding_id") or _digest(body)),
-            "reviewer": str(old.get("reviewer") or "unknown"),
+            "reviewer": _normalize_login(old.get("reviewer")) or "unknown",
             "severity": str(old.get("severity") or "high"),
             "path": old.get("path"),
             "line": old.get("line"),

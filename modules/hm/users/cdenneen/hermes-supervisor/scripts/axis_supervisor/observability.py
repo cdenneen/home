@@ -12,6 +12,7 @@ from .mutation import MutationGate, OperationClass
 from .schema_registry import read_record, validate_record, write_record
 
 EVENT_SCHEMA = "axis.external-development-supervisor.operational-event"
+HEALTH_SCHEMA = "axis.external-development-supervisor.observability-health"
 OUTBOX_SCHEMA = "axis.external-development-supervisor.slack-outbox"
 DELIVERY_STAGES = frozenset(
     {
@@ -36,6 +37,46 @@ NOTIFY_EVENT_TYPES = frozenset(
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def record_observability_failure(
+    root: Path,
+    *,
+    operation: str,
+    source: str,
+    primary_error: BaseException,
+    observability_error: BaseException,
+) -> dict[str, Any]:
+    path = root / "observability-health.json"
+    lock_path = root / "observability-health.lock"
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with lock_path.open("a", encoding="utf-8") as lock:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        current = read_record(path, HEALTH_SCHEMA) if path.exists() else None
+        now = utc_now()
+        errors = list((current or {}).get("errors") or [])[-99:]
+        errors.append(
+            {
+                "error_id": uuid.uuid4().hex,
+                "operation": operation,
+                "source": source,
+                "primary_error": f"{type(primary_error).__name__}: {primary_error}",
+                "observability_error": (
+                    f"{type(observability_error).__name__}: {observability_error}"
+                ),
+                "occurred_at": now,
+            }
+        )
+        value = {
+            "schema": HEALTH_SCHEMA,
+            "schema_version": "1.0.0",
+            "status": "degraded",
+            "updated_at": now,
+            "errors": errors,
+        }
+        write_record(path, value, HEALTH_SCHEMA)
+        return value
 
 
 def is_routine_analysis_event(event: dict[str, Any]) -> bool:
