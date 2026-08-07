@@ -1,0 +1,41 @@
+{
+  "schema": "axis.external-development-supervisor.assignment",
+  "schema_version": "3.0.0",
+  "assignment_id": "assignment-v3",
+  "assignment_type": "code-implementation",
+  "result_state": "pending",
+  "work_item_disposition": "not-evaluated",
+  "lifecycle_state": "ready-implementation",
+  "kind": "implementation",
+  "project": "ghostspace/axis",
+  "responsibility": "axis-runtime/product",
+  "repository_ownership": {
+    "responsibility": "axis-runtime/product",
+    "canonical_repository": "ghostspace/axis",
+    "source": "fixture"
+  },
+  "work_item": "ghostspace/axis#1",
+  "planning_record": null,
+  "allowed_paths": ["src/axis/cli.py"],
+  "required_tests": ["pytest -q"],
+  "action_contract": {
+    "action_id": "action-v3",
+    "source_ref": "ghostspace/axis#1",
+    "engineering_purpose": "advance CLI implementation",
+    "gate_owner": "engineering",
+    "expected_gates": [],
+    "expected_capabilities": ["CLI"],
+    "expected_milestones": ["AX-M4"],
+    "expected_debt_reduction": [],
+    "expected_evidence": [],
+    "convergence_fingerprint": null,
+    "evidence_model_fingerprint": "sha256:fixture",
+    "applicability_model_revision": "fixture-v1",
+    "pre_snapshot": { "confidence": 40.0 },
+    "suppression_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "lease_id": null,
+  "lease_uri": null,
+  "mutation_grant_id": null,
+  "mutation_grant_uri": null
+}

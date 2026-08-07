@@ -1,0 +1,117 @@
+{
+  "schema": "axis.external-development-supervisor.capability-graduation",
+  "schema_version": "4.0.0",
+  "generated_at": "2026-08-06T00:00:00+00:00",
+  "projection_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "effectiveness_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "applicability_model_revision": "fixture-v1",
+  "source_inventory_generation_id": "inventory-v1",
+  "source_graph_generation_id": "graph-v1",
+  "source_convergence_digest": null,
+  "repository_convergence_digest": null,
+  "primary_kpi": {
+    "name": "graduated-capabilities",
+    "count": 0,
+    "denominator": 1,
+    "percent": 0.0
+  },
+  "program_risk": {
+    "score": 50,
+    "level": "high",
+    "evidence": ["risk remains"]
+  },
+  "operator_confidence": 0.0,
+  "denominator": {
+    "active": 1,
+    "archive": 0,
+    "historical": 0,
+    "future": 0,
+    "decision": 0,
+    "blocked": 0,
+    "graduated": 0
+  },
+  "capabilities": [
+    {
+      "capability": "CLI",
+      "paths": ["src/axis/cli.py"],
+      "projected_runtimes": ["nyx"],
+      "required_runtimes": ["nyx"],
+      "linked_work_items": ["ghostspace/axis#1"],
+      "gate_applicability": {
+        "implementation": "required",
+        "integration": "required",
+        "deployment": "required",
+        "validation": "required",
+        "verification": "required",
+        "operator_acceptance": "not-applicable",
+        "program_risk": "required"
+      },
+      "graduation_state": {
+        "implementation": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "passed",
+          "evidence": []
+        },
+        "integration": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "passed",
+          "evidence": []
+        },
+        "deployment": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "passed",
+          "evidence": []
+        },
+        "validation": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "passed",
+          "evidence": []
+        },
+        "verification": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "passed",
+          "evidence": []
+        },
+        "operator_acceptance": {
+          "applicable": false,
+          "applicability": "not-applicable",
+          "state": "not-required",
+          "evidence": []
+        },
+        "program_risk": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "blocked",
+          "evidence": ["risk remains"]
+        },
+        "graduated": {
+          "applicable": true,
+          "applicability": "required",
+          "state": "pending",
+          "evidence": []
+        }
+      },
+      "graduation_confidence": 83.3,
+      "gate_denominator": 6,
+      "gates_passed": 5,
+      "first_failing_gate": "program_risk",
+      "operator_confidence": 0.0,
+      "program_risk": {
+        "score": 50,
+        "level": "high",
+        "evidence": ["risk remains"]
+      },
+      "invalidation_fingerprint": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "scheduled_actions": [],
+      "graduated": false
+    }
+  ],
+  "validation_streams": [],
+  "milestones": [],
+  "action_scores": []
+}

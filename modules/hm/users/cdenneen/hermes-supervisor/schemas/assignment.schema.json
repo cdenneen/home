@@ -22,7 +22,7 @@
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.assignment" },
-    "schema_version": { "const": "3.0.0" },
+    "schema_version": { "const": "4.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "assignment_type": {
       "enum": [
@@ -167,6 +167,8 @@
         "expected_milestones",
         "expected_debt_reduction",
         "expected_evidence",
+        "capability_context",
+        "merge_impact_projection",
         "convergence_fingerprint",
         "evidence_model_fingerprint",
         "suppression_fingerprint"
@@ -187,6 +189,11 @@
         },
         "expected_debt_reduction": { "type": "array" },
         "expected_evidence": { "type": "array", "items": { "type": "string" } },
+        "capability_context": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "merge_impact_projection": { "type": "object" },
         "convergence_fingerprint": { "type": ["string", "null"] },
         "evidence_model_fingerprint": { "type": "string" },
         "applicability_model_revision": { "type": "string" },

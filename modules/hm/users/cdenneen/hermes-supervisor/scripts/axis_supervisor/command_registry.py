@@ -2,160 +2,46 @@ from __future__ import annotations
 
 import re
 
+
+def _spec(
+    command: str,
+    description: str,
+    params: tuple[str, ...] = (),
+    aliases: tuple[str, ...] = (),
+) -> dict:
+    return {
+        "command": command,
+        "aliases": aliases,
+        "description": description,
+        "params": params,
+        "authority": "product-owner-slack-dm",
+        "confirmation": "none",
+        "handler_key": command,
+    }
+
+
 COMMANDS = (
-    {
-        "command": "help",
-        "aliases": ("commands",),
-        "description": "List the deterministic AXIS Supervisor commands.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "help",
-    },
-    {
-        "command": "status",
-        "aliases": (),
-        "description": "Show current supervisor and roadmap status.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "status",
-    },
-    {
-        "command": "roadmap",
-        "aliases": (),
-        "description": "Show the complete roadmap projection.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "roadmap",
-    },
-    {
-        "command": "milestones",
-        "aliases": (),
-        "description": "Show milestone readiness and progress.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "milestones",
-    },
-    {
-        "command": "milestone",
-        "aliases": (),
-        "description": "Show one milestone proof summary.",
-        "params": ("<AX-Mn>",),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "milestone",
-    },
-    {
-        "command": "running",
-        "aliases": (),
-        "description": "Show active supervisor assignments.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "running",
-    },
-    {
-        "command": "blocked",
-        "aliases": (),
-        "description": "Show waiting and blocked work items.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "blocked",
-    },
-    {
-        "command": "decisions",
-        "aliases": (),
-        "description": "Show pending Product Owner decisions.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "decisions",
-    },
-    {
-        "command": "deployments",
-        "aliases": (),
-        "description": "Show deployment progress by runtime.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "deployments",
-    },
-    {
-        "command": "validation",
-        "aliases": (),
-        "description": "Show runtime validation proof.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "validation",
-    },
-    {
-        "command": "capabilities",
-        "aliases": (),
-        "description": "Show capability gate progress.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "capabilities",
-    },
-    {
-        "command": "recent",
-        "aliases": (),
-        "description": "Show recent supervisor activity.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "recent",
-    },
-    {
-        "command": "inspect",
-        "aliases": (),
-        "description": "Inspect one governed work item.",
-        "params": ("<group/project#iid>",),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "none",
-        "handler_key": "inspect",
-    },
-    {
-        "command": "reconcile",
-        "aliases": (),
-        "description": "Trigger the configured reconciliation job.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "explicit-command",
-        "handler_key": "reconcile",
-    },
-    {
-        "command": "pause",
-        "aliases": (),
-        "description": "Pause mutation and keep observation enabled.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "explicit-command",
-        "handler_key": "pause",
-    },
-    {
-        "command": "resume",
-        "aliases": (),
-        "description": "Resume enabled supervisor operation.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "explicit-command",
-        "handler_key": "resume",
-    },
-    {
-        "command": "drain",
-        "aliases": (),
-        "description": "Drain active work without claiming new work.",
-        "params": (),
-        "authority": "product-owner-slack-dm",
-        "confirmation": "explicit-command",
-        "handler_key": "drain",
-    },
+    _spec("help", "List the focused AXIS product commands.", aliases=("commands",)),
+    _spec("status", "Show the current AXIS product status."),
+    _spec("roadmap", "Show roadmap outcomes and milestone dimensions."),
+    _spec("milestones", "Show multidimensional milestone progress."),
+    _spec("milestone", "Show one milestone with evidence context.", ("<AX-Mn>",)),
+    _spec("capabilities", "Show CLI, Node, Web, Desktop, HUD, and Neural."),
+    _spec(
+        "capability",
+        "Drill into one product capability and its evidence.",
+        ("<CLI|Node|Web|Desktop|HUD|Neural>",),
+    ),
+    _spec("deployments", "Show the product deployment ring."),
+    _spec("validation", "Show product validation evidence."),
+    _spec("risk", "Show product risk, debt, and constraints."),
+    _spec("decisions", "Show pending Product Owner decisions."),
+    _spec("recent", "Show recent product progress."),
+    _spec(
+        "inspect",
+        "Inspect a product item; details and evidence are explicit privileged views.",
+        ("<group/project#iid>", "[details|evidence]"),
+    ),
 )
 
 
@@ -182,10 +68,17 @@ def parse_command(text: str) -> tuple[dict, str] | None:
     if spec is None:
         return None
     if spec["handler_key"] == "inspect":
-        if not re.fullmatch(r"[^\s#]+/[^\s#]+#\d+", argument):
+        if not re.fullmatch(
+            r"[^\s#]+/[^\s#]+#\d+(?:\s+(?:details|evidence))?",
+            argument,
+            re.IGNORECASE,
+        ):
             return None
     elif spec["handler_key"] == "milestone":
         if not re.fullmatch(r"AX-M\d+(?:\.\d+)?", argument, re.IGNORECASE):
+            return None
+    elif spec["handler_key"] == "capability":
+        if argument.lower() not in {"cli", "node", "web", "desktop", "hud", "neural"}:
             return None
     elif argument:
         return None

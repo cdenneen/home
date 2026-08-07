@@ -25,7 +25,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.active-mission"
     },
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "mission_id": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
@@ -73,6 +73,8 @@
           "expected_milestones",
           "expected_debt_reduction",
           "expected_evidence",
+          "capability_context",
+          "merge_impact_projection",
           "convergence_fingerprint",
           "evidence_model_fingerprint",
           "applicability_model_revision",
@@ -111,6 +113,11 @@
             "type": "array",
             "items": { "type": "string" }
           },
+          "capability_context": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "merge_impact_projection": { "type": "object" },
           "convergence_fingerprint": { "type": ["string", "null"] },
           "evidence_model_fingerprint": { "type": "string" },
           "applicability_model_revision": { "type": "string", "minLength": 1 },

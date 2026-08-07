@@ -48,7 +48,7 @@ def assignment(root: Path, **overrides) -> dict:
     )
     value = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "3.0.0",
+        "schema_version": "4.0.0",
         "assignment_id": "assignment-1",
         "assignment_type": "code-implementation",
         "result_state": "pending",
@@ -361,8 +361,26 @@ def test_schema_registry_validates_fixtures_and_fails_closed(tmp_path: Path):
     legacy_assignment["schema_version"] = "1.0.0"
     legacy_assignment.pop("action_contract")
     migrated_assignment = validate_assignment(legacy_assignment, tmp_path)
-    assert migrated_assignment["schema_version"] == "3.0.0"
+    assert migrated_assignment["schema_version"] == "4.0.0"
     assert migrated_assignment["action_contract"] is None
+
+    persisted_v3 = json.loads(
+        (ROOT / "tests" / "fixtures" / "assignment-v3.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    migrated_v3 = validate_assignment(persisted_v3, tmp_path)
+    assert migrated_v3["schema_version"] == "4.0.0"
+    assert migrated_v3["action_contract"]["capability_context"] == [
+        {"capability": "CLI"}
+    ]
+    assert migrated_v3["action_contract"]["merge_impact_projection"] == {
+        "affected_capabilities": ["CLI"],
+        "product_subdimensions": [],
+        "milestones": ["AX-M4"],
+        "gates": [],
+        "production_confidence_before": 40.0,
+    }
 
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{", encoding="utf-8")

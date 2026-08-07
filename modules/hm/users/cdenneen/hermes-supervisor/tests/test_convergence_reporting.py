@@ -271,7 +271,7 @@ def test_live_command_ignores_persisted_overview(monkeypatch, tmp_path, capsys):
 
     assert commands.main() == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["governed_items"] == 1
+    assert result["roadmap_progress"]["total"] == 1
     assert result["source_inventory_revision"] == inventory["generation_id"]
     assert result["staleness"]["state"] == "current"
     assert result["semantic_revision"]
@@ -326,12 +326,13 @@ def test_focused_read_only_commands_execute_from_current_projections(
         "roadmap": "roadmap",
         "milestones": "milestones",
         "milestone AX-M4": "milestone",
-        "running": "running",
-        "recent": "recent",
-        "decisions": "decisions",
+        "capabilities": "capabilities",
+        "capability CLI": "capability",
         "deployments": "deployments",
         "validation": "validation",
-        "capabilities": "capabilities",
+        "risk": "risk",
+        "decisions": "decisions",
+        "recent": "recent",
         "inspect ghostspace/axis#1": "inspect",
     }
     for command, result_command in expected.items():
@@ -339,6 +340,33 @@ def test_focused_read_only_commands_execute_from_current_projections(
         assert commands.main() == 0
         result = json.loads(capsys.readouterr().out)
         assert result["command"] == result_command
+
+    monkeypatch.setattr(sys, "argv", ["commands.py", "deployments"])
+    assert commands.main() == 0
+    deployments = json.loads(capsys.readouterr().out)
+    assert deployments["total"] == 4
+    assert len(deployments["items"]) == 5
+    mbair = next(item for item in deployments["items"] if item["ring"] == "mbair")
+    assert mbair == {
+        "ring": "mbair",
+        "runtime": "mbair",
+        "status": "offline",
+        "display_state": "gray",
+        "required": False,
+        "production_revision": None,
+        "capability_gaps": [],
+    }
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["commands.py", "inspect", "ghostspace/axis#1", "details"],
+    )
+    assert commands.main() == 0
+    inspection = json.loads(capsys.readouterr().out)
+    assert inspection["view"] == "details"
+    assert inspection["summary"]["ref"] == "ghostspace/axis#1"
+    assert inspection["details"]["source_kind"] == "gitlab-issue"
 
 
 def test_command_registry_is_the_single_parse_contract():
@@ -356,49 +384,85 @@ def test_command_registry_is_the_single_parse_contract():
     assert all(required == set(spec) for spec in command_specs())
     assert parse_command("commands")[0]["command"] == "help"
     assert parse_command("inspect ghostspace/axis#119")[1] == "ghostspace/axis#119"
+    assert parse_command("inspect ghostspace/axis#119 details")[1].endswith(" details")
+    assert parse_command("inspect ghostspace/axis#119 evidence")[1].endswith(" evidence")
+    assert parse_command("inspect ghostspace/axis#119 raw") is None
     assert parse_command("milestone AX-M4")[1] == "AX-M4"
-    assert parse_command("resume unexpected") is None
-    assert {
+    assert parse_command("capability Neural")[1] == "Neural"
+    assert parse_command("resume") is None
+    assert parse_command("running") is None
+    assert {spec["command"] for spec in command_specs()} == {
+        "help",
         "status",
         "roadmap",
         "milestones",
         "milestone",
-        "running",
-        "recent",
-        "decisions",
+        "capabilities",
+        "capability",
         "deployments",
         "validation",
-        "capabilities",
+        "risk",
+        "decisions",
+        "recent",
         "inspect",
-    }.issubset({spec["command"] for spec in command_specs()})
+    }
     assert {spec["authority"] for spec in command_specs()} == {
         "product-owner-slack-dm"
     }
 
 
-def test_slack_resume_cannot_enable_repository_mutation(monkeypatch, tmp_path, capsys):
-    inventory, graph, control = current_sources()
-    for name, value in (
-        ("inventory.json", inventory),
-        ("execution-graph.json", graph),
-        ("control.json", control),
-    ):
-        (tmp_path / name).write_text(json.dumps(value), encoding="utf-8")
+def test_product_command_surface_has_no_control_or_queue_mechanics():
+    from axis_supervisor.command_registry import parse_command
+
+    for command in ("running", "blocked", "reconcile", "pause", "resume", "drain"):
+        assert parse_command(command) is None
+
+
+def test_resolved_decision_is_not_reported_as_pending(tmp_path: Path):
+    from axis_supervisor.decisions import DECISION_DIGEST, DECISION_ID, DecisionStore
+    from axis_supervisor.schema_registry import write_record
+
     spec = importlib.util.spec_from_file_location(
-        "convergence_commands_resume", SCRIPTS / "commands.py"
+        "decision_filter_commands", SCRIPTS / "commands.py"
     )
     assert spec and spec.loader
     commands = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(commands)
-    commands.ROOT = tmp_path
-    monkeypatch.setenv("AXIS_SUPERVISOR_COMMAND_SOURCE", "product-owner-slack")
-    monkeypatch.setattr(sys, "argv", ["commands.py", "resume"])
-
-    assert commands.main() == 0
-    capsys.readouterr()
-    persisted = json.loads((tmp_path / "control.json").read_text(encoding="utf-8"))
-    assert persisted["mode"] == "enabled"
-    assert persisted["allow_repository_mutation"] is False
+    graph = {
+        "nodes": [
+            {
+                "ref": DECISION_ID,
+                "semantic_record": {
+                    "decision_packet": {
+                        "decision_id": DECISION_ID,
+                        "current_digest": DECISION_DIGEST,
+                        "decision_requested": "Approve?",
+                    }
+                },
+            }
+        ]
+    }
+    assert len(commands.pending_decisions(graph, tmp_path)) == 1
+    record = {
+        "schema": "axis.external-development-supervisor.decision",
+        "schema_version": "1.0.0",
+        "decision_id": DECISION_ID,
+        "digest": DECISION_DIGEST,
+        "outcome": "approved",
+        "conditions": None,
+        "verification": None,
+        "decided_by": "U1",
+        "workspace_id": "T1",
+        "channel": "D1",
+        "message_ts": "1.1",
+        "action_id": "axis_decision_approve",
+        "action_ts": "1.2",
+        "decided_at": "2026-08-07T00:00:00+00:00",
+        "frontier_rebuild_requested_at": None,
+    }
+    store = DecisionStore(tmp_path)
+    write_record(store.decision_path(DECISION_ID), record, record["schema"])
+    assert commands.pending_decisions(graph, tmp_path) == []
 
 
 def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
@@ -500,16 +564,19 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     fallback, blocks, fingerprint = render_executive_dashboard(
         tmp_path, inventory, graph, semantics, events
     )
+    headers = [block["text"]["text"] for block in blocks if block["type"] == "header"]
     sections = [block for block in blocks if block["type"] == "section"]
-    assert len(sections) == 17
-    assert tuple(
-        block["text"]["text"].splitlines()[0].strip("*") for block in sections
-    ) == DASHBOARD_PROOF_SECTIONS
+    assert len(sections) == 8
+    assert tuple(headers) == DASHBOARD_PROOF_SECTIONS
     rendered = json.dumps(blocks).lower()
     for forbidden in (
         "worktree",
+        "issue",
+        "assignment",
         "lease",
         "grant",
+        "enum",
+        "ci-poll",
         "model",
         "accounting",
         "lifecycle",
@@ -518,18 +585,26 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     ):
         assert forbidden not in rendered
     visible_blocks = json.dumps(blocks, ensure_ascii=False)
-    assert "Ghost Runtime" in visible_blocks
-    assert "Ghost Web" in visible_blocks
-    assert "Nyx axis-node" in visible_blocks
-    assert "macbookpro axis-desktop" in visible_blocks
-    assert "mbair axis-desktop" in visible_blocks
-    assert "⚪ *Offline*" in visible_blocks
-    assert "Routine unchanged evidence checks: *1*" in visible_blocks
-    assert "Action Effectiveness" in visible_blocks
-    assert "█" in visible_blocks and "░" in visible_blocks
+    for required in (
+        "Ghost Runtime",
+        "Web",
+        "Nyx",
+        "macbookpro",
+        "mbair",
+        "Production confidence",
+        "Operator confidence",
+        "Risk",
+        "Debt",
+        "Constraint",
+        "!axis capability CLI",
+    ):
+        assert required in visible_blocks
+    assert "Operator confidence *N/A*" in visible_blocks
+    assert "⚪ Offline" in visible_blocks
+    assert "░" in visible_blocks
     assert "\n" not in fallback
     assert "*" not in fallback
-    assert fallback.startswith("AXIS Executive Dashboard | Graduated capabilities")
+    assert fallback.startswith("AXIS | Capabilities")
     assert len(fingerprint) == 64
 
 

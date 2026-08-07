@@ -278,7 +278,7 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
         {}, graph(), graduation(capability("Service", missing_gate="verification"))
     )
 
-    assert migrated["schema_version"] == "2.0.0"
+    assert migrated["schema_version"] == "3.0.0"
     assert migrated["mission_id"] == "persisted-v1-mission"
     assert migrated["created_at"] == "2026-08-06T00:00:00+00:00"
     assert migrated["observations"][0]["source"] == "cycle-response"
@@ -294,7 +294,7 @@ def test_malformed_current_mission_record_fails_closed(tmp_path: Path):
         json.dumps(
             {
                 "schema": "axis.external-development-supervisor.active-mission",
-                "schema_version": "2.0.0",
+                "schema_version": "3.0.0",
                 "mission_id": "malformed-current",
             }
         ),
@@ -305,6 +305,21 @@ def test_malformed_current_mission_record_fails_closed(tmp_path: Path):
         ActiveMissionState(tmp_path).reconcile(
             {}, graph(), graduation(capability("Service", missing_gate="verification"))
         )
+
+
+def test_v2_mission_action_context_is_backfilled_before_validation(tmp_path: Path):
+    from axis_supervisor.missions import read_mission_record
+
+    fixture = ROOT / "tests" / "fixtures" / "active-mission-v2.json"
+    path = tmp_path / "active-mission.json"
+    path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    migrated = read_mission_record(path)
+    action = migrated["generated_actions"][0]
+    assert migrated["schema_version"] == "3.0.0"
+    assert action["capability_context"] == [{"capability": "CLI"}]
+    assert action["merge_impact_projection"]["affected_capabilities"] == ["CLI"]
+    assert action["merge_impact_projection"]["production_confidence_before"] == 40.0
 
 
 def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(

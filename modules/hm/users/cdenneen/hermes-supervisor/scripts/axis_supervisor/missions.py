@@ -4,12 +4,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .lifecycle import is_terminal
+from .lifecycle import adapt_assignment, is_terminal
 from .mutation import MutationGate, OperationClass
-from .schema_registry import RecordError, read_record, write_record
+from .schema_registry import validate_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.active-mission"
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "3.0.0"
 DESIRED_END_STATE = "all-capabilities-graduated"
 MAX_ACTIONS = 8
 MAX_OBSERVATIONS = 100
@@ -240,6 +240,89 @@ def has_runnable_action(mission: dict[str, Any]) -> bool:
     )
 
 
+def _backfill_action_context(action: dict[str, Any]) -> dict[str, Any]:
+    migrated = dict(action)
+    capabilities = sorted(set(migrated.get("expected_capabilities") or []))
+    migrated.setdefault(
+        "capability_context",
+        [{"capability": capability} for capability in capabilities],
+    )
+    migrated.setdefault(
+        "merge_impact_projection",
+        {
+            "affected_capabilities": capabilities,
+            "product_subdimensions": [],
+            "milestones": list(migrated.get("expected_milestones") or []),
+            "gates": list(migrated.get("expected_gates") or []),
+            "production_confidence_before": (
+                migrated.get("pre_snapshot") or {}
+            ).get("confidence"),
+        },
+    )
+    return migrated
+
+
+def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
+    migrated = json.loads(json.dumps(value))
+    version = migrated.get("schema_version")
+    if version == SCHEMA_VERSION:
+        return migrated
+    if version == "1.0.0":
+        observations = []
+        for observation in list(migrated.get("observations") or [])[
+            -MAX_OBSERVATIONS:
+        ]:
+            if isinstance(observation, dict):
+                observations.append(
+                    {
+                        "observed_at": str(observation.get("observed_at") or utc_now()),
+                        "source": str(observation.get("source") or "migration"),
+                        "summary": str(observation.get("summary") or observation)[
+                            :4096
+                        ],
+                    }
+                )
+            else:
+                observations.append(
+                    {
+                        "observed_at": utc_now(),
+                        "source": "migration",
+                        "summary": str(observation)[:4096],
+                    }
+                )
+        migrated["observations"] = observations
+        migrated.setdefault("action_effectiveness", [])
+        migrated.setdefault(
+            "effectiveness_metrics",
+            {
+                "assignments_evaluated": 0,
+                "effective_assignments": 0,
+                "zero_effect_assignments": 0,
+                "suppressed_fingerprints": 0,
+                "state_model_defects": 0,
+                "applicability_revisions": 0,
+                "gates_reduced": 0,
+                "confidence_delta": 0.0,
+                "effectiveness_percent": 100.0,
+            },
+        )
+        migrated.setdefault("graduation_progress", {})
+        migrated["graduation_progress"].setdefault("suppressed_action_count", 0)
+    if version in {"1.0.0", "2.0.0"}:
+        migrated["schema_version"] = SCHEMA_VERSION
+        migrated["generated_actions"] = [
+            _backfill_action_context(action)
+            for action in migrated.get("generated_actions") or []
+        ]
+    return migrated
+
+
+def read_mission_record(path: Path) -> dict[str, Any]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    migrated = adapt_mission_record(raw)
+    return validate_record(migrated, SCHEMA, record_path=path)
+
+
 class ActiveMissionState:
     def __init__(self, root: Path):
         self.root = root
@@ -249,59 +332,19 @@ class ActiveMissionState:
     def _previous(self) -> dict[str, Any]:
         if not self.path.exists():
             return {}
-        try:
-            return read_record(self.path, SCHEMA)
-        except RecordError:
-            legacy = json.loads(self.path.read_text(encoding="utf-8"))
-            if not isinstance(legacy, dict) or (
-                legacy.get("schema") != SCHEMA
-                or legacy.get("schema_version") != "1.0.0"
-            ):
-                raise
-            observations = []
-            for observation in list(legacy.get("observations") or [])[
-                -MAX_OBSERVATIONS:
-            ]:
-                if isinstance(observation, dict):
-                    observations.append(
-                        {
-                            "observed_at": str(
-                                observation.get("observed_at") or utc_now()
-                            ),
-                            "source": str(observation.get("source") or "migration"),
-                            "summary": str(observation.get("summary") or observation)[
-                                :4096
-                            ],
-                        }
-                    )
-                else:
-                    observations.append(
-                        {
-                            "observed_at": utc_now(),
-                            "source": "migration",
-                            "summary": str(observation)[:4096],
-                        }
-                    )
-            return {
-                "mission_id": str(
-                    legacy.get("mission_id") or "axis-capability-graduation"
-                ),
-                "created_at": str(legacy.get("created_at") or utc_now()),
-                "observations": observations,
-                "action_effectiveness": list(
-                    legacy.get("action_effectiveness") or []
-                ),
-            }
+        return read_mission_record(self.path)
 
     def _assignments(self, inventory: dict[str, Any]) -> list[dict[str, Any]]:
         values = {
-            str(value.get("assignment_id")): value
+            str(value.get("assignment_id")): adapt_assignment(value, self.root)
             for value in inventory.get("supervisor_assignments") or []
             if value.get("assignment_id")
         }
         for path in sorted((self.root / "assignments").glob("*.json")):
             try:
-                value = json.loads(path.read_text(encoding="utf-8"))
+                value = adapt_assignment(
+                    json.loads(path.read_text(encoding="utf-8")), self.root
+                )
             except (OSError, json.JSONDecodeError):
                 continue
             if value.get("assignment_id"):
@@ -451,6 +494,43 @@ class ActiveMissionState:
             graduation.get("applicability_model_revision") or "legacy-boolean-v1"
         )
         pre_snapshot = _normalized_snapshot(graduation, capabilities)
+        capability_context = [
+            {
+                "capability": name,
+                "product_subdimensions": (
+                    capability_records.get(name) or {}
+                ).get("product_subdimensions")
+                or {},
+                "production_confidence": (capability_records.get(name) or {}).get(
+                    "production_confidence"
+                ),
+                "operator_confidence": (capability_records.get(name) or {}).get(
+                    "operator_confidence"
+                ),
+                "first_failing_gate": (capability_records.get(name) or {}).get(
+                    "first_failing_gate"
+                ),
+                "program_risk": (capability_records.get(name) or {}).get(
+                    "program_risk"
+                )
+                or {},
+            }
+            for name in sorted(set(capabilities))
+        ]
+        merge_impact_projection = {
+            "affected_capabilities": sorted(set(capabilities)),
+            "product_subdimensions": sorted(
+                {
+                    dimension
+                    for value in capability_context
+                    for dimension, state in value["product_subdimensions"].items()
+                    if state.get("applicable")
+                }
+            ),
+            "milestones": milestones,
+            "gates": expected_gates,
+            "production_confidence_before": pre_snapshot.get("confidence"),
+        }
         suppression_fingerprint = _fingerprint(
             {
                 "action_id": action_id,
@@ -467,6 +547,8 @@ class ActiveMissionState:
             "expected_milestones": milestones,
             "expected_debt_reduction": debt,
             "expected_evidence": sorted(set(filter(None, expected_evidence))),
+            "capability_context": capability_context,
+            "merge_impact_projection": merge_impact_projection,
             "convergence_fingerprint": convergence_fingerprint,
             "evidence_model_fingerprint": evidence_model_fingerprint,
             "applicability_model_revision": applicability_model_revision,
@@ -1005,7 +1087,7 @@ class ActiveMissionState:
         return projection
 
     def observe(self, response: Any, *, source: str) -> dict[str, Any]:
-        mission = read_record(self.path, SCHEMA)
+        mission = read_mission_record(self.path)
         summary = (
             response
             if isinstance(response, str)

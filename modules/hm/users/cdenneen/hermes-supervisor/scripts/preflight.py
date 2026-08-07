@@ -13,7 +13,11 @@ from pathlib import Path
 from axis_supervisor.accounting import AccountingLedger
 from axis_supervisor.lifecycle import is_terminal
 from axis_supervisor.mutation import MutationGate, OperationClass
-from axis_supervisor.missions import has_runnable_action, mission_summary
+from axis_supervisor.missions import (
+    has_runnable_action,
+    mission_summary,
+    read_mission_record,
+)
 from axis_supervisor.observability import record_event
 from axis_supervisor.schema_registry import read_record, write_record
 
@@ -253,10 +257,7 @@ def main() -> int:
         ROOT / "execution-graph.json",
         "axis.external-development-supervisor.execution-graph",
     )
-    active_mission = read_record(
-        ROOT / "active-mission.json",
-        "axis.external-development-supervisor.active-mission",
-    )
+    active_mission = read_mission_record(ROOT / "active-mission.json")
     record_event(
         ROOT,
         "reconciliation_completed",

@@ -7,11 +7,9 @@ from pathlib import Path
 
 from .authority import AuthorityResolver
 from .capability_graduation import (
-    SCHEMA as CAPABILITY_GRADUATION_SCHEMA,
-)
-from .capability_graduation import (
     action_score,
     capabilities_for_paths,
+    read_capability_graduation,
 )
 from .classifier import (
     CLASSIFICATIONS,
@@ -901,7 +899,7 @@ class ExecutionGraphBuilder:
         graduation_path = self.root / "capability-graduation.json"
         try:
             graduation = (
-                read_record(graduation_path, CAPABILITY_GRADUATION_SCHEMA)
+                read_capability_graduation(graduation_path)
                 if graduation_path.exists()
                 else {}
             )
