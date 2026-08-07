@@ -66,7 +66,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.capability-graduation"
     },
-    "schema_version": { "const": "4.0.0" },
+    "schema_version": { "const": "5.0.0" },
     "generated_at": { "type": "string", "format": "date-time" },
     "projection_digest": {
       "type": "string",
@@ -94,7 +94,11 @@
     },
     "program_risk": { "$ref": "#/$defs/risk" },
     "production_confidence": { "type": "number", "minimum": 0, "maximum": 100 },
-    "operator_confidence": { "type": "number", "minimum": 0, "maximum": 100 },
+    "operator_confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
     "denominator": {
       "type": "object",
       "required": [

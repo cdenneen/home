@@ -63,6 +63,10 @@ def _metric(value: dict) -> str:
     return f"{value.get('count', 0)}/{value.get('denominator', 0)} ({value.get('percent', 0):g}%)"
 
 
+def _confidence_text(value) -> str:
+    return "N/A" if value is None else f"{float(value):g}%"
+
+
 def _render(data: dict) -> str:
     command = data.get("command")
     if command == "help":
@@ -81,7 +85,7 @@ def _render(data: dict) -> str:
             f"Roadmap: {roadmap.get('verified', 0)}/{roadmap.get('total', 0)} verified | "
             f"Frontier `{roadmap.get('frontier') or 'none'}`\n"
             f"Production confidence: {data.get('production_confidence') or 0:g}% | "
-            f"Operator confidence: {data.get('operator_confidence') or 0:g}%\n"
+            f"Operator confidence: {_confidence_text(data.get('operator_confidence'))}\n"
             f"Risk: {public_text(risk.get('level') or 'unknown')} ({risk.get('score', 0)}/100) | "
             f"Active product work: {data.get('active_product_work', 0)} | "
             f"Decisions: {data.get('pending_decisions', 0)}"
@@ -91,7 +95,7 @@ def _render(data: dict) -> str:
         lines = [
             f"• *{item.get('key')}* `{progress_bar((item.get('progress') or {}).get('count', 0), (item.get('progress') or {}).get('denominator', 0))}` "
             f"{_metric(item.get('progress') or {})} | production {item.get('production_confidence') or 0:g}% | "
-            f"operator {item.get('operator_confidence') if item.get('operator_confidence') is not None else 'not required'} | "
+            f"operator {_confidence_text(item.get('operator_confidence'))} | "
             f"risk {public_text((item.get('program_risk') or {}).get('level') or 'unknown')} | debt {len(item.get('debts') or [])}"
             for item in milestones
         ]
@@ -107,7 +111,7 @@ def _render(data: dict) -> str:
             f"Delivery `{progress_bar(progress.get('count', 0), progress.get('denominator', 0))}` {_metric(progress)}\n"
             f"Production `{progress_bar(item.get('production_confidence') or 0, 100)}` {item.get('production_confidence') or 0:g}% | "
             f"Operator `{progress_bar(item.get('operator_confidence') or 0, 100)}` "
-            f"{item.get('operator_confidence') if item.get('operator_confidence') is not None else 'not required'}\n"
+            f"{_confidence_text(item.get('operator_confidence'))}\n"
             f"Risk: {public_text(risk.get('level') or 'unknown')} ({risk.get('score', 0)}/100) | "
             f"Debt: {len(item.get('debts') or [])} | Constraint: {public_text(item.get('constraint') or 'none')}"
         )
@@ -121,14 +125,17 @@ def _render(data: dict) -> str:
         )
     if command == "deployments":
         lines = [
-            f"• *{item.get('ring')}* — {public_text(item.get('status'))} | "
+            f"• *{item.get('ring')}* — "
+            f"{'⚪ ' if item.get('display_state') == 'gray' else ''}{public_text(item.get('status'))}"
+            f"{' (optional)' if not item.get('required', True) else ''} | "
             f"gaps {len(item.get('capability_gaps') or [])}"
             for item in data.get("items") or []
         ]
         return (
             "*AXIS Deployment Ring*\n"
             f"`{progress_bar(data.get('verified') or 0, data.get('total') or 0)}` "
-            f"{data.get('verified', 0)}/{data.get('total', 0)} verified\n"
+            f"{data.get('verified', 0)}/{data.get('total', 0)} required verified | "
+            f"optional {data.get('optional', 0)}\n"
             + ("\n".join(lines) or "No runtime projection is available.")
         )
     if command == "validation":
@@ -141,14 +148,14 @@ def _render(data: dict) -> str:
     if command == "capabilities":
         lines = [
             f"• *{public_text(item.get('product_capability'))}* — production {item.get('production_confidence') or 0:g}% | "
-            f"operator {item.get('operator_confidence') if item.get('operator_confidence') is not None else 'not required'} | "
+            f"operator {_confidence_text(item.get('operator_confidence'))} | "
             f"{public_text(item.get('first_failing_gate') or 'graduated')}"
             for item in data.get("items") or []
         ]
         return (
             "*AXIS Capabilities*\n"
             f"Production confidence {data.get('production_confidence') or 0:g}% | "
-            f"Operator confidence {data.get('operator_confidence') or 0:g}%\n"
+            f"Operator confidence {_confidence_text(data.get('operator_confidence'))}\n"
             + ("\n".join(lines) or "No capability projection is available.")
         )
     if command == "capability":
@@ -156,7 +163,7 @@ def _render(data: dict) -> str:
         return (
             f"*{public_text(item.get('product_capability'))} Capability*\n"
             f"Production confidence: {item.get('production_confidence') or 0:g}% | "
-            f"Operator confidence: {item.get('operator_confidence') if item.get('operator_confidence') is not None else 'not required'}\n"
+            f"Operator confidence: {_confidence_text(item.get('operator_confidence'))}\n"
             f"First evidence gap: {public_text(item.get('first_failing_gate') or 'none')} | "
             f"Risk: {public_text((item.get('program_risk') or {}).get('level') or 'unknown')}\n"
             f"Source-linked product items: {', '.join(item.get('linked_work_items') or []) or 'none'}\n"
@@ -183,7 +190,40 @@ def _render(data: dict) -> str:
     if command == "inspect":
         if data.get("error"):
             return f"*Inspect:* {data['error']}"
-        return "*Product evidence detail*\n```" + json.dumps(data, indent=2)[:3500] + "```"
+        summary = data.get("summary") or {}
+        privileged = data.get("privileged_summary") or {}
+        capabilities = ", ".join(summary.get("capabilities") or []) or "none mapped"
+        suffix = (
+            "\nPrivileged details: "
+            f"source {public_text(privileged.get('source_url') or 'not linked')} | "
+            f"dependencies {privileged.get('dependency_count', 0)} | "
+            f"acceptance {'present' if privileged.get('acceptance_present') else 'pending'}"
+            if data.get("view") == "details"
+            else "\nPrivileged evidence: "
+            f"checks pending {privileged.get('failed_check_count', 0)} | "
+            f"references {privileged.get('evidence_reference_count', 0)} | "
+            f"capabilities {privileged.get('capability_count', 0)}"
+            if data.get("view") == "evidence"
+            else "\nUse `!axis inspect "
+            + str(summary.get("ref") or "group/project#id")
+            + " details` or `evidence` for an explicit privileged drilldown."
+        )
+        return (
+            "*Product item*\n"
+            f"`{public_text(summary.get('ref'))}` — {public_text(summary.get('title'))}\n"
+            f"Milestone: {public_text(summary.get('milestone') or 'unmapped')} | "
+            f"State: {public_text(summary.get('product_state'))} | "
+            f"Evidence: {public_text(summary.get('evidence_state'))}\n"
+            f"Capabilities: {public_text(capabilities)} | "
+            f"Product actions: {summary.get('active_product_actions', 0)} | "
+            f"Merge impacts: {summary.get('projected_merge_impacts', 0)}"
+            + suffix
+            + (
+                "\nRaw supervisor internals are intentionally omitted from Slack."
+                if data.get("view") in {"details", "evidence"}
+                else ""
+            )
+        )
     return "```" + json.dumps(data, indent=2)[:3500] + "```"
 
 

@@ -87,10 +87,11 @@ def adapt_assignment(
 ) -> dict[str, Any]:
     adapted = dict(value)
     adapted.setdefault("schema", "axis.external-development-supervisor.assignment")
-    legacy = adapted.get("schema_version") in {None, "1.0.0", "2.0.0"}
+    original_version = adapted.get("schema_version")
+    legacy = original_version in {None, "1.0.0", "2.0.0", "3.0.0"}
     if legacy:
-        adapted["schema_version"] = "3.0.0"
-    if legacy and adapted.get("project"):
+        adapted["schema_version"] = "4.0.0"
+    if original_version in {None, "1.0.0", "2.0.0"} and adapted.get("project"):
         ownership = resolve_repository_ownership(
             [adapted.get("responsibility")],
             adapted.get("project"),
@@ -103,6 +104,26 @@ def adapt_assignment(
     adapted.setdefault("allowed_paths", [])
     adapted.setdefault("required_tests", [])
     adapted.setdefault("action_contract", None)
+    if original_version == "3.0.0" and isinstance(adapted["action_contract"], dict):
+        contract = dict(adapted["action_contract"])
+        capabilities = sorted(set(contract.get("expected_capabilities") or []))
+        contract.setdefault(
+            "capability_context",
+            [{"capability": capability} for capability in capabilities],
+        )
+        contract.setdefault(
+            "merge_impact_projection",
+            {
+                "affected_capabilities": capabilities,
+                "product_subdimensions": [],
+                "milestones": list(contract.get("expected_milestones") or []),
+                "gates": list(contract.get("expected_gates") or []),
+                "production_confidence_before": (
+                    contract.get("pre_snapshot") or {}
+                ).get("confidence"),
+            },
+        )
+        adapted["action_contract"] = contract
     kind = str(adapted.get("kind") or "")
     assignment_type = adapted.get("assignment_type")
     if not assignment_type:

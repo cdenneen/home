@@ -1671,6 +1671,70 @@ def test_supervisor_slack_plugin_executes_typed_command_without_shell(
     assert "shell" not in captured["kwargs"]
 
 
+def test_supervisor_slack_inspect_never_renders_privileged_internals():
+    plugin = load_supervisor_slack_plugin()
+    response = plugin._render(
+        {
+            "command": "inspect",
+            "view": "evidence",
+            "summary": {
+                "ref": "ghostspace/axis#119",
+                "title": "CLI product proof",
+                "milestone": "AX-M4",
+                "product_state": "Waiting",
+                "evidence_state": "pending",
+                "capabilities": ["CLI"],
+                "active_product_actions": 1,
+                "projected_merge_impacts": 1,
+            },
+            "evidence": {
+                "assignment_id": "secret-assignment",
+                "worktree": "/internal/path",
+                "lease": "secret-lease",
+                "mutation_grant_id": "secret-grant",
+                "ci_poll": {"status": "running"},
+            },
+        }
+    )
+    lowered = response.lower()
+    assert "cli product proof" in lowered
+    assert "intentionally omitted from slack" in lowered
+    for forbidden in ("assignment", "worktree", "lease", "grant", "ci_poll"):
+        assert forbidden not in lowered
+
+
+def test_supervisor_slack_uses_na_and_gray_optional_runtime_semantics():
+    plugin = load_supervisor_slack_plugin()
+    capabilities = plugin._render(
+        {
+            "command": "capabilities",
+            "production_confidence": 100.0,
+            "operator_confidence": None,
+            "items": [],
+        }
+    )
+    deployments = plugin._render(
+        {
+            "command": "deployments",
+            "verified": 4,
+            "total": 4,
+            "optional": 1,
+            "items": [
+                {
+                    "ring": "mbair",
+                    "status": "offline",
+                    "display_state": "gray",
+                    "required": False,
+                    "capability_gaps": [],
+                }
+            ],
+        }
+    )
+    assert "Operator confidence N/A" in capabilities
+    assert "⚪ offline (optional)" in deployments
+    assert "4/4 required verified | optional 1" in deployments
+
+
 def test_supervisor_slack_plugin_registers_stable_decision_actions():
     from axis_supervisor.decisions import (
         APPROVE_ACTION_ID,

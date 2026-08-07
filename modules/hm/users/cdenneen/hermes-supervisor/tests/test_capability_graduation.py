@@ -131,7 +131,7 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     )
 
     assert persisted == projection
-    assert projection["schema_version"] == "4.0.0"
+    assert projection["schema_version"] == "5.0.0"
     assert projection["primary_kpi"] == {
         "name": "graduated-capabilities",
         "count": 1,
@@ -223,6 +223,26 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     assert active_analysis["capabilities"][0]["graduation_state"]["implementation"][
         "state"
     ] == "pending"
+
+
+def test_v4_projection_migrates_confidence_dimensions_before_validation(
+    tmp_path: Path,
+):
+    from axis_supervisor.capability_graduation import read_capability_graduation
+
+    fixture = ROOT / "tests" / "fixtures" / "capability-graduation-v4.json"
+    path = tmp_path / "capability-graduation.json"
+    path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    migrated = read_capability_graduation(path)
+    capability = migrated["capabilities"][0]
+    assert migrated["schema_version"] == "5.0.0"
+    assert capability["production_confidence"] == 100.0
+    assert capability["operator_confidence"] is None
+    assert migrated["production_confidence"] == 100.0
+    assert migrated["operator_confidence"] is None
+    assert capability["program_risk"]["score"] == 50
+    assert capability["product_subdimensions"]["CLI"]["applicable"] is True
 
 
 def test_gate_applicability_has_no_implicit_defaults(tmp_path: Path):

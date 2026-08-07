@@ -22,7 +22,7 @@
   ],
   "properties": {
     "schema": { "const": "axis.external-development-supervisor.assignment" },
-    "schema_version": { "const": "3.0.0" },
+    "schema_version": { "const": "4.0.0" },
     "assignment_id": { "type": "string", "minLength": 1 },
     "assignment_type": {
       "enum": [

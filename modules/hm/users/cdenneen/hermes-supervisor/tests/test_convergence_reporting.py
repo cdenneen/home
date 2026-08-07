@@ -341,6 +341,33 @@ def test_focused_read_only_commands_execute_from_current_projections(
         result = json.loads(capsys.readouterr().out)
         assert result["command"] == result_command
 
+    monkeypatch.setattr(sys, "argv", ["commands.py", "deployments"])
+    assert commands.main() == 0
+    deployments = json.loads(capsys.readouterr().out)
+    assert deployments["total"] == 4
+    assert len(deployments["items"]) == 5
+    mbair = next(item for item in deployments["items"] if item["ring"] == "mbair")
+    assert mbair == {
+        "ring": "mbair",
+        "runtime": "mbair",
+        "status": "offline",
+        "display_state": "gray",
+        "required": False,
+        "production_revision": None,
+        "capability_gaps": [],
+    }
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["commands.py", "inspect", "ghostspace/axis#1", "details"],
+    )
+    assert commands.main() == 0
+    inspection = json.loads(capsys.readouterr().out)
+    assert inspection["view"] == "details"
+    assert inspection["summary"]["ref"] == "ghostspace/axis#1"
+    assert inspection["details"]["source_kind"] == "gitlab-issue"
+
 
 def test_command_registry_is_the_single_parse_contract():
     from axis_supervisor.command_registry import command_specs, parse_command
@@ -357,6 +384,9 @@ def test_command_registry_is_the_single_parse_contract():
     assert all(required == set(spec) for spec in command_specs())
     assert parse_command("commands")[0]["command"] == "help"
     assert parse_command("inspect ghostspace/axis#119")[1] == "ghostspace/axis#119"
+    assert parse_command("inspect ghostspace/axis#119 details")[1].endswith(" details")
+    assert parse_command("inspect ghostspace/axis#119 evidence")[1].endswith(" evidence")
+    assert parse_command("inspect ghostspace/axis#119 raw") is None
     assert parse_command("milestone AX-M4")[1] == "AX-M4"
     assert parse_command("capability Neural")[1] == "Neural"
     assert parse_command("resume") is None
@@ -386,6 +416,53 @@ def test_product_command_surface_has_no_control_or_queue_mechanics():
 
     for command in ("running", "blocked", "reconcile", "pause", "resume", "drain"):
         assert parse_command(command) is None
+
+
+def test_resolved_decision_is_not_reported_as_pending(tmp_path: Path):
+    from axis_supervisor.decisions import DECISION_DIGEST, DECISION_ID, DecisionStore
+    from axis_supervisor.schema_registry import write_record
+
+    spec = importlib.util.spec_from_file_location(
+        "decision_filter_commands", SCRIPTS / "commands.py"
+    )
+    assert spec and spec.loader
+    commands = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(commands)
+    graph = {
+        "nodes": [
+            {
+                "ref": DECISION_ID,
+                "semantic_record": {
+                    "decision_packet": {
+                        "decision_id": DECISION_ID,
+                        "current_digest": DECISION_DIGEST,
+                        "decision_requested": "Approve?",
+                    }
+                },
+            }
+        ]
+    }
+    assert len(commands.pending_decisions(graph, tmp_path)) == 1
+    record = {
+        "schema": "axis.external-development-supervisor.decision",
+        "schema_version": "1.0.0",
+        "decision_id": DECISION_ID,
+        "digest": DECISION_DIGEST,
+        "outcome": "approved",
+        "conditions": None,
+        "verification": None,
+        "decided_by": "U1",
+        "workspace_id": "T1",
+        "channel": "D1",
+        "message_ts": "1.1",
+        "action_id": "axis_decision_approve",
+        "action_ts": "1.2",
+        "decided_at": "2026-08-07T00:00:00+00:00",
+        "frontier_rebuild_requested_at": None,
+    }
+    store = DecisionStore(tmp_path)
+    write_record(store.decision_path(DECISION_ID), record, record["schema"])
+    assert commands.pending_decisions(graph, tmp_path) == []
 
 
 def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
@@ -522,6 +599,7 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
         "!axis capability CLI",
     ):
         assert required in visible_blocks
+    assert "Operator confidence *N/A*" in visible_blocks
     assert "⚪ Offline" in visible_blocks
     assert "░" in visible_blocks
     assert "\n" not in fallback

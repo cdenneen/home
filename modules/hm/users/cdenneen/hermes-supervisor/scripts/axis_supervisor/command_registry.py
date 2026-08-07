@@ -37,7 +37,11 @@ COMMANDS = (
     _spec("risk", "Show product risk, debt, and constraints."),
     _spec("decisions", "Show pending Product Owner decisions."),
     _spec("recent", "Show recent product progress."),
-    _spec("inspect", "Inspect one governed product item in full detail.", ("<group/project#iid>",)),
+    _spec(
+        "inspect",
+        "Inspect a product item; details and evidence are explicit privileged views.",
+        ("<group/project#iid>", "[details|evidence]"),
+    ),
 )
 
 
@@ -64,7 +68,11 @@ def parse_command(text: str) -> tuple[dict, str] | None:
     if spec is None:
         return None
     if spec["handler_key"] == "inspect":
-        if not re.fullmatch(r"[^\s#]+/[^\s#]+#\d+", argument):
+        if not re.fullmatch(
+            r"[^\s#]+/[^\s#]+#\d+(?:\s+(?:details|evidence))?",
+            argument,
+            re.IGNORECASE,
+        ):
             return None
     elif spec["handler_key"] == "milestone":
         if not re.fullmatch(r"AX-M\d+(?:\.\d+)?", argument, re.IGNORECASE):

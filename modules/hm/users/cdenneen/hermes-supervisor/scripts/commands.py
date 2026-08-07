@@ -4,8 +4,11 @@ import os
 import sys
 from pathlib import Path
 
+from axis_supervisor.capability_graduation import read_capability_graduation
 from axis_supervisor.command_registry import command_specs, parse_command, usage
 from axis_supervisor.dashboard import PRODUCT_CAPABILITIES, public_text
+from axis_supervisor.decisions import DecisionStore
+from axis_supervisor.missions import read_mission_record
 from axis_supervisor.observability import OperationalEventLog
 from axis_supervisor.reporting import build_roadmap_semantics, require_current_sources
 from axis_supervisor.schema_registry import read_record
@@ -44,16 +47,13 @@ def capability_projection() -> dict:
 
 
 def graduation_projection() -> dict:
-    return load_optional(
-        "capability-graduation.json",
-        "axis.external-development-supervisor.capability-graduation",
-    )
+    path = ROOT / "capability-graduation.json"
+    return read_capability_graduation(path) if path.exists() else {}
 
 
 def mission_projection() -> dict:
-    return load_optional(
-        "active-mission.json", "axis.external-development-supervisor.active-mission"
-    )
+    path = ROOT / "active-mission.json"
+    return read_mission_record(path) if path.exists() else {}
 
 
 def public_runtime_status(value: dict, *, offline: bool = False) -> str:
@@ -137,7 +137,8 @@ def capability_items(graduation: dict) -> list[dict]:
     ]
 
 
-def pending_decisions(graph: dict) -> list[dict]:
+def pending_decisions(graph: dict, root: Path | None = None) -> list[dict]:
+    store = DecisionStore(root or ROOT)
     return [
         {
             key: packet.get(key)
@@ -156,6 +157,8 @@ def pending_decisions(graph: dict) -> list[dict]:
             packet := (node.get("semantic_record") or {}).get("decision_packet"),
             dict,
         )
+        and store.load(str(packet.get("decision_id") or node.get("ref") or ""))
+        is None
     ]
 
 
@@ -170,12 +173,16 @@ def deployment_items(convergence: dict) -> list[dict]:
         and "Web Presentation" not in (ghost.get("capabilities_behind") or [])
     )
 
-    def runtime_item(label: str, name: str, *, offline: bool = False) -> dict:
+    def runtime_item(
+        label: str, name: str, *, offline: bool = False, required: bool = True
+    ) -> dict:
         value = runtimes.get(name) or {}
         return {
             "ring": label,
             "runtime": name,
             "status": public_runtime_status(value, offline=offline),
+            "display_state": "gray" if offline else "normal",
+            "required": required,
             "production_revision": value.get("running_revision"),
             "capability_gaps": value.get("capabilities_behind") or [],
         }
@@ -186,6 +193,8 @@ def deployment_items(convergence: dict) -> list[dict]:
             "ring": "Web",
             "runtime": "ghost-web",
             "status": "verified" if web_verified else "validation-pending",
+            "display_state": "normal",
+            "required": True,
             "production_revision": ghost.get("running_revision"),
             "capability_gaps": []
             if web_verified
@@ -193,7 +202,7 @@ def deployment_items(convergence: dict) -> list[dict]:
         },
         runtime_item("Nyx", "nyx"),
         runtime_item("macbookpro", "macbookpro"),
-        runtime_item("mbair", "mbair", offline=True),
+        runtime_item("mbair", "mbair", offline=True, required=False),
     ]
 
 
@@ -357,11 +366,13 @@ def main() -> int:
         )
     if command == "deployments":
         items = deployment_items(convergence)
+        required = [value for value in items if value["required"]]
         return emit(
             {
                 "command": "deployments",
-                "verified": sum(value["status"] == "verified" for value in items),
-                "total": len(items),
+                "verified": sum(value["status"] == "verified" for value in required),
+                "total": len(required),
+                "optional": len(items) - len(required),
                 "items": items,
             },
             roadmap,
@@ -422,8 +433,15 @@ def main() -> int:
         ][:10]
         return emit({"command": "recent", "items": items}, roadmap)
     if command == "inspect":
+        parts = argument.split()
+        product_ref = parts[0]
+        privileged_view = parts[1].lower() if len(parts) == 2 else None
         item = next(
-            (value for value in graph.get("nodes") or [] if value.get("ref") == argument),
+            (
+                value
+                for value in graph.get("nodes") or []
+                if value.get("ref") == product_ref
+            ),
             None,
         )
         if item is None:
@@ -433,32 +451,67 @@ def main() -> int:
         capability_context = [
             value
             for value in graduation.get("capabilities") or []
-            if argument in (value.get("linked_work_items") or [])
+            if product_ref in (value.get("linked_work_items") or [])
         ]
         capability_names = {
             str(value.get("capability")) for value in capability_context
         }
-        return emit(
-            {
-                "command": "inspect",
-                "item": item,
-                "capability_context": capability_context,
-                "generated_actions": [
-                    value
-                    for value in mission.get("generated_actions") or []
-                    if value.get("target") == argument
-                    or capability_names.intersection(
-                        value.get("expected_capabilities") or []
-                    )
-                ],
-                "merge_impact_projection": [
-                    value
-                    for value in graduation.get("merge_impact_projection") or []
-                    if value.get("target_ref") == argument
-                ],
+        actions = [
+            value
+            for value in mission.get("generated_actions") or []
+            if value.get("target") == product_ref
+            or capability_names.intersection(value.get("expected_capabilities") or [])
+        ]
+        merge_impacts = [
+            value
+            for value in graduation.get("merge_impact_projection") or []
+            if value.get("target_ref") == product_ref
+        ]
+        result = {
+            "command": "inspect",
+            "view": privileged_view or "summary",
+            "summary": {
+                "ref": product_ref,
+                "title": public_text(item.get("title")),
+                "milestone": item.get("milestone"),
+                "product_state": public_text(
+                    item.get("classification") or item.get("flow_stage") or "unknown"
+                ),
+                "capabilities": sorted(capability_names),
+                "evidence_state": public_text(
+                    (item.get("verification") or {}).get("state") or "pending"
+                ),
+                "active_product_actions": len(actions),
+                "projected_merge_impacts": len(merge_impacts),
             },
-            roadmap,
-        )
+        }
+        if privileged_view == "details":
+            result["details"] = item
+            result["privileged_summary"] = {
+                "source_url": item.get("web_url"),
+                "dependency_count": len(item.get("dependencies") or []),
+                "acceptance_present": bool(item.get("acceptance_criteria_present")),
+            }
+        elif privileged_view == "evidence":
+            result["evidence"] = {
+                "verification": item.get("verification") or {},
+                "semantic_record": item.get("semantic_record"),
+                "capability_context": capability_context,
+                "generated_actions": actions,
+                "merge_impact_projection": merge_impacts,
+            }
+            verification = item.get("verification") or {}
+            result["privileged_summary"] = {
+                "verification_state": public_text(
+                    verification.get("state") or "pending"
+                ),
+                "failed_check_count": len(verification.get("failed_checks") or []),
+                "evidence_reference_count": len(verification.get("evidence") or []),
+                "capability_count": len(capability_context),
+                "product_action_count": len(actions),
+                "merge_impact_count": len(merge_impacts),
+            }
+        return emit(result, roadmap)
     raise ValueError(f"unsupported command handler: {command}")
 
 

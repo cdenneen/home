@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from .mutation import MutationGate, OperationClass
-from .schema_registry import RecordError, read_record, write_record
+from .schema_registry import RecordError, validate_record, write_record
 from .validation_evidence import ValidationEvidenceStore
 
 SCHEMA = "axis.external-development-supervisor.capability-graduation"
-SCHEMA_VERSION = "4.0.0"
+SCHEMA_VERSION = "5.0.0"
 GATES = (
     "implementation",
     "integration",
@@ -43,6 +43,13 @@ PRODUCT_SUBDIMENSIONS = {
     "HUD": "HUD",
     "Neural": "Neural Map",
 }
+PRODUCTION_GATES = (
+    "implementation",
+    "integration",
+    "deployment",
+    "validation",
+    "verification",
+)
 
 
 def _normalized_path(value: str) -> str:
@@ -308,6 +315,97 @@ def _average(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1) if values else None
 
 
+def _production_confidence(states: dict[str, dict]) -> float:
+    gates = [
+        states[name]
+        for name in PRODUCTION_GATES
+        if states.get(name, {}).get("applicable")
+    ]
+    return (
+        round(
+            sum(gate.get("state") == "passed" for gate in gates)
+            * 100
+            / len(gates),
+            1,
+        )
+        if gates
+        else 100.0
+    )
+
+
+def _operator_confidence(states: dict[str, dict]) -> float | None:
+    gate = states.get("operator_acceptance") or {}
+    if not gate.get("applicable"):
+        return None
+    return 100.0 if gate.get("state") == "passed" else 0.0
+
+
+def _product_subdimensions(
+    name: str,
+    graduated: bool,
+    states: dict[str, dict],
+    paths: list[str],
+    runtimes: list[str],
+) -> dict[str, dict]:
+    failing = _first_failing_gate(states) or "evidence-pending"
+    return {
+        dimension: {
+            "applicable": name == product_capability,
+            "state": ("graduated" if graduated else failing)
+            if name == product_capability
+            else "not-applicable",
+            "evidence": sorted(set([*paths, *runtimes]))
+            if name == product_capability
+            else [],
+        }
+        for dimension, product_capability in PRODUCT_SUBDIMENSIONS.items()
+    }
+
+
+def adapt_capability_graduation(value: dict) -> dict:
+    migrated = json.loads(json.dumps(value))
+    if migrated.get("schema_version") != "4.0.0":
+        return migrated
+    migrated["schema_version"] = SCHEMA_VERSION
+    for capability in migrated.get("capabilities") or []:
+        states = capability.get("graduation_state") or {}
+        capability["production_confidence"] = _production_confidence(states)
+        capability["operator_confidence"] = _operator_confidence(states)
+        capability["product_subdimensions"] = _product_subdimensions(
+            str(capability.get("capability") or ""),
+            bool(capability.get("graduated")),
+            states,
+            list(capability.get("paths") or []),
+            list(capability.get("projected_runtimes") or []),
+        )
+    production = [
+        float(capability["production_confidence"])
+        for capability in migrated.get("capabilities") or []
+    ]
+    operator = [
+        float(capability["operator_confidence"])
+        for capability in migrated.get("capabilities") or []
+        if capability.get("operator_confidence") is not None
+    ]
+    migrated["production_confidence"] = _average(production) or 0.0
+    migrated["operator_confidence"] = _average(operator)
+    migrated.setdefault(
+        "merge_impact_projection",
+        [
+            impact
+            for action in migrated.get("action_scores") or []
+            if isinstance(impact := action.get("merge_impact_projection"), dict)
+        ],
+    )
+    return migrated
+
+
+def read_capability_graduation(path: Path) -> dict:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    migrated = adapt_capability_graduation(raw)
+    return validate_record(migrated, SCHEMA, record_path=path)
+
+
 def capability_context(
     capabilities: dict[str, dict], names: list[str]
 ) -> list[dict]:
@@ -525,7 +623,9 @@ class CapabilityGraduationProjector:
             for value in convergence.get("capabilities") or []
         }
         try:
-            previous = read_record(self.path, SCHEMA) if self.path.exists() else {}
+            previous = (
+                read_capability_graduation(self.path) if self.path.exists() else {}
+            )
         except RecordError:
             legacy = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(legacy, dict) or (
@@ -714,25 +814,8 @@ class CapabilityGraduationProjector:
                 value["applicable"] and value["state"] == "passed"
                 for value in states.values()
             )
-            production_gates = [
-                gate
-                for gate_name, gate in states.items()
-                if gate_name != "operator_acceptance" and gate["applicable"]
-            ]
-            production_confidence = (
-                round(
-                    sum(gate["state"] == "passed" for gate in production_gates)
-                    * 100
-                    / len(production_gates),
-                    1,
-                )
-                if production_gates
-                else 100.0
-            )
-            operator_gate = states["operator_acceptance"]
-            operator_confidence = (
-                100.0 if operator_gate["state"] == "passed" else 0.0
-            ) if operator_gate["applicable"] else None
+            production_confidence = _production_confidence(states)
+            operator_confidence = _operator_confidence(states)
             confidence = (
                 round(passed * 100 / gate_denominator, 1)
                 if gate_denominator
@@ -746,26 +829,9 @@ class CapabilityGraduationProjector:
                 "passed" if graduated else "pending",
                 [f"{passed}/{gate_denominator} applicable graduation gates passed"],
             )
-            product_subdimensions = {
-                dimension: {
-                    "applicable": name == product_capability,
-                    "state": (
-                        "graduated"
-                        if graduated
-                        else _first_failing_gate(states) or "evidence-pending"
-                    )
-                    if name == product_capability
-                    else "not-applicable",
-                    "evidence": sorted(
-                        set(
-                            [*owned_paths, *projected_runtimes]
-                            if name == product_capability
-                            else []
-                        )
-                    ),
-                }
-                for dimension, product_capability in PRODUCT_SUBDIMENSIONS.items()
-            }
+            product_subdimensions = _product_subdimensions(
+                name, graduated, states, owned_paths, projected_runtimes
+            )
             invalidation_payload = {
                 "capability": name,
                 "expected_revision": (convergence_by_name.get(name) or {}).get(
@@ -968,7 +1034,7 @@ class CapabilityGraduationProjector:
             for value in capability_records
             if value.get("operator_confidence") is not None
         ]
-        operator_confidence = _average(operator_samples) or 0.0
+        operator_confidence = _average(operator_samples)
         payload = {
             "applicability_model_revision": applicability_model_revision,
             "source_inventory_generation_id": inventory.get("generation_id"),

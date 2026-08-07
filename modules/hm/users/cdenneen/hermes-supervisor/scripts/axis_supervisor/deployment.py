@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import urlopen
 
+from .capability_graduation import read_capability_graduation
 from .lifecycle import set_lifecycle
 from .missions import ActiveMissionState
 from .mutation import MutationGate, OperationClass
@@ -27,10 +28,7 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
         root / "execution-graph.json",
         "axis.external-development-supervisor.execution-graph",
     )
-    graduation = read_record(
-        root / "capability-graduation.json",
-        "axis.external-development-supervisor.capability-graduation",
-    )
+    graduation = read_capability_graduation(root / "capability-graduation.json")
     capability_states = {
         value.get("capability"): value
         for value in graduation.get("capabilities") or []
@@ -60,7 +58,7 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
     )
     assignment = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "3.0.0",
+        "schema_version": "4.0.0",
         "assignment_id": assignment_id,
         "assignment_type": "capability-deployment",
         "result_state": "pending",

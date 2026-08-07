@@ -3,7 +3,9 @@ import json
 import re
 from pathlib import Path
 
-from .decisions import DECISION_ID, DecisionStore
+from .capability_graduation import read_capability_graduation
+from .decisions import DecisionStore
+from .missions import read_mission_record
 from .schema_registry import read_record
 
 DASHBOARD_PROOF_SECTIONS = (
@@ -107,10 +109,14 @@ def _confidence(value: object) -> float:
         return 0.0
 
 
+def confidence_text(value: object) -> str:
+    return "N/A" if value is None else f"{_confidence(value):g}%"
+
+
 def _capability_line(label: str, record: dict) -> str:
     production = _confidence(record.get("production_confidence"))
     operator = record.get("operator_confidence")
-    operator_text = "not required" if operator is None else f"{_confidence(operator):g}%"
+    operator_text = confidence_text(operator)
     state = "Graduated" if record.get("graduated") else public_text(
         record.get("first_failing_gate") or "Evidence pending"
     ).replace("_", " ").title()
@@ -147,7 +153,7 @@ def _milestone_lines(semantics: dict, graduation: dict) -> list[str]:
                 f"{int(progress.get('count') or 0)}/{int(progress.get('denominator') or 0)}",
                 f"Production `{progress_bar(production, 100, 10)}` {production:g}% | "
                 f"Operator `{progress_bar(operator_value, 100, 10)}` "
-                + ("not required" if operator is None else f"{operator_value:g}%"),
+                + confidence_text(operator),
                 f"Risk *{public_text(risk.get('level') or 'unknown')}* ({int(risk.get('score') or 0)}/100) | "
                 f"Debt *{debt}* | Constraint: {constraint}",
             ]
@@ -163,21 +169,19 @@ def render_executive_dashboard(
     events: list[dict],
 ) -> tuple[str, list[dict], str]:
     del inventory
-    graduation = _load(
-        root,
-        "capability-graduation.json",
-        "axis.external-development-supervisor.capability-graduation",
+    graduation_path = root / "capability-graduation.json"
+    graduation = (
+        read_capability_graduation(graduation_path)
+        if graduation_path.exists()
+        else {}
     )
     convergence = _load(
         root,
         "capability-convergence.json",
         "axis.external-development-supervisor.capability-convergence",
     )
-    mission = _load(
-        root,
-        "active-mission.json",
-        "axis.external-development-supervisor.active-mission",
-    )
+    mission_path = root / "active-mission.json"
+    mission = read_mission_record(mission_path) if mission_path.exists() else {}
 
     total = int(semantics.get("total_governed_items") or 0)
     verified = int(
@@ -191,7 +195,7 @@ def render_executive_dashboard(
     capability_total = int(primary.get("denominator") or 0)
     capability_percent = _confidence(primary.get("percent"))
     production_confidence = _confidence(graduation.get("production_confidence"))
-    operator_confidence = _confidence(graduation.get("operator_confidence"))
+    operator_confidence = graduation.get("operator_confidence")
     risk = graduation.get("program_risk") or {}
 
     capability_by_name = {
@@ -224,12 +228,30 @@ def render_executive_dashboard(
         and ghost.get("verification_status") == "verified"
         and "Web Presentation" not in (ghost.get("capabilities_behind") or [])
     )
+    required_deployments = [
+        ghost,
+        {"status": "converged", "verification_status": "verified"}
+        if ghost_web_verified
+        else {},
+        runtimes.get("nyx"),
+        runtimes.get("macbookpro"),
+    ]
+    required_verified = sum(
+        bool(
+            value
+            and value.get("status") == "converged"
+            and value.get("verification_status") == "verified"
+        )
+        for value in required_deployments
+    )
     deployment_lines = [
+        f"Required deployment `{progress_bar(required_verified, len(required_deployments), 8)}` "
+        f"*{required_verified}/{len(required_deployments)} verified*",
         f"• *Ghost Runtime* — {_runtime_status(ghost)}",
         f"• *Web* — {'🟢 Verified' if ghost_web_verified else '🟡 Validation pending' if ghost else '⚪ Not observed'}",
         f"• *Nyx* — {_runtime_status(runtimes.get('nyx'))}",
         f"• *macbookpro* — {_runtime_status(runtimes.get('macbookpro'))}",
-        f"• *mbair* — {_runtime_status(runtimes.get('mbair'), offline=True)}",
+        f"• *mbair* — {_runtime_status(runtimes.get('mbair'), offline=True)} (optional)",
     ]
 
     validation_streams = graduation.get("validation_streams") or []
@@ -247,7 +269,7 @@ def render_executive_dashboard(
         if not isinstance(packet, dict):
             continue
         decision_id = str(packet.get("decision_id") or node.get("ref") or "")
-        if decision_id == DECISION_ID and decision_store.load(DECISION_ID) is not None:
+        if decision_store.load(decision_id) is not None:
             continue
         decisions.append(
             f"• `{public_text(decision_id)}` — {public_text(packet.get('decision_requested'))}"
@@ -259,7 +281,7 @@ def render_executive_dashboard(
             "AXIS",
             f"Capabilities `{progress_bar(graduated, capability_total)}` *{graduated}/{capability_total} graduated* "
             f"({capability_percent:g}%)\nProduction confidence *{production_confidence:g}%* | "
-            f"Operator confidence *{operator_confidence:g}%* | "
+            f"Operator confidence *{confidence_text(operator_confidence)}* | "
             f"Risk *{public_text(risk.get('level') or 'unknown')} ({int(risk.get('score') or 0)}/100)*\n"
             "Drill down: `!axis capabilities`, `!axis risk`",
         ),
@@ -302,7 +324,7 @@ def render_executive_dashboard(
     fallback = (
         f"AXIS | Capabilities {graduated}/{capability_total} graduated ({capability_percent:g}%) | "
         f"Roadmap {verified}/{total} verified | Production confidence {production_confidence:g}% | "
-        f"Operator confidence {operator_confidence:g}% | "
+        f"Operator confidence {confidence_text(operator_confidence)} | "
         f"Risk {public_text(risk.get('level') or 'unknown')} | "
         f"Decisions {len(decisions)}"
     )

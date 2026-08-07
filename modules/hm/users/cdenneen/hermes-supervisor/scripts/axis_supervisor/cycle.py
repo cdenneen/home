@@ -39,7 +39,11 @@ from axis_supervisor.lifecycle import (
     is_terminal,
     set_lifecycle,
 )
-from axis_supervisor.missions import ActiveMissionState, mission_summary
+from axis_supervisor.missions import (
+    ActiveMissionState,
+    mission_summary,
+    read_mission_record,
+)
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.mutation import (
     GateDecision,
@@ -915,10 +919,7 @@ def execute_new_assignment(
 
 def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     graph = rebuild()
-    mission = read_record(
-        ROOT / "active-mission.json",
-        "axis.external-development-supervisor.active-mission",
-    )
+    mission = read_mission_record(ROOT / "active-mission.json")
     if (mission.get("termination_condition") or {}).get("should_terminate"):
         return {
             "result": "mission-terminated",
