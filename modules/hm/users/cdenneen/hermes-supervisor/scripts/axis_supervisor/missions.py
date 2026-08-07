@@ -626,6 +626,11 @@ class ActiveMissionState:
             action
             for action in unique.values()
             if action["suppression_fingerprint"] not in suppressed_fingerprints
+            and (
+                action.get("expected_gates")
+                or action.get("expected_debt_reduction")
+                or action.get("expected_capabilities")
+            )
         ][:MAX_ACTIONS]
 
     def reconcile(
