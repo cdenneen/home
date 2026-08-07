@@ -126,6 +126,10 @@ in
       pkgs.firefox
     ];
 
+  home.sessionPath = lib.optionals (pkgs.stdenv.isDarwin && hostName == "VNJTECMBCD") [
+    "${config.home.homeDirectory}/.lmstudio/bin"
+  ];
+
   programs.nh = {
     enable = true;
     flake = "${config.home.homeDirectory}/src/workspace/nix/home";
