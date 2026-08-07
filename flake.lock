@@ -521,6 +521,22 @@
         "type": "github"
       }
     },
+    "greptileSkills": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784680001,
+        "narHash": "sha256-Ba+XtBPUH3AefM33KyOvad32FGe9ayEiwfuUdsT1WAk=",
+        "owner": "greptileai",
+        "repo": "skills",
+        "rev": "646e2dfad81e5157e97daecc802b68d3d2c4d1e4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "greptileai",
+        "repo": "skills",
+        "type": "github"
+      }
+    },
     "haskell-flake": {
       "locked": {
         "lastModified": 1675296942,
@@ -1300,6 +1316,7 @@
         "disko": "disko",
         "flake-parts": "flake-parts_2",
         "fluxcdAgentSkills": "fluxcdAgentSkills",
+        "greptileSkills": "greptileSkills",
         "hermes-src": "hermes-src",
         "home-manager": "home-manager",
         "home-manager-mbair": "home-manager-mbair",

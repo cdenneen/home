@@ -92,6 +92,10 @@
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    greptileSkills = {
+      url = "github:greptileai/skills";
+      flake = false;
+    };
     nur.url = "github:nix-community/nur";
     vimnix = {
       url = "github:cdenneen/vimnix";

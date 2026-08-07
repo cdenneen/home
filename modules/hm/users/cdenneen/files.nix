@@ -2,6 +2,7 @@
   agentPkgs ? null,
   config,
   fluxcdAgentSkills,
+  greptileSkills,
   lib,
   osConfig ? null,
   nixHostName ? null,
@@ -427,14 +428,20 @@ in
   home.file.".codex/RTK.md".source = ./ai/RTK.md;
   home.file.".codex/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
   home.file.".codex/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+  home.file.".codex/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
   home.file.".agents/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
   home.file.".agents/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+  home.file.".agents/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
   home.file.".opencode/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
   home.file.".opencode/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
+  home.file.".opencode/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
   home.file.".claude/CLAUDE.md".source = ./ai/AGENTS.md;
+  home.file.".claude/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
+  home.file.".hermes/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
+  home.file.".pi/agent/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
   home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
     mcpServers = {
