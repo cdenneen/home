@@ -31,6 +31,7 @@ from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.lifecycle import is_completed, is_integrable, set_lifecycle
 from axis_supervisor.models import validate_assignment
+from axis_supervisor.missions import ActiveMissionState, mission_summary
 from axis_supervisor.mutation import (
     GateDecision,
     MutationGate,
@@ -460,7 +461,10 @@ def rebuild() -> dict:
     capability_convergence = CapabilityConvergenceProjector(ROOT).build(
         repository_convergence
     )
-    CapabilityGraduationProjector(ROOT).build(inventory, graph, capability_convergence)
+    graduation = CapabilityGraduationProjector(ROOT).build(
+        inventory, graph, capability_convergence
+    )
+    ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
     return graph
 
 
@@ -807,6 +811,15 @@ def execute_new_assignment(
 
 def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     graph = rebuild()
+    mission = read_record(
+        ROOT / "active-mission.json",
+        "axis.external-development-supervisor.active-mission",
+    )
+    if (mission.get("termination_condition") or {}).get("should_terminate"):
+        return {
+            "result": "mission-terminated",
+            "mission": mission_summary(mission),
+        }
     capability_convergence = read_record(
         ROOT / "capability-convergence.json",
         "axis.external-development-supervisor.capability-convergence",
@@ -930,6 +943,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     if active:
         integrable = [value for value in active if is_integrable(value)]
         if not integrable:
+            assignment = dispatch_first_available(graph)
+            if assignment is not None:
+                return execute_with_continuation(assignment)
             return {
                 "result": "active-assignment-not-integrable",
                 "assignments": [value["assignment_id"] for value in active],
@@ -1507,7 +1523,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             record_engineering_retrospective(ROOT, assignment, source="cycle")
         current_graph = rebuild()
         response = {"result": result, "assignment": assignment["assignment_id"]}
-        if result == "waiting":
+        if result in {"waiting", "blocked"}:
             capacity_assignment = dispatch_first_available(current_graph)
             if capacity_assignment is not None:
                 response["capacity_reused_by"] = execute_with_continuation(
@@ -1527,6 +1543,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     ]
     if len(selected_batch) > 1:
         results = []
+        failures = []
         for item in selected_batch:
             assignment = dispatcher.dispatch(graph, run_id, item)
             if assignment is None:
@@ -1534,17 +1551,18 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             try:
                 results.append(execute_with_continuation(assignment))
             except Exception as exc:
-                return {
-                    "result": "tier-a-batch-partial",
-                    "completed": results,
-                    "failed_assignment": assignment["assignment_id"],
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
+                failures.append(
+                    {
+                        "assignment": assignment["assignment_id"],
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
             graph = rebuild()
         return {
-            "result": "tier-a-batch-complete",
+            "result": "tier-a-batch-partial" if failures else "tier-a-batch-complete",
             "batch_size": len(results),
             "assignments": results,
+            "failures": failures,
         }
 
     assignment = dispatch_first_available(graph)
@@ -1602,6 +1620,8 @@ def main() -> int:
         source="cycle",
         notify=False,
     )
+    mission = ActiveMissionState(ROOT).observe(result, source="cycle-response")
+    result = {**result, "mission": mission_summary(mission)}
     print(json.dumps(result, sort_keys=True))
     return 0
 

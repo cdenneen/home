@@ -13,6 +13,7 @@ from pathlib import Path
 from axis_supervisor.accounting import AccountingLedger
 from axis_supervisor.lifecycle import is_terminal
 from axis_supervisor.mutation import MutationGate, OperationClass
+from axis_supervisor.missions import mission_summary
 from axis_supervisor.observability import record_event
 from axis_supervisor.schema_registry import read_record, write_record
 
@@ -252,6 +253,10 @@ def main() -> int:
         ROOT / "execution-graph.json",
         "axis.external-development-supervisor.execution-graph",
     )
+    active_mission = read_record(
+        ROOT / "active-mission.json",
+        "axis.external-development-supervisor.active-mission",
+    )
     record_event(
         ROOT,
         "reconciliation_completed",
@@ -308,8 +313,23 @@ def main() -> int:
             control.get("mode"),
             f"daily model call limit reached: {calls_today}/{model_limit}",
         )
-    if not execution_graph.get("executable_queue") and not active_assignments:
-        return skip(run_id, control.get("mode"), "no executable or active assignment after fresh reconciliation")
+    termination = active_mission.get("termination_condition") or {}
+    if termination.get("should_terminate"):
+        return skip(
+            run_id,
+            control.get("mode"),
+            f"mission terminated: {termination.get('reason')}",
+        )
+    if (
+        not execution_graph.get("executable_queue")
+        and not active_assignments
+        and not active_mission.get("generated_actions")
+    ):
+        return skip(
+            run_id,
+            control.get("mode"),
+            "mission remains active with no currently executable bounded action",
+        )
 
     run_record = {
         "schema": "axis.external-development-supervisor.run",
@@ -360,6 +380,7 @@ def main() -> int:
             "scheduler_state": execution_graph.get("scheduler_state"),
             "top_executable": (execution_graph.get("executable_queue") or [])[:5],
         },
+        "active_mission": mission_summary(active_mission),
         "cycle_command": [
             sys.executable,
             str(CYCLE),
