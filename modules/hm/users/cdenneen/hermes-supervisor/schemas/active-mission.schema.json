@@ -15,6 +15,8 @@
     "active_assignments",
     "completed_assignments",
     "external_blockers",
+    "action_effectiveness",
+    "effectiveness_metrics",
     "graduation_progress",
     "termination_condition",
     "observations"
@@ -23,7 +25,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.active-mission"
     },
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "mission_id": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
@@ -63,7 +65,17 @@
           "gate",
           "reason",
           "executable",
-          "attempt_limit"
+          "attempt_limit",
+          "engineering_purpose",
+          "gate_owner",
+          "expected_gates",
+          "expected_capabilities",
+          "expected_milestones",
+          "expected_debt_reduction",
+          "expected_evidence",
+          "convergence_fingerprint",
+          "evidence_model_fingerprint",
+          "suppression_fingerprint"
         ],
         "properties": {
           "action_id": { "type": "string", "minLength": 1 },
@@ -74,7 +86,35 @@
           "executable": { "const": true },
           "attempt_limit": { "type": "integer", "const": 1 },
           "source_ref": { "type": ["string", "null"] },
-          "assignment_id": { "type": ["string", "null"] }
+          "assignment_id": { "type": ["string", "null"] },
+          "engineering_purpose": { "type": "string", "minLength": 1 },
+          "gate_owner": { "type": "string", "minLength": 1 },
+          "expected_gates": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/expected_gate" }
+          },
+          "expected_capabilities": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "expected_milestones": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "expected_debt_reduction": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "expected_evidence": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "convergence_fingerprint": { "type": ["string", "null"] },
+          "evidence_model_fingerprint": { "type": "string" },
+          "suppression_fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
         },
         "additionalProperties": false
       }
@@ -100,6 +140,80 @@
         "additionalProperties": false
       }
     },
+    "action_effectiveness": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "action_id",
+          "suppression_fingerprint",
+          "baseline_fingerprint",
+          "observed_fingerprint",
+          "expected_gates",
+          "observed_gates",
+          "observed_delta",
+          "zero_effect_cycles",
+          "classification",
+          "evaluated_at"
+        ],
+        "properties": {
+          "assignment_id": { "type": "string", "minLength": 1 },
+          "action_id": { "type": "string", "minLength": 1 },
+          "suppression_fingerprint": { "type": "string" },
+          "baseline_fingerprint": { "type": "string" },
+          "observed_fingerprint": { "type": "string" },
+          "expected_gates": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/expected_gate" }
+          },
+          "observed_gates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["capability", "gate", "state"],
+              "properties": {
+                "capability": { "type": "string" },
+                "gate": { "type": "string" },
+                "state": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "observed_delta": { "type": "boolean" },
+          "zero_effect_cycles": { "type": "integer", "minimum": 0 },
+          "classification": {
+            "enum": ["effective", "zero-effect", "state-model-defect"]
+          },
+          "evaluated_at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "effectiveness_metrics": {
+      "type": "object",
+      "required": [
+        "assignments_evaluated",
+        "effective_assignments",
+        "zero_effect_assignments",
+        "suppressed_fingerprints",
+        "state_model_defects",
+        "effectiveness_percent"
+      ],
+      "properties": {
+        "assignments_evaluated": { "type": "integer", "minimum": 0 },
+        "effective_assignments": { "type": "integer", "minimum": 0 },
+        "zero_effect_assignments": { "type": "integer", "minimum": 0 },
+        "suppressed_fingerprints": { "type": "integer", "minimum": 0 },
+        "state_model_defects": { "type": "integer", "minimum": 0 },
+        "effectiveness_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
     "graduation_progress": {
       "type": "object",
       "required": [
@@ -108,7 +222,8 @@
         "percent",
         "missing_gate_count",
         "active_assignment_count",
-        "completed_assignment_count"
+        "completed_assignment_count",
+        "suppressed_action_count"
       ],
       "properties": {
         "graduated": { "type": "integer", "minimum": 0 },
@@ -116,7 +231,8 @@
         "percent": { "type": "number", "minimum": 0, "maximum": 100 },
         "missing_gate_count": { "type": "integer", "minimum": 0 },
         "active_assignment_count": { "type": "integer", "minimum": 0 },
-        "completed_assignment_count": { "type": "integer", "minimum": 0 }
+        "completed_assignment_count": { "type": "integer", "minimum": 0 },
+        "suppressed_action_count": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     },
@@ -158,6 +274,17 @@
     }
   },
   "$defs": {
+    "expected_gate": {
+      "type": "object",
+      "required": ["capability", "gate", "from_state", "to_state"],
+      "properties": {
+        "capability": { "type": "string", "minLength": 1 },
+        "gate": { "type": "string", "minLength": 1 },
+        "from_state": { "type": "string", "minLength": 1 },
+        "to_state": { "const": "passed" }
+      },
+      "additionalProperties": false
+    },
     "assignment": {
       "type": "object",
       "required": [
@@ -172,7 +299,8 @@
         "project": { "type": "string" },
         "work_item": { "type": "string" },
         "lifecycle_state": { "type": "string" },
-        "result_state": { "type": "string" }
+        "result_state": { "type": "string" },
+        "action_contract": { "type": "object" }
       },
       "additionalProperties": false
     }

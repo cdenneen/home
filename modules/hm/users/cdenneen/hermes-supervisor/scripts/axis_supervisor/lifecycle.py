@@ -85,10 +85,12 @@ def adapt_assignment(
 ) -> dict[str, Any]:
     adapted = dict(value)
     adapted.setdefault("schema", "axis.external-development-supervisor.assignment")
-    adapted.setdefault("schema_version", "1.0.0")
+    if adapted.get("schema_version") in {None, "1.0.0"}:
+        adapted["schema_version"] = "2.0.0"
     adapted.setdefault("planning_record", None)
     adapted.setdefault("allowed_paths", [])
     adapted.setdefault("required_tests", [])
+    adapted.setdefault("action_contract", None)
     kind = str(adapted.get("kind") or "")
     assignment_type = adapted.get("assignment_type")
     if not assignment_type:

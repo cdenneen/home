@@ -1,6 +1,6 @@
 # External Development Supervisor Contract
 
-Version: 1.0.0
+Version: 2.0.0
 
 ## Purpose and boundary
 
@@ -45,6 +45,20 @@ Hermes cron is the only scheduler. The worker produces local audit output; the
 no-agent reporter is the only Slack producer. Every mutation requires a fenced
 lease with assignment, resources, owner run, phase, timestamps, expiry, and
 token. Integration uses a fresh session and current GitLab state.
+
+Every generated action has one engineering purpose and one gate owner. Its
+contract names the exact gates, capabilities, milestones, debt reduction, and
+evidence expected from execution, together with the repository-convergence and
+evidence-model fingerprints observed before dispatch. Capability definitions
+must explicitly mark every graduation gate applicable or not applicable; no
+gate applicability is inferred from runtime presence.
+
+Before scheduling, current repository and runtime evidence closes stale
+deployment, verification, and repository-reconciliation assignments. After an
+assignment, the mission compares its expected gates with observed gate states
+and records effectiveness. A zero-effect fingerprint is suppressed until the
+evidence model changes. Three unchanged reconciliation cycles record a
+state-model defect and remain non-dispatchable.
 
 ## Inventory and queue
 

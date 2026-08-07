@@ -21,6 +21,7 @@ def capability(
     missing_gate: str | None = None,
     external: bool = False,
     scheduled_actions: list[dict] | None = None,
+    linked_work_items: list[str] | None = None,
 ) -> dict:
     states = {
         gate_name: gate()
@@ -43,7 +44,7 @@ def capability(
     states["graduated"] = gate("passed" if graduated else "pending")
     return {
         "capability": name,
-        "linked_work_items": [],
+        "linked_work_items": linked_work_items or [],
         "graduation_state": states,
         "scheduled_actions": scheduled_actions or [],
         "graduated": graduated,
@@ -59,6 +60,9 @@ def graduation(*capabilities: dict) -> dict:
             "denominator": denominator,
             "percent": round(graduated * 100 / denominator, 1) if denominator else 0.0,
         },
+        "effectiveness_fingerprint": "sha256:" + "a" * 64,
+        "repository_convergence_digest": "sha256:" + "b" * 64,
+        "milestones": [],
         "capabilities": list(capabilities),
     }
 
@@ -110,24 +114,72 @@ def test_missing_internal_evidence_generates_bounded_action(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 
     write_control(tmp_path)
+    current = graduation(
+        capability(
+            "Service",
+            missing_gate="verification",
+            linked_work_items=["ghostspace/axis#1"],
+        )
+    )
+    current["milestones"] = [
+        {
+            "milestone": "AX-M1",
+            "debts": [
+                {
+                    "kind": "capability-gate",
+                    "ref": "Service",
+                    "gate": "verification",
+                    "reason": "current evidence missing",
+                },
+                {
+                    "kind": "capability-gate",
+                    "ref": "Unrelated",
+                    "gate": "verification",
+                    "reason": "unrelated debt",
+                },
+            ],
+        }
+    ]
     mission = ActiveMissionState(tmp_path).reconcile(
-        {}, graph(), graduation(capability("Service", missing_gate="verification"))
+        {},
+        graph(
+            nodes=[
+                {
+                    "ref": "ghostspace/axis#1",
+                    "milestone": "AX-M1",
+                    "classification": "Completed",
+                }
+            ]
+        ),
+        current,
     )
 
     assert mission["missing_gates"][0]["gate"] == "verification"
-    assert mission["generated_actions"] == [
+    action = mission["generated_actions"][0]
+    assert action["kind"] == "reconcile-missing-evidence"
+    assert action["engineering_purpose"].startswith("advance verification")
+    assert action["gate_owner"] == "technical-verification"
+    assert action["expected_gates"] == [
         {
-            "action_id": mission["generated_actions"][0]["action_id"],
-            "kind": "reconcile-missing-evidence",
-            "target": "Service",
+            "capability": "Service",
             "gate": "verification",
-            "reason": "current evidence missing",
-            "executable": True,
-            "attempt_limit": 1,
-            "source_ref": None,
-            "assignment_id": None,
+            "from_state": "pending",
+            "to_state": "passed",
         }
     ]
+    assert action["expected_capabilities"] == ["Service"]
+    assert action["expected_milestones"] == ["AX-M1"]
+    assert action["expected_debt_reduction"] == [
+        {
+            "milestone": "AX-M1",
+            "kind": "capability-gate",
+            "ref": "Service",
+            "gate": "verification",
+            "reason": "current evidence missing",
+        }
+    ]
+    assert action["expected_evidence"] == ["current evidence missing"]
+    assert action["convergence_fingerprint"] == "sha256:" + "b" * 64
 
 
 def test_external_blocked_stream_does_not_stop_compatible_work(tmp_path: Path):
@@ -218,8 +270,83 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
         {}, graph(), graduation(capability("Service", missing_gate="verification"))
     )
 
-    assert migrated["schema_version"] == "1.0.0"
+    assert migrated["schema_version"] == "2.0.0"
     assert migrated["mission_id"] == "legacy-mission"
     assert migrated["created_at"] == "2026-01-01T00:00:00+00:00"
     assert migrated["observations"][0]["source"] == "migration"
     assert migrated["observations"][0]["summary"] == "legacy response"
+
+
+def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(
+    tmp_path: Path,
+):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    current_graduation = graduation(
+        capability("Service", missing_gate="verification")
+    )
+    first = manager.reconcile({}, graph(), current_graduation)
+    action = first["generated_actions"][0]
+    contract_fields = {
+        key: action[key]
+        for key in (
+            "engineering_purpose",
+            "gate_owner",
+            "expected_gates",
+            "expected_capabilities",
+            "expected_milestones",
+            "expected_debt_reduction",
+            "expected_evidence",
+            "convergence_fingerprint",
+            "evidence_model_fingerprint",
+            "suppression_fingerprint",
+        )
+    }
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "completed.json").write_text(
+        json.dumps(
+            {
+                "assignment_id": "completed",
+                "project": "ghostspace/axis",
+                "work_item": "Service",
+                "lifecycle_state": "completed",
+                "result_state": "no-op-verification-completed",
+                "action_contract": {
+                    "action_id": action["action_id"],
+                    "source_ref": action["source_ref"],
+                    **contract_fields,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cycle_one = manager.reconcile({}, graph(), current_graduation)
+    cycle_two = manager.reconcile({}, graph(), current_graduation)
+    cycle_three = manager.reconcile({}, graph(), current_graduation)
+
+    assert cycle_one["generated_actions"] == []
+    assert cycle_one["effectiveness_metrics"]["suppressed_fingerprints"] == 1
+    assert cycle_two["action_effectiveness"][0]["zero_effect_cycles"] == 2
+    assert cycle_three["action_effectiveness"][0]["classification"] == (
+        "state-model-defect"
+    )
+    assert cycle_three["effectiveness_metrics"]["state_model_defects"] == 1
+    assert "state-model defect" in cycle_three["observations"][-1]["summary"]
+
+    changed = dict(current_graduation)
+    changed["effectiveness_fingerprint"] = "sha256:" + "c" * 64
+    resumed = manager.reconcile({}, graph(), changed)
+    assert resumed["generated_actions"]
+    assert resumed["action_effectiveness"][0]["classification"] == "zero-effect"
+
+    satisfied = graduation(capability("Service"))
+    satisfied["effectiveness_fingerprint"] = "sha256:" + "d" * 64
+    effective = manager.reconcile({}, graph(), satisfied)
+    assert effective["action_effectiveness"][0]["observed_gates"] == [
+        {"capability": "Service", "gate": "verification", "state": "passed"}
+    ]
+    assert effective["action_effectiveness"][0]["classification"] == "effective"

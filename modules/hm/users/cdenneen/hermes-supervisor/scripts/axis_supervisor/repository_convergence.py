@@ -9,6 +9,7 @@ from .observability import record_event
 from .schema_registry import read_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.repository-convergence"
+SCHEMA_VERSION = "2.0.0"
 
 
 class RepositoryConvergenceProjector:
@@ -27,7 +28,14 @@ class RepositoryConvergenceProjector:
         return value
 
     def build(self, inventory: dict) -> dict:
-        previous = read_record(self.path, SCHEMA) if self.path.exists() else None
+        try:
+            previous = read_record(self.path, SCHEMA) if self.path.exists() else None
+        except ValueError:
+            try:
+                legacy = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                legacy = None
+            previous = legacy if isinstance(legacy, dict) else None
         dispositions_record = self._dispositions()
         disposition_by_key = {
             (value.get("repository"), value.get("branch")): value
@@ -194,12 +202,25 @@ class RepositoryConvergenceProjector:
                 digest_payload, sort_keys=True, separators=(",", ":")
             ).encode()
         ).hexdigest()
+        previous_lifecycle = (previous or {}).get("fingerprint_lifecycle") or {}
+        previous_fingerprint = previous_lifecycle.get("current") or (
+            previous or {}
+        ).get("convergence_digest")
+        fingerprint_changed = previous_fingerprint != convergence_digest
         projection = {
             "schema": SCHEMA,
-            "schema_version": "1.0.0",
+            "schema_version": SCHEMA_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "inventory_generation_id": inventory.get("generation_id"),
             "convergence_digest": convergence_digest,
+            "fingerprint_lifecycle": {
+                "current": convergence_digest,
+                "previous": previous_fingerprint,
+                "changed": fingerprint_changed,
+                "stable_cycles": 0
+                if fingerprint_changed
+                else int(previous_lifecycle.get("stable_cycles") or 0) + 1,
+            },
             "status": status,
             "counts": counts,
             "repositories": repositories,

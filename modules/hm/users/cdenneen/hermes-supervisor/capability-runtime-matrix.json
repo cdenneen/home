@@ -6,7 +6,16 @@
   "capabilities": {
     "Runtime Kernel": {
       "paths": ["src/axis_kernel", "src/axis_runtime/runtime.py"],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Scheduler": {
       "paths": [
@@ -14,18 +23,45 @@
         "src/axis_runtime/execution_budget.py",
         "src/axis_runtime/node_operations.py"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Service Plane": {
       "paths": [
         "src/axis_runtime/service_plane.py",
         "src/axis_product/service_plane"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Provider Runtime": {
       "paths": ["src/axis_runtime/provider", "src/axis_kernel/provider.py"],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Cognition": {
       "paths": [
@@ -33,11 +69,29 @@
         "src/axis_kernel/cognition.py",
         "src/axis_kernel/executive_organization.py"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Memory": {
       "paths": ["src/axis_runtime/memory.py", "src/axis_kernel/memory.py"],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Knowledge": {
       "paths": [
@@ -45,14 +99,32 @@
         "src/axis_runtime/knowledge_projection.py",
         "src/axis_kernel/knowledge.py"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Plugin Runtime": {
       "paths": [
         "src/axis_runtime/plugin_host.py",
         "src/axis_kernel/plugin_lifecycle.py"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Skills": {
       "paths": [
@@ -61,27 +133,81 @@
         "src/axis_kernel/skills.py",
         "packs"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Desktop Presentation": {
       "paths": ["apps/axis-desktop", "src/axis_desktop"],
-      "runtimes": ["macbookpro", "mbair"]
+      "runtimes": ["macbookpro", "mbair"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Web Presentation": {
       "paths": ["apps/axis-web", "src/axis_web"],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "HUD": {
       "paths": ["packages/axis-ui-hud"],
-      "runtimes": ["ghost", "macbookpro", "mbair"]
+      "runtimes": ["ghost", "macbookpro", "mbair"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Neural Map": {
       "paths": ["packages/axis-ui-neural-map"],
-      "runtimes": ["ghost", "macbookpro", "mbair"]
+      "runtimes": ["ghost", "macbookpro", "mbair"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "CLI": {
       "paths": ["src/axis/cli.py", "src/axis/cli"],
-      "runtimes": ["macbookpro", "mbair", "nyx"]
+      "runtimes": ["macbookpro", "mbair", "nyx"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Node Runtime": {
       "paths": [
@@ -90,20 +216,59 @@
         "src/axis_kernel/node.py",
         "src/axis_kernel/node_topology.py"
       ],
-      "runtimes": ["nyx"]
+      "runtimes": ["nyx"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Installer": {
       "paths": ["nix", "scripts/install", "src/axis_runtime/installation"],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
     "Observability": {
       "paths": [
         "src/axis_kernel/observability.py",
         "src/axis_runtime/observability"
       ],
-      "runtimes": ["ghost"]
+      "runtimes": ["ghost"],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": true,
+        "validation": true,
+        "verification": true,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
     },
-    "Documentation": { "paths": ["docs"], "runtimes": [] }
+    "Documentation": {
+      "paths": ["docs"],
+      "runtimes": [],
+      "gate_applicability": {
+        "implementation": true,
+        "integration": true,
+        "deployment": false,
+        "validation": false,
+        "verification": false,
+        "operator_acceptance": true,
+        "program_risk": true
+      }
+    }
   },
   "runtimes": {
     "ghost": {

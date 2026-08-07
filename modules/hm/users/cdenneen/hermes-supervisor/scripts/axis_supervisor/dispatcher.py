@@ -11,7 +11,21 @@ from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
-from .schema_registry import write_record
+from .schema_registry import RecordError, read_record, write_record
+
+READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
+ACTION_CONTRACT_FIELDS = {
+    "engineering_purpose",
+    "gate_owner",
+    "expected_gates",
+    "expected_capabilities",
+    "expected_milestones",
+    "expected_debt_reduction",
+    "expected_evidence",
+    "convergence_fingerprint",
+    "evidence_model_fingerprint",
+    "suppression_fingerprint",
+}
 
 
 class Dispatcher:
@@ -38,6 +52,63 @@ class Dispatcher:
             ),
         )
 
+    def _mission_action(self, item: dict) -> dict | None:
+        path = self.root / "active-mission.json"
+        if not path.exists():
+            return None
+        try:
+            mission = read_record(
+                path, "axis.external-development-supervisor.active-mission"
+            )
+        except RecordError:
+            return None
+        item_ref = item.get("ref")
+        target = item.get("target_ref") or item_ref
+        return next(
+            (
+                action
+                for action in mission.get("generated_actions") or []
+                if action.get("source_ref") == item_ref
+                or (
+                    action.get("kind") == "dispatch-executable"
+                    and action.get("target") == target
+                )
+            ),
+            None,
+        )
+
+    def _effectiveness_suppressed(self, item: dict) -> bool:
+        path = self.root / "capability-graduation.json"
+        if not path.exists():
+            return False
+        try:
+            graduation = read_record(
+                path, "axis.external-development-supervisor.capability-graduation"
+            )
+        except RecordError:
+            return False
+        current = graduation.get("effectiveness_fingerprint")
+        for assignment_path in self.assignments.glob("*.json"):
+            assignment = validate_assignment(
+                json.loads(assignment_path.read_text(encoding="utf-8")), self.root
+            )
+            contract = assignment.get("action_contract") or {}
+            if (
+                contract.get("source_ref") == item.get("ref")
+                and contract.get("evidence_model_fingerprint") == current
+                and assignment.get("result_state")
+                in {
+                    "analysis-completed",
+                    "no-op-verification-completed",
+                    "integrated-post-main-verified",
+                    "repository-converged",
+                    "runtime-converged",
+                    "canonical-complete",
+                }
+            ):
+                return True
+        return False
+
     def dispatch(self, graph: dict, run_id: str, selected: dict | None = None) -> dict | None:
         active = self.active()
         control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
@@ -46,7 +117,9 @@ class Dispatcher:
         ):
             return None
         item = selected or graph["executable_queue"][0]
-        if is_suppressed_no_op(item, active + self.completed_no_ops()):
+        if is_suppressed_no_op(
+            item, active + self.completed_no_ops()
+        ) or self._effectiveness_suppressed(item):
             return None
         quarantine_path = self.root / "quarantines.json"
         if quarantine_path.exists():
@@ -93,6 +166,19 @@ class Dispatcher:
             if item.get("kind") == "repository-convergence"
             else "code-implementation"
         )
+        mission_action = self._mission_action(item)
+        action_contract = (
+            {
+                "action_id": mission_action["action_id"],
+                "source_ref": mission_action.get("source_ref"),
+                **{
+                    field: mission_action[field]
+                    for field in ACTION_CONTRACT_FIELDS
+                },
+            }
+            if mission_action is not None
+            else None
+        )
         ownership = resolve_repository_ownership(
             [
                 item.get("responsibility"),
@@ -106,13 +192,13 @@ class Dispatcher:
         assignment_id = f"assignment-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         assignment = {
             "schema": "axis.external-development-supervisor.assignment",
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "assignment_id": assignment_id,
             "assignment_type": assignment_type,
             "result_state": "pending",
             "work_item_disposition": "not-evaluated",
             "lifecycle_state": "ready-semantic"
-            if item.get("kind") in {"semantic-decomposition", "technical-revalidation"}
+            if assignment_type in READ_ONLY_ASSIGNMENT_TYPES
             else "ready-implementation",
             "kind": item.get("kind"),
             "queue_ref": item.get("ref"),
@@ -142,6 +228,7 @@ class Dispatcher:
             "ranking_factors": item.get("ranking_factors"),
             "selection_rationale": item.get("selection_rationale")
             or "highest deterministic eligible queue entry",
+            "action_contract": action_contract,
             "created_by_run": run_id,
             "created_at_epoch": int(time.time()),
             "lease_id": None,
@@ -202,7 +289,7 @@ class Dispatcher:
             assignment=assignment,
             details={
                 "model": "gpt-5.4"
-                if assignment["kind"] in {"semantic-decomposition", "technical-revalidation"}
+                if assignment["assignment_type"] in READ_ONLY_ASSIGNMENT_TYPES
                 else "gpt-5.3-codex",
                 "authority": assignment.get("authority"),
                 "assignment_type": assignment["assignment_type"],

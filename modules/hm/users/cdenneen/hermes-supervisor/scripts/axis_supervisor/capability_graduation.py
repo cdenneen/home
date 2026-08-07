@@ -8,7 +8,7 @@ from .mutation import MutationGate, OperationClass
 from .schema_registry import RecordError, read_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.capability-graduation"
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "3.0.0"
 GATES = (
     "implementation",
     "integration",
@@ -143,8 +143,83 @@ def denominator_state(node: dict) -> str:
     return "active"
 
 
-def _gate(state: str, evidence: list[str]) -> dict:
-    return {"state": state, "evidence": sorted(set(filter(None, evidence)))}
+def _gate(state: str, evidence: list[str], *, applicable: bool = True) -> dict:
+    return {
+        "applicable": applicable,
+        "state": state if applicable else "not-required",
+        "evidence": sorted(set(filter(None, evidence))),
+    }
+
+
+def _gate_applicability(capability: str, definition: dict) -> dict[str, bool]:
+    applicability = definition.get("gate_applicability")
+    if not isinstance(applicability, dict) or set(applicability) != set(GATES):
+        raise ValueError(
+            f"capability {capability!r} must explicitly declare applicability for "
+            f"every gate: {', '.join(GATES)}"
+        )
+    if any(type(value) is not bool for value in applicability.values()):
+        raise ValueError(f"capability {capability!r} gate applicability must be boolean")
+    return {gate: applicability[gate] for gate in GATES}
+
+
+def _fingerprint(value: dict) -> str:
+    return "sha256:" + hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def assignment_is_satisfied(
+    assignment: dict,
+    graph: dict,
+    repository_convergence: dict,
+    convergence: dict,
+    graduation: dict,
+) -> bool:
+    """Return whether current canonical evidence already proves an active assignment."""
+    assignment_type = assignment.get("assignment_type")
+    if assignment_type == "repository-convergence":
+        return repository_convergence.get("status") == "green"
+    if assignment_type == "capability-deployment":
+        source = assignment.get("source_item") or {}
+        target = source.get("target_runtime")
+        expected = set(source.get("affected_capabilities") or [])
+        runtime = next(
+            (
+                value
+                for value in convergence.get("runtimes") or []
+                if value.get("runtime") == target
+            ),
+            {},
+        )
+        return bool(expected) and (
+            runtime.get("status") == "converged"
+            and runtime.get("health") == "healthy"
+            and runtime.get("verification_status") == "verified"
+            and not expected.intersection(runtime.get("capabilities_behind") or [])
+        )
+    if assignment_type != "no-op-verification":
+        return False
+    contract = assignment.get("action_contract") or {}
+    expected_gates = contract.get("expected_gates") or []
+    capabilities = {
+        value.get("capability"): value
+        for value in graduation.get("capabilities") or []
+    }
+    if expected_gates:
+        return all(
+            ((capabilities.get(value.get("capability")) or {}).get("graduation_state") or {})
+            .get(value.get("gate"), {})
+            .get("state")
+            in {"passed", "not-required"}
+            for value in expected_gates
+        )
+    target = assignment.get("work_item")
+    node = next(
+        (value for value in graph.get("nodes") or [] if value.get("ref") == target),
+        {},
+    )
+    return (node.get("verification") or {}).get("state") == "verified-complete"
 
 
 def _risk_level(score: int) -> str:
@@ -318,13 +393,18 @@ class CapabilityGraduationProjector:
         try:
             previous = read_record(self.path, SCHEMA) if self.path.exists() else {}
         except RecordError:
-            previous = {}
+            try:
+                legacy = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                legacy = {}
+            previous = legacy if isinstance(legacy, dict) else {}
         previous_by_name = {
             str(value.get("capability")): value
             for value in previous.get("capabilities") or []
         }
         capability_records = []
         for name, definition in sorted((matrix.get("capabilities") or {}).items()):
+            applicability = _gate_applicability(name, definition)
             owned_paths = definition.get("paths") or []
             linked_nodes = [
                 node
@@ -353,7 +433,12 @@ class CapabilityGraduationProjector:
                 for value in related_assignments
                 if value.get("result_state") in COMPLETED_ASSIGNMENT_STATES
             ]
-            implementation_passed = not linked_nodes or all(
+            repository_evidence = convergence_by_name.get(name) or {}
+            repository_current = bool(
+                repository_evidence.get("expected_revision")
+                and repository_evidence.get("evidence_fingerprint")
+            )
+            implementation_passed = repository_current and all(
                 node.get("flow_stage")
                 not in {
                     "backlog",
@@ -364,7 +449,7 @@ class CapabilityGraduationProjector:
                 }
                 for node in linked_nodes
             )
-            integration_passed = not linked_nodes or all(
+            integration_passed = repository_current and all(
                 (node.get("verification") or {}).get("state") == "verified-complete"
                 for node in linked_nodes
             )
@@ -407,55 +492,55 @@ class CapabilityGraduationProjector:
                 "implementation": _gate(
                     "passed" if implementation_passed else "pending",
                     [
-                        f"expected revision {(convergence_by_name.get(name) or {}).get('expected_revision', 'unknown')}",
+                        f"repository revision {repository_evidence.get('expected_revision', 'unknown')}",
+                        str(repository_evidence.get("evidence_fingerprint") or ""),
                         *[
                             f"completed assignment {value.get('assignment_id')}"
                             for value in completed
                         ],
                     ],
+                    applicable=applicability["implementation"],
                 ),
                 "integration": _gate(
                     "passed" if integration_passed else "pending",
-                    [f"verified work item {value}" for value in linked_refs]
-                    if integration_passed
-                    else [
-                        f"{len(linked_refs)} linked work item(s) await integration proof"
+                    [
+                        str(repository_evidence.get("evidence_fingerprint") or ""),
+                        *(
+                            [f"verified work item {value}" for value in linked_refs]
+                            if integration_passed
+                            else [
+                                f"{len(linked_refs)} linked work item(s) await integration proof"
+                            ]
+                        ),
                     ],
+                    applicable=applicability["integration"],
                 ),
                 "deployment": _gate(
-                    "not-required"
-                    if not projected_runtimes
-                    else "passed"
-                    if deployment_passed
-                    else "pending",
+                    "passed" if deployment_passed else "pending",
                     [f"runtime {value}" for value in projected_runtimes],
+                    applicable=applicability["deployment"],
                 ),
                 "validation": _gate(
-                    "not-required"
-                    if not projected_runtimes
-                    else "passed"
-                    if validation_passed
-                    else "pending",
+                    "passed" if validation_passed else "pending",
                     [
                         f"{value.get('runtime')}: health={value.get('health') or 'unknown'}"
                         for value in runtimes
                     ],
+                    applicable=applicability["validation"],
                 ),
                 "verification": _gate(
-                    "not-required"
-                    if not projected_runtimes
-                    else "passed"
-                    if verification_passed
-                    else "pending",
+                    "passed" if verification_passed else "pending",
                     [
                         f"{value.get('runtime')}: verification={value.get('verification_status') or 'pending'}"
                         for value in runtimes
                     ],
+                    applicable=applicability["verification"],
                 ),
                 "operator_acceptance": _gate(
                     "passed" if operator_accepted else "pending",
                     operator_evidence
                     or ["explicit source-linked operator acceptance is required"],
+                    applicable=applicability["operator_acceptance"],
                 ),
             }
             pending_gates = sum(
@@ -476,6 +561,7 @@ class CapabilityGraduationProjector:
                     f"{pending_gates} pending gate(s)",
                     f"{blocked_nodes} blocked linked work item(s)",
                 ],
+                applicable=applicability["program_risk"],
             )
             passed = sum(
                 value["state"] in {"passed", "not-required"}
@@ -524,14 +610,18 @@ class CapabilityGraduationProjector:
                 scheduled_actions.append(
                     {
                         "fingerprint": invalidation_fingerprint,
-                        "stages": [
-                            *(["verification"] if invalidated else []),
-                            *(
-                                ["deployment", "axis-lab-validation"]
-                                if pending_runtimes
-                                else []
-                            ),
-                        ],
+                        "stages": list(
+                            dict.fromkeys(
+                                [
+                                    *(["verification"] if invalidated else []),
+                                    *(
+                                        ["deployment", "validation", "verification"]
+                                        if pending_runtimes
+                                        else []
+                                    ),
+                                ]
+                            )
+                        ),
                         "repository": "ghostspace/axis-lab",
                         "runtimes": pending_runtimes,
                         "reason": "path-targeted post-merge capability evidence changed",
@@ -543,6 +633,7 @@ class CapabilityGraduationProjector:
                     "paths": owned_paths,
                     "projected_runtimes": projected_runtimes,
                     "linked_work_items": linked_refs,
+                    "gate_applicability": applicability,
                     "graduation_state": states,
                     "graduation_confidence": confidence,
                     "operator_confidence": round(
@@ -594,6 +685,9 @@ class CapabilityGraduationProjector:
             "source_inventory_generation_id": inventory.get("generation_id"),
             "source_graph_generation_id": graph.get("generation_id"),
             "source_convergence_digest": convergence.get("convergence_digest"),
+            "repository_convergence_digest": convergence.get(
+                "repository_convergence_digest"
+            ),
             "capabilities": capability_records,
             "milestones": milestones,
             "denominator": denominator,
@@ -605,11 +699,43 @@ class CapabilityGraduationProjector:
                 json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest()
         )
+        effectiveness_fingerprint = _fingerprint(
+            {
+                "repository_convergence_digest": convergence.get(
+                    "repository_convergence_digest"
+                ),
+                "capability_convergence_digest": convergence.get(
+                    "convergence_digest"
+                ),
+                "capabilities": [
+                    {
+                        "capability": value["capability"],
+                        "graduation_state": value["graduation_state"],
+                        "linked_work_items": value["linked_work_items"],
+                    }
+                    for value in capability_records
+                ],
+                "nodes": [
+                    {
+                        "ref": value.get("ref"),
+                        "milestone": value.get("milestone"),
+                        "classification": value.get("classification"),
+                        "flow_stage": value.get("flow_stage"),
+                        "source_fingerprint": value.get("source_fingerprint"),
+                        "verification_state": (value.get("verification") or {}).get(
+                            "state"
+                        ),
+                    }
+                    for value in nodes
+                ],
+            }
+        )
         projection = {
             "schema": SCHEMA,
             "schema_version": SCHEMA_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "projection_digest": projection_digest,
+            "effectiveness_fingerprint": effectiveness_fingerprint,
             **payload,
             "primary_kpi": {
                 "name": "graduated-capabilities",
