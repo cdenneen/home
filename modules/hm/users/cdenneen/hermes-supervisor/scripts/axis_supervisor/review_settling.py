@@ -16,7 +16,7 @@ from pathlib import Path
 from .schema_registry import RecordVersionError, read_record, validate_record
 
 SCHEMA = "axis.external-development-supervisor.review-evidence"
-SCHEMA_VERSION = "3.0.0"
+SCHEMA_VERSION = "4.0.0"
 INDEPENDENT_SCHEMA = "axis.external-development-supervisor.independent-review-output"
 RESOLVED_DISPOSITIONS = {"fixed", "false-positive", "superseded"}
 SEVERITY = {"P0": "critical", "P1": "high", "P2": "medium", "P3": "low"}
@@ -123,7 +123,7 @@ def _finding(channel: str, value: dict, head_sha: str) -> dict | None:
 def _check_state(check: dict) -> str:
     conclusion = str(check.get("conclusion") or "").upper()
     status = str(check.get("status") or check.get("state") or "").upper()
-    if conclusion in {"SUCCESS", "NEUTRAL"} or status == "SUCCESS":
+    if conclusion == "SUCCESS" or status == "SUCCESS":
         return "passed"
     if conclusion == "SKIPPED":
         return "skipped"
@@ -149,6 +149,7 @@ def _account_identity(value: dict) -> dict:
         or login.lower().endswith("[bot]")
     )
     return {
+        "id": str(user.get("id") or "unknown"),
         "login": login,
         "user_type": user_type,
         "app_slug": app_slug,
@@ -249,6 +250,7 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
         reviewers.append(
             {
                 "reviewer": login,
+                "account_id": identity["id"],
                 "kind": "automation" if identity["is_automation"] else "human",
                 "user_type": identity["user_type"],
                 "app_slug": identity["app_slug"],
@@ -270,16 +272,20 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
     ]
     checks = [
         {
+            "check_id": str(value.get("id") or "unknown"),
             "name": str(value.get("name") or "unknown"),
             "state": _check_state(value),
             "url": value.get("details_url"),
             "sha": head_sha,
             "producer": _check_producer(value),
+            "started_at": value.get("started_at"),
+            "completed_at": value.get("completed_at"),
         }
         for value in check_runs
     ]
     checks.extend(
         {
+            "check_id": str(value.get("id") or "unknown"),
             "name": str(value.get("context") or "unknown"),
             "state": "passed"
             if value.get("state") == "success"
@@ -289,6 +295,8 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
             "url": value.get("target_url"),
             "sha": head_sha,
             "producer": _check_producer(value),
+            "started_at": value.get("created_at"),
+            "completed_at": value.get("updated_at"),
         }
         for value in statuses
     )
@@ -389,7 +397,7 @@ Do not approve based on another reviewer. Empty findings is valid only when no d
 def _validate_policy(policy: dict) -> dict:
     required = {
         "required_human_approvals",
-        "required_reviewers",
+        "approved_human_reviewers",
         "required_checks",
     }
     if set(policy) != required:
@@ -398,17 +406,29 @@ def _validate_policy(policy: dict) -> dict:
         "required_human_approvals"
     ] < 1:
         raise ValueError("review policy requires at least one human approval")
-    reviewers = policy["required_reviewers"]
-    if not isinstance(reviewers, list) or not reviewers or any(
-        not isinstance(value, str) or not value for value in reviewers
-    ):
-        raise ValueError("review policy required_reviewers must be a non-empty string array")
-    if len(reviewers) != len(set(reviewers)):
-        raise ValueError("review policy required_reviewers must not contain duplicates")
+    reviewers = policy["approved_human_reviewers"]
+    if not isinstance(reviewers, list) or not reviewers:
+        raise ValueError("review policy requires an approved human identity allowlist")
+    identities = []
+    for reviewer in reviewers:
+        if (
+            not isinstance(reviewer, dict)
+            or set(reviewer) != {"id", "login"}
+            or any(
+                not isinstance(reviewer[key], str) or not reviewer[key]
+                for key in ("id", "login")
+            )
+        ):
+            raise ValueError("approved human reviewer identity is invalid")
+        identities.append((reviewer["id"], reviewer["login"]))
+    if len(identities) != len(set(identities)):
+        raise ValueError("approved human reviewer identities must not contain duplicates")
+    if policy["required_human_approvals"] > len(identities):
+        raise ValueError("required human approvals exceed the approved identity allowlist")
     checks = policy["required_checks"]
     if not isinstance(checks, list) or not checks:
         raise ValueError("review policy required_checks must be a non-empty array")
-    identities = []
+    check_identities = []
     for requirement in checks:
         if not isinstance(requirement, dict) or set(requirement) != {"name", "producer"}:
             raise ValueError("required check policy must bind a name and producer")
@@ -422,10 +442,10 @@ def _validate_policy(policy: dict) -> dict:
             or any(not isinstance(producer[key], str) or not producer[key] for key in ("id", "login"))
         ):
             raise ValueError("required check producer identity is invalid")
-        identities.append(
+        check_identities.append(
             (requirement["name"], producer["kind"], producer["id"], producer["login"])
         )
-    if len(identities) != len(set(identities)):
+    if len(check_identities) != len(set(check_identities)):
         raise ValueError("review policy required_checks must not contain duplicates")
     return policy
 
@@ -451,10 +471,7 @@ def _merge_findings(
     collected: list[dict],
     existing: dict | None,
     supplied: dict[str, dict],
-    *,
-    replace_active: bool = False,
 ) -> list[dict]:
-    collected_ids = {finding["finding_id"] for finding in collected}
     values = {
         finding["finding_id"]: dict(finding)
         for finding in (existing or {}).get("findings") or []
@@ -463,7 +480,6 @@ def _merge_findings(
         finding["state"] = (
             "active"
             if finding["reviewed_sha"] == current_sha
-            and (not replace_active or finding["finding_id"] in collected_ids)
             else "stale"
         )
         if finding["state"] == "stale":
@@ -518,13 +534,17 @@ def _status(record: dict) -> tuple[str, list[str]]:
             blockers.append(
                 f"required check from trusted producer is absent: {name}"
             )
-        elif any(value["state"] == "failed" for value in matches):
-            blockers.append(f"required check failed: {name}")
-        elif not any(value["state"] == "passed" for value in matches):
-            return "settling", blockers
+        elif any(value["state"] != "passed" for value in matches):
+            blockers.append(
+                f"every required check run from the trusted producer must succeed: {name}"
+            )
     if blockers:
         return "blocked", blockers
 
+    approved_identities = {
+        (value["id"], value["login"])
+        for value in record["policy"]["approved_human_reviewers"]
+    }
     humans = [
         value
         for value in record["reviewers"]
@@ -534,6 +554,7 @@ def _status(record: dict) -> tuple[str, list[str]]:
         and not value["reviewer"].lower().endswith("[bot]")
         and value["app_slug"] is None
         and value["reviewer"] != record["author"]
+        and (value["account_id"], value["reviewer"]) in approved_identities
     ]
     fresh_approvals = {
         value["reviewer"]
@@ -541,11 +562,10 @@ def _status(record: dict) -> tuple[str, list[str]]:
         if value["state"] == "approved"
         and value["reviewed_sha"] == record["current_sha"]
     }
-    for reviewer in record["policy"]["required_reviewers"]:
-        if reviewer not in fresh_approvals:
-            return "settling", [f"fresh approval is absent for required reviewer: {reviewer}"]
     if len(fresh_approvals) < record["policy"]["required_human_approvals"]:
-        return "settling", ["required fresh human approval count is not satisfied"]
+        return "settling", [
+            "required fresh approval from an approved human identity is absent"
+        ]
     if any(
         value["state"] == "changes_requested"
         and value["reviewed_sha"] == record["current_sha"]
@@ -587,6 +607,7 @@ def _migrate_prior(value: dict, policy: dict) -> dict:
     if value.get("schema") != SCHEMA or value.get("schema_version") not in {
         "1.0.0",
         "2.0.0",
+        "3.0.0",
     }:
         raise RecordVersionError("unsupported review evidence migration source")
     current_sha = str(value.get("current_sha") or "")
@@ -837,7 +858,6 @@ def settle(
                 existing,
                 {},
             )
-            post_review_refreshed = False
             refresh_blockers = []
             independent = record.get("independent_review")
             if run_independent_review and (
@@ -964,9 +984,12 @@ def settle(
                         "last_error": None,
                     }
                 )
-                refreshed["findings"].extend(independent_findings)
+                refreshed["findings"] = [
+                    *record["findings"],
+                    *refreshed["findings"],
+                    *independent_findings,
+                ]
                 record.update(refreshed)
-                post_review_refreshed = True
             elif independent:
                 current_independent_ids = set(independent.get("finding_ids") or [])
                 record["findings"].extend(
@@ -980,7 +1003,6 @@ def settle(
                 record["findings"],
                 existing,
                 supplied,
-                replace_active=post_review_refreshed,
             )
             record["status"], record["blockers"] = _status(record)
             if refresh_blockers:
