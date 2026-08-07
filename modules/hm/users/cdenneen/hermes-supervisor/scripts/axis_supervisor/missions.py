@@ -36,6 +36,15 @@ GATE_OWNERS = {
     "operator_acceptance": "product-owner",
     "program_risk": "mission-supervisor",
 }
+GATE_ORDER = (
+    "implementation",
+    "integration",
+    "deployment",
+    "validation",
+    "verification",
+    "operator_acceptance",
+    "program_risk",
+)
 
 
 def utc_now() -> str:
@@ -51,6 +60,148 @@ def _fingerprint(value: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _summarize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    passed = 0
+    denominator = 0
+    failing = []
+    for capability in snapshot.get("capabilities") or []:
+        capability_passed = 0
+        capability_denominator = 0
+        first_failing = None
+        for gate in capability.get("gates") or []:
+            if not gate["applicable"]:
+                continue
+            capability_denominator += 1
+            if gate["state"] == "passed":
+                capability_passed += 1
+            elif first_failing is None:
+                first_failing = gate["gate"]
+        capability["passed"] = capability_passed
+        capability["denominator"] = capability_denominator
+        capability["confidence"] = (
+            round(capability_passed * 100 / capability_denominator, 1)
+            if capability_denominator
+            else 100.0
+        )
+        capability["first_failing_gate"] = first_failing
+        if first_failing:
+            failing.append(
+                {"capability": capability["capability"], "gate": first_failing}
+            )
+        passed += capability_passed
+        denominator += capability_denominator
+    snapshot["passed"] = passed
+    snapshot["denominator"] = denominator
+    snapshot["confidence"] = (
+        round(passed * 100 / denominator, 1) if denominator else 100.0
+    )
+    snapshot["first_failing_gates"] = failing
+    return snapshot
+
+
+def _normalized_snapshot(
+    graduation: dict[str, Any], capabilities: list[str]
+) -> dict[str, Any]:
+    records = {
+        str(value.get("capability")): value
+        for value in graduation.get("capabilities") or []
+    }
+    names = sorted(set(capabilities)) if capabilities else sorted(records)
+    snapshot = {
+        "applicability_model_revision": str(
+            graduation.get("applicability_model_revision") or "legacy-boolean-v1"
+        ),
+        "capabilities": [],
+    }
+    for name in names:
+        states = (records.get(name) or {}).get("graduation_state") or {}
+        gates = []
+        for gate_name in GATE_ORDER:
+            gate = states.get(gate_name) or {}
+            state = str(gate.get("state") or "missing")
+            applicable = bool(
+                gate.get("applicable", state not in {"not-required", "missing"})
+            )
+            gates.append(
+                {
+                    "gate": gate_name,
+                    "applicable": applicable,
+                    "state": state if applicable else "not-required",
+                }
+            )
+        snapshot["capabilities"].append({"capability": name, "gates": gates})
+    return _summarize_snapshot(snapshot)
+
+
+def _backfilled_pre_snapshot(
+    post: dict[str, Any],
+    expected_gates: list[dict[str, Any]],
+    revision: str,
+) -> dict[str, Any]:
+    pre = json.loads(json.dumps(post))
+    pre["applicability_model_revision"] = revision or post.get(
+        "applicability_model_revision"
+    )
+    expected = {
+        (str(value.get("capability")), str(value.get("gate"))): str(
+            value.get("from_state") or "pending"
+        )
+        for value in expected_gates
+    }
+    for capability in pre.get("capabilities") or []:
+        name = capability["capability"]
+        for gate in capability.get("gates") or []:
+            state = expected.get((name, gate["gate"]))
+            if state:
+                gate["state"] = state
+                gate["applicable"] = state != "not-required"
+    return _summarize_snapshot(pre)
+
+
+def _snapshot_delta(pre: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
+    def states(snapshot: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+        return {
+            (capability["capability"], gate["gate"]): gate
+            for capability in snapshot.get("capabilities") or []
+            for gate in capability.get("gates") or []
+        }
+
+    before = states(pre)
+    after = states(post)
+    comparable = sorted(
+        key
+        for key in before.keys() & after.keys()
+        if before[key]["applicable"] and after[key]["applicable"]
+    )
+    reduced = sum(
+        before[key]["state"] != "passed" and after[key]["state"] == "passed"
+        for key in comparable
+    )
+    regressed = sum(
+        before[key]["state"] == "passed" and after[key]["state"] != "passed"
+        for key in comparable
+    )
+    pre_passed = sum(before[key]["state"] == "passed" for key in comparable)
+    post_passed = sum(after[key]["state"] == "passed" for key in comparable)
+    denominator = len(comparable)
+    pre_confidence = round(pre_passed * 100 / denominator, 1) if denominator else 100.0
+    post_confidence = (
+        round(post_passed * 100 / denominator, 1) if denominator else 100.0
+    )
+    return {
+        "comparable_gate_count": denominator,
+        "gates_reduced": reduced,
+        "gates_regressed": regressed,
+        "confidence_before": pre_confidence,
+        "confidence_after": post_confidence,
+        "confidence_delta": round(post_confidence - pre_confidence, 1),
+        "applicability_revision_changed": pre.get("applicability_model_revision")
+        != post.get("applicability_model_revision"),
+        "first_failing_gates_before": pre.get("first_failing_gates") or [],
+        "first_failing_gates_after": post.get("first_failing_gates") or [],
+    }
 
 
 def _assignment_summary(value: dict[str, Any]) -> dict[str, Any]:
@@ -282,11 +433,16 @@ class ActiveMissionState:
             or graduation.get("projection_digest")
             or ""
         )
+        applicability_model_revision = str(
+            graduation.get("applicability_model_revision") or "legacy-boolean-v1"
+        )
+        pre_snapshot = _normalized_snapshot(graduation, capabilities)
         suppression_fingerprint = _fingerprint(
             {
                 "action_id": action_id,
                 "convergence_fingerprint": convergence_fingerprint,
                 "evidence_model_fingerprint": evidence_model_fingerprint,
+                "applicability_model_revision": applicability_model_revision,
             }
         )
         return {
@@ -299,6 +455,8 @@ class ActiveMissionState:
             "expected_evidence": sorted(set(filter(None, expected_evidence))),
             "convergence_fingerprint": convergence_fingerprint,
             "evidence_model_fingerprint": evidence_model_fingerprint,
+            "applicability_model_revision": applicability_model_revision,
+            "pre_snapshot": pre_snapshot,
             "suppression_fingerprint": suppression_fingerprint,
         }
 
@@ -313,10 +471,6 @@ class ActiveMissionState:
             or graduation.get("projection_digest")
             or ""
         )
-        capability_states = {
-            str(value.get("capability")): value.get("graduation_state") or {}
-            for value in graduation.get("capabilities") or []
-        }
         prior = {
             str(value.get("assignment_id")): value
             for value in previous.get("action_effectiveness") or []
@@ -339,32 +493,57 @@ class ActiveMissionState:
             assignment_id = str(assignment.get("assignment_id"))
             old = prior.get(assignment_id) or {}
             expected_gates = list(contract.get("expected_gates") or [])
+            expected_capabilities = list(contract.get("expected_capabilities") or [])
+            if not expected_capabilities:
+                expected_capabilities = sorted(
+                    {
+                        str(value.get("capability"))
+                        for value in expected_gates
+                        if value.get("capability")
+                    }
+                )
+            post_snapshot = _normalized_snapshot(
+                graduation, expected_capabilities
+            )
+            pre_snapshot = contract.get("pre_snapshot")
+            if not isinstance(pre_snapshot, dict):
+                pre_snapshot = _backfilled_pre_snapshot(
+                    post_snapshot,
+                    expected_gates,
+                    str(
+                        contract.get("applicability_model_revision")
+                        or "legacy-boolean-v1"
+                    ),
+                )
+            normalized_delta = _snapshot_delta(pre_snapshot, post_snapshot)
             observed_gates = [
                 {
                     "capability": str(value.get("capability") or "unknown"),
                     "gate": str(value.get("gate") or "unknown"),
-                    "state": str(
+                    "state": next(
                         (
-                            capability_states.get(str(value.get("capability"))) or {}
-                        )
-                        .get(str(value.get("gate")), {})
-                        .get("state")
-                        or "missing"
+                            gate["state"]
+                            for capability in post_snapshot.get("capabilities") or []
+                            if capability["capability"]
+                            == str(value.get("capability"))
+                            for gate in capability.get("gates") or []
+                            if gate["gate"] == str(value.get("gate"))
+                        ),
+                        "missing",
                     ),
                 }
                 for value in expected_gates
             ]
-            changed = (
-                all(
-                    value["state"] in {"passed", "not-required"}
-                    for value in observed_gates
-                )
-                if observed_gates
-                else baseline != current_fingerprint
+            changed = bool(
+                normalized_delta["gates_reduced"]
+                > normalized_delta["gates_regressed"]
+                or normalized_delta["confidence_delta"] > 0
+                or (not observed_gates and baseline != current_fingerprint)
             )
+            model_revised = normalized_delta["applicability_revision_changed"]
             zero_effect_cycles = (
                 0
-                if changed
+                if changed or model_revised
                 else 1
                 if old.get("observed_fingerprint") != current_fingerprint
                 else int(old.get("zero_effect_cycles") or 0) + 1
@@ -372,6 +551,8 @@ class ActiveMissionState:
             classification = (
                 "effective"
                 if changed
+                else "applicability-revised"
+                if model_revised
                 else "state-model-defect"
                 if zero_effect_cycles >= 3
                 else "zero-effect"
@@ -385,12 +566,15 @@ class ActiveMissionState:
                 "expected_gates": expected_gates,
                 "observed_gates": observed_gates,
                 "observed_delta": changed,
+                "pre_snapshot": pre_snapshot,
+                "post_snapshot": post_snapshot,
+                "normalized_delta": normalized_delta,
                 "zero_effect_cycles": zero_effect_cycles,
                 "classification": classification,
                 "evaluated_at": utc_now(),
             }
             evaluations.append(evaluation)
-            if not changed:
+            if not changed and not model_revised:
                 suppressed.add(suppression_fingerprint)
             if classification == "state-model-defect" and old.get(
                 "classification"
@@ -407,9 +591,26 @@ class ActiveMissionState:
                     }
                 )
         effective = sum(value["classification"] == "effective" for value in evaluations)
-        zero_effect = len(evaluations) - effective
+        zero_effect = sum(
+            value["classification"] in {"zero-effect", "state-model-defect"}
+            for value in evaluations
+        )
         defects = sum(
             value["classification"] == "state-model-defect" for value in evaluations
+        )
+        revised = sum(
+            value["classification"] == "applicability-revised"
+            for value in evaluations
+        )
+        gates_reduced = sum(
+            value["normalized_delta"]["gates_reduced"] for value in evaluations
+        )
+        confidence_delta = round(
+            sum(
+                value["normalized_delta"]["confidence_delta"]
+                for value in evaluations
+            ),
+            1,
         )
         metrics = {
             "assignments_evaluated": len(evaluations),
@@ -417,8 +618,13 @@ class ActiveMissionState:
             "zero_effect_assignments": zero_effect,
             "suppressed_fingerprints": len(suppressed),
             "state_model_defects": defects,
-            "effectiveness_percent": round(effective * 100 / len(evaluations), 1)
-            if evaluations
+            "applicability_revisions": revised,
+            "gates_reduced": gates_reduced,
+            "confidence_delta": confidence_delta,
+            "effectiveness_percent": round(
+                effective * 100 / (effective + zero_effect), 1
+            )
+            if effective + zero_effect
             else 100.0,
         }
         return evaluations, suppressed, observations, metrics
@@ -526,7 +732,54 @@ class ActiveMissionState:
                 }
             )
 
-        for capability in graduation.get("capabilities") or []:
+        validation_streams = graduation.get("validation_streams") or []
+        for stream in validation_streams:
+            if stream.get("status") != "assignment-required":
+                continue
+            expected_gates = list(stream.get("expected_gates") or [])
+            if not expected_gates:
+                continue
+            stream_name = str(stream.get("stream") or "unknown")
+            gate_name = str(expected_gates[0].get("gate") or "verification")
+            action_id = _stable_id(
+                "validation-stream",
+                stream_name,
+                str((stream.get("evidence") or {}).get("evidence_id") or "current"),
+            )
+            contract = ActiveMissionState._action_contract(
+                action_id,
+                gate_name,
+                list(stream.get("capabilities") or []),
+                expected_gates,
+                [
+                    str((stream.get("evidence") or {}).get("uri") or ""),
+                    *[
+                        str(value)
+                        for value in (stream.get("evidence") or {}).get("findings")
+                        or []
+                    ],
+                ],
+                graph,
+                graduation,
+            )
+            actions.append(
+                {
+                    "action_id": action_id,
+                    "kind": "validate-capability-stream",
+                    "target": stream_name,
+                    "gate": gate_name,
+                    "reason": f"consolidated {stream.get('title') or stream_name}",
+                    "executable": True,
+                    "attempt_limit": 1,
+                    "source_ref": None,
+                    "assignment_id": None,
+                    **contract,
+                }
+            )
+
+        for capability in (
+            [] if validation_streams else graduation.get("capabilities") or []
+        ):
             name = str(capability.get("capability") or "unknown")
             for scheduled in capability.get("scheduled_actions") or []:
                 stages = [str(value) for value in scheduled.get("stages") or []]

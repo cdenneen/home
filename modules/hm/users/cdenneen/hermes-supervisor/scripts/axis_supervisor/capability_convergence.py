@@ -153,6 +153,7 @@ class CapabilityConvergenceProjector:
         for runtime_name, runtime in sorted(
             matrix["runtimes"].items(), key=lambda value: int(value[1]["ring"])
         ):
+            participation = str(runtime.get("participation") or "required")
             identity, error = self._identity(runtime)
             required_command_available = self._required_command_available(runtime)
             if not required_command_available and error is None:
@@ -238,12 +239,13 @@ class CapabilityConvergenceProjector:
                 if not deployment_capabilities
                 else "deployment-required"
             )
-            if status != "converged":
+            if status != "converged" and participation != "optional":
                 blocked_capabilities.update(deployment_capabilities)
             runtime_records.append(
                 {
                     "runtime": runtime_name,
                     "display_name": runtime["display_name"],
+                    "participation": participation,
                     "ring": runtime["ring"],
                     "deployment_target": runtime["deployment_target"],
                     "running_revision": running_revision,
@@ -268,7 +270,7 @@ class CapabilityConvergenceProjector:
                     "required_command_available": required_command_available,
                 }
             )
-            if deployable_capabilities:
+            if deployable_capabilities and participation != "optional":
                 assignments.append(
                     {
                         "assignment_id": f"deployment-{expected_repository_revision[:12]}-{runtime_name}",
@@ -312,16 +314,25 @@ class CapabilityConvergenceProjector:
                 (
                     value["ring"]
                     for value in runtime_records
-                    if value["status"] == "deployment-required"
+                    if value["participation"] != "optional"
+                    and value["status"] == "deployment-required"
                 ),
                 None,
             ),
             "blocked": not repository_ready
-            or any(value["status"] == "unknown" for value in runtime_records),
+            or any(
+                value["participation"] != "optional"
+                and value["status"] == "unknown"
+                for value in runtime_records
+            ),
             "reason": "repository convergence is incomplete"
             if not repository_ready
             else "runtime identity is unavailable"
-            if any(value["status"] == "unknown" for value in runtime_records)
+            if any(
+                value["participation"] != "optional"
+                and value["status"] == "unknown"
+                for value in runtime_records
+            )
             else "promotion follows capability impact and ring order",
         }
         digest_payload = {

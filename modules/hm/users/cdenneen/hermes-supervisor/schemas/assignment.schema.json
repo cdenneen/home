@@ -187,6 +187,8 @@
         "expected_evidence": { "type": "array", "items": { "type": "string" } },
         "convergence_fingerprint": { "type": ["string", "null"] },
         "evidence_model_fingerprint": { "type": "string" },
+        "applicability_model_revision": { "type": "string" },
+        "pre_snapshot": { "type": "object" },
         "suppression_fingerprint": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"

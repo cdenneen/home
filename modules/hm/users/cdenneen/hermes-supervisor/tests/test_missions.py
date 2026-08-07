@@ -350,3 +350,74 @@ def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(
         {"capability": "Service", "gate": "verification", "state": "passed"}
     ]
     assert effective["action_effectiveness"][0]["classification"] == "effective"
+
+
+def test_action_48_backfill_records_partial_effect_without_suppression(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    current = capability("Ghost")
+    for gate_name in (
+        "validation",
+        "verification",
+        "operator_acceptance",
+        "program_risk",
+    ):
+        current["graduation_state"][gate_name] = gate("pending")
+    current["graduated"] = False
+    current["graduation_state"]["graduated"] = gate("pending")
+    current_graduation = graduation(current)
+    current_graduation["applicability_model_revision"] = "ax-m4-calibration-v1"
+    expected_gates = [
+        {
+            "capability": "Ghost",
+            "gate": gate_name,
+            "from_state": "pending",
+            "to_state": "passed",
+        }
+        for gate_name in (
+            "integration",
+            "deployment",
+            "validation",
+            "verification",
+            "operator_acceptance",
+            "program_risk",
+        )
+    ]
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "action-48.json").write_text(
+        json.dumps(
+            {
+                "assignment_id": "ghost-action-48",
+                "project": "ghostspace/axis",
+                "work_item": "Ghost",
+                "lifecycle_state": "completed",
+                "result_state": "runtime-converged",
+                "action_contract": {
+                    "action_id": "48",
+                    "source_ref": "runtime:ghost",
+                    "expected_gates": expected_gates,
+                    "expected_capabilities": ["Ghost"],
+                    "evidence_model_fingerprint": "sha256:" + "0" * 64,
+                    "applicability_model_revision": "legacy-boolean-v1",
+                    "suppression_fingerprint": "sha256:" + "1" * 64,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mission = ActiveMissionState(tmp_path).reconcile(
+        {}, graph(), current_graduation
+    )
+    evaluation = mission["action_effectiveness"][0]
+
+    assert evaluation["assignment_id"] == "ghost-action-48"
+    assert evaluation["pre_snapshot"]["confidence"] == 14.3
+    assert evaluation["post_snapshot"]["confidence"] == 42.9
+    assert evaluation["normalized_delta"]["gates_reduced"] == 2
+    assert evaluation["normalized_delta"]["confidence_delta"] == 28.6
+    assert evaluation["classification"] == "effective"
+    assert mission["effectiveness_metrics"]["suppressed_fingerprints"] == 0
+    assert mission["effectiveness_metrics"]["gates_reduced"] == 2

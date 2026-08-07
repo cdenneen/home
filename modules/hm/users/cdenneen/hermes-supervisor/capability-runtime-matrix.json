@@ -1,5 +1,7 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
+  "authoritative": true,
+  "applicability_model_revision": "ax-m4-calibration-v1",
   "repository": "ghostspace/axis",
   "repository_path": "/home/cdenneen/src/workspace/personal/work/axis",
   "deployment_lock_path": "/home/cdenneen/src/workspace/nix/home/flake.lock",
@@ -13,7 +15,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -30,7 +32,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -46,7 +48,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -59,7 +61,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -76,7 +78,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -89,7 +91,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -106,7 +108,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -122,7 +124,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -140,7 +142,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -236,7 +238,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -252,7 +254,7 @@
         "deployment": true,
         "validation": true,
         "verification": true,
-        "operator_acceptance": true,
+        "operator_acceptance": "conditional",
         "program_risk": true
       }
     },
@@ -265,15 +267,77 @@
         "deployment": false,
         "validation": false,
         "verification": false,
-        "operator_acceptance": true,
-        "program_risk": true
+        "operator_acceptance": false,
+        "program_risk": false
       }
+    }
+  },
+  "validation_streams": {
+    "ghost-operator": {
+      "title": "Ghost operator validation",
+      "runtimes": ["ghost"],
+      "capabilities": [
+        "Runtime Kernel",
+        "Scheduler",
+        "Service Plane",
+        "Provider Runtime",
+        "Cognition",
+        "Memory",
+        "Knowledge",
+        "Plugin Runtime",
+        "Skills",
+        "Web Presentation",
+        "HUD",
+        "Neural Map",
+        "Installer",
+        "Observability"
+      ],
+      "gates": [
+        "deployment",
+        "validation",
+        "verification",
+        "operator_acceptance"
+      ]
+    },
+    "macbookpro-desktop": {
+      "title": "macbookpro Desktop validation",
+      "runtimes": ["macbookpro"],
+      "capabilities": ["Desktop Presentation", "HUD", "Neural Map"],
+      "gates": [
+        "deployment",
+        "validation",
+        "verification",
+        "operator_acceptance"
+      ]
+    },
+    "nyx-node": {
+      "title": "Nyx Node validation",
+      "runtimes": ["nyx"],
+      "capabilities": ["Node Runtime"],
+      "gates": [
+        "deployment",
+        "validation",
+        "verification",
+        "operator_acceptance"
+      ]
+    },
+    "cross-interface-cli": {
+      "title": "cross-interface CLI validation",
+      "runtimes": ["macbookpro", "nyx"],
+      "capabilities": ["CLI"],
+      "gates": [
+        "deployment",
+        "validation",
+        "verification",
+        "operator_acceptance"
+      ]
     }
   },
   "runtimes": {
     "ghost": {
       "ring": 0,
       "display_name": "Ghost",
+      "participation": "required",
       "host": "local",
       "identity_path": "/run/axis-deployment-identity.json",
       "deployment_target": "nixosConfigurations.ghost"
@@ -281,6 +345,7 @@
     "macbookpro": {
       "ring": 1,
       "display_name": "macbookpro",
+      "participation": "required",
       "host": "VNJTECMBCD",
       "required_path": "/Applications/Nix Apps/AXIS Desktop.app",
       "identity_path": "/Users/cdenneen/.local/share/axis/deployment-identity.json",
@@ -291,6 +356,7 @@
     "mbair": {
       "ring": 1,
       "display_name": "mbair",
+      "participation": "optional",
       "host": "100.79.172.12",
       "required_path": "/Applications/Nix Apps/AXIS Desktop.app",
       "identity_path": "/Users/cdenneen/.local/share/axis/deployment-identity.json",
@@ -301,6 +367,7 @@
     "nyx": {
       "ring": 2,
       "display_name": "Nyx",
+      "participation": "required",
       "host": "nyx",
       "required_command": "axis-node",
       "identity_path": "/home/cdenneen/.local/state/axis-node/deployment-identity.json",
