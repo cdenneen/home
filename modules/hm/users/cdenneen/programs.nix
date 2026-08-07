@@ -176,6 +176,28 @@ in
     };
   };
 
+  launchd.agents.omniroute = lib.mkIf (pkgs.stdenv.isDarwin && hostName == "VNJTECMBCD") {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${config.home.homeDirectory}/.local/bin/omniroute"
+        "--no-open"
+      ];
+      EnvironmentVariables = {
+        HOME = config.home.homeDirectory;
+        PATH = "${config.home.homeDirectory}/.local/bin:${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+        HOSTNAME = "127.0.0.1";
+        PORT = "20128";
+        DATA_DIR = "${config.home.homeDirectory}/.omniroute";
+      };
+      KeepAlive = true;
+      RunAtLoad = true;
+      ProcessType = "Background";
+      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/omniroute.log";
+      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/omniroute.log";
+    };
+  };
+
   launchd.agents.oci-ghost-autostart = lib.mkIf (pkgs.stdenv.isDarwin && enableOciGhostAutostart) {
     enable = true;
     config = {

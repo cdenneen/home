@@ -254,6 +254,25 @@ in
     };
   };
 
+  systemd.user.services.omniroute = {
+    description = "OmniRoute local AI gateway";
+    wantedBy = [ "default.target" ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
+      Environment = [
+        "HOSTNAME=127.0.0.1"
+        "PORT=20128"
+        "DATA_DIR=${config.users.users.cdenneen.home}/.omniroute"
+        "PATH=${
+          lib.makeBinPath [ pkgs.nodejs_24 ]
+        }:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin"
+      ];
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
+
   environment.systemPackages = lib.mkAfter [
     pkgs.caddy
     pkgs.cloudflared
