@@ -156,7 +156,7 @@ def main() -> int:
                     "--name", "axis-development-supervisor-report",
                     "--script", "axis-development-supervisor-slack.py",
                     "--no-agent",
-                    "every 15m",
+                    "every 5m",
                 ],
                 gate,
                 decision,
@@ -167,7 +167,7 @@ def main() -> int:
         else:
             projection_id = str(projection["id"])
             expected = {
-                "schedule_display": "every 15m",
+                "schedule_display": "every 5m",
                 "script": "axis-development-supervisor-slack.py",
                 "deliver": None,
                 "no_agent": True,
@@ -190,7 +190,7 @@ def main() -> int:
                         "--script",
                         "axis-development-supervisor-slack.py",
                         "--no-agent",
-                        "every 15m",
+                        "every 5m",
                     ],
                     gate,
                     decision,
