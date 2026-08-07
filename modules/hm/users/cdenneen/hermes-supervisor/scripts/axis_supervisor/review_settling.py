@@ -16,10 +16,9 @@ from pathlib import Path
 from .schema_registry import RecordVersionError, read_record, validate_record
 
 SCHEMA = "axis.external-development-supervisor.review-evidence"
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "3.0.0"
 INDEPENDENT_SCHEMA = "axis.external-development-supervisor.independent-review-output"
 RESOLVED_DISPOSITIONS = {"fixed", "false-positive", "superseded"}
-BOT_REVIEWERS = {"greptile-apps", "greptile-apps[bot]"}
 SEVERITY = {"P0": "critical", "P1": "high", "P2": "medium", "P3": "low"}
 CHANNELS = ("reviews", "review_comments", "issue_comments", "checks", "diff")
 
@@ -138,6 +137,42 @@ def _channel(values: object, *, complete: bool = True) -> dict:
     return {"complete": complete, "count": count, "digest": _digest(values)}
 
 
+def _account_identity(value: dict) -> dict:
+    user = value.get("user") or value
+    app = value.get("performed_via_github_app") or value.get("app")
+    login = str(user.get("login") or "")
+    user_type = str(user.get("type") or "") or None
+    app_slug = str((app or {}).get("slug") or "") or None
+    is_automation = bool(
+        app
+        or user_type == "Bot"
+        or login.lower().endswith("[bot]")
+    )
+    return {
+        "login": login,
+        "user_type": user_type,
+        "app_slug": app_slug,
+        "is_automation": is_automation,
+    }
+
+
+def _check_producer(value: dict) -> dict:
+    app = value.get("app")
+    if isinstance(app, dict) and app.get("id") is not None:
+        return {
+            "kind": "github_app",
+            "id": str(app["id"]),
+            "login": str(app.get("slug") or ""),
+        }
+    creator = value.get("creator") or {}
+    identity = _account_identity(creator)
+    return {
+        "kind": "automation" if identity["is_automation"] else "user",
+        "id": str(creator.get("id") or "unknown"),
+        "login": identity["login"] or "unknown",
+    }
+
+
 def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
     endpoint = f"repos/{repo}/pulls/{pr_number}"
     pr = _json([gh, "api", endpoint])
@@ -195,8 +230,8 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
     if refreshed_sha != head_sha:
         raise HeadChanged(f"pull request head changed from {head_sha} to {refreshed_sha}")
 
-    requested = {
-        str(value.get("login") or "")
+    requested_by_login = {
+        str(value.get("login") or ""): value
         for value in pr.get("requested_reviewers") or []
         if value.get("login")
     }
@@ -206,12 +241,18 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
         if login:
             latest_reviews[login] = review
     reviewers = []
-    for login in sorted(requested | set(latest_reviews)):
+    for login in sorted(set(requested_by_login) | set(latest_reviews)):
         review = latest_reviews.get(login) or {}
+        identity = _account_identity(
+            review if review else requested_by_login[login]
+        )
         reviewers.append(
             {
                 "reviewer": login,
-                "kind": "bot" if login in BOT_REVIEWERS else "human",
+                "kind": "automation" if identity["is_automation"] else "human",
+                "user_type": identity["user_type"],
+                "app_slug": identity["app_slug"],
+                "is_automation": identity["is_automation"],
                 "state": str(review.get("state") or "PENDING").lower(),
                 "reviewed_sha": review.get("commit_id"),
                 "reviewed_at": review.get("submitted_at"),
@@ -233,6 +274,7 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
             "state": _check_state(value),
             "url": value.get("details_url"),
             "sha": head_sha,
+            "producer": _check_producer(value),
         }
         for value in check_runs
     ]
@@ -246,6 +288,7 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
             else "failed",
             "url": value.get("target_url"),
             "sha": head_sha,
+            "producer": _check_producer(value),
         }
         for value in statuses
     )
@@ -257,6 +300,7 @@ def collect_github(repo: str, pr_number: int, gh: str = "gh") -> dict:
         "current_sha": head_sha,
         "pr_state": str(pr.get("state") or "unknown").lower(),
         "is_draft": bool(pr.get("draft")),
+        "requested_reviewers": sorted(requested_by_login),
         "reviewers": reviewers,
         "findings": findings,
         "checks": checks,
@@ -354,14 +398,35 @@ def _validate_policy(policy: dict) -> dict:
         "required_human_approvals"
     ] < 1:
         raise ValueError("review policy requires at least one human approval")
-    for key in ("required_reviewers", "required_checks"):
-        values = policy[key]
-        if not isinstance(values, list) or not values or any(
-            not isinstance(value, str) or not value for value in values
+    reviewers = policy["required_reviewers"]
+    if not isinstance(reviewers, list) or not reviewers or any(
+        not isinstance(value, str) or not value for value in reviewers
+    ):
+        raise ValueError("review policy required_reviewers must be a non-empty string array")
+    if len(reviewers) != len(set(reviewers)):
+        raise ValueError("review policy required_reviewers must not contain duplicates")
+    checks = policy["required_checks"]
+    if not isinstance(checks, list) or not checks:
+        raise ValueError("review policy required_checks must be a non-empty array")
+    identities = []
+    for requirement in checks:
+        if not isinstance(requirement, dict) or set(requirement) != {"name", "producer"}:
+            raise ValueError("required check policy must bind a name and producer")
+        producer = requirement["producer"]
+        if (
+            not isinstance(requirement["name"], str)
+            or not requirement["name"]
+            or not isinstance(producer, dict)
+            or set(producer) != {"kind", "id", "login"}
+            or producer["kind"] not in {"github_app", "automation", "user"}
+            or any(not isinstance(producer[key], str) or not producer[key] for key in ("id", "login"))
         ):
-            raise ValueError(f"review policy {key} must be a non-empty string array")
-        if len(values) != len(set(values)):
-            raise ValueError(f"review policy {key} must not contain duplicates")
+            raise ValueError("required check producer identity is invalid")
+        identities.append(
+            (requirement["name"], producer["kind"], producer["id"], producer["login"])
+        )
+    if len(identities) != len(set(identities)):
+        raise ValueError("review policy required_checks must not contain duplicates")
     return policy
 
 
@@ -386,14 +451,20 @@ def _merge_findings(
     collected: list[dict],
     existing: dict | None,
     supplied: dict[str, dict],
+    *,
+    replace_active: bool = False,
 ) -> list[dict]:
+    collected_ids = {finding["finding_id"] for finding in collected}
     values = {
         finding["finding_id"]: dict(finding)
         for finding in (existing or {}).get("findings") or []
     }
     for finding in values.values():
         finding["state"] = (
-            "active" if finding["reviewed_sha"] == current_sha else "stale"
+            "active"
+            if finding["reviewed_sha"] == current_sha
+            and (not replace_active or finding["finding_id"] in collected_ids)
+            else "stale"
         )
         if finding["state"] == "stale":
             finding["disposition"] = None
@@ -433,14 +504,20 @@ def _status(record: dict) -> tuple[str, list[str]]:
     incomplete = [name for name in CHANNELS if not record["channels"][name]["complete"]]
     if incomplete:
         blockers.append("incomplete review channels: " + ", ".join(incomplete))
-    check_by_name = {}
-    for check in record["checks"]:
-        if check["sha"] == record["current_sha"]:
-            check_by_name.setdefault(check["name"], []).append(check)
-    for name in record["policy"]["required_checks"]:
-        matches = check_by_name.get(name) or []
+    for requirement in record["policy"]["required_checks"]:
+        name = requirement["name"]
+        trusted_producer = requirement["producer"]
+        matches = [
+            check
+            for check in record["checks"]
+            if check["sha"] == record["current_sha"]
+            and check["name"] == name
+            and check["producer"] == trusted_producer
+        ]
         if not matches:
-            blockers.append(f"required check is absent: {name}")
+            blockers.append(
+                f"required check from trusted producer is absent: {name}"
+            )
         elif any(value["state"] == "failed" for value in matches):
             blockers.append(f"required check failed: {name}")
         elif not any(value["state"] == "passed" for value in matches):
@@ -451,7 +528,12 @@ def _status(record: dict) -> tuple[str, list[str]]:
     humans = [
         value
         for value in record["reviewers"]
-        if value["kind"] == "human" and value["reviewer"] != record["author"]
+        if value["kind"] == "human"
+        and not value["is_automation"]
+        and value["user_type"] != "Bot"
+        and not value["reviewer"].lower().endswith("[bot]")
+        and value["app_slug"] is None
+        and value["reviewer"] != record["author"]
     ]
     fresh_approvals = {
         value["reviewer"]
@@ -501,8 +583,11 @@ def _status(record: dict) -> tuple[str, list[str]]:
     return ("blocked", blockers) if blockers else ("ready", [])
 
 
-def _migrate_v1(value: dict, policy: dict) -> dict:
-    if value.get("schema") != SCHEMA or value.get("schema_version") != "1.0.0":
+def _migrate_prior(value: dict, policy: dict) -> dict:
+    if value.get("schema") != SCHEMA or value.get("schema_version") not in {
+        "1.0.0",
+        "2.0.0",
+    }:
         raise RecordVersionError("unsupported review evidence migration source")
     current_sha = str(value.get("current_sha") or "")
     findings = []
@@ -548,23 +633,9 @@ def _migrate_v1(value: dict, policy: dict) -> dict:
         "pr_state": value.get("pr_state") or "unknown",
         "is_draft": bool(value.get("is_draft")),
         "policy": policy,
-        "reviewers": [
-            {
-                key: reviewer.get(key)
-                for key in (
-                    "reviewer",
-                    "kind",
-                    "state",
-                    "reviewed_sha",
-                    "reviewed_at",
-                )
-            }
-            for reviewer in value.get("reviewers") or []
-        ],
-        "checks": [
-            {**check, "sha": current_sha}
-            for check in value.get("checks") or []
-        ],
+        "requested_reviewers": [],
+        "reviewers": [],
+        "checks": [],
         "channels": {
             name: {"complete": False, "count": 0, "digest": _digest([])}
             for name in CHANNELS
@@ -572,7 +643,7 @@ def _migrate_v1(value: dict, policy: dict) -> dict:
         "diff": {"reviewed_sha": None, "digest": None, "size_bytes": 0},
         "findings": findings,
         "independent_review": None,
-        "blockers": ["v1 review evidence requires complete recollection"],
+        "blockers": ["prior review evidence requires complete identity recollection"],
         "poll_history": value.get("poll_history") or [],
         "last_error": None,
     }
@@ -585,7 +656,7 @@ def _load_existing(path: Path, policy: dict) -> dict | None:
         return read_record(path, SCHEMA)
     except RecordVersionError:
         value = json.loads(path.read_text(encoding="utf-8"))
-        return _migrate_v1(value, policy)
+        return _migrate_prior(value, policy)
 
 
 @contextmanager
@@ -649,6 +720,7 @@ def _base_record(
         "pr_state": "unknown",
         "is_draft": False,
         "policy": policy,
+        "requested_reviewers": [],
         "reviewers": [],
         "checks": [],
         "channels": {
@@ -749,7 +821,10 @@ def settle(
                 _write_record(state_path, record)
                 return record
 
-            diff_text = str(evidence.pop("_diff_text"))
+            diff_text = str(evidence["_diff_text"])
+            evidence = {
+                key: value for key, value in evidence.items() if key != "_diff_text"
+            }
             current_sha = evidence["current_sha"]
             prior_sha = record.get("current_sha")
             record.update(evidence)
@@ -762,6 +837,8 @@ def settle(
                 existing,
                 {},
             )
+            post_review_refreshed = False
+            refresh_blockers = []
             independent = record.get("independent_review")
             if run_independent_review and (
                 not independent
@@ -806,6 +883,12 @@ def settle(
                     ]
                     _write_record(state_path, record)
                     return record
+                refreshed_diff_text = str(refreshed["_diff_text"])
+                refreshed = {
+                    key: value
+                    for key, value in refreshed.items()
+                    if key != "_diff_text"
+                }
                 if refreshed["current_sha"] != current_sha:
                     record["status"] = "settling"
                     record["updated_at"] = utc_now()
@@ -827,6 +910,18 @@ def settle(
                     record["blockers"] = ["head changed during independent review"]
                     _write_record(state_path, record)
                     return record
+                if refreshed["diff"]["digest"] != _digest(refreshed_diff_text):
+                    refresh_blockers.append(
+                        "refreshed diff content does not match its digest"
+                    )
+                if refreshed["diff"]["digest"] != record["diff"]["digest"]:
+                    refresh_blockers.append(
+                        "same-SHA diff changed during independent review"
+                    )
+                if refreshed["requested_reviewers"] != record["requested_reviewers"]:
+                    refresh_blockers.append(
+                        "review requests changed during independent review"
+                    )
                 independent_findings = []
                 for index, value in enumerate(model_result["findings"]):
                     body = value["body"]
@@ -853,18 +948,25 @@ def settle(
                             "disposition": None,
                         }
                     )
-                record["independent_review"] = {
+                refreshed.update(
+                    {
+                        "independent_review": {
                     "reviewer": "gpt-5.4-independent",
                     "model": "gpt-5.4",
                     "reviewed_sha": current_sha,
-                    "diff_digest": record["diff"]["digest"],
+                            "diff_digest": model_result["diff_digest"],
                     "reviewed_at": utc_now(),
                     "summary": model_result["summary"],
                     "finding_ids": [
                         value["finding_id"] for value in independent_findings
                     ],
-                }
-                record["findings"].extend(independent_findings)
+                        },
+                        "last_error": None,
+                    }
+                )
+                refreshed["findings"].extend(independent_findings)
+                record.update(refreshed)
+                post_review_refreshed = True
             elif independent:
                 current_independent_ids = set(independent.get("finding_ids") or [])
                 record["findings"].extend(
@@ -878,8 +980,12 @@ def settle(
                 record["findings"],
                 existing,
                 supplied,
+                replace_active=post_review_refreshed,
             )
             record["status"], record["blockers"] = _status(record)
+            if refresh_blockers:
+                record["status"] = "blocked"
+                record["blockers"] = [*refresh_blockers, *record["blockers"]]
             record["updated_at"] = utc_now()
             record["poll_history"].append(
                 {

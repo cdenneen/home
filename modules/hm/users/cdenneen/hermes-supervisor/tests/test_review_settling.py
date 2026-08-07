@@ -17,7 +17,16 @@ def policy(**overrides) -> dict:
     value = {
         "required_human_approvals": 1,
         "required_reviewers": ["alice"],
-        "required_checks": ["hermes-supervisor"],
+        "required_checks": [
+            {
+                "name": "hermes-supervisor",
+                "producer": {
+                    "kind": "github_app",
+                    "id": "15368",
+                    "login": "github-actions",
+                },
+            }
+        ],
     }
     value.update(overrides)
     return value
@@ -33,17 +42,24 @@ def github_evidence(sha: str = SHA_A, *, findings: list[dict] | None = None) -> 
         "current_sha": sha,
         "pr_state": "open",
         "is_draft": False,
+        "requested_reviewers": ["alice"],
         "reviewers": [
             {
                 "reviewer": "alice",
                 "kind": "human",
+                "user_type": "User",
+                "app_slug": None,
+                "is_automation": False,
                 "state": "approved",
                 "reviewed_sha": sha,
                 "reviewed_at": "2026-08-07T00:00:00+00:00",
             },
             {
                 "reviewer": "greptile-apps",
-                "kind": "bot",
+                "kind": "automation",
+                "user_type": "Bot",
+                "app_slug": "greptile-apps",
+                "is_automation": True,
                 "state": "commented",
                 "reviewed_sha": sha,
                 "reviewed_at": "2026-08-07T00:00:00+00:00",
@@ -55,6 +71,11 @@ def github_evidence(sha: str = SHA_A, *, findings: list[dict] | None = None) -> 
                 "state": "passed",
                 "url": "https://github.com/cdenneen/home/actions/runs/1",
                 "sha": sha,
+                "producer": {
+                    "kind": "github_app",
+                    "id": "15368",
+                    "login": "github-actions",
+                },
             }
         ],
         "channels": {
@@ -152,7 +173,7 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
     pr = {
         "head": {"sha": SHA_A},
         "user": {"login": "cdenneen"},
-        "requested_reviewers": [{"login": "alice"}],
+        "requested_reviewers": [{"login": "alice", "type": "User"}],
         "html_url": "https://github.com/cdenneen/home/pull/656",
         "state": "open",
         "draft": False,
@@ -162,7 +183,20 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
         del timeout
         endpoint = command[2]
         if endpoint.endswith("/status"):
-            return {"statuses": []}
+            return {
+                "statuses": [
+                    {
+                        "context": "legacy-ci",
+                        "state": "success",
+                        "target_url": "https://github.com/status/1",
+                        "creator": {
+                            "id": 42,
+                            "login": "legacy-ci[bot]",
+                            "type": "Bot",
+                        },
+                    }
+                ]
+            }
         return pr
 
     def pages(command: list[str], timeout: int = 120):
@@ -171,7 +205,7 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
         if endpoint.endswith("/reviews?per_page=100"):
             return [[{
                 "id": 1,
-                "user": {"login": "alice"},
+                "user": {"login": "alice", "type": "User"},
                 "state": "APPROVED",
                 "commit_id": SHA_A,
                 "submitted_at": "2026-08-07T00:00:00+00:00",
@@ -181,7 +215,7 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
         if endpoint.endswith("/comments?per_page=100") and "/pulls/" in endpoint:
             return [[{
                 "id": 2,
-                "user": {"login": "greptile-apps[bot]"},
+                "user": {"login": "greptile-apps[bot]", "type": "Bot"},
                 "commit_id": SHA_A,
                 "body": "P1 inline finding",
                 "path": "state.py",
@@ -200,6 +234,7 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
             "status": "completed",
             "conclusion": "success",
             "details_url": "https://github.com/check/1",
+            "app": {"id": 15368, "slug": "github-actions"},
         }]}]
 
     monkeypatch.setattr(review, "_json", json_response)
@@ -221,6 +256,18 @@ def test_collector_fetches_all_review_comment_channels_and_exact_diff(monkeypatc
     assert all(evidence["channels"][name]["complete"] for name in review.CHANNELS)
     assert evidence["diff"]["reviewed_sha"] == SHA_A
     assert evidence["reviewers"][0]["state"] == "approved"
+    assert evidence["reviewers"][0]["user_type"] == "User"
+    assert evidence["reviewers"][0]["is_automation"] is False
+    assert evidence["checks"][0]["producer"] == {
+        "kind": "github_app",
+        "id": "15368",
+        "login": "github-actions",
+    }
+    assert evidence["checks"][1]["producer"] == {
+        "kind": "automation",
+        "id": "42",
+        "login": "legacy-ci[bot]",
+    }
 
 
 def test_required_reviewer_and_check_absence_fail_closed(tmp_path: Path):
@@ -253,9 +300,78 @@ def test_required_reviewer_and_check_absence_fail_closed(tmp_path: Path):
     )
 
     assert blocked["status"] == "blocked"
-    assert "required check is absent" in blocked["blockers"][0]
+    assert "trusted producer is absent" in blocked["blockers"][0]
     assert timed_out["status"] == "timeout"
     assert any("fresh approval is absent" in value for value in timed_out["blockers"])
+
+
+@pytest.mark.parametrize(
+    ("login", "user_type", "app_slug"),
+    [
+        ("renovate", "Bot", None),
+        ("renovate[bot]", "User", None),
+        ("release-service", "User", "release-app"),
+    ],
+)
+def test_automation_approval_cannot_satisfy_human_policy(
+    tmp_path: Path,
+    login: str,
+    user_type: str,
+    app_slug: str | None,
+):
+    from axis_supervisor.review_settling import settle
+
+    evidence = github_evidence()
+    evidence["requested_reviewers"] = [login]
+    evidence["reviewers"] = [
+        {
+            "reviewer": login,
+            "kind": "human",
+            "user_type": user_type,
+            "app_slug": app_slug,
+            "is_automation": True,
+            "state": "approved",
+            "reviewed_sha": SHA_A,
+            "reviewed_at": "2026-08-07T00:00:00+00:00",
+        }
+    ]
+    record = settle(
+        tmp_path / f"automation-{login.replace('[', '_').replace(']', '_')}.json",
+        "cdenneen/home",
+        656,
+        policy=policy(required_reviewers=[login]),
+        max_polls=1,
+        run_independent_review=True,
+        collector=lambda _repo, _number: evidence,
+        model_reviewer=independent_review,
+    )
+
+    assert record["status"] == "timeout"
+    assert any("fresh approval is absent" in value for value in record["blockers"])
+
+
+def test_spoofed_same_name_check_cannot_satisfy_trusted_producer(tmp_path: Path):
+    from axis_supervisor.review_settling import settle
+
+    evidence = github_evidence()
+    evidence["checks"][0]["producer"] = {
+        "kind": "user",
+        "id": "999",
+        "login": "attacker",
+    }
+    record = settle(
+        tmp_path / "spoofed-check.json",
+        "cdenneen/home",
+        656,
+        policy=policy(),
+        max_polls=1,
+        run_independent_review=True,
+        collector=lambda _repo, _number: evidence,
+        model_reviewer=independent_review,
+    )
+
+    assert record["status"] == "blocked"
+    assert "trusted producer is absent" in record["blockers"][0]
 
 
 def test_stale_human_approval_is_not_accepted(tmp_path: Path):
@@ -362,6 +478,43 @@ def test_exact_diff_is_reviewed_and_head_change_retries(tmp_path: Path):
     assert all(f"head={sha}" in diff for sha, diff, _digest_value in model_calls)
     assert record["diff"]["reviewed_sha"] == SHA_B
     assert record["independent_review"]["diff_digest"] == record["diff"]["digest"]
+
+
+@pytest.mark.parametrize("refresh_change", ["failed-check", "review-request"])
+def test_same_sha_refresh_replaces_evidence_and_blocks_new_failures(
+    tmp_path: Path, refresh_change: str
+):
+    from axis_supervisor.review_settling import settle
+
+    initial = github_evidence()
+    refreshed = github_evidence()
+    if refresh_change == "failed-check":
+        refreshed["checks"][0]["state"] = "failed"
+    else:
+        refreshed["requested_reviewers"] = ["alice", "bob"]
+    sequence = [initial, refreshed]
+
+    def collect(_repo: str, _number: int) -> dict:
+        return json.loads(json.dumps(sequence.pop(0)))
+
+    record = settle(
+        tmp_path / f"refresh-{refresh_change}.json",
+        "cdenneen/home",
+        656,
+        policy=policy(),
+        max_polls=1,
+        run_independent_review=True,
+        collector=collect,
+        model_reviewer=independent_review,
+    )
+
+    assert record["status"] == "blocked"
+    if refresh_change == "failed-check":
+        assert record["checks"][0]["state"] == "failed"
+        assert "required check failed" in record["blockers"][0]
+    else:
+        assert record["requested_reviewers"] == ["alice", "bob"]
+        assert "review requests changed" in record["blockers"][0]
 
 
 def test_outage_preserves_findings_and_head_change_invalidates_them(tmp_path: Path):

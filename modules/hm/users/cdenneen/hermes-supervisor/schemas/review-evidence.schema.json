@@ -62,6 +62,7 @@
     "pr_state",
     "is_draft",
     "policy",
+    "requested_reviewers",
     "reviewers",
     "checks",
     "channels",
@@ -76,7 +77,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.review-evidence"
     },
-    "schema_version": { "const": "2.0.0" },
+    "schema_version": { "const": "3.0.0" },
     "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
     "pr_number": { "type": "integer", "minimum": 1 },
     "pr_url": { "type": ["string", "null"], "format": "uri" },
@@ -118,10 +119,32 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "object",
+            "required": ["name", "producer"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "producer": {
+                "type": "object",
+                "required": ["kind", "id", "login"],
+                "properties": {
+                  "kind": { "enum": ["github_app", "automation", "user"] },
+                  "id": { "type": "string", "minLength": 1 },
+                  "login": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false
+    },
+    "requested_reviewers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
     },
     "reviewers": {
       "type": "array",
@@ -130,13 +153,19 @@
         "required": [
           "reviewer",
           "kind",
+          "user_type",
+          "app_slug",
+          "is_automation",
           "state",
           "reviewed_sha",
           "reviewed_at"
         ],
         "properties": {
           "reviewer": { "type": "string", "minLength": 1 },
-          "kind": { "enum": ["human", "bot"] },
+          "kind": { "enum": ["human", "automation"] },
+          "user_type": { "type": ["string", "null"] },
+          "app_slug": { "type": ["string", "null"] },
+          "is_automation": { "type": "boolean" },
           "state": { "type": "string" },
           "reviewed_sha": {
             "type": ["string", "null"],
@@ -151,12 +180,22 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "state", "url", "sha"],
+        "required": ["name", "state", "url", "sha", "producer"],
         "properties": {
           "name": { "type": "string", "minLength": 1 },
           "state": { "enum": ["passed", "pending", "failed", "skipped"] },
           "url": { "type": ["string", "null"], "format": "uri" },
-          "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "producer": {
+            "type": "object",
+            "required": ["kind", "id", "login"],
+            "properties": {
+              "kind": { "enum": ["github_app", "automation", "user"] },
+              "id": { "type": "string", "minLength": 1 },
+              "login": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       }
