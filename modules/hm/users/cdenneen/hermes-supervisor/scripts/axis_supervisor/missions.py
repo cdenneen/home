@@ -451,6 +451,43 @@ class ActiveMissionState:
             graduation.get("applicability_model_revision") or "legacy-boolean-v1"
         )
         pre_snapshot = _normalized_snapshot(graduation, capabilities)
+        capability_context = [
+            {
+                "capability": name,
+                "product_subdimensions": (
+                    capability_records.get(name) or {}
+                ).get("product_subdimensions")
+                or {},
+                "production_confidence": (capability_records.get(name) or {}).get(
+                    "production_confidence"
+                ),
+                "operator_confidence": (capability_records.get(name) or {}).get(
+                    "operator_confidence"
+                ),
+                "first_failing_gate": (capability_records.get(name) or {}).get(
+                    "first_failing_gate"
+                ),
+                "program_risk": (capability_records.get(name) or {}).get(
+                    "program_risk"
+                )
+                or {},
+            }
+            for name in sorted(set(capabilities))
+        ]
+        merge_impact_projection = {
+            "affected_capabilities": sorted(set(capabilities)),
+            "product_subdimensions": sorted(
+                {
+                    dimension
+                    for value in capability_context
+                    for dimension, state in value["product_subdimensions"].items()
+                    if state.get("applicable")
+                }
+            ),
+            "milestones": milestones,
+            "gates": expected_gates,
+            "production_confidence_before": pre_snapshot.get("confidence"),
+        }
         suppression_fingerprint = _fingerprint(
             {
                 "action_id": action_id,
@@ -467,6 +504,8 @@ class ActiveMissionState:
             "expected_milestones": milestones,
             "expected_debt_reduction": debt,
             "expected_evidence": sorted(set(filter(None, expected_evidence))),
+            "capability_context": capability_context,
+            "merge_impact_projection": merge_impact_projection,
             "convergence_fingerprint": convergence_fingerprint,
             "evidence_model_fingerprint": evidence_model_fingerprint,
             "applicability_model_revision": applicability_model_revision,

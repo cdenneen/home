@@ -1420,16 +1420,35 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "conversations.history",
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
-    assert fallback.startswith(
-        "AXIS Executive Dashboard | Graduated capabilities 0/0 (0%) | "
-        "Roadmap 1/2 verified"
-    )
+    assert fallback.startswith("AXIS | Capabilities 0/0 graduated (0%) | Roadmap 1/2 verified")
     assert blocks[0]["type"] == "header"
-    assert len([block for block in blocks if block["type"] == "section"]) == 17
+    assert [
+        block["text"]["text"] for block in blocks if block["type"] == "header"
+    ] == [
+        "AXIS",
+        "ROADMAP",
+        "CAPABILITIES",
+        "ACTIVE PRODUCT WORK",
+        "DEPLOYMENT RING",
+        "VALIDATION",
+        "DECISIONS",
+        "RECENT PRODUCT PROGRESS",
+    ]
+    assert len([block for block in blocks if block["type"] == "section"]) == 8
     assert any("█" in block.get("text", {}).get("text", "") for block in blocks)
     assert not any(
         forbidden in json.dumps(blocks).lower()
-        for forbidden in ("worktree", "lease", "grant", "model", "lifecycle")
+        for forbidden in (
+            "issue",
+            "assignment",
+            "worktree",
+            "lease",
+            "grant",
+            "enum",
+            "ci-poll",
+            "model",
+            "lifecycle",
+        )
     )
     record = json.loads((tmp_path / "slack-overview-record.json").read_text())
     state = json.loads((tmp_path / "slack-overview-state.json").read_text())
@@ -1458,9 +1477,9 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         }
     )
     third = projection.update(inventory, graph, control_value)
-    assert third["updated"] is True
+    assert third["updated"] is False
     assert third["ts"] == first["ts"]
-    assert any(method == "chat.update" for method, _ in calls)
+    assert not any(method == "chat.update" for method, _ in calls)
 
     live = {
         "schema": "axis.external-development-supervisor.assignment",
@@ -1643,7 +1662,7 @@ def test_supervisor_slack_plugin_executes_typed_command_without_shell(
     monkeypatch.setattr(plugin.subprocess, "run", run)
     plugin._pre_gateway_dispatch(event=Event())
     response = asyncio.run(plugin._handle_axis("status"))
-    assert "AXIS Executive Status" in response
+    assert "AXIS Product Status" in response
     assert captured["command"] == [
         plugin.sys.executable,
         str(plugin.COMMAND_SCRIPT),

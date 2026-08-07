@@ -35,6 +35,14 @@ COMPLETED_ASSIGNMENT_STATES = {
     "canonical-complete",
 }
 APPLICABILITY_STATES = {"required", "conditional", "not-applicable"}
+PRODUCT_SUBDIMENSIONS = {
+    "CLI": "CLI",
+    "Node": "Node Runtime",
+    "Web": "Web Presentation",
+    "Desktop": "Desktop Presentation",
+    "HUD": "HUD",
+    "Neural": "Neural Map",
+}
 
 
 def _normalized_path(value: str) -> str:
@@ -296,6 +304,36 @@ def _risk_level(score: int) -> str:
     return "low"
 
 
+def _average(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 1) if values else None
+
+
+def capability_context(
+    capabilities: dict[str, dict], names: list[str]
+) -> list[dict]:
+    return [
+        {
+            "capability": name,
+            "product_subdimensions": (
+                capabilities.get(name) or {}
+            ).get("product_subdimensions")
+            or {},
+            "production_confidence": (capabilities.get(name) or {}).get(
+                "production_confidence"
+            ),
+            "operator_confidence": (capabilities.get(name) or {}).get(
+                "operator_confidence"
+            ),
+            "first_failing_gate": (capabilities.get(name) or {}).get(
+                "first_failing_gate"
+            ),
+            "program_risk": (capabilities.get(name) or {}).get("program_risk")
+            or {},
+        }
+        for name in sorted(set(names))
+    ]
+
+
 class MilestoneGraduationEngine:
     def build(
         self,
@@ -358,19 +396,27 @@ class MilestoneGraduationEngine:
                 )
                 // max(1, len(related_capabilities)),
             )
-            confidence_samples = [
-                float(value.get("operator_confidence") or 0)
+            production_confidence = _average(
+                [
+                    float(value.get("production_confidence") or 0)
+                    for value in related_capabilities
+                ]
+            )
+            operator_samples = [
+                float(value["operator_confidence"])
+                for value in related_capabilities
+                if value.get("operator_confidence") is not None
+            ]
+            operator_confidence = _average(operator_samples)
+            validation_samples = [
+                100.0
+                if (value.get("graduation_state") or {})
+                .get("verification", {})
+                .get("state")
+                in {"passed", "not-required"}
+                else 0.0
                 for value in related_capabilities
             ]
-            confidence_samples.extend(
-                100.0 if denominator_state(member) == "graduated" else 25.0
-                for member in members
-            )
-            confidence = (
-                round(sum(confidence_samples) / len(confidence_samples), 1)
-                if confidence_samples
-                else 0.0
-            )
             remaining = len(members) - denominator["graduated"]
             observed_delay = (scheduler_state.get("current_constraint") or {}).get(
                 "estimated_roadmap_delay_days"
@@ -395,7 +441,26 @@ class MilestoneGraduationEngine:
                             f"{denominator['blocked']} blocked denominator item(s)",
                         ],
                     },
-                    "operator_confidence": confidence,
+                    "production_confidence": production_confidence or 0.0,
+                    "operator_confidence": operator_confidence,
+                    "dimensions": {
+                        "delivery": {
+                            "count": denominator["graduated"],
+                            "denominator": len(members),
+                            "percent": round(
+                                denominator["graduated"] * 100 / len(members), 1
+                            )
+                            if members
+                            else 0.0,
+                        },
+                        "production": production_confidence or 0.0,
+                        "operator": operator_confidence,
+                        "validation": _average(validation_samples) or 0.0,
+                    },
+                    "constraint": (scheduler_state.get("current_constraint") or {}).get(
+                        "name"
+                    )
+                    or scheduler_state.get("limiting_constraint"),
                     "forecast": {
                         "remaining": remaining,
                         "days": observed_delay,
@@ -649,6 +714,25 @@ class CapabilityGraduationProjector:
                 value["applicable"] and value["state"] == "passed"
                 for value in states.values()
             )
+            production_gates = [
+                gate
+                for gate_name, gate in states.items()
+                if gate_name != "operator_acceptance" and gate["applicable"]
+            ]
+            production_confidence = (
+                round(
+                    sum(gate["state"] == "passed" for gate in production_gates)
+                    * 100
+                    / len(production_gates),
+                    1,
+                )
+                if production_gates
+                else 100.0
+            )
+            operator_gate = states["operator_acceptance"]
+            operator_confidence = (
+                100.0 if operator_gate["state"] == "passed" else 0.0
+            ) if operator_gate["applicable"] else None
             confidence = (
                 round(passed * 100 / gate_denominator, 1)
                 if gate_denominator
@@ -662,6 +746,26 @@ class CapabilityGraduationProjector:
                 "passed" if graduated else "pending",
                 [f"{passed}/{gate_denominator} applicable graduation gates passed"],
             )
+            product_subdimensions = {
+                dimension: {
+                    "applicable": name == product_capability,
+                    "state": (
+                        "graduated"
+                        if graduated
+                        else _first_failing_gate(states) or "evidence-pending"
+                    )
+                    if name == product_capability
+                    else "not-applicable",
+                    "evidence": sorted(
+                        set(
+                            [*owned_paths, *projected_runtimes]
+                            if name == product_capability
+                            else []
+                        )
+                    ),
+                }
+                for dimension, product_capability in PRODUCT_SUBDIMENSIONS.items()
+            }
             invalidation_payload = {
                 "capability": name,
                 "expected_revision": (convergence_by_name.get(name) or {}).get(
@@ -728,14 +832,12 @@ class CapabilityGraduationProjector:
                     "gate_applicability": applicability,
                     "graduation_state": states,
                     "graduation_confidence": confidence,
+                    "production_confidence": production_confidence,
                     "gate_denominator": gate_denominator,
                     "gates_passed": passed,
                     "first_failing_gate": _first_failing_gate(states),
-                    "operator_confidence": confidence
-                    if states["operator_acceptance"]["state"] == "not-required"
-                    else round(
-                        (confidence + (100 if operator_accepted else 0)) / 2, 1
-                    ),
+                    "operator_confidence": operator_confidence,
+                    "product_subdimensions": product_subdimensions,
                     "program_risk": {
                         "score": risk_score,
                         "level": _risk_level(risk_score),
@@ -813,6 +915,7 @@ class CapabilityGraduationProjector:
                 }
             )
         scored_actions = []
+        merge_impact_projection = []
         for entry in graph.get("executable_queue") or []:
             paths = (
                 (entry.get("candidate") or {}).get("allowed_paths")
@@ -821,10 +924,31 @@ class CapabilityGraduationProjector:
             )
             scored = dict(entry)
             scored["affected_capabilities"] = capabilities_for_paths(paths, matrix)
+            context = capability_context(
+                capability_by_name, scored["affected_capabilities"]
+            )
+            impact = {
+                "ref": entry.get("ref"),
+                "target_ref": entry.get("target_ref") or entry.get("ref"),
+                "milestone": entry.get("milestone"),
+                "affected_capabilities": scored["affected_capabilities"],
+                "product_subdimensions": sorted(
+                    {
+                        dimension
+                        for value in context
+                        for dimension, state in value["product_subdimensions"].items()
+                        if state.get("applicable")
+                    }
+                ),
+                "capability_context": context,
+            }
+            merge_impact_projection.append(impact)
             scored_actions.append(
                 {
                     "ref": entry.get("ref"),
                     "action_score": action_score(scored, capability_by_name),
+                    "capability_context": context,
+                    "merge_impact_projection": impact,
                 }
             )
         milestones, denominator = MilestoneGraduationEngine().build(
@@ -836,11 +960,15 @@ class CapabilityGraduationProjector:
             sum(value["program_risk"]["score"] for value in capability_records)
             / max(1, total_capabilities)
         )
-        operator_confidence = round(
-            sum(value["operator_confidence"] for value in capability_records)
-            / max(1, total_capabilities),
-            1,
-        )
+        production_confidence = _average(
+            [float(value["production_confidence"]) for value in capability_records]
+        ) or 0.0
+        operator_samples = [
+            float(value["operator_confidence"])
+            for value in capability_records
+            if value.get("operator_confidence") is not None
+        ]
+        operator_confidence = _average(operator_samples) or 0.0
         payload = {
             "applicability_model_revision": applicability_model_revision,
             "source_inventory_generation_id": inventory.get("generation_id"),
@@ -854,6 +982,7 @@ class CapabilityGraduationProjector:
             "milestones": milestones,
             "denominator": denominator,
             "action_scores": scored_actions,
+            "merge_impact_projection": merge_impact_projection,
         }
         projection_digest = (
             "sha256:"
@@ -916,6 +1045,7 @@ class CapabilityGraduationProjector:
                 ],
             },
             "operator_confidence": operator_confidence,
+            "production_confidence": production_confidence,
         }
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)

@@ -27,6 +27,16 @@
         "evidence": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
+    },
+    "product_subdimension": {
+      "type": "object",
+      "required": ["applicable", "state", "evidence"],
+      "properties": {
+        "applicable": { "type": "boolean" },
+        "state": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
     }
   },
   "type": "object",
@@ -43,12 +53,14 @@
     "repository_convergence_digest",
     "primary_kpi",
     "program_risk",
+    "production_confidence",
     "operator_confidence",
     "denominator",
     "capabilities",
     "validation_streams",
     "milestones",
-    "action_scores"
+    "action_scores",
+    "merge_impact_projection"
   ],
   "properties": {
     "schema": {
@@ -81,6 +93,7 @@
       "additionalProperties": false
     },
     "program_risk": { "$ref": "#/$defs/risk" },
+    "production_confidence": { "type": "number", "minimum": 0, "maximum": 100 },
     "operator_confidence": { "type": "number", "minimum": 0, "maximum": 100 },
     "denominator": {
       "type": "object",
@@ -117,10 +130,12 @@
           "gate_applicability",
           "graduation_state",
           "graduation_confidence",
+          "production_confidence",
           "gate_denominator",
           "gates_passed",
           "first_failing_gate",
           "operator_confidence",
+          "product_subdimensions",
           "program_risk",
           "invalidation_fingerprint",
           "scheduled_actions",
@@ -192,13 +207,31 @@
             "minimum": 0,
             "maximum": 100
           },
+          "production_confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
           "gate_denominator": { "type": "integer", "minimum": 0 },
           "gates_passed": { "type": "integer", "minimum": 0 },
           "first_failing_gate": { "type": ["string", "null"] },
           "operator_confidence": {
-            "type": "number",
+            "type": ["number", "null"],
             "minimum": 0,
             "maximum": 100
+          },
+          "product_subdimensions": {
+            "type": "object",
+            "required": ["CLI", "Node", "Web", "Desktop", "HUD", "Neural"],
+            "properties": {
+              "CLI": { "$ref": "#/$defs/product_subdimension" },
+              "Node": { "$ref": "#/$defs/product_subdimension" },
+              "Web": { "$ref": "#/$defs/product_subdimension" },
+              "Desktop": { "$ref": "#/$defs/product_subdimension" },
+              "HUD": { "$ref": "#/$defs/product_subdimension" },
+              "Neural": { "$ref": "#/$defs/product_subdimension" }
+            },
+            "additionalProperties": false
           },
           "program_risk": { "$ref": "#/$defs/risk" },
           "invalidation_fingerprint": {
@@ -216,7 +249,11 @@
     },
     "validation_streams": { "type": "array", "items": { "type": "object" } },
     "milestones": { "type": "array", "items": { "type": "object" } },
-    "action_scores": { "type": "array", "items": { "type": "object" } }
+    "action_scores": { "type": "array", "items": { "type": "object" } },
+    "merge_impact_projection": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
   },
   "additionalProperties": false
 }

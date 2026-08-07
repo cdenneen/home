@@ -106,7 +106,17 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     graph = {
         "generation_id": "graph-1",
         "nodes": [verified_node()],
-        "executable_queue": [],
+        "executable_queue": [
+            {
+                "ref": "merge-impact:service",
+                "target_ref": "ghostspace/axis#1",
+                "milestone": "AX-M4",
+                "candidate": {
+                    "allowed_paths": ["src/service.py"],
+                    "required_tests": ["pytest -q"],
+                },
+            }
+        ],
         "scheduler_state": {
             "current_constraint": {"estimated_roadmap_delay_days": 3.0}
         },
@@ -133,6 +143,16 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     assert capability["gate_denominator"] == 7
     assert capability["gates_passed"] == 7
     assert capability["first_failing_gate"] is None
+    assert capability["production_confidence"] == 100.0
+    assert capability["operator_confidence"] == 100.0
+    assert set(capability["product_subdimensions"]) == {
+        "CLI",
+        "Node",
+        "Web",
+        "Desktop",
+        "HUD",
+        "Neural",
+    }
     assert all(
         gate["applicable"]
         for name, gate in capability["graduation_state"].items()
@@ -160,11 +180,33 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
         "graduated": 1,
     }
     assert projection["milestones"][0]["forecast"]["days"] == 3.0
+    assert projection["production_confidence"] == 100.0
+    assert projection["operator_confidence"] == 100.0
+    assert projection["merge_impact_projection"][0]["affected_capabilities"] == [
+        "Service"
+    ]
+    assert projection["action_scores"][0]["capability_context"][0][
+        "capability"
+    ] == "Service"
 
     unchanged = CapabilityGraduationProjector(tmp_path).build(
         inventory, graph, convergence()
     )
     assert unchanged["capabilities"][0]["scheduled_actions"] == []
+
+    production_only_node = verified_node() | {"labels": []}
+    production_only_convergence = convergence()
+    production_only_convergence["runtimes"][0].update(
+        {"operator_acceptance": None, "operator_evidence": None}
+    )
+    production_only = CapabilityGraduationProjector(tmp_path).build(
+        inventory,
+        graph | {"nodes": [production_only_node]},
+        production_only_convergence,
+    )["capabilities"][0]
+    assert production_only["production_confidence"] == 100.0
+    assert production_only["operator_confidence"] == 0.0
+    assert production_only["graduation_confidence"] < 100.0
 
     analysis = verified_node()
     analysis.update(
@@ -405,6 +447,11 @@ def test_validation_streams_promote_evidence_and_consolidate_actions(tmp_path: P
     ]
     assert len(stream_actions) == 4
     assert {action["target"] for action in stream_actions} == set(streams)
+    assert all(action["capability_context"] for action in stream_actions)
+    assert all(
+        action["merge_impact_projection"]["affected_capabilities"] == ["Service"]
+        for action in stream_actions
+    )
 
 
 def test_stale_downstream_assignments_are_satisfied_by_current_evidence():

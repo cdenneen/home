@@ -22,6 +22,8 @@ ACTION_CONTRACT_FIELDS = {
     "expected_milestones",
     "expected_debt_reduction",
     "expected_evidence",
+    "capability_context",
+    "merge_impact_projection",
     "convergence_fingerprint",
     "evidence_model_fingerprint",
     "applicability_model_revision",
