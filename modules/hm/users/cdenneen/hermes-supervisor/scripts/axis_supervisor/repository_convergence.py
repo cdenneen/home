@@ -31,11 +31,13 @@ class RepositoryConvergenceProjector:
         try:
             previous = read_record(self.path, SCHEMA) if self.path.exists() else None
         except ValueError:
-            try:
-                legacy = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                legacy = None
-            previous = legacy if isinstance(legacy, dict) else None
+            legacy = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(legacy, dict) or (
+                legacy.get("schema") != SCHEMA
+                or legacy.get("schema_version") != "1.0.0"
+            ):
+                raise
+            previous = legacy
         dispositions_record = self._dispositions()
         disposition_by_key = {
             (value.get("repository"), value.get("branch")): value

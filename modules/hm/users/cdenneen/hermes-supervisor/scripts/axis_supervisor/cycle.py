@@ -25,6 +25,7 @@ from axis_supervisor.capability_graduation import (
     CapabilityGraduationProjector,
     assignment_is_satisfied,
 )
+from axis_supervisor.decisions import reconcile_pending_frontier_rebuilds
 from axis_supervisor.deployment import (
     create_deployment_assignment,
     execute_deployment_assignment,
@@ -32,9 +33,14 @@ from axis_supervisor.deployment import (
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
-from axis_supervisor.lifecycle import is_completed, is_integrable, is_terminal, set_lifecycle
-from axis_supervisor.models import validate_assignment
+from axis_supervisor.lifecycle import (
+    is_completed,
+    is_integrable,
+    is_terminal,
+    set_lifecycle,
+)
 from axis_supervisor.missions import ActiveMissionState, mission_summary
+from axis_supervisor.models import validate_assignment
 from axis_supervisor.mutation import (
     GateDecision,
     MutationGate,
@@ -45,6 +51,7 @@ from axis_supervisor.observability import (
     OperationalEventLog,
     record_engineering_retrospective,
     record_event,
+    record_observability_failure,
 )
 from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
 from axis_supervisor.roadmap_quality import RoadmapQualityProjector
@@ -422,7 +429,42 @@ def release_failed_assignment(
     save(path, assignment, gate)
 
 
-def rebuild() -> dict:
+def recover_pending_decisions() -> tuple[list[str], dict | None]:
+    recovered_graph = {}
+
+    def rebuild_pending_decision() -> None:
+        recovered_graph["graph"] = rebuild(reconcile_decisions=False)
+
+    completed = reconcile_pending_frontier_rebuilds(ROOT, rebuild_pending_decision)
+    return completed, recovered_graph.get("graph")
+
+
+def recover_pending_decisions_safely() -> tuple[list[str], dict | None]:
+    try:
+        return recover_pending_decisions()
+    except Exception as exc:  # noqa: BLE001 - recovery remains pending for the next cycle
+        try:
+            record_event(
+                ROOT,
+                "decision_frontier_recovery_deferred",
+                details={"error": f"{type(exc).__name__}: {exc}"},
+                source="cycle",
+            )
+        except Exception as observability_exc:  # noqa: BLE001 - assignment state is already durable
+            try:
+                record_observability_failure(
+                    ROOT,
+                    operation="decision-frontier-recovery",
+                    source="cycle",
+                    primary_error=exc,
+                    observability_error=observability_exc,
+                )
+            except Exception:  # noqa: BLE001 - never rewrite durable assignment completion
+                pass
+        return [], None
+
+
+def rebuild(*, reconcile_decisions: bool = True) -> dict:
     inventory = read_record(
         ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
     )
@@ -519,10 +561,14 @@ def rebuild() -> dict:
             },
         )
         RoadmapQualityProjector(ROOT).build(inventory, graph)
-        graduation = CapabilityGraduationProjector(ROOT).build(
-            inventory, graph, capability_convergence
-        )
+    graduation = CapabilityGraduationProjector(ROOT).build(
+        inventory, graph, capability_convergence
+    )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
+    if reconcile_decisions:
+        completed, recovered_graph = recover_pending_decisions_safely()
+        if completed and recovered_graph is not None:
+            graph = recovered_graph
     return graph
 
 
@@ -935,19 +981,24 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             item.get("ref"): item
             for item in current_graph.get("executable_queue") or []
         }
+        frontier = read_record(
+            ROOT / "executable-frontier.json",
+            "axis.external-development-supervisor.executable-frontier",
+        )
+        frontier_refs = set(frontier.get("selected") or [])
         ordered = [
             queue_by_ref[item.get("ref")]
             for item in (current_graph.get("scheduler_state") or {}).get(
                 "selected_batch"
             )
             or []
-            if item.get("ref") in queue_by_ref
+            if item.get("ref") in queue_by_ref and item.get("ref") in frontier_refs
         ]
         selected_refs = {item.get("ref") for item in ordered}
         ordered.extend(
-            item
-            for item in current_graph.get("executable_queue") or []
-            if item.get("ref") not in selected_refs
+            queue_by_ref[ref]
+            for ref in frontier.get("selected") or []
+            if ref in queue_by_ref and ref not in selected_refs
         )
         for item in ordered:
             dispatched = dispatcher.dispatch(current_graph, run_id, item)
@@ -1025,6 +1076,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             responsibility=assignment["responsibility"],
             expected_source_branch=(assignment.get("worker") or {}).get("branch"),
             expected_sha=(assignment.get("worker") or {}).get("commit"),
+            source_main_sha=(assignment.get("source_item") or {}).get(
+                "repository_head"
+            ),
         )
         try:
             lease = load_canonical_lease(ROOT, assignment)
@@ -1102,7 +1156,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             (assignment.get("source_item") or {}).get("repository_head"),
             diff_refs.get("start_sha") or diff_refs.get("base_sha"),
             worker_record.get("changed_paths") or assignment.get("allowed_paths"),
-            mr_value.get("main_changed_paths"),
+            mr_value.get("main_changed_paths")
+            if mr_value.get("main_changed_paths_complete", True)
+            else None,
             merge_commit_sha=mr_value.get("merge_commit_sha"),
         )
         integration["main_advance"] = main_advance
@@ -1142,6 +1198,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 assignment["project"],
                 iid,
                 responsibility=assignment["responsibility"],
+                source_main_sha=(assignment.get("source_item") or {}).get(
+                    "repository_head"
+                ),
             )
             if inspection["mr"].get("state") != "merged":
                 raise RuntimeError("gated integration did not produce a merged MR")

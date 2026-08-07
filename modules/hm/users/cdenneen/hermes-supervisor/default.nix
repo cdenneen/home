@@ -55,6 +55,11 @@ let
     set -euo pipefail
     exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-canaryctl.py" "$@"
   '';
+  supervisorReview = pkgs.writeShellScriptBin "axis-development-supervisor-review" ''
+    set -euo pipefail
+    export PYTHONPATH="$HOME/.hermes/scripts"
+    exec ${supervisorPython}/bin/python -m axis_supervisor.review_settling "$@"
+  '';
   supervisorPreflightLauncher = pkgs.writeText "axis-development-supervisor-preflight.py" ''
     #!${supervisorPython}/bin/python
     import os
@@ -89,6 +94,7 @@ in
         supervisorCronCtl
         supervisorCycle
         supervisorCommand
+        supervisorReview
       ];
     home.file = lib.mkIf supervisorEnabled {
       ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt".source = ./worker-prompt.txt;

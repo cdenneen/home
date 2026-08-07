@@ -12,23 +12,25 @@ from .lifecycle import set_lifecycle
 from .missions import ActiveMissionState
 from .mutation import MutationGate, OperationClass
 from .observability import record_event
-from .schema_registry import RecordError, read_record, write_record
+from .repository_ownership import validate_repository_ownership
+from .schema_registry import read_record, write_record
 
 
 def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
     assignment_id = f"deployment-{plan['target_runtime']}-{uuid.uuid4().hex[:8]}"
-    try:
-        graph = read_record(
-            root / "execution-graph.json",
-            "axis.external-development-supervisor.execution-graph",
-        )
-        graduation = read_record(
-            root / "capability-graduation.json",
-            "axis.external-development-supervisor.capability-graduation",
-        )
-    except RecordError:
-        graph = {}
-        graduation = {}
+    ownership = validate_repository_ownership(
+        "deployment/realistic-validation",
+        "ghostspace/axis-lab",
+        context=f"deployment-assignment:{assignment_id}",
+    )
+    graph = read_record(
+        root / "execution-graph.json",
+        "axis.external-development-supervisor.execution-graph",
+    )
+    graduation = read_record(
+        root / "capability-graduation.json",
+        "axis.external-development-supervisor.capability-graduation",
+    )
     capability_states = {
         value.get("capability"): value
         for value in graduation.get("capabilities") or []
@@ -58,7 +60,7 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
     )
     assignment = {
         "schema": "axis.external-development-supervisor.assignment",
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "assignment_id": assignment_id,
         "assignment_type": "capability-deployment",
         "result_state": "pending",
@@ -70,6 +72,7 @@ def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
         "work_item": f"runtime:{plan['target_runtime']}@{plan['expected_revision']}",
         "project": "ghostspace/axis-lab",
         "responsibility": "deployment/realistic-validation",
+        "repository_ownership": ownership,
         "title": f"Deploy {', '.join(plan['affected_capabilities'])} to {plan['target_runtime']}",
         "authority": {
             "state": "deployment-policy",

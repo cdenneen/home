@@ -1,3 +1,7 @@
+import fcntl
+import json
+import os
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -6,9 +10,15 @@ from .repository_ownership import (
     assignment_ownership,
     ownership_denial,
     ownership_evidence_matches,
+    resolve_repository_ownership,
     validate_repository_ownership,
 )
-from .schema_registry import read_record, write_record
+from .schema_registry import (
+    RecordVersionError,
+    read_record,
+    validate_record,
+    write_record,
+)
 
 HANDOFF_SCHEMA = "axis.external-development-supervisor.implementation-handoff"
 INTEGRATION_QUEUE_SCHEMA = "axis.external-development-supervisor.integration-queue"
@@ -56,6 +66,7 @@ class WorkflowState:
         self.root = root
         self.handoffs = root / "implementation-handoffs"
         self.queue_path = root / "integration-queue.json"
+        self.queue_lock_path = root / "integration-queue.lock"
         self.gate = MutationGate(root, source="workflow-state")
 
     def _authorize(self) -> None:
@@ -64,10 +75,26 @@ class WorkflowState:
 
     def load_queue(self) -> dict:
         if self.queue_path.exists():
-            return read_record(self.queue_path, INTEGRATION_QUEUE_SCHEMA)
+            try:
+                return read_record(self.queue_path, INTEGRATION_QUEUE_SCHEMA)
+            except RecordVersionError:
+                legacy = json.loads(self.queue_path.read_text(encoding="utf-8"))
+                if legacy.get("schema_version") != "1.0.0":
+                    raise
+                for item in legacy.get("items") or []:
+                    ownership = resolve_repository_ownership(
+                        [item.get("responsibility")],
+                        item.get("repository"),
+                        context=f"integration-queue-v1-migration:{item.get('assignment_id')}",
+                        allow_repository_inference=True,
+                    )
+                    item["responsibility"] = ownership["responsibility"]
+                    item["repository_ownership"] = ownership
+                legacy["schema_version"] = "2.0.0"
+                return legacy
         return {
             "schema": INTEGRATION_QUEUE_SCHEMA,
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "updated_at": utc_now(),
             "items": [],
         }
@@ -77,6 +104,16 @@ class WorkflowState:
         self._authorize()
         write_record(self.queue_path, queue, INTEGRATION_QUEUE_SCHEMA)
 
+    def mutate_queue(self, mutation: Callable[[dict], object]) -> object:
+        self.queue_lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with self.queue_lock_path.open("a", encoding="utf-8") as lock:
+            os.chmod(self.queue_lock_path, 0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            queue = self.load_queue()
+            result = mutation(queue)
+            self.write_queue(queue)
+            return result
+
     def persist_handoff(self, assignment: dict, result: dict) -> dict:
         ownership = assignment_ownership(
             assignment,
@@ -85,7 +122,7 @@ class WorkflowState:
         worker_handoff = result.get("handoff") or {}
         handoff = {
             "schema": HANDOFF_SCHEMA,
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "assignment_id": assignment["assignment_id"],
             "work_item": assignment["work_item"],
             "repository": assignment["project"],
@@ -112,9 +149,41 @@ class WorkflowState:
         )
         return handoff
 
+    def adapt_handoff(self, handoff: dict) -> dict:
+        value = dict(handoff)
+        if value.get("schema") != HANDOFF_SCHEMA:
+            validate_record(value, HANDOFF_SCHEMA)
+        if value.get("schema_version") == "1.0.0":
+            ownership = resolve_repository_ownership(
+                [value.get("responsibility")],
+                value.get("repository"),
+                context=f"implementation-handoff-v1-migration:{value.get('assignment_id')}",
+                allow_repository_inference=True,
+            )
+            value["schema_version"] = "2.0.0"
+            value["responsibility"] = ownership["responsibility"]
+            value["repository_ownership"] = ownership
+        validate_record(value, HANDOFF_SCHEMA)
+        return value
+
+    def load_handoff(self, assignment_id: str) -> dict:
+        path = self.handoffs / f"{assignment_id}.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        migrated = self.adapt_handoff(value)
+        if migrated != value:
+            self._authorize()
+            write_record(path, migrated, HANDOFF_SCHEMA)
+        return migrated
+
     def enqueue(
         self, assignment: dict, handoff: dict, reviewer: str
     ) -> dict:
+        original_handoff = handoff
+        handoff = self.adapt_handoff(handoff)
+        handoff_path = self.handoffs / f"{assignment['assignment_id']}.json"
+        if handoff != original_handoff or not handoff_path.exists():
+            self._authorize()
+            write_record(handoff_path, handoff, HANDOFF_SCHEMA)
         ownership = assignment_ownership(
             assignment,
             context=f"reviewer-handoff:{assignment.get('assignment_id')}",
@@ -140,7 +209,6 @@ class WorkflowState:
                     "repository_ownership": handoff.get("repository_ownership"),
                 },
             )
-        queue = self.load_queue()
         now = utc_now()
         item = {
             "assignment_id": assignment["assignment_id"],
@@ -160,13 +228,16 @@ class WorkflowState:
             "updated_at": now,
             "last_error": None,
         }
-        queue["items"] = [
-            existing
-            for existing in queue["items"]
-            if existing["assignment_id"] != assignment["assignment_id"]
-        ] + [item]
-        self.write_queue(queue)
-        return item
+
+        def append(queue: dict) -> dict:
+            queue["items"] = [
+                existing
+                for existing in queue["items"]
+                if existing["assignment_id"] != assignment["assignment_id"]
+            ] + [item]
+            return item
+
+        return self.mutate_queue(append)  # type: ignore[return-value]
 
     def update_integration(
         self,
@@ -176,21 +247,22 @@ class WorkflowState:
         main_advance: str | None = None,
         last_error: str | None = None,
     ) -> dict | None:
-        queue = self.load_queue()
-        item = next(
-            (
-                value
-                for value in queue["items"]
-                if value["assignment_id"] == assignment_id
-            ),
-            None,
-        )
-        if item is None:
-            return None
-        item["state"] = state
-        item["updated_at"] = utc_now()
-        item["last_error"] = last_error
-        if main_advance is not None:
-            item["main_advance"] = main_advance
-        self.write_queue(queue)
-        return item
+        def update(queue: dict) -> dict | None:
+            item = next(
+                (
+                    value
+                    for value in queue["items"]
+                    if value["assignment_id"] == assignment_id
+                ),
+                None,
+            )
+            if item is None:
+                return None
+            item["state"] = state
+            item["updated_at"] = utc_now()
+            item["last_error"] = last_error
+            if main_advance is not None:
+                item["main_advance"] = main_advance
+            return item
+
+        return self.mutate_queue(update)  # type: ignore[return-value]

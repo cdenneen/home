@@ -11,7 +11,7 @@ from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
-from .schema_registry import RecordError, read_record, write_record
+from .schema_registry import read_record, write_record
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
 ACTION_CONTRACT_FIELDS = {
@@ -58,12 +58,9 @@ class Dispatcher:
         path = self.root / "active-mission.json"
         if not path.exists():
             return None
-        try:
-            mission = read_record(
-                path, "axis.external-development-supervisor.active-mission"
-            )
-        except RecordError:
-            return None
+        mission = read_record(
+            path, "axis.external-development-supervisor.active-mission"
+        )
         item_ref = item.get("ref")
         target = item.get("target_ref") or item_ref
         return next(
@@ -83,12 +80,9 @@ class Dispatcher:
         path = self.root / "capability-graduation.json"
         if not path.exists():
             return False
-        try:
-            graduation = read_record(
-                path, "axis.external-development-supervisor.capability-graduation"
-            )
-        except RecordError:
-            return False
+        graduation = read_record(
+            path, "axis.external-development-supervisor.capability-graduation"
+        )
         current = graduation.get("effectiveness_fingerprint")
         for assignment_path in self.assignments.glob("*.json"):
             assignment = validate_assignment(
@@ -194,7 +188,7 @@ class Dispatcher:
         assignment_id = f"assignment-{int(time.time())}-{uuid.uuid4().hex[:8]}"
         assignment = {
             "schema": "axis.external-development-supervisor.assignment",
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "assignment_id": assignment_id,
             "assignment_type": assignment_type,
             "result_state": "pending",

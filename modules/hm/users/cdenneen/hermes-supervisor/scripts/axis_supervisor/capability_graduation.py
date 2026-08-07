@@ -216,11 +216,37 @@ def assignment_is_satisfied(
     """Return whether current canonical evidence already proves an active assignment."""
     assignment_type = assignment.get("assignment_type")
     if assignment_type == "repository-convergence":
+        source = assignment.get("source_item") or {}
+        facts = source.get("convergence_facts") or {}
+        scope = facts.get("scope")
+        repository = assignment.get("project")
+        branch = facts.get("branch")
+        path = facts.get("path")
+        if scope not in {"branch", "worktree"}:
+            return False
+        if any(
+            value.get("ref") == source.get("ref")
+            for value in graph.get("nodes") or []
+        ):
+            return False
+        if branch and any(
+            value.get("repository") == repository
+            and value.get("branch") == branch
+            for value in repository_convergence.get("branches") or []
+        ):
+            return False
+        if any(
+            value.get("repository") == repository
+            and (value.get("path") == path or (branch and value.get("branch") == branch))
+            for value in repository_convergence.get("orphan_worktrees") or []
+        ):
+            return False
         return repository_convergence.get("status") == "green"
     if assignment_type == "capability-deployment":
         source = assignment.get("source_item") or {}
         target = source.get("target_runtime")
         expected = set(source.get("affected_capabilities") or [])
+        expected_revision = source.get("expected_revision")
         runtime = next(
             (
                 value
@@ -229,10 +255,11 @@ def assignment_is_satisfied(
             ),
             {},
         )
-        return bool(expected) and (
+        return bool(expected) and bool(expected_revision) and (
             runtime.get("status") == "converged"
             and runtime.get("health") == "healthy"
             and runtime.get("verification_status") == "verified"
+            and runtime.get("running_revision") == expected_revision
             and not expected.intersection(runtime.get("capabilities_behind") or [])
         )
     if assignment_type != "no-op-verification":
@@ -435,11 +462,13 @@ class CapabilityGraduationProjector:
         try:
             previous = read_record(self.path, SCHEMA) if self.path.exists() else {}
         except RecordError:
-            try:
-                legacy = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                legacy = {}
-            previous = legacy if isinstance(legacy, dict) else {}
+            legacy = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(legacy, dict) or (
+                legacy.get("schema") != SCHEMA
+                or legacy.get("schema_version") not in {"2.0.0", "3.0.0"}
+            ):
+                raise
+            previous = legacy
         previous_by_name = {
             str(value.get("capability")): value
             for value in previous.get("capabilities") or []
@@ -486,6 +515,7 @@ class CapabilityGraduationProjector:
                     "backlog",
                     "discovery",
                     "decomposition-needed",
+                    "analysis",
                     "implementation-ready",
                     "implementation",
                 }

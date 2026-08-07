@@ -13,7 +13,7 @@ from .repository_ownership import (
     ownership_denial,
     ownership_evidence_matches,
 )
-from .schema_registry import read_record, validate_record, write_record
+from .schema_registry import RecordVersionError, read_record, validate_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.mutation-grant"
 
@@ -135,7 +135,7 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     now = int(time.time())
     grant = {
         "schema": SCHEMA,
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "grant_id": f"grant-{assignment_id}",
         "scope_digest": "sha256:" + "0" * 64,
         "status": "active",
@@ -236,7 +236,23 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
 
 
 def load_grant(root: Path, assignment: dict) -> dict:
-    return read_record(canonical_grant_path(root, assignment), SCHEMA)
+    path = canonical_grant_path(root, assignment)
+    try:
+        return read_record(path, SCHEMA)
+    except RecordVersionError:
+        legacy = json.loads(path.read_text(encoding="utf-8"))
+        if legacy.get("schema") != SCHEMA or legacy.get("schema_version") != "1.0.0":
+            raise
+        ownership = assignment_ownership(
+            assignment,
+            context=f"mutation-grant-v1-migration:{assignment.get('assignment_id')}",
+        )
+        legacy["schema_version"] = "2.0.0"
+        legacy["responsibility"] = ownership["responsibility"]
+        legacy["repository_ownership"] = ownership
+        legacy["scope_digest"] = scope_digest(legacy)
+        write_record(path, legacy, SCHEMA)
+        return legacy
 
 
 def merged_recovery_matches(grant: dict, assignment: dict, mr: dict | None, main_sha: str) -> bool:

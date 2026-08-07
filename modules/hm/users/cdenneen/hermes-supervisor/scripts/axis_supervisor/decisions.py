@@ -4,13 +4,12 @@ import json
 import os
 import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from .mutation import MutationGate, OperationClass
 from .schema_registry import read_record, validate_record, write_record
-
 
 DECISION_ID = "axis29-mcp-tranche-v2"
 DECISION_DIGEST = "sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d"
@@ -143,6 +142,11 @@ class DecisionStore:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.link(temporary, path)
+                directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
             finally:
                 temporary.unlink(missing_ok=True)
             return value, True
@@ -561,3 +565,30 @@ class SlackDecisionController:
             self._update_card(token, card, "scheduling", record)
             status = "scheduling"
         return {"record": record, "replayed": False, "status": status}
+
+
+def reconcile_pending_frontier_rebuilds(
+    root: Path,
+    rebuild: Callable[[], object],
+    *,
+    limit: int = 8,
+) -> list[str]:
+    store = DecisionStore(root)
+    completed = []
+    recoverable = []
+    for path in sorted(store.decisions.glob("*.json")):
+        if path.name.endswith(".frontier.json"):
+            continue
+        record = read_record(path, DECISION_SCHEMA)
+        if not record["outcome"].startswith("approved"):
+            continue
+        request = store.load_frontier_request(str(record["decision_id"]))
+        if request and request["status"] == "completed":
+            continue
+        recoverable.append(record)
+    for record in recoverable[:limit]:
+        SlackDecisionController(root, lambda *_args: {}, rebuild)._ensure_frontier_rebuild(
+            record
+        )
+        completed.append(str(record["decision_id"]))
+    return completed
