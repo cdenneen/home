@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.projection",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "projection_id",
+    "projected_at",
+    "target_type",
+    "target_id",
+    "operation",
+    "status"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.projection" },
+    "schema_version": { "const": "1.0.0" },
+    "projection_id": { "type": "string", "minLength": 1 },
+    "projected_at": { "type": "string", "format": "date-time" },
+    "target_type": { "enum": ["dashboard", "incident"] },
+    "target_id": { "type": "string", "minLength": 1 },
+    "operation": { "enum": ["created", "updated", "verified", "attempted"] },
+    "status": { "enum": ["verified", "failed"] },
+    "channel": { "type": "string" },
+    "ts": { "type": "string" },
+    "fingerprint": { "type": "string" },
+    "error": { "type": "string" }
+  },
+  "additionalProperties": false
+}

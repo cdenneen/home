@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.control",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "cron_generation",
+    "cron_job_id",
+    "interval_seconds",
+    "heartbeat_grace_seconds",
+    "supervisor_worker_freshness_seconds",
+    "delivery_freshness_seconds",
+    "stuck_floor_seconds",
+    "stuck_ceiling_seconds",
+    "stuck_history_multiplier",
+    "diagnostic_provider",
+    "diagnostic_model",
+    "diagnostic_reasoning",
+    "diagnostic_timeout_seconds",
+    "diagnostic_max_prompt_bytes",
+    "diagnostic_daily_limit",
+    "diagnostic_cooldown_seconds",
+    "repair_repository"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.control" },
+    "schema_version": { "const": "1.0.0" },
+    "cron_generation": { "const": 1 },
+    "cron_job_id": { "type": ["string", "null"] },
+    "interval_seconds": { "type": "integer", "const": 300 },
+    "heartbeat_grace_seconds": { "type": "integer", "minimum": 600 },
+    "supervisor_worker_freshness_seconds": {
+      "type": "integer",
+      "minimum": 600
+    },
+    "delivery_freshness_seconds": { "type": "integer", "minimum": 300 },
+    "stuck_floor_seconds": { "type": "integer", "minimum": 300 },
+    "stuck_ceiling_seconds": { "type": "integer", "minimum": 1800 },
+    "stuck_history_multiplier": { "type": "number", "minimum": 1 },
+    "diagnostic_provider": { "const": "openai-api" },
+    "diagnostic_model": { "const": "gpt-5.4" },
+    "diagnostic_reasoning": { "const": "medium" },
+    "diagnostic_timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "diagnostic_max_prompt_bytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 32768
+    },
+    "diagnostic_daily_limit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 24
+    },
+    "diagnostic_cooldown_seconds": { "type": "integer", "minimum": 300 },
+    "repair_repository": { "const": "cdenneen/home" }
+  },
+  "additionalProperties": false
+}

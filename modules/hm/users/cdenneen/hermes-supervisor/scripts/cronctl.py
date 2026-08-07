@@ -27,7 +27,7 @@ def load(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
         value = json.load(handle)
     if not isinstance(value, dict):
-        raise ValueError(f"expected object: {path}")
+        raise TypeError(f"expected object: {path}")
     return value
 
 
@@ -45,9 +45,11 @@ def create(hermes: str, args: list[str], gate: MutationGate, decision) -> str:
     raise RuntimeError(f"could not parse cron job ID: {output}")
 
 
-def mutate(gate: MutationGate, decision, command: list[str], **kwargs):
+def mutate(
+    gate: MutationGate, decision, command: list[str], *, check: bool = False, **kwargs
+):
     gate.require(decision, OperationClass.SCHEDULER)
-    return subprocess.run(command, **kwargs)
+    return subprocess.run(command, check=check, **kwargs)
 
 
 def main() -> int:
@@ -81,15 +83,31 @@ def main() -> int:
         configured_projection = control.get("report_cron_job_id")
         if configured_worker and (worker is None or str(worker.get("id")) != str(configured_worker)):
             raise RuntimeError("configured worker cron ID is missing or name ownership does not match")
-        if configured_projection and (
-            projection is None
-            or str(projection.get("id")) != str(configured_projection)
-        ):
-            raise RuntimeError("configured Slack projection cron ID is missing or name ownership does not match")
         if not configured_worker and worker is not None:
             raise RuntimeError("refusing to adopt same-name worker without a configured ownership ID")
-        if not configured_projection and projection is not None:
-            raise RuntimeError("refusing to adopt same-name Slack projection without a configured ownership ID")
+        if projection is not None:
+            if not configured_projection:
+                raise RuntimeError(
+                    "refusing to disable same-name Slack projection without its configured ownership ID"
+                )
+            if str(projection.get("id")) != str(configured_projection):
+                raise RuntimeError(
+                    "configured Slack projection cron ID ownership does not match"
+                )
+            projection_id = str(projection["id"])
+            mutate(
+                gate,
+                decision,
+                [args.hermes, "cron", "pause", projection_id],
+                check=False,
+            )
+            mutate(
+                gate,
+                decision,
+                [args.hermes, "cron", "remove", projection_id],
+                check=True,
+            )
+        control["report_cron_job_id"] = None
         if worker is None:
             worker_id = create(
                 args.hermes,
@@ -149,56 +167,8 @@ def main() -> int:
                     check=True,
                     timeout=120,
                 )
-        if projection is None:
-            projection_id = create(
-                args.hermes,
-                [
-                    "--name", "axis-development-supervisor-report",
-                    "--script", "axis-development-supervisor-slack.py",
-                    "--no-agent",
-                    "every 5m",
-                ],
-                gate,
-                decision,
-            )
-            control["report_cron_job_id"] = projection_id
-            control["cron_generation"] = 1
-            write_control(control, gate, decision)
-        else:
-            projection_id = str(projection["id"])
-            expected = {
-                "schedule_display": "every 5m",
-                "script": "axis-development-supervisor-slack.py",
-                "deliver": None,
-                "no_agent": True,
-            }
-            drift = []
-            for key, value in expected.items():
-                actual = projection.get(key)
-                if key == "deliver" and actual in {None, "local"}:
-                    continue
-                if actual != value:
-                    drift.append(f"{key}={actual!r}, expected {value!r}")
-            if drift:
-                mutate(gate, decision, [args.hermes, "cron", "pause", projection_id], check=False)
-                mutate(gate, decision, [args.hermes, "cron", "remove", projection_id], check=True)
-                projection_id = create(
-                    args.hermes,
-                    [
-                        "--name",
-                        "axis-development-supervisor-report",
-                        "--script",
-                        "axis-development-supervisor-slack.py",
-                        "--no-agent",
-                        "every 5m",
-                    ],
-                    gate,
-                    decision,
-                )
-                control["report_cron_job_id"] = projection_id
-                write_control(control, gate, decision)
         control["cron_job_id"] = worker_id
-        control["report_cron_job_id"] = projection_id
+        control["report_cron_job_id"] = None
         control["cron_generation"] = 1
         write_control(control, gate, decision)
         lifecycle_command = (
@@ -206,9 +176,17 @@ def main() -> int:
             if control.get("mode") in {"observing", "enabled", "draining"}
             else "pause"
         )
-        for job_id in (worker_id, projection_id):
-            mutate(gate, decision, [args.hermes, "cron", lifecycle_command, job_id], check=True)
-        print(json.dumps({"worker": worker_id, "slack_projection": projection_id}, sort_keys=True))
+        mutate(
+            gate,
+            decision,
+            [args.hermes, "cron", lifecycle_command, worker_id],
+            check=True,
+        )
+        print(
+            json.dumps(
+                {"worker": worker_id, "slack_projection": None}, sort_keys=True
+            )
+        )
         return 0
 
     if args.command == "remove":
@@ -249,6 +227,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI boundary emits structured failure
         print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}, sort_keys=True))
         raise SystemExit(1)

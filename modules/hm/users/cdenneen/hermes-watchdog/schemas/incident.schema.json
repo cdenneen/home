@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.incident",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "incident_id",
+    "anomaly_code",
+    "dimension",
+    "summary",
+    "recovery_level",
+    "status",
+    "event",
+    "opened_at",
+    "observed_at",
+    "occurrences"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.incident" },
+    "schema_version": { "const": "1.0.0" },
+    "incident_id": { "type": "string", "minLength": 1 },
+    "anomaly_code": { "type": "string", "minLength": 1 },
+    "dimension": {
+      "enum": [
+        "liveness",
+        "control",
+        "delivery_effectiveness",
+        "mission_progress"
+      ]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "recovery_level": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "repair_repository": { "enum": ["cdenneen/home", null] },
+    "status": { "enum": ["opened", "recovering", "resolved"] },
+    "event": {
+      "enum": [
+        "opened",
+        "reopened",
+        "observed",
+        "recovery-started",
+        "diagnosed",
+        "resolved"
+      ]
+    },
+    "opened_at": { "type": "string", "format": "date-time" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "resolved_at": { "type": "string", "format": "date-time" },
+    "occurrences": { "type": "integer", "minimum": 1 },
+    "diagnosis": { "type": ["string", "null"], "maxLength": 1200 }
+  },
+  "additionalProperties": false
+}

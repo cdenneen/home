@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.heartbeat",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "cycle_id",
+    "status",
+    "started_at",
+    "started_at_epoch",
+    "completed_at",
+    "completed_at_epoch"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.heartbeat" },
+    "schema_version": { "const": "1.0.0" },
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["running", "completed"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "started_at_epoch": { "type": "integer", "minimum": 1 },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "completed_at_epoch": { "type": ["integer", "null"], "minimum": 1 }
+  },
+  "additionalProperties": false
+}
