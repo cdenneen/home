@@ -10,6 +10,7 @@
     "dimension",
     "summary",
     "evidence_fingerprint",
+    "occurrence_generation",
     "recovery_level",
     "status",
     "event",
@@ -32,6 +33,10 @@
     },
     "summary": { "type": "string", "minLength": 1 },
     "evidence_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "occurrence_generation": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },

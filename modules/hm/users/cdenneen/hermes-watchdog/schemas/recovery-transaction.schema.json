@@ -9,6 +9,7 @@
     "incident_id",
     "opened_at",
     "evidence_fingerprint",
+    "occurrence_generation",
     "incident",
     "status",
     "last_transition",
@@ -23,6 +24,10 @@
     "incident_id": { "type": "string", "minLength": 1 },
     "opened_at": { "type": ["string", "null"], "format": "date-time" },
     "evidence_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "occurrence_generation": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },

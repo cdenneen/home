@@ -18,7 +18,12 @@ from .records import (
     parse_timestamp,
     timestamp,
 )
-from .recovery import RecoveryExecutor, RecoveryJournal, unavailable_diagnostic
+from .recovery import (
+    RecoveryExecutor,
+    RecoveryJournal,
+    occurrence_generation,
+    unavailable_diagnostic,
+)
 
 Clock = Callable[[], int]
 
@@ -86,6 +91,7 @@ class Watchdog:
         self.diagnostic = diagnostic or SubprocessDiagnostic()
         self.recovery = recovery or RecoveryExecutor(root, supervisor_root)
         self.fault = fault
+        self._health_restored_this_cycle: list[str] = []
         self.states = Ledger(root, "states", "axis.development-watchdog.state")
         self.observations = Ledger(
             root, "observations", "axis.development-watchdog.observation"
@@ -695,7 +701,7 @@ class Watchdog:
         incidents = dict(state.get("incidents") or {})
         for anomaly in anomalies:
             incident_id = self._incident_id(str(anomaly["anomaly_code"]))
-            transaction = self.recovery_journal.completed_for_evidence(
+            transaction, health_restored = self.recovery_journal.completed_observation(
                 incident_id,
                 str(anomaly["evidence_fingerprint"]),
             )
@@ -703,10 +709,36 @@ class Watchdog:
                 continue
             authoritative = dict(transaction.get("incident") or {})
             current = incidents.get(incident_id) or {}
+            same_occurrence = bool(current) and (
+                current.get("occurrence_generation")
+                == transaction.get("occurrence_generation")
+                and current.get("evidence_fingerprint")
+                == transaction.get("evidence_fingerprint")
+            )
+            if health_restored:
+                if same_occurrence:
+                    resolved = next(
+                        (
+                            entry
+                            for entry in reversed(self.incidents.entries())
+                            if entry.get("incident_id") == incident_id
+                            and entry.get("occurrence_generation")
+                            == transaction.get("occurrence_generation")
+                            and entry.get("event") == "resolved"
+                        ),
+                        {
+                            **authoritative,
+                            "status": "resolved",
+                            "event": "resolved",
+                            "resolved_at": transaction.get("updated_at"),
+                        },
+                    )
+                    incidents[incident_id] = dict(resolved)
+                continue
             if (
                 current
                 and current.get("status") != "resolved"
-                and current.get("opened_at") != authoritative.get("opened_at")
+                and not same_occurrence
             ):
                 continue
             authoritative["status"] = "recovering"
@@ -733,16 +765,18 @@ class Watchdog:
             previous = current.get(incident_id) or {}
             reopened = previous.get("status") == "resolved"
             if not previous or reopened:
+                opened_at = timestamp(now)
                 incident = {
                     "incident_id": incident_id,
                     **anomaly,
                     "status": "opened",
                     "event": "reopened" if reopened else "opened",
-                    "opened_at": timestamp(now),
+                    "opened_at": opened_at,
                     "observed_at": timestamp(now),
                     "occurrences": int(previous.get("occurrences") or 0) + 1,
                     "diagnosis": None,
                 }
+                incident["occurrence_generation"] = occurrence_generation(incident)
                 self.incidents.append(incident)
                 newly_opened.append(incident)
             else:
@@ -768,7 +802,7 @@ class Watchdog:
             self.incidents.append(resolved)
             transaction = self.recovery_journal.for_incident(incident_id)
             if transaction:
-                self.recovery_journal.transition(
+                transaction = self.recovery_journal.transition(
                     transaction,
                     action="deterministic-health-restored",
                     target=incident.get("repair_repository")
@@ -778,6 +812,7 @@ class Watchdog:
                     detail="deterministic anomaly is no longer present",
                     now=now,
                 )
+                self._health_restored_this_cycle.append(transaction["recovery_id"])
             current[incident_id] = resolved
         return current, newly_opened
 
@@ -1056,6 +1091,7 @@ class Watchdog:
 
     def run(self) -> dict[str, Any]:
         now = int(self.clock())
+        self._health_restored_this_cycle = []
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = self._control()
         state = load_optional(self.root / "state.json")
@@ -1089,6 +1125,8 @@ class Watchdog:
         incidents, newly_opened = self._reconcile_incidents(
             state, anomalies, now
         )
+        if self._health_restored_this_cycle and self.fault:
+            self.fault("after-health-restored-before-state")
         self._diagnose(control, state, newly_opened, evidence, now)
         new_recoveries = self._recover_incidents(
             control, incidents, newly_opened, now

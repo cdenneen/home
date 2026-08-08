@@ -1395,6 +1395,121 @@ def test_completed_recovery_journal_rebuilds_state_after_precommit_crash(
     assert assignment["source_item"]["watchdog_recovery_id"] == recovery_id
 
 
+def test_health_restored_crash_then_recurrence_creates_one_new_occurrence(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs_path = setup_runtime(tmp_path, now)
+    jobs = json.loads(jobs_path.read_text())
+    reporter = {
+        "id": "reporter",
+        "name": "axis-development-supervisor-report",
+        "enabled": True,
+    }
+    jobs["jobs"].append(reporter)
+    write(jobs_path, jobs)
+    write(root / "slack-cutover.json", {"generation": "E"})
+    Watchdog(
+        root,
+        supervisor,
+        jobs_path,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+    incident_id = Watchdog._incident_id("routine-slack-authority-conflict")
+    first_transaction = json.loads(
+        (root / "recovery-transactions" / f"{incident_id}.json").read_text()
+    )
+    first_recovery_id = first_transaction["recovery_id"]
+    first_assignment_path = next(
+        (supervisor / "assignments").glob("assignment-watchdog-*.json")
+    )
+    first_assignment = json.loads(first_assignment_path.read_text())
+    first_assignment["lifecycle_state"] = "running-semantic"
+    write(first_assignment_path, first_assignment)
+
+    jobs["jobs"] = [job for job in jobs["jobs"] if job["id"] != "reporter"]
+    write(jobs_path, jobs)
+
+    def crash(point):
+        if point == "after-health-restored-before-state":
+            raise RuntimeError("injected post-restoration crash")
+
+    with pytest.raises(RuntimeError, match="injected post-restoration crash"):
+        Watchdog(
+            root,
+            supervisor,
+            jobs_path,
+            clock=lambda: now + 100,
+            projector=FakeProjector(),
+            diagnostic=FakeDiagnostic(),
+            fault=crash,
+        ).run()
+    stale = json.loads((root / "state.json").read_text())
+    assert stale["incidents"][incident_id]["status"] == "recovering"
+    restored_entries = [
+        json.loads(line) for line in (root / "recoveries.jsonl").read_text().splitlines()
+    ]
+    assert any(
+        item["recovery_id"] == first_recovery_id
+        and item["transition"] == "health-restored"
+        for item in restored_entries
+    )
+
+    jobs["jobs"].append(reporter)
+    write(jobs_path, jobs)
+
+    class TrackingWatchdog(Watchdog):
+        newly_opened_counts: list[int]
+
+        def _recover_incidents(self, control, current, newly_opened, at_epoch):
+            self.newly_opened_counts.append(len(newly_opened))
+            return super()._recover_incidents(
+                control, current, newly_opened, at_epoch
+            )
+
+    recurrent = TrackingWatchdog(
+        root,
+        supervisor,
+        jobs_path,
+        clock=lambda: now + 200,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    recurrent.newly_opened_counts = []
+    recurrent.run()
+    assert recurrent.newly_opened_counts == [1]
+
+    second_transaction = json.loads(
+        (root / "recovery-transactions" / f"{incident_id}.json").read_text()
+    )
+    assert second_transaction["recovery_id"] != first_recovery_id
+    assert second_transaction["occurrence_generation"] != first_transaction[
+        "occurrence_generation"
+    ]
+    recovery_entries = [
+        json.loads(line) for line in (root / "recoveries.jsonl").read_text().splitlines()
+    ]
+    requested_ids = {
+        item["recovery_id"]
+        for item in recovery_entries
+        if item["transition"] == "requested"
+        and item["incident_id"] == incident_id
+    }
+    assert requested_ids == {first_recovery_id, second_transaction["recovery_id"]}
+    starts = [
+        json.loads(line)
+        for line in (root / "incidents.jsonl").read_text().splitlines()
+        if json.loads(line).get("incident_id") == incident_id
+        and json.loads(line).get("event") == "recovery-started"
+    ]
+    assert len(starts) == 2
+    assignments = list((supervisor / "assignments").glob("assignment-watchdog-*.json"))
+    assert len(assignments) == 2
+    assert json.loads(first_assignment_path.read_text())["lifecycle_state"] == "running-semantic"
+
+
 def test_home_manager_defines_external_nonrecursive_heartbeat_monitor():
     module = (ROOT / "default.nix").read_text()
     assert "systemd.user.timers.axis-development-watchdog-backup" in module
