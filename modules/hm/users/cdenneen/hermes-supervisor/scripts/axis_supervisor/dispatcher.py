@@ -13,7 +13,7 @@ from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
-from .schema_registry import write_record
+from .schema_registry import RecordError, read_record, write_record
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
 ACTION_CONTRACT_FIELDS = {
@@ -77,14 +77,55 @@ class Dispatcher:
             None,
         )
 
-    def _finding_frontier_selected(self, item: dict) -> bool:
+    def _finding_frontier_selected(self, item: dict, graph: dict) -> bool:
         if not item.get("finding_identity"):
             return True
         path = self.root / "executable-frontier.json"
-        if not path.exists():
+        try:
+            frontier = read_record(
+                path, "axis.external-development-supervisor.executable-frontier"
+            )
+        except RecordError as exc:
+            self._record_frontier_block(
+                item, graph, f"frontier-unavailable:{type(exc).__name__}"
+            )
             return False
-        frontier = json.loads(path.read_text(encoding="utf-8"))
-        return item.get("ref") in set(frontier.get("selected") or [])
+        if frontier.get("source_generation_id") != graph.get("generation_id"):
+            self._record_frontier_block(
+                item,
+                graph,
+                "frontier-generation-mismatch",
+                str(frontier.get("source_generation_id") or "") or None,
+            )
+            return False
+        if item.get("ref") not in set(frontier.get("selected") or []):
+            self._record_frontier_block(
+                item,
+                graph,
+                "finding-not-selected-by-frontier",
+                str(frontier.get("source_generation_id") or "") or None,
+            )
+            return False
+        return True
+
+    def _record_frontier_block(
+        self,
+        item: dict,
+        graph: dict,
+        reason: str,
+        frontier_source_generation_id: str | None = None,
+    ) -> None:
+        record_event(
+            self.root,
+            "finding_dispatch_blocked",
+            details={
+                "reason": reason,
+                "finding_identity": item.get("finding_identity"),
+                "frontier_source_generation_id": frontier_source_generation_id,
+                "graph_generation_id": graph.get("generation_id"),
+            },
+            source="dispatcher",
+        )
 
     @staticmethod
     def _dispatchable_action(action: dict | None, item: dict) -> bool:
@@ -152,7 +193,7 @@ class Dispatcher:
         ):
             return None
         item = selected or graph["executable_queue"][0]
-        if not self._finding_frontier_selected(item):
+        if not self._finding_frontier_selected(item, graph):
             return None
         if is_suppressed_no_op(
             item, active + self.completed_no_ops()

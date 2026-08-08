@@ -31,18 +31,25 @@ def _list_field(body: str, name: str) -> list[str]:
     ]
 
 
-def _planning_scope(notes: list[dict], digest: str, title: str) -> dict | None:
+def _planning_scope(
+    notes: list[dict], digest: str, title: str, trusted_principals: set[str]
+) -> tuple[dict | None, bool]:
     """Select the exact authorized slice referred to by a canonical finding."""
+    untrusted_source = False
     for note in notes:
         body = str(note.get("body") or "")
         if "Immutable PlanningRecord" not in body or digest.lower() not in body.lower():
+            continue
+        author = str((note.get("author") or {}).get("username") or "")
+        if author not in trusted_principals:
+            untrusted_source = True
             continue
         assignment_type = _field(body, "Assignment type")
         repository = _field(body, "Repository")
         slices = _list_field(body, "Authorized slices")
         required_tests = _list_field(body, "Required tests")
         if assignment_type != "code-implementation" or not repository or not required_tests:
-            return None
+            continue
         title_words = {word for word in re.findall(r"[a-z0-9]+", title.lower()) if len(word) > 2}
         selected = next(
             (
@@ -53,18 +60,21 @@ def _planning_scope(notes: list[dict], digest: str, title: str) -> dict | None:
             None,
         )
         if selected is None:
-            return None
+            continue
         slice_id, separator, paths = selected.partition(":")
         allowed_paths = [path.strip() for path in paths.split(",") if path.strip()]
         if not separator or not slice_id or not allowed_paths:
-            return None
-        return {
-            "slice_id": slice_id.strip(),
-            "repository": repository,
-            "allowed_paths": allowed_paths,
-            "required_tests": required_tests,
-        }
-    return None
+            continue
+        return (
+            {
+                "slice_id": slice_id.strip(),
+                "repository": repository,
+                "allowed_paths": allowed_paths,
+                "required_tests": required_tests,
+            },
+            untrusted_source,
+        )
+    return None, untrusted_source
 
 
 def _invalid(note: dict, owner_ref: str, reason: str, source_sha: str | None) -> dict:
@@ -87,10 +97,14 @@ def _invalid(note: dict, owner_ref: str, reason: str, source_sha: str | None) ->
 
 
 def normalize_gitlab_findings(
-    notes: list[dict], owner_ref: str, source_sha: str | None = None
+    notes: list[dict],
+    owner_ref: str,
+    source_sha: str | None = None,
+    trusted_principals: set[str] | None = None,
 ) -> list[dict]:
     """Normalize only canonical current-main finding notes; invalid notes never dispatch."""
     normalized: list[dict] = []
+    trusted_principals = set(trusted_principals or [])
     for note in notes:
         body = str(note.get("body") or "")
         first_line = body.splitlines()[0].strip() if body.splitlines() else ""
@@ -99,6 +113,10 @@ def normalize_gitlab_findings(
         note_id = note.get("id")
         if not isinstance(note_id, int):
             normalized.append(_invalid(note, owner_ref, "missing-note-id", source_sha))
+            continue
+        author = str((note.get("author") or {}).get("username") or "")
+        if not trusted_principals or author not in trusted_principals:
+            normalized.append(_invalid(note, owner_ref, "untrusted-finding-author", source_sha))
             continue
         classification = _field(body, "Classification")
         capability = _field(body, "Capability")
@@ -129,9 +147,20 @@ def normalize_gitlab_findings(
         ):
             normalized.append(_invalid(note, owner_ref, "missing-or-invalid-canonical-field", source_sha))
             continue
-        scope = _planning_scope(notes, authority_digest.lower(), first_line)
+        scope, untrusted_scope_source = _planning_scope(
+            notes, authority_digest.lower(), first_line, trusted_principals
+        )
         if scope is None:
-            normalized.append(_invalid(note, owner_ref, "unresolved-authorized-scope", source_sha))
+            normalized.append(
+                _invalid(
+                    note,
+                    owner_ref,
+                    "untrusted-planning-record"
+                    if untrusted_scope_source
+                    else "unresolved-authorized-scope",
+                    source_sha,
+                )
+            )
             continue
         identity = _digest({"owner_ref": owner_ref, "note_id": note_id})
         raw_digest = _digest(body)

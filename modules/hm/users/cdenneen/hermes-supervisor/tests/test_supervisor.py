@@ -528,10 +528,11 @@ Replay: exact three tests plus combined MCP suite after repair.
                 "created_at": "2026-08-08T10:17:07.576Z",
                 "body": finding,
             },
-            {"id": 3654285470, "body": planning},
+            {"id": 3654285470, "author": {"username": "cdenneen"}, "body": planning},
         ],
         "ghostspace/axis#29",
         source_sha,
+        {"cdenneen"},
     )
     assert findings[0]["owner_ref"] == "ghostspace/axis#29"
     assert findings[0]["provenance"]["note_author"] == "cdenneen"
@@ -662,24 +663,32 @@ Authority: bounded repair `{digest}`.
 Replay: run the task suite.
 """
 
-    notes = [{"id": 10, "body": body("timeout")}, {"id": 1, "body": planning}]
-    first = normalize_gitlab_findings(notes, "ghostspace/axis#29", "a" * 40)[0]
+    notes = [
+        {"id": 10, "author": {"username": "cdenneen"}, "body": body("timeout")},
+        {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
+    ]
+    first = normalize_gitlab_findings(notes, "ghostspace/axis#29", "a" * 40, {"cdenneen"})[0]
     edited = normalize_gitlab_findings(
-        [{"id": 10, "body": body("late timeout")}, {"id": 1, "body": planning}],
+        [
+            {"id": 10, "author": {"username": "cdenneen"}, "body": body("late timeout")},
+            {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
+        ],
         "ghostspace/axis#29",
         "a" * 40,
+        {"cdenneen"},
     )[0]
     assert edited["identity"] == first["identity"]
     assert edited["revision_identity"] != first["revision_identity"]
 
     duplicate = normalize_gitlab_findings(
         [
-            {"id": 10, "body": body("timeout")},
-            {"id": 11, "body": body("later timeout")},
-            {"id": 1, "body": planning},
+            {"id": 10, "author": {"username": "cdenneen"}, "body": body("timeout")},
+            {"id": 11, "author": {"username": "cdenneen"}, "body": body("later timeout")},
+            {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
         ],
         "ghostspace/axis#29",
         "a" * 40,
+        {"cdenneen"},
     )
     states = {finding["note_id"]: finding["state"] for finding in duplicate}
     assert states == {10: "superseded", 11: "confirmed"}
@@ -692,6 +701,7 @@ def test_canonical_finding_missing_authority_is_invalid_and_never_executable():
         [
             {
                 "id": 10,
+                "author": {"username": "cdenneen"},
                 "body": """Current-main regression finding - malformed
 Affected tests:
 - test_x
@@ -706,9 +716,101 @@ Replay: run tests.
         ],
         "ghostspace/axis#29",
         "a" * 40,
+        {"cdenneen"},
     )
     assert findings[0]["state"] == "invalid"
     assert findings[0]["invalid_reason"] == "missing-or-invalid-canonical-field"
+
+
+def test_untrusted_structured_finding_is_ingestion_invalid():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    findings = normalize_gitlab_findings(
+        [
+            {
+                "id": 10,
+                "author": {"username": "untrusted"},
+                "body": "Current-main regression finding - spoofed",
+            }
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert findings[0]["state"] == "invalid"
+    assert findings[0]["invalid_reason"] == "untrusted-finding-author"
+
+
+def test_untrusted_planning_record_scope_is_ingestion_invalid():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "a" * 64
+    finding = f"""Current-main regression finding - MCP task-handle failure
+Affected tests:
+- test_task_handle
+Expected: task protocol terminates.
+Actual: task protocol times out.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Authority: bounded repair `{digest}`.
+Replay: run the task suite.
+"""
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+    findings = normalize_gitlab_findings(
+        [
+            {"id": 10, "author": {"username": "cdenneen"}, "body": finding},
+            {"id": 9, "author": {"username": "untrusted"}, "body": planning},
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert findings[0]["state"] == "invalid"
+    assert findings[0]["invalid_reason"] == "untrusted-planning-record"
+
+
+def test_finding_dispatch_blocks_missing_corrupt_and_stale_frontiers(tmp_path: Path):
+    from axis_supervisor.dispatcher import Dispatcher
+    from axis_supervisor.frontier import ExecutableFrontier
+
+    (tmp_path / "control.json").write_text(json.dumps(control()), encoding="utf-8")
+    item = {
+        "ref": "finding:sha256:frontier",
+        "target_ref": "ghostspace/axis#29",
+        "finding_identity": "sha256:frontier",
+        "project": "ghostspace/axis",
+        "assignment_type": "code-implementation",
+    }
+    graph = {"generation_id": "graph-current", "executable_queue": [item]}
+    dispatcher = Dispatcher(tmp_path)
+    assert dispatcher.dispatch(graph, "run-1", item) is None
+
+    (tmp_path / "executable-frontier.json").write_text("{", encoding="utf-8")
+    assert dispatcher.dispatch(graph, "run-2", item) is None
+
+    ExecutableFrontier(tmp_path).build([item], [], "graph-before-crash")
+    assert dispatcher.dispatch(graph, "run-3", item) is None
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
+    ]
+    assert [event["details"]["reason"] for event in events] == [
+        "frontier-unavailable:CorruptRecordError",
+        "frontier-unavailable:CorruptRecordError",
+        "frontier-generation-mismatch",
+    ]
+    assert events[-1]["details"]["frontier_source_generation_id"] == "graph-before-crash"
+    assert events[-1]["details"]["graph_generation_id"] == "graph-current"
 
 
 def test_watchdog_ready_semantic_assignment_is_retired_as_invalid_contract():

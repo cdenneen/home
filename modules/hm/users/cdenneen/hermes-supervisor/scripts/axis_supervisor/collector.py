@@ -237,9 +237,14 @@ def extract_acceptance_facts(text: str) -> dict:
 
 
 def extract_findings(
-    notes: list[dict], owner_ref: str, source_sha: str | None = None
+    notes: list[dict],
+    owner_ref: str,
+    source_sha: str | None = None,
+    trusted_principals: set[str] | None = None,
 ) -> list[dict]:
-    return normalize_gitlab_findings(notes, owner_ref, source_sha)
+    return normalize_gitlab_findings(
+        notes, owner_ref, source_sha, trusted_principals
+    )
 
 
 def retire_unsupported_watchdog_assignment(raw_assignment: dict) -> bool:
@@ -525,9 +530,11 @@ def write_inventory(path: Path, inventory: dict) -> None:
 def main() -> int:
     started = time.time()
     control = load_control()
-    product_owner_usernames = set(
-        control.get("product_owner_usernames") or ["cdenneen"]
-    )
+    product_owner_usernames = {
+        str(value)
+        for value in control.get("product_owner_usernames") or []
+        if str(value)
+    }
     owned_branch_prefixes = tuple(control.get("owned_branch_prefixes") or ["hermes/"])
     owned_worktree_root = Path(
         str(
@@ -724,6 +731,7 @@ def main() -> int:
                         repositories[project["path_with_namespace"]]["local_facts"].get(
                             "default_remote_head"
                         ),
+                        product_owner_usernames,
                     ),
                     "blocking_dependency_refs": sorted(set(blocking_dependencies)),
                     "merge_request_facts": [
