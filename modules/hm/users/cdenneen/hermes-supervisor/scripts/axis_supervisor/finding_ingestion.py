@@ -3,13 +3,24 @@
 import hashlib
 import json
 import re
+from typing import cast
+
 PARSER_REVISION = "gitlab-finding-note-v1"
+AMENDMENT_PARSER_REVISION = "gitlab-finding-note-v2"
 MARKER = "current-main regression finding"
-_DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.I)
+AMENDMENT_MARKER = "finding amendment"
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.IGNORECASE)
+_AMENDMENT_HEADER = re.compile(
+    r"Finding amendment v2\s+— supersedes finding note (?P<note_id>\d+) "
+    r"for structured Supervisor ingestion",
+    re.IGNORECASE,
+)
 
 
 def _digest(value: object) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -31,6 +42,32 @@ def _list_field(body: str, name: str) -> list[str]:
     ]
 
 
+def _single_field(body: str, name: str) -> str | None:
+    values = re.findall(rf"(?mi)^{re.escape(name)}:\s*(.+)$", body)
+    return values[0].strip() if len(values) == 1 else None
+
+
+def _exact_digest(value: str | None) -> str | None:
+    match = re.fullmatch(r"`?(sha256:[0-9a-f]{64})`?", value or "", re.IGNORECASE)
+    return match.group(1).lower() if match else None
+
+
+def _note_version(note: dict, revision: str) -> dict:
+    return {
+        "note_id": note.get("id"),
+        "note_author": str((note.get("author") or {}).get("username") or ""),
+        "note_timestamp": note.get("updated_at") or note.get("created_at"),
+        "raw_digest": _digest(str(note.get("body") or "")),
+        "parser_revision": revision,
+    }
+
+
+def _immutable(note: dict) -> bool:
+    created = note.get("created_at")
+    updated = note.get("updated_at")
+    return not created or not updated or created == updated
+
+
 def _planning_scope(
     notes: list[dict], digest: str, slice_id: str, trusted_principals: set[str]
 ) -> tuple[dict | None, bool]:
@@ -48,12 +85,14 @@ def _planning_scope(
         repository = _field(body, "Repository")
         slices = _list_field(body, "Authorized slices")
         required_tests = _list_field(body, "Required tests")
-        if assignment_type != "code-implementation" or not repository or not required_tests:
+        if (
+            assignment_type != "code-implementation"
+            or not repository
+            or not required_tests
+        ):
             continue
         selected = [
-            value
-            for value in slices
-            if value.partition(":")[0].strip() == slice_id
+            value for value in slices if value.partition(":")[0].strip() == slice_id
         ]
         if len(selected) != 1:
             continue
@@ -92,6 +131,356 @@ def _invalid(note: dict, owner_ref: str, reason: str, source_sha: str | None) ->
     }
 
 
+def _amendment_invalid(
+    original: dict | None,
+    amendment: dict,
+    owner_ref: str,
+    reason: str,
+    source_sha: str | None,
+) -> dict:
+    origin = original or amendment
+    value = _invalid(origin, owner_ref, reason, source_sha)
+    value["provenance"]["parser_revision"] = AMENDMENT_PARSER_REVISION
+    value["provenance"]["version_chain"] = [
+        *([_note_version(original, PARSER_REVISION)] if original else []),
+        _note_version(amendment, AMENDMENT_PARSER_REVISION),
+    ]
+    if original:
+        value["note_id"] = original.get("id")
+        value["amendment_note_id"] = amendment.get("id")
+    return value
+
+
+def _original_fields(note: dict) -> dict | None:
+    body = str(note.get("body") or "")
+    authority_digest = next(
+        iter(_DIGEST.findall(_field(body, "Authority") or "")), None
+    )
+    affected_tests = _list_field(body, "Affected tests")
+    if (
+        _single_field(body, "Classification") != "PRODUCT_DEFECT"
+        or not _single_field(body, "Capability")
+        or not _single_field(body, "Affected gates")
+        or not authority_digest
+        or not _single_field(body, "Replay")
+        or not _single_field(body, "Expected")
+        or not _single_field(body, "Actual")
+        or not affected_tests
+    ):
+        return None
+    return {
+        "title": body.splitlines()[0].strip(),
+        "capability": _single_field(body, "Capability"),
+        "authority_digest": authority_digest.lower(),
+    }
+
+
+def _normalize_amendments(
+    notes: list[dict],
+    owner_ref: str,
+    source_sha: str | None,
+    trusted_principals: set[str],
+) -> tuple[list[dict], set[int]]:
+    """Join an immutable v2 amendment to exactly one original finding lineage."""
+    normalized: list[dict] = []
+    amended_note_ids: set[int] = set()
+    notes_by_id = {
+        note.get("id"): note for note in notes if isinstance(note.get("id"), int)
+    }
+    amendments = [
+        note
+        for note in notes
+        if (lines := str(note.get("body") or "").splitlines())
+        and lines[0].strip().lower().startswith(AMENDMENT_MARKER)
+    ]
+    by_origin: dict[int, list[dict]] = {}
+    for amendment in amendments:
+        header = str(amendment.get("body") or "").splitlines()[0].strip()
+        match = _AMENDMENT_HEADER.fullmatch(header)
+        if match is None:
+            referenced = re.search(
+                r"supersedes finding note (?P<note_id>\d+)", header, re.IGNORECASE
+            )
+            original = (
+                notes_by_id.get(int(referenced.group("note_id")))
+                if referenced is not None
+                else None
+            )
+            if referenced is not None:
+                amended_note_ids.add(int(referenced.group("note_id")))
+            reason = (
+                "unsupported-finding-amendment-version"
+                if re.match(r"Finding amendment v\d+", header, re.IGNORECASE)
+                else "malformed-finding-amendment"
+            )
+            normalized.append(
+                _amendment_invalid(original, amendment, owner_ref, reason, source_sha)
+            )
+            continue
+        origin_id = int(match.group("note_id"))
+        amended_note_ids.add(origin_id)
+        by_origin.setdefault(origin_id, []).append(amendment)
+    for origin_id, values in by_origin.items():
+        original = notes_by_id.get(origin_id)
+        amendment = values[0]
+        if len(values) != 1:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "competing-finding-amendments",
+                    source_sha,
+                )
+            )
+            continue
+        author = str((amendment.get("author") or {}).get("username") or "")
+        if not trusted_principals or author not in trusted_principals:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "untrusted-finding-author",
+                    source_sha,
+                )
+            )
+            continue
+        if not _immutable(amendment) or (
+            original is not None and not _immutable(original)
+        ):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "finding-amendment-edited",
+                    source_sha,
+                )
+            )
+            continue
+        if (
+            original is None
+            or str((original.get("author") or {}).get("username") or "")
+            not in trusted_principals
+        ):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "missing-or-untrusted-original-finding",
+                    source_sha,
+                )
+            )
+            continue
+        original_fields = _original_fields(original)
+        if original_fields is None:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "malformed-original-finding",
+                    source_sha,
+                )
+            )
+            continue
+        body = str(amendment.get("body") or "")
+        fields = {
+            name: _single_field(body, name)
+            for name in (
+                "Finding ID",
+                "Finding class",
+                "Owner work item",
+                "Approved slice_id",
+                "PlanningRecord revision",
+                "PlanningRecord digest",
+                "Repository",
+                "Affected gate",
+                "Expected behavior",
+                "Observed behavior",
+                "Source evidence",
+                "Affected downstream",
+                "Replay",
+                "Scope",
+                "Supersession",
+            )
+        }
+        tests = _list_field(body, "Affected tests")
+        digest = _exact_digest(fields["PlanningRecord digest"])
+        if (
+            not all(fields.values())
+            or not tests
+            or fields["Finding class"] != "PRODUCT_DEFECT"
+            or fields["PlanningRecord revision"] != "2"
+        ):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "malformed-finding-amendment",
+                    source_sha,
+                )
+            )
+            continue
+        fields = cast(dict[str, str], fields)
+        if fields["Owner work item"] != owner_ref:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "amendment-owner-mismatch",
+                    source_sha,
+                )
+            )
+            continue
+        repository = fields["Repository"]
+        if repository != owner_ref.partition("#")[0]:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "amendment-repository-mismatch",
+                    source_sha,
+                )
+            )
+            continue
+        if digest is None or digest != original_fields["authority_digest"]:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "amendment-digest-mismatch",
+                    source_sha,
+                )
+            )
+            continue
+        if not re.search(
+            rf"\bnote\s+{origin_id}\b", fields["Source evidence"], re.IGNORECASE
+        ) or not fields["Supersession"].startswith(
+            "this metadata amendment preserves original finding provenance"
+        ):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "invalid-amendment-supersession",
+                    source_sha,
+                )
+            )
+            continue
+        scope, untrusted_scope_source = _planning_scope(
+            notes, digest, fields["Approved slice_id"], trusted_principals
+        )
+        if scope is None:
+            reason = (
+                "untrusted-planning-record"
+                if untrusted_scope_source
+                else "amendment-unknown-approved-slice"
+            )
+            normalized.append(
+                _amendment_invalid(original, amendment, owner_ref, reason, source_sha)
+            )
+            continue
+        if scope["repository"] != repository:
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "amendment-slice-repository-mismatch",
+                    source_sha,
+                )
+            )
+            continue
+        if not re.fullmatch(r"[0-9a-f]{40}", source_sha or "", re.IGNORECASE):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "missing-or-invalid-canonical-field",
+                    source_sha,
+                )
+            )
+            continue
+        identity = _digest({"owner_ref": owner_ref, "note_id": origin_id})
+        original_digest = _digest(str(original.get("body") or ""))
+        amendment_digest = _digest(body)
+        downstream = [
+            f"{repository}!{value.strip().removeprefix('!')}"
+            for value in fields["Affected downstream"].split(",")
+            if value.strip()
+        ]
+        normalized.append(
+            {
+                "finding_id": fields["Finding ID"],
+                "finding_key": f"{owner_ref}:{fields['Finding ID'].lower()}",
+                "state": "confirmed",
+                "owner_ref": owner_ref,
+                "note_id": origin_id,
+                "amendment_note_id": amendment.get("id"),
+                "note_url": f"{owner_ref}#note_{origin_id}",
+                "identity": identity,
+                "revision_identity": _digest(
+                    {
+                        "identity": identity,
+                        "raw_digests": [original_digest, amendment_digest],
+                        "source_sha": source_sha,
+                    }
+                ),
+                "classification": fields["Finding class"],
+                "capability": original_fields["capability"],
+                "affected_gates": [
+                    value.strip()
+                    for value in fields["Affected gate"].split(",")
+                    if value.strip()
+                ],
+                "affected_tests": tests,
+                "expected": fields["Expected behavior"],
+                "actual": fields["Observed behavior"],
+                "replay": fields["Replay"],
+                "authority_digest": digest,
+                "repair_candidate": {
+                    "slice_id": scope["slice_id"],
+                    "title": original_fields["title"],
+                    "category": "implementation",
+                    "result": "Executable",
+                    "project": scope["repository"],
+                    "responsibility": "axis-runtime/product",
+                    "allowed_paths": scope["allowed_paths"],
+                    "required_tests": scope["required_tests"],
+                    "rationale": fields["Observed behavior"],
+                },
+                "shared_dependents": downstream,
+                "provenance": {
+                    "project": repository,
+                    "issue_iid": int(owner_ref.partition("#")[2]),
+                    "note_id": origin_id,
+                    "note_author": str(
+                        (original.get("author") or {}).get("username") or ""
+                    ),
+                    "note_timestamp": original.get("updated_at")
+                    or original.get("created_at"),
+                    "raw_digest": original_digest,
+                    "source_sha": source_sha,
+                    "parser_revision": AMENDMENT_PARSER_REVISION,
+                    "version_chain": [
+                        _note_version(original, PARSER_REVISION),
+                        _note_version(amendment, AMENDMENT_PARSER_REVISION),
+                    ],
+                },
+            }
+        )
+    return normalized, amended_note_ids
+
+
 def normalize_gitlab_findings(
     notes: list[dict],
     owner_ref: str,
@@ -99,20 +488,26 @@ def normalize_gitlab_findings(
     trusted_principals: set[str] | None = None,
 ) -> list[dict]:
     """Normalize only canonical current-main finding notes; invalid notes never dispatch."""
-    normalized: list[dict] = []
     trusted_principals = set(trusted_principals or [])
+    normalized, amended_note_ids = _normalize_amendments(
+        notes, owner_ref, source_sha, trusted_principals
+    )
     for note in notes:
         body = str(note.get("body") or "")
         first_line = body.splitlines()[0].strip() if body.splitlines() else ""
         if not first_line.lower().startswith(MARKER):
             continue
         note_id = note.get("id")
+        if note_id in amended_note_ids:
+            continue
         if not isinstance(note_id, int):
             normalized.append(_invalid(note, owner_ref, "missing-note-id", source_sha))
             continue
         author = str((note.get("author") or {}).get("username") or "")
         if not trusted_principals or author not in trusted_principals:
-            normalized.append(_invalid(note, owner_ref, "untrusted-finding-author", source_sha))
+            normalized.append(
+                _invalid(note, owner_ref, "untrusted-finding-author", source_sha)
+            )
             continue
         classification = _field(body, "Classification")
         capability = _field(body, "Capability")
@@ -141,9 +536,13 @@ def normalize_gitlab_findings(
             or not actual
             or not affected_tests
             or not approved_slice_id
-            or not re.fullmatch(r"[0-9a-f]{40}", source_sha or "", re.I)
+            or not re.fullmatch(r"[0-9a-f]{40}", source_sha or "", re.IGNORECASE)
         ):
-            normalized.append(_invalid(note, owner_ref, "missing-or-invalid-canonical-field", source_sha))
+            normalized.append(
+                _invalid(
+                    note, owner_ref, "missing-or-invalid-canonical-field", source_sha
+                )
+            )
             continue
         scope, untrusted_scope_source = _planning_scope(
             notes, authority_digest.lower(), approved_slice_id, trusted_principals
@@ -163,7 +562,9 @@ def normalize_gitlab_findings(
         identity = _digest({"owner_ref": owner_ref, "note_id": note_id})
         raw_digest = _digest(body)
         finding_id = "gitlab-finding-" + identity.removeprefix("sha256:")[:24]
-        gate_names = [value.strip() for value in affected_gates.split(",") if value.strip()]
+        gate_names = [
+            value.strip() for value in affected_gates.split(",") if value.strip()
+        ]
         candidate = {
             "slice_id": scope["slice_id"],
             "title": first_line,
@@ -185,7 +586,11 @@ def normalize_gitlab_findings(
                 "note_url": f"{owner_ref}#note_{note_id}",
                 "identity": identity,
                 "revision_identity": _digest(
-                    {"identity": identity, "raw_digest": raw_digest, "source_sha": source_sha}
+                    {
+                        "identity": identity,
+                        "raw_digest": raw_digest,
+                        "source_sha": source_sha,
+                    }
                 ),
                 "classification": classification,
                 "capability": capability,
@@ -201,7 +606,9 @@ def normalize_gitlab_findings(
                     "project": owner_ref.partition("#")[0],
                     "issue_iid": int(owner_ref.partition("#")[2]),
                     "note_id": note_id,
-                    "note_author": str((note.get("author") or {}).get("username") or ""),
+                    "note_author": str(
+                        (note.get("author") or {}).get("username") or ""
+                    ),
                     "note_timestamp": note.get("updated_at") or note.get("created_at"),
                     "raw_digest": raw_digest,
                     "source_sha": source_sha,
@@ -224,4 +631,7 @@ def normalize_gitlab_findings(
         if finding is not current:
             finding["state"] = "superseded"
             finding["superseded_by"] = current["identity"]
-    return sorted(normalized, key=lambda value: (str(value.get("identity")), str(value.get("note_id"))))
+    return sorted(
+        normalized,
+        key=lambda value: (str(value.get("identity")), str(value.get("note_id"))),
+    )
