@@ -95,6 +95,42 @@
           "attempt_limit": { "type": "integer", "const": 1 },
           "source_ref": { "type": ["string", "null"] },
           "assignment_id": { "type": ["string", "null"] },
+          "dispatch_class": {
+            "enum": [
+              "DISPATCHABLE",
+              "INVALID",
+              "BLOCKED",
+              "SATISFIED",
+              "STALE",
+              "SUPERSEDED"
+            ]
+          },
+          "assignment_scope": {
+            "type": "object",
+            "required": [
+              "target_ref",
+              "project",
+              "allowed_paths",
+              "required_tests"
+            ],
+            "properties": {
+              "target_ref": { "type": "string", "minLength": 1 },
+              "project": { "type": ["string", "null"], "minLength": 1 },
+              "allowed_paths": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "required_tests": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            },
+            "additionalProperties": false
+          },
+          "worker_path": { "type": "string", "minLength": 1 },
+          "handoff_path": { "type": "string", "minLength": 1 },
+          "review_path": { "type": "string", "minLength": 1 },
+          "expected_effect": { "type": "string", "minLength": 1 },
           "engineering_purpose": { "type": "string", "minLength": 1 },
           "gate_owner": { "type": "string", "minLength": 1 },
           "expected_gates": {

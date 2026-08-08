@@ -855,27 +855,42 @@ class ActiveMissionState:
                 for capability, gate in internal
                 if capability in affected
             ]
+            if not expected_pairs:
+                expected_pairs = [
+                    (str(value.get("capability") or "unknown"), str(value.get("gate")))
+                    for value in entry.get("expected_gates") or []
+                    if value.get("gate")
+            ]
             gate_name = expected_pairs[0][1] if expected_pairs else "analysis"
+            if gate_name not in GATE_OWNERS:
+                gate_name = (
+                    "verification" if "verification" in gate_name.lower() else "implementation"
+                )
+            expected_gates = [
+                {
+                    "capability": capability,
+                    "gate": gate,
+                    "from_state": str(internal[(capability, gate)]["state"])
+                    if (capability, gate) in internal
+                    else "pending",
+                    "to_state": "passed",
+                }
+                for capability, gate in expected_pairs
+            ]
+            expected_evidence = [
+                evidence
+                for capability, gate in expected_pairs
+                if (capability, gate) in internal
+                for evidence in internal[(capability, gate)]["evidence"]
+            ] or list((entry.get("candidate") or {}).get("required_tests") or [])
             target = str(entry.get("target_ref") or entry.get("ref") or "unknown")
             action_id = _stable_id("dispatch", str(entry.get("ref") or target))
             contract = ActiveMissionState._action_contract(
                 action_id,
                 gate_name,
                 affected,
-                [
-                    {
-                        "capability": capability,
-                        "gate": gate,
-                        "from_state": str(internal[(capability, gate)]["state"]),
-                        "to_state": "passed",
-                    }
-                    for capability, gate in expected_pairs
-                ],
-                [
-                    evidence
-                    for capability, gate in expected_pairs
-                    for evidence in internal[(capability, gate)]["evidence"]
-                ],
+                expected_gates,
+                expected_evidence,
                 graph,
                 graduation,
             )
@@ -893,6 +908,37 @@ class ActiveMissionState:
                     "attempt_limit": 1,
                     "source_ref": str(entry.get("ref") or target),
                     "assignment_id": None,
+                    "dispatch_class": (
+                        "DISPATCHABLE"
+                        if entry.get("assignment_type")
+                        in {
+                            "governance-document-mutation",
+                            "code-implementation",
+                            "ci-integration-repair",
+                        }
+                        and entry.get("project")
+                        and (entry.get("candidate") or {}).get("allowed_paths")
+                        and (entry.get("candidate") or {}).get("required_tests")
+                        and expected_gates
+                        else "INVALID"
+                    ),
+                    "assignment_scope": {
+                        "target_ref": target,
+                        "project": entry.get("project"),
+                        "allowed_paths": (entry.get("candidate") or {}).get(
+                            "allowed_paths"
+                        )
+                        or [],
+                        "required_tests": (entry.get("candidate") or {}).get(
+                            "required_tests"
+                        )
+                        or [],
+                    },
+                    "worker_path": "implementation",
+                    "handoff_path": "implementation-handoff",
+                    "review_path": "independent-review",
+                    "expected_effect": entry.get("expected_effect")
+                    or "advance the expected gate",
                     **contract,
                 }
             )

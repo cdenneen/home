@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import json
-import hashlib
 import os
 import re
 import shutil
@@ -12,11 +11,13 @@ from pathlib import Path
 from urllib.parse import quote
 
 try:
+    from .finding_ingestion import normalize_gitlab_findings
     from .lifecycle import is_terminal
     from .models import validate_assignment
     from .mutation import MutationGate, OperationClass
     from .schema_registry import read_record, write_record
 except ImportError:
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
     from axis_supervisor.lifecycle import is_terminal
     from axis_supervisor.models import validate_assignment
     from axis_supervisor.mutation import MutationGate, OperationClass
@@ -235,60 +236,51 @@ def extract_acceptance_facts(text: str) -> dict:
     return {"ids": acceptance_ids, "open_ids": open_ids}
 
 
-def extract_findings(notes: list[dict], owner_ref: str) -> list[dict]:
-    """Read explicitly marked, source-bound findings without inventing owners."""
-    findings = []
-    for note in notes:
-        body = str(note.get("body") or "")
-        match = re.search(
-            r"```axis-supervisor-finding\s*\n(?P<payload>.*?)\n```",
-            body,
-            re.I | re.S,
+def extract_findings(
+    notes: list[dict], owner_ref: str, source_sha: str | None = None
+) -> list[dict]:
+    return normalize_gitlab_findings(notes, owner_ref, source_sha)
+
+
+def retire_unsupported_watchdog_assignment(raw_assignment: dict) -> bool:
+    """Retire the legacy watchdog analysis contract before it can be dispatched."""
+    if (
+        not str(raw_assignment.get("assignment_id") or "").startswith(
+            "assignment-watchdog-"
         )
-        if not match:
-            continue
-        try:
-            finding = json.loads(match.group("payload"))
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(finding, dict):
-            continue
-        finding_id = str(finding.get("finding_id") or "")
-        state = str(finding.get("state") or "")
-        candidate = finding.get("repair_candidate")
-        if not finding_id or state not in {"confirmed", "resolved", "invalid"}:
-            continue
-        if state == "confirmed" and not isinstance(candidate, dict):
-            continue
-        identity = "sha256:" + hashlib.sha256(
-            json.dumps(
-                {
-                    "note_id": note.get("id"),
-                    "owner_ref": owner_ref,
-                    "finding_id": finding_id,
-                    "state": state,
-                    "repair_candidate": candidate,
-                    "shared_dependents": finding.get("shared_dependents") or [],
+        or raw_assignment.get("lifecycle_state") != "ready-semantic"
+    ):
+        return False
+    raw_assignment.update(
+        {
+            "lifecycle_state": "cancelled",
+            "result_state": "cancelled",
+            "work_item_disposition": "requires-human-decision",
+            "retirement": {
+                "classification": "INVALID",
+                "reason": "watchdog-ready-semantic-contract-is-not-dispatchable",
+                "source": "collector",
+                "invalid_contract": {
+                    "assignment_type": raw_assignment.get("assignment_type"),
+                    "action_contract": raw_assignment.get("action_contract"),
+                    "worker_path": None,
+                    "handoff_path": None,
+                    "review_path": None,
                 },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest()
-        findings.append(
-            {
-                "finding_id": finding_id,
-                "state": state,
-                "owner_ref": owner_ref,
-                "note_id": int(note["id"]),
-                "note_url": f"{owner_ref}#note_{note['id']}",
-                "identity": identity,
-                "shared_dependents": sorted(
-                    {str(value) for value in finding.get("shared_dependents") or []}
-                ),
-                "repair_candidate": candidate,
-            }
-        )
-    return sorted(findings, key=lambda value: (value["finding_id"], value["note_id"]))
+            },
+            "provenance": {
+                "source": "collector",
+                "invalid_contract": {
+                    "assignment_type": raw_assignment.get("assignment_type"),
+                    "action_contract": raw_assignment.get("action_contract"),
+                    "worker_path": None,
+                    "handoff_path": None,
+                    "review_path": None,
+                },
+            },
+        }
+    )
+    return True
 
 
 def approval_note_url(
@@ -726,7 +718,13 @@ def main() -> int:
                     "milestone": (issue.get("milestone") or {}).get("title"),
                     "priority": issue.get("severity") or None,
                     "authority_facts": authority_facts,
-                    "findings": extract_findings(notes, ref),
+                    "findings": extract_findings(
+                        notes,
+                        ref,
+                        repositories[project["path_with_namespace"]]["local_facts"].get(
+                            "default_remote_head"
+                        ),
+                    ),
                     "blocking_dependency_refs": sorted(set(blocking_dependencies)),
                     "merge_request_facts": [
                         {
@@ -907,6 +905,15 @@ def main() -> int:
     ):
         try:
             raw_assignment = load(assignment_path)
+            if retire_unsupported_watchdog_assignment(raw_assignment):
+                gate = MutationGate(ROOT, source="collector")
+                decision = gate.decide(OperationClass.RECONCILIATION)
+                gate.require(decision, OperationClass.RECONCILIATION)
+                write_record(
+                    assignment_path,
+                    raw_assignment,
+                    "axis.external-development-supervisor.assignment",
+                )
             normalized_assignment = validate_assignment(raw_assignment, ROOT)
             if normalized_assignment != raw_assignment:
                 gate = MutationGate(ROOT, source="collector")

@@ -69,13 +69,40 @@ class Dispatcher:
             (
                 action
                 for action in mission.get("generated_actions") or []
-                if action.get("source_ref") == item_ref
-                or (
-                    action.get("kind") == "dispatch-executable"
-                    and action.get("target") == target
-                )
+                if action.get("kind") == "dispatch-executable"
+                and action.get("lifecycle") == "CURRENT"
+                and action.get("source_ref") == item_ref
+                and action.get("target") == target
             ),
             None,
+        )
+
+    def _finding_frontier_selected(self, item: dict) -> bool:
+        if not item.get("finding_identity"):
+            return True
+        path = self.root / "executable-frontier.json"
+        if not path.exists():
+            return False
+        frontier = json.loads(path.read_text(encoding="utf-8"))
+        return item.get("ref") in set(frontier.get("selected") or [])
+
+    @staticmethod
+    def _dispatchable_action(action: dict | None, item: dict) -> bool:
+        if action is None:
+            return False
+        scope = action.get("assignment_scope") or {}
+        candidate = item.get("candidate") or {}
+        return bool(
+            action.get("dispatch_class") == "DISPATCHABLE"
+            and action.get("worker_path") == "implementation"
+            and action.get("handoff_path") == "implementation-handoff"
+            and action.get("review_path") == "independent-review"
+            and action.get("expected_effect")
+            and action.get("expected_gates")
+            and scope.get("target_ref") == (item.get("target_ref") or item.get("ref"))
+            and scope.get("project") == item.get("project")
+            and scope.get("allowed_paths") == candidate.get("allowed_paths")
+            and scope.get("required_tests") == candidate.get("required_tests")
         )
 
     def _effectiveness_suppressed(self, item: dict) -> bool:
@@ -125,6 +152,8 @@ class Dispatcher:
         ):
             return None
         item = selected or graph["executable_queue"][0]
+        if not self._finding_frontier_selected(item):
+            return None
         if is_suppressed_no_op(
             item, active + self.completed_no_ops()
         ) or self._effectiveness_suppressed(item) or self._finding_suppressed(item):
@@ -175,6 +204,9 @@ class Dispatcher:
             else "code-implementation"
         )
         mission_action = self._mission_action(item)
+        if item.get("finding_identity") and (self.root / "active-mission.json").exists():
+            if not self._dispatchable_action(mission_action, item):
+                return None
         action_contract = (
             {
                 "action_id": mission_action["action_id"],

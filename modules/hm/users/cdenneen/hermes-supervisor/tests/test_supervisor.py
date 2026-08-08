@@ -493,35 +493,49 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_pat
     from axis_supervisor.graph import ExecutionGraphBuilder
 
     digest = "sha256:" + "2" * 64
-    finding = {
-        "finding_id": "axis29-mcp-timeout-regression",
-        "state": "confirmed",
-        "shared_dependents": ["ghostspace/axis#31"],
-        "repair_candidate": {
-            "slice_id": "axis29-mcp-timeout-repair",
-            "title": "Repair MCP timeout cancellation regression",
-            "category": "implementation",
-            "result": "Executable",
-            "project": "ghostspace/axis",
-            "responsibility": "axis-runtime/product",
-            "allowed_paths": ["src/axis_runtime/mcp.py"],
-            "required_tests": ["pytest -q tests/test_mcp_adapter.py"],
-            "rationale": "Bounded repair from the canonical finding.",
-        },
-    }
+    source_sha = "a" * 40
+    planning = """Immutable PlanningRecord v2 - MCP Parallel Tranche
+
+Digest: `sha256:2222222222222222222222222222222222222222222222222222222222222222`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+    finding = """Current-main regression finding - MCP task-handle acceptance failure
+
+Affected tests:
+- test_live_schema_drift_blocks_task_startup
+- test_polling_budget_is_bounded_and_ambiguous_start_is_not_replayed
+- test_notification_is_only_a_hint_and_polling_establishes_completion
+
+Expected: bounded task-handle protocol tests terminate.
+Actual: current-main tests timeout after merged work.
+Classification: PRODUCT_DEFECT
+Capability: MCP / Service Plane
+Affected gates: current-main verification
+Shared dependents: ghostspace/axis#31
+Authority: use existing axis#29 PlanningRecord v2 digest `sha256:2222222222222222222222222222222222222222222222222222222222222222` only for bounded same-owner repair scope.
+Replay: exact three tests plus combined MCP suite after repair.
+"""
     findings = extract_findings(
         [
             {
                 "id": 3661401209,
-                "body": "```axis-supervisor-finding\n"
-                + json.dumps(finding)
-                + "\n```",
-            }
+                "author": {"username": "cdenneen"},
+                "created_at": "2026-08-08T10:17:07.576Z",
+                "body": finding,
+            },
+            {"id": 3654285470, "body": planning},
         ],
         "ghostspace/axis#29",
+        source_sha,
     )
     assert findings[0]["owner_ref"] == "ghostspace/axis#29"
-    assert findings[0]["shared_dependents"] == ["ghostspace/axis#31"]
+    assert findings[0]["provenance"]["note_author"] == "cdenneen"
+    assert findings[0]["provenance"]["source_sha"] == source_sha
 
     (tmp_path / "control.json").write_text(
         json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
@@ -540,8 +554,8 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_pat
             "record_revision": 2,
             "approval_note": "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209",
             "approved_assignment_type": "code-implementation",
-            "approved_allowed_paths": ["src/axis_runtime/mcp.py"],
-            "approved_required_tests": ["pytest -q tests/test_mcp_adapter.py"],
+            "approved_allowed_paths": ["src/axis_runtime/mcp_tasks.py", "tests/test_mcp_task_handles.py"],
+            "approved_required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
         },
         "blocking_dependency_refs": [],
         "merge_request_facts": [],
@@ -550,14 +564,16 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_pat
         "retrieval_errors": [],
         "mutation_allowed": True,
         "findings": findings,
-        "repository_head": "a" * 40,
+        "repository_head": source_sha,
     }
     inventory = {"generation_id": "finding-fixture", "work_items": [source]}
     graph = ExecutionGraphBuilder(tmp_path).build(inventory)
     entry = graph["executable_queue"][0]
     assert entry["ref"] == f"finding:{findings[0]['identity']}"
     assert entry["finding_identity"] == findings[0]["identity"]
-    assert entry["shared_dependents"] == ["ghostspace/axis#31"]
+    assert entry["expected_gates"][0]["gate"] == "current-main verification"
+    assert entry["wake_refs"] == ["ghostspace/axis#31"]
+    assert graph["edges"][-1]["relationship"] == "finding-shared-dependent"
 
     dispatched = Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry)
     assert dispatched is not None
@@ -585,6 +601,7 @@ def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path:
         "source_evidence": {},
         "retrieval_errors": [],
         "mutation_allowed": True,
+        "repository_head": "a" * 40,
         "findings": [
             {
                 "finding_id": "missing-authority",
@@ -592,6 +609,11 @@ def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path:
                 "owner_ref": "ghostspace/axis#29",
                 "identity": "sha256:" + "f" * 64,
                 "shared_dependents": [],
+                "authority_digest": "sha256:" + "a" * 64,
+                "provenance": {
+                    "source_sha": "a" * 40,
+                    "parser_revision": "gitlab-finding-note-v1",
+                },
                 "repair_candidate": {
                     "slice_id": "repair",
                     "title": "Repair",
@@ -611,6 +633,101 @@ def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path:
     )
     assert graph["executable_queue"] == []
     assert graph["nodes"][0]["flow_stage"] == "decision"
+
+
+def test_canonical_finding_edits_are_idempotent_and_duplicate_notes_supersede():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "b" * 64
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+
+    def body(actual: str) -> str:
+        return f"""Current-main regression finding - MCP task-handle acceptance failure
+Affected tests:
+- test_task_handle
+Expected: task protocol terminates.
+Actual: {actual}
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Authority: bounded repair `{digest}`.
+Replay: run the task suite.
+"""
+
+    notes = [{"id": 10, "body": body("timeout")}, {"id": 1, "body": planning}]
+    first = normalize_gitlab_findings(notes, "ghostspace/axis#29", "a" * 40)[0]
+    edited = normalize_gitlab_findings(
+        [{"id": 10, "body": body("late timeout")}, {"id": 1, "body": planning}],
+        "ghostspace/axis#29",
+        "a" * 40,
+    )[0]
+    assert edited["identity"] == first["identity"]
+    assert edited["revision_identity"] != first["revision_identity"]
+
+    duplicate = normalize_gitlab_findings(
+        [
+            {"id": 10, "body": body("timeout")},
+            {"id": 11, "body": body("later timeout")},
+            {"id": 1, "body": planning},
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+    )
+    states = {finding["note_id"]: finding["state"] for finding in duplicate}
+    assert states == {10: "superseded", 11: "confirmed"}
+
+
+def test_canonical_finding_missing_authority_is_invalid_and_never_executable():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    findings = normalize_gitlab_findings(
+        [
+            {
+                "id": 10,
+                "body": """Current-main regression finding - malformed
+Affected tests:
+- test_x
+Expected: pass.
+Actual: fail.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Replay: run tests.
+""",
+            }
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+    )
+    assert findings[0]["state"] == "invalid"
+    assert findings[0]["invalid_reason"] == "missing-or-invalid-canonical-field"
+
+
+def test_watchdog_ready_semantic_assignment_is_retired_as_invalid_contract():
+    from axis_supervisor.collector import retire_unsupported_watchdog_assignment
+
+    assignment = {
+        "assignment_id": "assignment-watchdog-recovery-1",
+        "assignment_type": "read-only-analysis",
+        "lifecycle_state": "ready-semantic",
+        "result_state": "pending",
+        "work_item_disposition": "not-evaluated",
+        "action_contract": None,
+    }
+    assert retire_unsupported_watchdog_assignment(assignment) is True
+    assert assignment["lifecycle_state"] == "cancelled"
+    assert assignment["retirement"]["classification"] == "INVALID"
+    assert assignment["retirement"]["invalid_contract"]["review_path"] is None
+    assert assignment["provenance"]["invalid_contract"]["worker_path"] is None
+    assert retire_unsupported_watchdog_assignment(assignment) is False
 
 
 def test_product_heartbeat_is_compact_and_rate_limited(tmp_path: Path):
