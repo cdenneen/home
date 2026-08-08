@@ -262,6 +262,32 @@ class Watchdog:
         return matches[0] if len(matches) == 1 else {}
 
     @staticmethod
+    def _slack_writer_state(
+        jobs: list[dict[str, Any]], generation: str
+    ) -> dict[str, Any]:
+        active_reporters = [
+            job
+            for job in jobs
+            if job.get("name") == "axis-development-supervisor-report"
+            and job.get("enabled")
+        ]
+        watchdog_job = Watchdog._job(jobs, "axis-development-watchdog")
+        watchdog_writer = bool(watchdog_job.get("enabled")) and generation in {
+            "C",
+            "D",
+            "E",
+        }
+        active_writers = len(active_reporters) + int(watchdog_writer)
+        return {
+            "generation": generation,
+            "active_reporter_ids": [str(job.get("id") or "") for job in active_reporters],
+            "watchdog_mode": "shadow" if generation in {"A", "B"} else "writer",
+            "watchdog_writer": watchdog_writer,
+            "active_writer_count": active_writers,
+            "conflict": active_writers > 1,
+        }
+
+    @staticmethod
     def _expected_wait(
         supervisor_control: dict[str, Any], mission: dict[str, Any], graph: dict[str, Any]
     ) -> tuple[bool, str | None]:
@@ -464,6 +490,9 @@ class Watchdog:
         worker = self._job(jobs, "axis-development-supervisor-worker")
         watchdog_job = self._job(jobs, "axis-development-watchdog")
         routine_report = self._job(jobs, "axis-development-supervisor-report")
+        cutover = load_optional(self.root / "slack-cutover.json")
+        cutover_generation = str(cutover.get("generation") or "A")
+        writer_state = self._slack_writer_state(jobs, cutover_generation)
         if not worker or not worker.get("enabled"):
             anomalies.append(
                 self._anomaly(
@@ -497,12 +526,12 @@ class Watchdog:
                     2,
                 )
             )
-        if routine_report and routine_report.get("enabled"):
+        if writer_state["conflict"]:
             anomalies.append(
                 self._anomaly(
                     "routine-slack-authority-conflict",
                     "control",
-                    "legacy supervisor report cron is enabled alongside watchdog projection",
+                    "multiple active Slack writers violate the configured cutover generation",
                     4,
                     repair=True,
                 )
@@ -639,7 +668,8 @@ class Watchdog:
                 "expected_wait_reason": wait_reason,
             },
             "outbox": outbox_health,
-            "cutover": load_optional(self.root / "slack-cutover.json"),
+            "cutover": cutover,
+            "slack_writers": writer_state,
         }
         return evidence, anomalies, dimensions
 
@@ -770,6 +800,7 @@ class Watchdog:
             incident["observed_at"] = timestamp(now)
             if not any(
                 entry.get("incident_id") == incident["incident_id"]
+                and entry.get("opened_at") == incident.get("opened_at")
                 and entry.get("event") == "recovery-started"
                 for entry in self.incidents.entries()
             ):

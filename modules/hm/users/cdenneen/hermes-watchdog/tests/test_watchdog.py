@@ -352,6 +352,41 @@ def test_missed_heartbeat_is_incident_then_catches_up(tmp_path: Path):
     ]
     assert heartbeat_transitions == ["requested", "started", "completed"]
 
+    heartbeat = json.loads((root / "heartbeat.json").read_text())
+    heartbeat["completed_at_epoch"] = now - 1200
+    heartbeat["completed_at"] = iso(now - 1200)
+    write(root / "heartbeat.json", heartbeat)
+    reopened = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now + 600,
+        projector=FakeProjector(),
+        diagnostic=diagnostic,
+    ).run()
+    assert "watchdog-heartbeat-missed" in reopened["anomalies"]
+    incidents = [
+        json.loads(line) for line in (root / "incidents.jsonl").read_text().splitlines()
+    ]
+    starts = [
+        item
+        for item in incidents
+        if item["incident_id"] == Watchdog._incident_id("watchdog-heartbeat-missed")
+        and item["event"] == "recovery-started"
+    ]
+    assert len(starts) == 2
+    assert len({item["opened_at"] for item in starts}) == 2
+    recoveries = [
+        json.loads(line) for line in (root / "recoveries.jsonl").read_text().splitlines()
+    ]
+    occurrence_ids = {
+        item["recovery_id"]
+        for item in recoveries
+        if item["action"] == "observe-and-catch-up"
+        and item["transition"] == "requested"
+    }
+    assert len(occurrence_ids) == 2
+
 
 def test_product_progress_fingerprint_ignores_assignment_activity(tmp_path: Path):
     _root, supervisor, _jobs = setup_runtime(tmp_path)
@@ -802,6 +837,101 @@ def test_slack_cutover_advances_a_through_e_and_rolls_back(tmp_path: Path):
         "A",
     ]
     assert reconciles == [["reconcile-cutover"]] * 5
+
+
+@pytest.mark.parametrize("generation", ["A", "B"])
+def test_shadow_generations_allow_one_active_reporter(generation: str):
+    jobs = [
+        {
+            "id": "watchdog",
+            "name": "axis-development-watchdog",
+            "enabled": True,
+        },
+        {
+            "id": "reporter",
+            "name": "axis-development-supervisor-report",
+            "enabled": True,
+        },
+    ]
+    state = Watchdog._slack_writer_state(jobs, generation)
+    assert state["watchdog_mode"] == "shadow"
+    assert state["active_writer_count"] == 1
+    assert state["conflict"] is False
+
+
+@pytest.mark.parametrize("generation", ["C", "D", "E"])
+def test_writer_generations_reject_an_active_reporter(generation: str):
+    jobs = [
+        {
+            "id": "watchdog",
+            "name": "axis-development-watchdog",
+            "enabled": True,
+        },
+        {
+            "id": "reporter",
+            "name": "axis-development-supervisor-report",
+            "enabled": True,
+        },
+    ]
+    state = Watchdog._slack_writer_state(jobs, generation)
+    assert state["watchdog_mode"] == "writer"
+    assert state["active_writer_count"] == 2
+    assert state["conflict"] is True
+
+
+def test_duplicate_shadow_reporters_are_a_writer_conflict():
+    jobs = [
+        {
+            "id": f"reporter-{index}",
+            "name": "axis-development-supervisor-report",
+            "enabled": True,
+        }
+        for index in range(2)
+    ]
+    state = Watchdog._slack_writer_state(jobs, "A")
+    assert state["active_writer_count"] == 2
+    assert state["conflict"] is True
+
+
+def test_conflict_anomaly_is_level4_only_when_cutover_has_multiple_writers(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs_path = setup_runtime(tmp_path, now)
+    jobs = json.loads(jobs_path.read_text())
+    jobs["jobs"].append(
+        {
+            "id": "reporter",
+            "name": "axis-development-supervisor-report",
+            "enabled": True,
+        }
+    )
+    write(jobs_path, jobs)
+    write(root / "slack-cutover.json", {"generation": "A"})
+    shadow = Watchdog(
+        root,
+        supervisor,
+        jobs_path,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+    assert "routine-slack-authority-conflict" not in shadow["anomalies"]
+
+    write(root / "slack-cutover.json", {"generation": "C"})
+    writer = Watchdog(
+        root,
+        supervisor,
+        jobs_path,
+        clock=lambda: now + 1,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+    assert "routine-slack-authority-conflict" in writer["anomalies"]
+    incident_id = Watchdog._incident_id("routine-slack-authority-conflict")
+    state = json.loads((root / "state.json").read_text())
+    assert state["incidents"][incident_id]["recovery_level"] == 4
+    assert state["incidents"][incident_id]["repair_repository"] == "cdenneen/home"
 
 
 def test_shadow_generation_never_writes_slack(tmp_path: Path):
