@@ -13,6 +13,8 @@
     "incident",
     "status",
     "last_transition",
+    "mutable_finalized_transition",
+    "mutable_finalized_at",
     "detail",
     "created_at",
     "updated_at"
@@ -52,6 +54,21 @@
         "waiting-human",
         "health-restored"
       ]
+    },
+    "mutable_finalized_transition": {
+      "enum": [
+        null,
+        "requested",
+        "started",
+        "completed",
+        "failed",
+        "waiting-human",
+        "health-restored"
+      ]
+    },
+    "mutable_finalized_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
     },
     "detail": { "type": "string", "maxLength": 1200 },
     "created_at": { "type": "string", "format": "date-time" },

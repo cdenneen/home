@@ -58,7 +58,10 @@ the mission actionable rather than waiting.
 
 Every recovery has a stable ID and crash-idempotent transaction journal. Requested,
 started, completed, failed, waiting-human, and health-restored transitions are deduplicated
-in the append-only ledger, and pending transactions resume after restart. A completed
+in the append-only ledger, and pending transactions resume after restart. Each transaction
+records the latest transition committed into mutable state. Startup scans completed
+transactions whose transition is not finalized; absent evidence is closed with exactly one
+resolved incident and health-restored transition before committing closed state. A completed
 transaction without a health-restored transition is authoritative: startup correlates its
 incident/evidence fingerprint and rebuilds mutable state without repeating effects. Incident records transition through
 opened, recovering, and resolved events. Slack accepts are persisted before readback, so

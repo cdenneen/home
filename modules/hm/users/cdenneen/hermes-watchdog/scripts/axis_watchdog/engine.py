@@ -746,6 +746,72 @@ class Watchdog:
             incidents[incident_id] = authoritative
         state["incidents"] = incidents
 
+    def _close_inactive_completed_recoveries(
+        self,
+        state: dict[str, Any],
+        anomalies: list[dict[str, Any]],
+        now: int,
+    ) -> None:
+        active_evidence = {
+            (
+                self._incident_id(str(anomaly["anomaly_code"])),
+                str(anomaly["evidence_fingerprint"]),
+            )
+            for anomaly in anomalies
+        }
+        incidents = dict(state.get("incidents") or {})
+        incident_entries = self.incidents.entries()
+        for transaction in self.recovery_journal.unfinalized_completed():
+            identity = (
+                str(transaction["incident_id"]),
+                str(transaction["evidence_fingerprint"]),
+            )
+            if identity in active_evidence:
+                continue
+            authoritative = dict(transaction.get("incident") or {})
+            current = incidents.get(str(transaction["incident_id"])) or {}
+            if current and (
+                current.get("occurrence_generation")
+                != transaction.get("occurrence_generation")
+                or current.get("evidence_fingerprint")
+                != transaction.get("evidence_fingerprint")
+            ):
+                continue
+            resolved = next(
+                (
+                    entry
+                    for entry in reversed(incident_entries)
+                    if entry.get("incident_id") == transaction["incident_id"]
+                    and entry.get("occurrence_generation")
+                    == transaction.get("occurrence_generation")
+                    and entry.get("event") == "resolved"
+                ),
+                None,
+            )
+            if resolved is None:
+                resolved = {
+                    **authoritative,
+                    "status": "resolved",
+                    "event": "resolved",
+                    "observed_at": timestamp(now),
+                    "resolved_at": timestamp(now),
+                }
+                self.incidents.append(resolved)
+                incident_entries.append(resolved)
+            transaction = self.recovery_journal.transition(
+                transaction,
+                action="deterministic-health-restored",
+                target=authoritative.get("repair_repository")
+                or "axis-development-watchdog",
+                status="completed",
+                transition="health-restored",
+                detail="deterministic anomaly is absent during startup finalization",
+                now=now,
+            )
+            incidents[str(transaction["incident_id"])] = dict(resolved)
+            self._health_restored_this_cycle.append(transaction["recovery_id"])
+        state["incidents"] = incidents
+
     def _reconcile_incidents(
         self,
         state: dict[str, Any],
@@ -1121,6 +1187,7 @@ class Watchdog:
             control, state, prior_heartbeat, now
         )
         evidence["supervisor_root"] = str(self.supervisor_root)
+        self._close_inactive_completed_recoveries(state, anomalies, now)
         self._rehydrate_completed_recoveries(state, anomalies)
         incidents, newly_opened = self._reconcile_incidents(
             state, anomalies, now
@@ -1240,6 +1307,7 @@ class Watchdog:
         }
         atomic_write(self.root / "state.json", new_state)
         self.states.append(new_state)
+        self.recovery_journal.mark_state_finalized(new_state["incidents"], now)
         atomic_write(
             self.root / "heartbeat.json",
             {

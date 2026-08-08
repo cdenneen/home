@@ -1395,6 +1395,96 @@ def test_completed_recovery_journal_rebuilds_state_after_precommit_crash(
     assert assignment["source_item"]["watchdog_recovery_id"] == recovery_id
 
 
+def test_completed_recovery_closes_when_evidence_disappears_before_restart(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs_path = setup_runtime(tmp_path, now)
+    jobs = json.loads(jobs_path.read_text())
+    reporter = {
+        "id": "reporter",
+        "name": "axis-development-supervisor-report",
+        "enabled": True,
+    }
+    jobs["jobs"].append(reporter)
+    write(jobs_path, jobs)
+    write(root / "slack-cutover.json", {"generation": "E"})
+    diagnostic_runner = FakeDiagnostic()
+
+    def crash(point):
+        if point == "after-recovery-completed-before-state":
+            raise RuntimeError("injected completed-before-state crash")
+
+    with pytest.raises(RuntimeError, match="injected completed-before-state crash"):
+        Watchdog(
+            root,
+            supervisor,
+            jobs_path,
+            clock=lambda: now,
+            projector=FakeProjector(),
+            diagnostic=diagnostic_runner,
+            fault=crash,
+        ).run()
+    incident_id = Watchdog._incident_id("routine-slack-authority-conflict")
+    transaction_path = root / "recovery-transactions" / f"{incident_id}.json"
+    transaction = json.loads(transaction_path.read_text())
+    recovery_id = transaction["recovery_id"]
+    assert transaction["last_transition"] == "completed"
+    assert transaction["mutable_finalized_transition"] is None
+    assert not (root / "state.json").exists()
+    assignment_path = next(
+        (supervisor / "assignments").glob("assignment-watchdog-*.json")
+    )
+    assignment = json.loads(assignment_path.read_text())
+    assignment["lifecycle_state"] = "running-semantic"
+    write(assignment_path, assignment)
+
+    jobs["jobs"] = [job for job in jobs["jobs"] if job["id"] != "reporter"]
+    write(jobs_path, jobs)
+    restarted = Watchdog(
+        root,
+        supervisor,
+        jobs_path,
+        clock=lambda: now + 1,
+        projector=FakeProjector(),
+        diagnostic=diagnostic_runner,
+    ).run()
+    assert "routine-slack-authority-conflict" not in restarted["anomalies"]
+    assert restarted["open_incidents"] == []
+    state = json.loads((root / "state.json").read_text())
+    assert state["incidents"][incident_id]["status"] == "resolved"
+
+    recovery_entries = [
+        json.loads(line) for line in (root / "recoveries.jsonl").read_text().splitlines()
+    ]
+    occurrence = [
+        item for item in recovery_entries if item["recovery_id"] == recovery_id
+    ]
+    assert [item["transition"] for item in occurrence] == [
+        "requested",
+        "started",
+        "completed",
+        "health-restored",
+    ]
+    incident_entries = [
+        json.loads(line) for line in (root / "incidents.jsonl").read_text().splitlines()
+    ]
+    matching = [
+        item
+        for item in incident_entries
+        if item["incident_id"] == incident_id
+        and item["occurrence_generation"] == transaction["occurrence_generation"]
+    ]
+    assert sum(item["event"] == "recovery-started" for item in matching) == 1
+    assert sum(item["event"] == "resolved" for item in matching) == 1
+    assert len(list((supervisor / "assignments").glob("assignment-watchdog-*.json"))) == 1
+    assert json.loads(assignment_path.read_text())["lifecycle_state"] == "running-semantic"
+    assert len(diagnostic_runner.calls) == 1
+    finalized = json.loads(transaction_path.read_text())
+    assert finalized["mutable_finalized_transition"] == "health-restored"
+    assert finalized["mutable_finalized_at"] == iso(now + 1)
+
+
 def test_health_restored_crash_then_recurrence_creates_one_new_occurrence(
     tmp_path: Path,
 ):

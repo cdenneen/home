@@ -90,6 +90,8 @@ class RecoveryJournal:
             "incident": incident,
             "status": "pending",
             "last_transition": None,
+            "mutable_finalized_transition": None,
+            "mutable_finalized_at": None,
             "detail": "transaction created",
             "created_at": timestamp(now),
             "updated_at": timestamp(now),
@@ -174,6 +176,46 @@ class RecoveryJournal:
             for entry in self.ledger.entries()
         )
         return transaction, restored
+
+    def unfinalized_completed(self) -> list[dict[str, Any]]:
+        values = []
+        for path in sorted(self.directory.glob("*.json")):
+            transaction = load_optional(path)
+            if (
+                transaction.get("status") == "completed"
+                and transaction.get("last_transition")
+                != transaction.get("mutable_finalized_transition")
+            ):
+                values.append(transaction)
+        return values
+
+    def mark_mutable_finalized(
+        self, transaction: dict[str, Any], now: int
+    ) -> dict[str, Any]:
+        current = self.for_incident(str(transaction["incident_id"]))
+        if current.get("recovery_id") != transaction.get("recovery_id"):
+            return transaction
+        current["mutable_finalized_transition"] = current.get("last_transition")
+        current["mutable_finalized_at"] = timestamp(now)
+        atomic_write(self._path(str(current["incident_id"])), current)
+        return current
+
+    def mark_state_finalized(
+        self, incidents: dict[str, dict[str, Any]], now: int
+    ) -> None:
+        for transaction in self.unfinalized_completed():
+            incident = incidents.get(str(transaction["incident_id"])) or {}
+            if (
+                incident.get("occurrence_generation")
+                != transaction.get("occurrence_generation")
+                or incident.get("evidence_fingerprint")
+                != transaction.get("evidence_fingerprint")
+            ):
+                continue
+            restored = transaction.get("last_transition") == "health-restored"
+            if restored != (incident.get("status") == "resolved"):
+                continue
+            self.mark_mutable_finalized(transaction, now)
 
 
 class RecoveryExecutor:
