@@ -88,6 +88,11 @@
       "uniqueItems": true
     },
     "owned_worktree_root": { "type": "string", "minLength": 1 },
+    "trusted_gitlab_user_ids": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "uniqueItems": true
+    },
     "product_owner_usernames": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },

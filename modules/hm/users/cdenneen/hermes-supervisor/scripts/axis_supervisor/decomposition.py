@@ -24,6 +24,17 @@ class SemanticDecompositionEngine:
 
     @staticmethod
     def source_fingerprint(item: dict) -> str:
+        evidence = dict(item.get("source_evidence") or {})
+        # Ordinary discussion is retained for audit but cannot churn semantic work.
+        evidence = {
+            "description": evidence.get("description"),
+            "notes_state": evidence.get("notes_state"),
+            "notes_collector_revision": evidence.get("notes_collector_revision"),
+            "canonical_finding_state": evidence.get("canonical_finding_state"),
+            "authority_notes": list(evidence.get("authority_notes") or [])[:100],
+            "parent_refs": evidence.get("parent_refs"),
+            "related_mr_urls": evidence.get("related_mr_urls"),
+        }
         payload = {
             "ref": item.get("ref"),
             "source_kind": item.get("source_kind") or item.get("kind"),
@@ -37,7 +48,7 @@ class SemanticDecompositionEngine:
             or item.get("merge_requests"),
             "acceptance_facts": item.get("acceptance_facts"),
             "updated_at": item.get("updated_at"),
-            "source_evidence": item.get("source_evidence"),
+            "source_evidence": evidence,
             "findings": item.get("findings") or [],
             "repository_head": item.get("repository_head"),
             "retrieval_errors": item.get("retrieval_errors"),

@@ -98,21 +98,21 @@ def test_approval_note_url_binds_exact_digest_not_first_product_owner_note():
     )
     digest = "sha256:" + "a" * 64
     notes = [
-        {"id": 3, "author": {"username": "cdenneen"}, "body": "ordinary note"},
+        {"id": 3, "author": {"id": 117046, "username": "cdenneen"}, "body": "ordinary note"},
         {
             "id": 2,
-            "author": {"username": "cdenneen"},
+            "author": {"id": 117046, "username": "cdenneen"},
             "body": "Product Owner approval — Approve exact digest sha256:" + "b" * 64,
         },
         {
             "id": 1,
-            "author": {"username": "cdenneen"},
+            "author": {"id": 117046, "username": "cdenneen"},
             "body": f"Product Owner approval — Approve exact digest {digest}",
         },
     ]
     assert (
         reconcile.approval_note_url(
-            notes, {"cdenneen"}, digest, "https://example.test/issue/1"
+            notes, {117046}, digest, "https://example.test/issue/1"
         )
         == "https://example.test/issue/1#note_1"
     )
@@ -182,6 +182,263 @@ def test_paginated_gitlab_arrays_are_fully_decoded():
         {"id": 1},
         {"id": 2},
     ]
+
+
+def test_issue_note_collection_paginates_retries_and_preserves_provenance():
+    from axis_supervisor.collector import NOTES_OK, collect_issue_notes
+
+    def note(note_id: int, *, system: bool = False) -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 42, "username": "cdenneen"},
+            "created_at": f"2026-08-08T10:17:{note_id % 60:02d}.000Z",
+            "updated_at": f"2026-08-08T10:18:{note_id % 60:02d}.000Z",
+            "body": f"note {note_id}",
+            "system": system,
+        }
+
+    calls = []
+
+    def request(path: str):
+        calls.append(path)
+        if "&page=1" in path:
+            return [note(value) for value in range(1, 101)]
+        if calls.count(path) == 1:
+            raise RuntimeError("transient GitLab failure")
+        return [note(101, system=True)]
+
+    snapshot = collect_issue_notes(
+        request,
+        "123",
+        29,
+        fetched_at="2026-08-08T12:00:00+00:00",
+    )
+    assert snapshot["state"] == NOTES_OK
+    assert len(snapshot["notes"]) == 101
+    assert len(calls) == 5
+    collected = next(value for value in snapshot["notes"] if value["id"] == 101)
+    assert collected["author_identity"] == "gitlab-user:42"
+    assert collected["created_at"] == "2026-08-08T10:17:41.000Z"
+    assert collected["updated_at"] == "2026-08-08T10:18:41.000Z"
+    assert collected["body"] == "note 101"
+    assert collected["body_digest"] == (
+        "sha256:1ff1b53adb1214ca5f2a5908c01fa97158c4153838f126c90e55228d5b3e3e9d"
+    )
+    assert collected["system"] is True
+    assert collected["fetched_at"] == "2026-08-08T12:00:00+00:00"
+    assert collected["collector_revision"] == "gitlab-issue-notes-v1"
+
+
+def test_system_note_cannot_establish_a_canonical_finding():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "a" * 64
+    finding = f"""Current-main regression finding - system trace
+Affected tests:
+- test_x
+Expected: pass.
+Actual: fail.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Approved slice_id: repair
+Authority: `{digest}`
+Replay: pytest -q tests/test_x.py
+"""
+    values = normalize_gitlab_findings(
+        [
+            {
+                "id": 1,
+                "author": {"username": "cdenneen"},
+                "body": finding,
+                "system": True,
+            }
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert values[0]["invalid_reason"] == "system-finding-note"
+
+
+def test_issue_note_collection_fails_closed_for_partial_duplicate_and_malformed_pages():
+    from axis_supervisor.collector import NOTES_ERROR, collect_issue_notes
+
+    valid = {
+        "id": 1,
+        "author": {"id": 42, "username": "cdenneen"},
+        "created_at": "2026-08-08T10:17:07.576Z",
+        "updated_at": "2026-08-08T10:17:07.576Z",
+        "body": "canonical note",
+    }
+    page = [dict(valid, id=value) for value in range(1, 101)]
+    partial = collect_issue_notes(
+        lambda path: page
+        if "&page=1" in path
+        else (_ for _ in ()).throw(RuntimeError()),
+        "123",
+        29,
+        retries=0,
+    )
+    duplicate = collect_issue_notes(
+        lambda path: page if "&page=1" in path else [valid],
+        "123",
+        29,
+        retries=0,
+    )
+    malformed = collect_issue_notes(
+        lambda _path: [{"id": 1, "author": {}, "body": "bad"}],
+        "123",
+        29,
+        retries=0,
+    )
+    for snapshot in (partial, duplicate, malformed):
+        assert snapshot["state"] == NOTES_ERROR
+        assert snapshot["notes"] == []
+
+
+def test_issue_note_collection_rejects_pagination_shift_and_note_id_reuse():
+    from axis_supervisor.collector import NOTES_ERROR, collect_issue_notes
+
+    def note(note_id: int, body: str = "note") -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:17:07.576Z",
+            "body": body,
+        }
+
+    shifted_calls = 0
+
+    def shifted(path: str):
+        nonlocal shifted_calls
+        if "&page=2" in path:
+            return []
+        shifted_calls += 1
+        start = 1 if shifted_calls % 2 else 2
+        return [note(value) for value in range(start, start + 100)]
+
+    reused_calls = 0
+
+    def reused(_path: str):
+        nonlocal reused_calls
+        reused_calls += 1
+        return [note(1, "before") if reused_calls % 2 else note(1, "after")]
+
+    assert collect_issue_notes(shifted, "123", 29, retries=0)["state"] == NOTES_ERROR
+    assert collect_issue_notes(reused, "123", 29, retries=0)["state"] == NOTES_ERROR
+
+
+def test_issue_note_collection_rejects_provenance_edits_with_same_body():
+    from axis_supervisor.collector import NOTES_ERROR, collect_issue_notes
+
+    calls = 0
+
+    def response(_path: str):
+        nonlocal calls
+        calls += 1
+        return [
+            {
+                "id": 1,
+                "author": {"id": 117046, "username": "cdenneen"},
+                "created_at": "2026-08-08T10:17:07.576Z",
+                "updated_at": "2026-08-08T10:18:07.576Z"
+                if calls % 2
+                else "2026-08-08T10:17:08.576Z",
+                "body": "unchanged body",
+                "system": False,
+            }
+        ]
+
+    assert collect_issue_notes(response, "123", 29, retries=0)["state"] == NOTES_ERROR
+
+
+def test_planning_scope_requires_trusted_immutable_author_id():
+    from axis_supervisor.finding_ingestion import _planning_scope
+
+    digest = "sha256:" + "a" * 64
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- repair: src/repair.py
+Required tests:
+- pytest -q tests/test_repair.py
+"""
+    scope, untrusted = _planning_scope(
+        [
+            {
+                "id": 1,
+                "author": {"id": 999, "username": "cdenneen"},
+                "body": planning,
+            }
+        ],
+        digest,
+        "repair",
+        {117046},
+    )
+    assert scope is None
+    assert untrusted is True
+
+
+def test_authority_uses_immutable_gitlab_id_and_rejects_system_approval():
+    from axis_supervisor.collector import approval_note_url
+
+    digest = "sha256:" + "a" * 64
+    renamed = {
+        "id": 1,
+        "author": {"id": 117046, "username": "renamed-account"},
+        "body": f"Product Owner approval — Approve exact digest {digest}",
+    }
+    system = renamed | {"id": 2, "system": True}
+    assert (
+        approval_note_url([renamed], {117046}, digest, "https://example.test/issue/1")
+        == "https://example.test/issue/1#note_1"
+    )
+    assert approval_note_url([system], {117046}, digest, "https://example.test/issue/1") is None
+
+
+def test_note_collection_cache_freshness_tracks_issue_note_and_finding_state():
+    from axis_supervisor.decomposition import SemanticDecompositionEngine
+
+    base = {
+        "ref": "ghostspace/axis#29",
+        "source_kind": "gitlab-issue",
+        "updated_at": "2026-08-08T10:00:00Z",
+        "source_evidence": {
+            "notes_state": "NOTES_EMPTY",
+            "notes_fetched_at": "2026-08-08T12:00:00Z",
+            "canonical_finding_state": "absent",
+            "notes": [],
+            "authority_notes": [],
+        },
+        "findings": [],
+        "retrieval_errors": [],
+    }
+    fingerprint = SemanticDecompositionEngine.source_fingerprint
+    refreshed = dict(base) | {
+        "source_evidence": base["source_evidence"]
+        | {"notes_fetched_at": "2026-08-08T12:05:00Z"}
+    }
+    note_added = dict(base) | {
+        "source_evidence": base["source_evidence"]
+        | {
+            "notes_state": "NOTES_OK",
+            "canonical_finding_state": "present",
+            "notes": [{"id": 1, "body_digest": "sha256:changed"}],
+        }
+    }
+    issue_edited = dict(base) | {"updated_at": "2026-08-08T10:01:00Z"}
+    noisy_note = dict(base) | {
+        "source_evidence": base["source_evidence"]
+        | {"notes": [{"id": 99, "body": "unrelated discussion"}]}
+    }
+    assert fingerprint(base) == fingerprint(refreshed)
+    assert fingerprint(base) == fingerprint(noisy_note)
+    assert fingerprint(base) != fingerprint(note_added)
+    assert fingerprint(base) != fingerprint(issue_edited)
 
 
 def semantic_record(
@@ -779,6 +1036,7 @@ Replay: run the task suite.
 def test_finding_amendment_v2_merges_the_production_lineage_and_fails_closed(
     tmp_path: Path,
 ):
+    from axis_supervisor.collector import NOTES_OK, collect_issue_notes
     from axis_supervisor.finding_ingestion import normalize_gitlab_findings
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -845,8 +1103,21 @@ Required tests:
     original_note = note(3661401209, original)
     amendment_note = note(3661825323, amendment)
     planning_note = note(3654285470, planning)
+    fixture_notes = [amendment_note, planning_note, original_note]
+    snapshot = collect_issue_notes(
+        lambda path: fixture_notes if "&page=1" in path else [],
+        "123",
+        29,
+        fetched_at="2026-08-08T12:00:00+00:00",
+    )
+    assert snapshot["state"] == NOTES_OK
+    assert {value["id"] for value in snapshot["notes"]} == {
+        3654285470,
+        3661401209,
+        3661825323,
+    }
     findings = normalize_gitlab_findings(
-        [amendment_note, planning_note, original_note],
+        snapshot["notes"],
         "ghostspace/axis#29",
         source_sha,
         {"cdenneen"},

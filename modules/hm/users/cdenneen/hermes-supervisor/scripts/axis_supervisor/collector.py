@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import json
 import os
 import re
@@ -38,6 +39,15 @@ WORKSPACE = Path(
 )
 GITLAB_HOST = "gitlab.com"
 GROUP = "ghostspace"
+NOTE_COLLECTION_REVISION = "gitlab-issue-notes-v1"
+NOTES_OK = "NOTES_OK"
+NOTES_EMPTY = "NOTES_EMPTY"
+NOTES_ERROR = "NOTES_ERROR"
+NOTE_PAGE_SIZE = 100
+NOTE_PAGE_RETRIES = 2
+NOTE_MAX_PAGES = 100
+NOTE_STORAGE_LIMIT = 100
+NOTE_BODY_LIMIT = 12000
 GLAB = (
     os.environ.get("AXIS_SUPERVISOR_GLAB")
     or shutil.which("glab")
@@ -93,6 +103,161 @@ def glab(path: str, paginate: bool = False, timeout: int = 90):
     command.append(path)
     raw = run(command, timeout=timeout)
     return decode_json_stream(raw) if paginate else json.loads(raw)
+
+
+def _note_body_digest(body: str) -> str:
+    return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _stable_author(note: dict) -> tuple[dict, str]:
+    author = note.get("author")
+    if not isinstance(author, dict):
+        raise ValueError("note author is not an object")
+    user_id = author.get("id")
+    username = str(author.get("username") or "")
+    if isinstance(user_id, int):
+        identity = f"gitlab-user:{user_id}"
+    elif username:
+        identity = f"gitlab-username:{username}"
+    else:
+        raise ValueError("note author has no stable identity")
+    return {"id": user_id, "username": username or None}, identity
+
+
+def _normalize_note(note: object, fetched_at: str) -> dict:
+    if not isinstance(note, dict):
+        raise ValueError("note is not an object")
+    note_id = note.get("id")
+    if not isinstance(note_id, int):
+        raise ValueError("note has no integer id")
+    body = note.get("body")
+    if not isinstance(body, str):
+        raise ValueError(f"note {note_id} body is not a string")
+    author, author_identity = _stable_author(note)
+    created_at = note.get("created_at")
+    updated_at = note.get("updated_at")
+    if not isinstance(created_at, str) or not isinstance(updated_at, str):
+        raise ValueError(f"note {note_id} has invalid timestamps")
+    return {
+        "id": note_id,
+        "author": author,
+        "author_identity": author_identity,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "body": body,
+        "body_digest": _note_body_digest(body),
+        "system": bool(note.get("system")),
+        "fetched_at": fetched_at,
+        "collector_revision": NOTE_COLLECTION_REVISION,
+    }
+
+
+def _read_issue_notes(request, project_id: str, issue_iid: int, fetched_at: str, retries: int):
+    notes: list[dict] = []
+    seen_note_ids: set[int] = set()
+    for page in range(1, NOTE_MAX_PAGES + 1):
+        page_notes: list[dict] = []
+        path = (
+            f"projects/{project_id}/issues/{issue_iid}/notes?per_page={NOTE_PAGE_SIZE}"
+            f"&page={page}&order_by=created_at&sort=asc"
+        )
+        for attempt in range(retries + 1):
+            try:
+                raw_page = request(path)
+                if not isinstance(raw_page, list):
+                    raise ValueError("notes page is not an array")
+                page_notes = [_normalize_note(value, fetched_at) for value in raw_page]
+                break
+            except Exception as exc:
+                if attempt == retries:
+                    return None, f"page {page}: {type(exc).__name__}"
+                time.sleep(0.1 * (attempt + 1))
+        for note in page_notes:
+            if note["id"] in seen_note_ids:
+                return None, f"page {page}: duplicate note id {note['id']}"
+            seen_note_ids.add(note["id"])
+            notes.append(note)
+        if len(page_notes) < NOTE_PAGE_SIZE:
+            return notes, None
+    return None, f"pagination exceeded {NOTE_MAX_PAGES} pages"
+
+
+def _note_snapshot_signature(notes: list[dict]) -> list[tuple]:
+    return sorted(
+        (
+            note["id"],
+            note["body_digest"],
+            (note.get("author") or {}).get("id"),
+            (note.get("author") or {}).get("username"),
+            note["created_at"],
+            note["updated_at"],
+            bool(note.get("system")),
+        )
+        for note in notes
+    )
+
+
+def collect_issue_notes(
+    request,
+    project_id: str,
+    issue_iid: int,
+    *,
+    fetched_at: str | None = None,
+    retries: int = NOTE_PAGE_RETRIES,
+) -> dict:
+    """Accept only two matching complete reads of the paginated GitLab note trace."""
+    fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
+    last_error = "snapshot drift"
+    for attempt in range(retries + 1):
+        first, error = _read_issue_notes(
+            request, project_id, issue_iid, fetched_at, retries
+        )
+        if error or first is None:
+            last_error = error or "empty primary snapshot"
+            continue
+        second, error = _read_issue_notes(
+            request, project_id, issue_iid, fetched_at, retries
+        )
+        if error or second is None:
+            last_error = error or "empty verification snapshot"
+            continue
+        if _note_snapshot_signature(first) != _note_snapshot_signature(second):
+            last_error = "snapshot drift"
+            continue
+        first.sort(key=lambda note: (note["created_at"], note["id"]), reverse=True)
+        return {
+            "state": NOTES_OK if first else NOTES_EMPTY,
+            "notes": first,
+            "fetched_at": fetched_at,
+            "collector_revision": NOTE_COLLECTION_REVISION,
+        }
+    return {
+        "state": NOTES_ERROR,
+        "notes": [],
+        "fetched_at": fetched_at,
+        "collector_revision": NOTE_COLLECTION_REVISION,
+        "error": last_error,
+    }
+
+
+def _authority_note(note: dict, trusted_user_ids: set[int | str]) -> bool:
+    if note.get("system") or (note.get("author") or {}).get("id") not in trusted_user_ids:
+        return False
+    body = str(note.get("body") or "")
+    return bool(
+        re.search(
+            r"immutable PlanningRecord|\*\*Approve\*\*|Product Owner approval|Approved .*PlanningRecord",
+            body,
+            re.I,
+        )
+    )
+
+
+def _stored_notes(notes: list[dict]) -> list[dict]:
+    return [
+        note | {"body": str(note["body"])[:NOTE_BODY_LIMIT]}
+        for note in notes[:NOTE_STORAGE_LIMIT]
+    ]
 
 
 def issue_ref(project: dict, issue: dict) -> str:
@@ -240,7 +405,7 @@ def extract_findings(
     notes: list[dict],
     owner_ref: str,
     source_sha: str | None = None,
-    trusted_principals: set[str] | None = None,
+    trusted_principals: set[int | str] | None = None,
 ) -> list[dict]:
     return normalize_gitlab_findings(
         notes, owner_ref, source_sha, trusted_principals
@@ -289,15 +454,15 @@ def retire_unsupported_watchdog_assignment(raw_assignment: dict) -> bool:
 
 
 def approval_note_url(
-    notes: list[dict], product_owner_usernames: set[str], digest: str | None, issue_url: str
+    notes: list[dict], trusted_user_ids: set[int | str], digest: str | None, issue_url: str
 ) -> str | None:
     if not digest:
         return None
     for note in notes:
         body = str(note.get("body") or "")
         if (
-            str((note.get("author") or {}).get("username") or "")
-            in product_owner_usernames
+            not note.get("system")
+            and (note.get("author") or {}).get("id") in trusted_user_ids
             and re.search(
                 r"\*\*Approve\*\*|Product Owner approval (?:with conditions|—)|Approved .*PlanningRecord",
                 body,
@@ -530,10 +695,10 @@ def write_inventory(path: Path, inventory: dict) -> None:
 def main() -> int:
     started = time.time()
     control = load_control()
-    product_owner_usernames = {
-        str(value)
-        for value in control.get("product_owner_usernames") or []
-        if str(value)
+    trusted_user_ids: set[int | str] = {
+        int(value)
+        for value in control.get("trusted_gitlab_user_ids") or []
+        if isinstance(value, int)
     }
     owned_branch_prefixes = tuple(control.get("owned_branch_prefixes") or ["hermes/"])
     owned_worktree_root = Path(
@@ -623,24 +788,23 @@ def main() -> int:
         for issue in issues:
             ref = issue_ref(project, issue)
             related_mrs = [mr for mr in mrs if mr_mentions_issue(mr, issue)]
+            note_snapshot = {
+                "state": NOTES_EMPTY,
+                "notes": [],
+                "fetched_at": None,
+                "collector_revision": NOTE_COLLECTION_REVISION,
+            }
             notes = []
             blocking_dependencies = []
             retrieval_errors = []
             if issue.get("state") == "opened":
-                try:
-                    notes = glab(
-                        f"projects/{encoded}/issues/{issue['iid']}/notes?per_page=100",
-                        paginate=True,
+                note_snapshot = collect_issue_notes(glab, encoded, int(issue["iid"]))
+                if note_snapshot["state"] == NOTES_ERROR:
+                    retrieval_errors.append(
+                        f"notes: {note_snapshot.get('error') or NOTES_ERROR}"
                     )
-                    notes.sort(
-                        key=lambda note: (
-                            str(note.get("created_at") or ""),
-                            int(note.get("id") or 0),
-                        ),
-                        reverse=True,
-                    )
-                except Exception as exc:
-                    retrieval_errors.append(f"notes: {type(exc).__name__}")
+                else:
+                    notes = note_snapshot["notes"]
                 try:
                     dependency_queries += 1
                     links = glab(f"projects/{encoded}/issues/{issue['iid']}/links")
@@ -659,15 +823,22 @@ def main() -> int:
                     if relationship == "is_blocked_by" and link.get("state") == "opened":
                         blocking_dependencies.append(target)
 
-            note_bodies = [str(note.get("body") or "") for note in notes]
+            authority_notes = [
+                note for note in notes if _authority_note(note, trusted_user_ids)
+            ]
+            authority_bodies = [str(note["body"]) for note in authority_notes]
             approval_bodies = [
-                str(note.get("body") or "")
-                for note in notes
-                if str((note.get("author") or {}).get("username") or "")
-                in product_owner_usernames
+                str(note["body"])
+                for note in authority_notes
+                if (note.get("author") or {}).get("id") in trusted_user_ids
+                and re.search(
+                    r"\*\*Approve\*\*|Product Owner approval|Approved .*PlanningRecord",
+                    str(note["body"]),
+                    re.I,
+                )
             ]
             description = str(issue.get("description") or "")
-            text = f"{description}\n{'\n'.join(note_bodies)}"
+            text = f"{description}\n{'\n'.join(authority_bodies)}"
             parent_refs = sorted(
                 set(
                     blocking_dependencies
@@ -689,16 +860,24 @@ def main() -> int:
                         }
                     )
             authority_facts = extract_authority_facts(
-                text, note_bodies, approval_bodies
+                text, authority_bodies, approval_bodies
             )
             approved_note_url = approval_note_url(
                 notes,
-                product_owner_usernames,
+                trusted_user_ids,
                 authority_facts.get("record_digest"),
                 str(issue.get("web_url") or ""),
             )
             if approved_note_url and authority_facts.get("approval_matches_record"):
                 authority_facts["approval_note"] = approved_note_url
+            findings = extract_findings(
+                notes,
+                ref,
+                repositories[project["path_with_namespace"]]["local_facts"].get(
+                    "default_remote_head"
+                ),
+                trusted_user_ids,
+            )
             source_items.append(
                 {
                     "ref": ref,
@@ -725,14 +904,7 @@ def main() -> int:
                     "milestone": (issue.get("milestone") or {}).get("title"),
                     "priority": issue.get("severity") or None,
                     "authority_facts": authority_facts,
-                    "findings": extract_findings(
-                        notes,
-                        ref,
-                        repositories[project["path_with_namespace"]]["local_facts"].get(
-                            "default_remote_head"
-                        ),
-                        product_owner_usernames,
-                    ),
+                    "findings": findings,
                     "blocking_dependency_refs": sorted(set(blocking_dependencies)),
                     "merge_request_facts": [
                         {
@@ -750,15 +922,28 @@ def main() -> int:
                     "web_url": issue.get("web_url"),
                     "source_evidence": {
                         "description": description[:12000],
-                        "notes": [
+                        "notes": _stored_notes(notes),
+                        "authority_notes": [
                             {
-                                "id": note.get("id"),
-                                "author": (note.get("author") or {}).get("username"),
-                                "created_at": note.get("created_at"),
-                                "body": str(note.get("body") or "")[:4000],
+                                "id": note["id"],
+                                "author_identity": note["author_identity"],
+                                "updated_at": note["updated_at"],
+                                "body_digest": note["body_digest"],
                             }
-                            for note in notes[:20]
+                            for note in authority_notes[:NOTE_STORAGE_LIMIT]
                         ],
+                        "notes_state": note_snapshot["state"],
+                        "notes_fetched_at": note_snapshot["fetched_at"],
+                        "notes_collector_revision": note_snapshot[
+                            "collector_revision"
+                        ],
+                        "canonical_finding_state": (
+                            "unknown"
+                            if note_snapshot["state"] == NOTES_ERROR
+                            else "present"
+                            if any(finding.get("state") == "confirmed" for finding in findings)
+                            else "absent"
+                        ),
                         "parent_refs": parent_refs,
                         "related_mr_urls": [mr.get("web_url") for mr in related_mrs],
                     },

@@ -68,17 +68,27 @@ def _immutable(note: dict) -> bool:
     return not created or not updated or created == updated
 
 
+def _trusted(note: dict, principals: set[int | str]) -> bool:
+    """Production trust uses immutable GitLab numeric IDs; strings support legacy fixtures."""
+    author = note.get("author") or {}
+    user_id = author.get("id")
+    if isinstance(user_id, int):
+        return user_id in principals
+    return str(author.get("username") or "") in principals
+
+
 def _planning_scope(
-    notes: list[dict], digest: str, slice_id: str, trusted_principals: set[str]
+    notes: list[dict], digest: str, slice_id: str, trusted_principals: set[int | str]
 ) -> tuple[dict | None, bool]:
     """Select the exact authorized slice referred to by a canonical finding."""
     untrusted_source = False
     for note in notes:
+        if note.get("system"):
+            continue
         body = str(note.get("body") or "")
         if "Immutable PlanningRecord" not in body or digest.lower() not in body.lower():
             continue
-        author = str((note.get("author") or {}).get("username") or "")
-        if author not in trusted_principals:
+        if not _trusted(note, trusted_principals):
             untrusted_source = True
             continue
         assignment_type = _field(body, "Assignment type")
@@ -179,7 +189,7 @@ def _normalize_amendments(
     notes: list[dict],
     owner_ref: str,
     source_sha: str | None,
-    trusted_principals: set[str],
+    trusted_principals: set[int | str],
 ) -> tuple[list[dict], set[int]]:
     """Join an immutable v2 amendment to exactly one original finding lineage."""
     normalized: list[dict] = []
@@ -234,8 +244,18 @@ def _normalize_amendments(
                 )
             )
             continue
-        author = str((amendment.get("author") or {}).get("username") or "")
-        if not trusted_principals or author not in trusted_principals:
+        if amendment.get("system") or (original is not None and original.get("system")):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "system-finding-note",
+                    source_sha,
+                )
+            )
+            continue
+        if not trusted_principals or not _trusted(amendment, trusted_principals):
             normalized.append(
                 _amendment_invalid(
                     original,
@@ -261,8 +281,7 @@ def _normalize_amendments(
             continue
         if (
             original is None
-            or str((original.get("author") or {}).get("username") or "")
-            not in trusted_principals
+            or not _trusted(original, trusted_principals)
         ):
             normalized.append(
                 _amendment_invalid(
@@ -485,7 +504,7 @@ def normalize_gitlab_findings(
     notes: list[dict],
     owner_ref: str,
     source_sha: str | None = None,
-    trusted_principals: set[str] | None = None,
+    trusted_principals: set[int | str] | None = None,
 ) -> list[dict]:
     """Normalize only canonical current-main finding notes; invalid notes never dispatch."""
     trusted_principals = set(trusted_principals or [])
@@ -503,8 +522,10 @@ def normalize_gitlab_findings(
         if not isinstance(note_id, int):
             normalized.append(_invalid(note, owner_ref, "missing-note-id", source_sha))
             continue
-        author = str((note.get("author") or {}).get("username") or "")
-        if not trusted_principals or author not in trusted_principals:
+        if note.get("system"):
+            normalized.append(_invalid(note, owner_ref, "system-finding-note", source_sha))
+            continue
+        if not trusted_principals or not _trusted(note, trusted_principals):
             normalized.append(
                 _invalid(note, owner_ref, "untrusted-finding-author", source_sha)
             )
