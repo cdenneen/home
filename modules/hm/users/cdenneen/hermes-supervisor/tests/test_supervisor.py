@@ -330,6 +330,59 @@ def test_issue_note_collection_rejects_pagination_shift_and_note_id_reuse():
     assert collect_issue_notes(reused, "123", 29, retries=0)["state"] == NOTES_ERROR
 
 
+def test_issue_note_collection_rejects_provenance_edits_with_same_body():
+    from axis_supervisor.collector import NOTES_ERROR, collect_issue_notes
+
+    calls = 0
+
+    def response(_path: str):
+        nonlocal calls
+        calls += 1
+        return [
+            {
+                "id": 1,
+                "author": {"id": 117046, "username": "cdenneen"},
+                "created_at": "2026-08-08T10:17:07.576Z",
+                "updated_at": "2026-08-08T10:18:07.576Z"
+                if calls % 2
+                else "2026-08-08T10:17:08.576Z",
+                "body": "unchanged body",
+                "system": False,
+            }
+        ]
+
+    assert collect_issue_notes(response, "123", 29, retries=0)["state"] == NOTES_ERROR
+
+
+def test_planning_scope_requires_trusted_immutable_author_id():
+    from axis_supervisor.finding_ingestion import _planning_scope
+
+    digest = "sha256:" + "a" * 64
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- repair: src/repair.py
+Required tests:
+- pytest -q tests/test_repair.py
+"""
+    scope, untrusted = _planning_scope(
+        [
+            {
+                "id": 1,
+                "author": {"id": 999, "username": "cdenneen"},
+                "body": planning,
+            }
+        ],
+        digest,
+        "repair",
+        {117046},
+    )
+    assert scope is None
+    assert untrusted is True
+
+
 def test_authority_uses_immutable_gitlab_id_and_rejects_system_approval():
     from axis_supervisor.collector import approval_note_url
 

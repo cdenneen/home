@@ -182,8 +182,19 @@ def _read_issue_notes(request, project_id: str, issue_iid: int, fetched_at: str,
     return None, f"pagination exceeded {NOTE_MAX_PAGES} pages"
 
 
-def _note_snapshot_signature(notes: list[dict]) -> list[tuple[int, str]]:
-    return sorted((note["id"], note["body_digest"]) for note in notes)
+def _note_snapshot_signature(notes: list[dict]) -> list[tuple]:
+    return sorted(
+        (
+            note["id"],
+            note["body_digest"],
+            (note.get("author") or {}).get("id"),
+            (note.get("author") or {}).get("username"),
+            note["created_at"],
+            note["updated_at"],
+            bool(note.get("system")),
+        )
+        for note in notes
+    )
 
 
 def collect_issue_notes(
@@ -229,8 +240,8 @@ def collect_issue_notes(
     }
 
 
-def _authority_note(note: dict) -> bool:
-    if note.get("system"):
+def _authority_note(note: dict, trusted_user_ids: set[int | str]) -> bool:
+    if note.get("system") or (note.get("author") or {}).get("id") not in trusted_user_ids:
         return False
     body = str(note.get("body") or "")
     return bool(
@@ -812,7 +823,9 @@ def main() -> int:
                     if relationship == "is_blocked_by" and link.get("state") == "opened":
                         blocking_dependencies.append(target)
 
-            authority_notes = [note for note in notes if _authority_note(note)]
+            authority_notes = [
+                note for note in notes if _authority_note(note, trusted_user_ids)
+            ]
             authority_bodies = [str(note["body"]) for note in authority_notes]
             approval_bodies = [
                 str(note["body"])
