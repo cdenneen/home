@@ -91,6 +91,20 @@ def _rank_queue_entry(entry: dict, authority: dict) -> None:
     entry["ranking_factors"] = factors
 
 
+def _semantic_candidates(semantic: dict) -> list[dict]:
+    """Only confirmed, structured findings may become ordinary governed candidates."""
+    candidates = list(semantic.get("candidate_slices") or [])
+    for finding in semantic.get("findings") or []:
+        candidate = finding.get("repair_candidate") if isinstance(finding, dict) else None
+        if (
+            isinstance(candidate, dict)
+            and finding.get("state") == "confirmed"
+            and candidate.get("result") == "Executable"
+        ):
+            candidates.append(candidate | {"finding_id": finding.get("finding_id")})
+    return candidates
+
+
 MUTATING_ASSIGNMENT_TYPES = {
     "governance-document-mutation",
     "code-implementation",
@@ -191,7 +205,7 @@ def _flow_state(
         and candidate.get("category")
         in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
         and candidate.get("required_tests")
-        for candidate in semantic.get("candidate_slices") or []
+        for candidate in _semantic_candidates(semantic)
     ):
         return "verification", [
             "historical evidence has an explicit bounded technical verification action"
@@ -222,7 +236,7 @@ def _flow_state(
         return "discovery", ["no current semantic engineering record exists"]
     candidates = [
         candidate
-        for candidate in semantic.get("candidate_slices") or []
+        for candidate in _semantic_candidates(semantic)
         if candidate.get("result") == "Executable"
     ]
     implementation_candidates = [
@@ -758,14 +772,14 @@ class ExecutionGraphBuilder:
             if semantic is not None:
                 technical_candidate_ids = {
                     candidate.get("slice_id")
-                    for candidate in semantic.get("candidate_slices") or []
+                    for candidate in _semantic_candidates(semantic)
                     if candidate.get("result") == "Executable"
                     and candidate.get("category")
                     in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
                     and candidate.get("required_tests")
                 }
                 if tier == "B" and control.get("allow_technical_revalidation"):
-                    for candidate in semantic.get("candidate_slices") or []:
+                    for candidate in _semantic_candidates(semantic):
                         if (
                             candidate.get("result") == "Executable"
                             and candidate.get("category")
@@ -824,7 +838,7 @@ class ExecutionGraphBuilder:
                             break
                 elif tier == "B":
                     policy_suppressed_executable += len(technical_candidate_ids)
-                for candidate in semantic.get("candidate_slices") or []:
+                for candidate in _semantic_candidates(semantic):
                     if candidate.get("result") != "Executable":
                         continue
                     if (

@@ -278,7 +278,7 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
         {}, graph(), graduation(capability("Service", missing_gate="verification"))
     )
 
-    assert migrated["schema_version"] == "3.0.0"
+    assert migrated["schema_version"] == "4.0.0"
     assert migrated["mission_id"] == "persisted-v1-mission"
     assert migrated["created_at"] == "2026-08-06T00:00:00+00:00"
     assert migrated["observations"][0]["source"] == "cycle-response"
@@ -316,7 +316,7 @@ def test_v2_mission_action_context_is_backfilled_before_validation(tmp_path: Pat
 
     migrated = read_mission_record(path)
     action = migrated["generated_actions"][0]
-    assert migrated["schema_version"] == "3.0.0"
+    assert migrated["schema_version"] == "4.0.0"
     assert action["capability_context"] == [{"capability": "CLI"}]
     assert action["merge_impact_projection"]["affected_capabilities"] == ["CLI"]
     assert action["merge_impact_projection"]["production_confidence_before"] == 40.0
@@ -602,3 +602,44 @@ def test_generated_action_dispatches_with_the_exact_action_contract(tmp_path: Pa
     assert assignment is not None
     assert assignment["action_contract"]["action_id"] == action["action_id"]
     assert assignment["action_contract"]["expected_gates"] == action["expected_gates"]
+
+
+def test_stale_action_migration_retires_changed_binding_without_repurposing(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    initial = graduation(capability("Service", missing_gate="verification"))
+    initial["applicability_model_revision"] = "calibration-v1"
+    first = manager.reconcile({}, graph(), initial)
+    assert first["generated_actions"][0]["lifecycle"] == "CURRENT"
+    changed = dict(initial)
+    changed["applicability_model_revision"] = "calibration-v2"
+    second = manager.reconcile({}, graph(), changed)
+    assert second["generated_actions"][0]["engineering_purpose"] == first["generated_actions"][0]["engineering_purpose"]
+    assert second["retired_actions"][-1]["classification"] == "STALE"
+    assert second["retired_actions"][-1]["replacement_action_id"] == first["generated_actions"][0]["action_id"]
+
+
+def test_dependency_invalidation_is_exact_and_unrelated_edges_do_not_retire(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    current = graduation(capability("Service", missing_gate="verification", linked_work_items=["axis#1"]))
+    first = manager.reconcile({}, graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}]), current)
+    unrelated = manager.reconcile(
+        {},
+        graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}], queue=[])
+        | {"edges": [{"from_ref": "axis#99", "to_ref": "axis#100", "relationship": "relates"}]},
+        current,
+    )
+    assert unrelated["retired_actions"] == []
+    changed = manager.reconcile(
+        {},
+        graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}])
+        | {"edges": [{"from_ref": "axis#1", "to_ref": "axis#2", "relationship": "is_blocked_by"}]},
+        current,
+    )
+    assert changed["retired_actions"][-1]["classification"] == "STALE"
+    assert first["generated_actions"][0]["binding"]["dependency_fingerprint"] != changed["generated_actions"][0]["binding"]["dependency_fingerprint"]

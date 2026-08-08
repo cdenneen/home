@@ -397,6 +397,18 @@ def adapt_capability_graduation(value: dict) -> dict:
             if isinstance(impact := action.get("merge_impact_projection"), dict)
         ],
     )
+    migrated.setdefault(
+        "calibration_reconciliation",
+        {
+            "required": False,
+            "state": "complete",
+            "previous_revision": None,
+            "current_revision": str(
+                migrated.get("applicability_model_revision") or "legacy-boolean-v1"
+            ),
+            "evidence": "legacy projection migrated; next reconciliation recomputes canonical evidence",
+        },
+    )
     return migrated
 
 
@@ -634,6 +646,19 @@ class CapabilityGraduationProjector:
             ):
                 raise
             previous = legacy
+        calibration_reconciliation = {
+            "required": bool(previous)
+            and previous.get("applicability_model_revision")
+            != applicability_model_revision,
+            "state": "required"
+            if bool(previous)
+            and previous.get("applicability_model_revision")
+            != applicability_model_revision
+            else "complete",
+            "previous_revision": previous.get("applicability_model_revision"),
+            "current_revision": applicability_model_revision,
+            "evidence": "canonical convergence and source evidence were recomputed for every applicable gate",
+        }
         previous_by_name = {
             str(value.get("capability")): value
             for value in previous.get("capabilities") or []
@@ -1049,6 +1074,7 @@ class CapabilityGraduationProjector:
             "denominator": denominator,
             "action_scores": scored_actions,
             "merge_impact_projection": merge_impact_projection,
+            "calibration_reconciliation": calibration_reconciliation,
         }
         projection_digest = (
             "sha256:"
