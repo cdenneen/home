@@ -48,6 +48,12 @@ NOTE_PAGE_RETRIES = 2
 NOTE_MAX_PAGES = 100
 NOTE_STORAGE_LIMIT = 100
 NOTE_BODY_LIMIT = 12000
+_CLOSED_NOTE_MARKERS = (
+    "immutable planningrecord",
+    "current-main regression finding",
+    "finding amendment",
+)
+_ISSUE_REF = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+\Z")
 GLAB = (
     os.environ.get("AXIS_SUPERVISOR_GLAB")
     or shutil.which("glab")
@@ -262,6 +268,65 @@ def _stored_notes(notes: list[dict]) -> list[dict]:
 
 def issue_ref(project: dict, issue: dict) -> str:
     return f"{project['path_with_namespace']}#{issue['iid']}"
+
+
+def active_mission_issue_refs() -> set[str]:
+    """Return exact issue references from an active, schema-valid mission only."""
+    try:
+        mission = read_record(
+            ROOT / "active-mission.json",
+            "axis.external-development-supervisor.active-mission",
+        )
+    except Exception:
+        return set()
+    if mission.get("current_state") != "active":
+        return set()
+    refs = set()
+    for section in ("generated_actions", "active_assignments"):
+        for entry in mission.get(section) or []:
+            if not isinstance(entry, dict):
+                continue
+            for field in ("source_ref", "target", "work_item"):
+                value = entry.get(field)
+                if isinstance(value, str) and _ISSUE_REF.fullmatch(value):
+                    refs.add(value)
+    return refs
+
+
+def should_collect_issue_notes(
+    project: dict, issue: dict, active_mission_refs: set[str]
+) -> bool:
+    if issue.get("state") == "opened":
+        return True
+    if issue.get("state") != "closed":
+        return False
+    if issue_ref(project, issue) in active_mission_refs:
+        return True
+    text = "\n".join(
+        [
+            str(issue.get("title") or ""),
+            str(issue.get("description") or ""),
+            *[str(label) for label in issue.get("labels") or []],
+        ]
+    ).lower()
+    return any(marker in text for marker in _CLOSED_NOTE_MARKERS)
+
+
+def collect_eligible_issue_notes(
+    request,
+    project: dict,
+    project_id: str,
+    issue: dict,
+    active_mission_refs: set[str],
+) -> dict:
+    if should_collect_issue_notes(project, issue, active_mission_refs):
+        return collect_issue_notes(request, project_id, int(issue["iid"]))
+    return {
+        "state": NOTES_EMPTY,
+        "notes": [],
+        "fetched_at": None,
+        "collector_revision": NOTE_COLLECTION_REVISION,
+    }
 
 
 def mr_mentions_issue(mr: dict, issue: dict) -> bool:
@@ -711,6 +776,7 @@ def main() -> int:
         control.get("repository_allowlist")
         or ["ghostspace/axis", "ghostspace/axis-governance", "ghostspace/axis-lab"]
     )
+    mission_issue_refs = active_mission_issue_refs()
 
     def supervisor_owned_branch(branch: str) -> bool:
         return bool(branch and branch.startswith(owned_branch_prefixes))
@@ -797,14 +863,17 @@ def main() -> int:
             notes = []
             blocking_dependencies = []
             retrieval_errors = []
-            if issue.get("state") == "opened":
-                note_snapshot = collect_issue_notes(glab, encoded, int(issue["iid"]))
+            if should_collect_issue_notes(project, issue, mission_issue_refs):
+                note_snapshot = collect_eligible_issue_notes(
+                    glab, project, encoded, issue, mission_issue_refs
+                )
                 if note_snapshot["state"] == NOTES_ERROR:
                     retrieval_errors.append(
                         f"notes: {note_snapshot.get('error') or NOTES_ERROR}"
                     )
                 else:
                     notes = note_snapshot["notes"]
+            if issue.get("state") == "opened":
                 try:
                     dependency_queries += 1
                     links = glab(f"projects/{encoded}/issues/{issue['iid']}/links")
