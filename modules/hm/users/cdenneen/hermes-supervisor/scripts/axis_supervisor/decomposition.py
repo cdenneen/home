@@ -25,13 +25,16 @@ class SemanticDecompositionEngine:
     @staticmethod
     def source_fingerprint(item: dict) -> str:
         evidence = dict(item.get("source_evidence") or {})
-        # Fetch timestamps prove collection recency but must not churn a valid cache.
-        evidence.pop("notes_fetched_at", None)
-        evidence["notes"] = [
-            {key: value for key, value in note.items() if key != "fetched_at"}
-            for note in evidence.get("notes") or []
-            if isinstance(note, dict)
-        ]
+        # Ordinary discussion is retained for audit but cannot churn semantic work.
+        evidence = {
+            "description": evidence.get("description"),
+            "notes_state": evidence.get("notes_state"),
+            "notes_collector_revision": evidence.get("notes_collector_revision"),
+            "canonical_finding_state": evidence.get("canonical_finding_state"),
+            "authority_notes": list(evidence.get("authority_notes") or [])[:100],
+            "parent_refs": evidence.get("parent_refs"),
+            "related_mr_urls": evidence.get("related_mr_urls"),
+        }
         payload = {
             "ref": item.get("ref"),
             "source_kind": item.get("source_kind") or item.get("kind"),

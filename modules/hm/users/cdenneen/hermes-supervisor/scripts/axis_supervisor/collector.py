@@ -46,6 +46,8 @@ NOTES_ERROR = "NOTES_ERROR"
 NOTE_PAGE_SIZE = 100
 NOTE_PAGE_RETRIES = 2
 NOTE_MAX_PAGES = 100
+NOTE_STORAGE_LIMIT = 100
+NOTE_BODY_LIMIT = 12000
 GLAB = (
     os.environ.get("AXIS_SUPERVISOR_GLAB")
     or shutil.which("glab")
@@ -150,16 +152,7 @@ def _normalize_note(note: object, fetched_at: str) -> dict:
     }
 
 
-def collect_issue_notes(
-    request,
-    project_id: str,
-    issue_iid: int,
-    *,
-    fetched_at: str | None = None,
-    retries: int = NOTE_PAGE_RETRIES,
-) -> dict:
-    """Collect one immutable note snapshot without accepting partial pagination."""
-    fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
+def _read_issue_notes(request, project_id: str, issue_iid: int, fetched_at: str, retries: int):
     notes: list[dict] = []
     seen_note_ids: set[int] = set()
     for page in range(1, NOTE_MAX_PAGES + 1):
@@ -177,40 +170,83 @@ def collect_issue_notes(
                 break
             except Exception as exc:
                 if attempt == retries:
-                    return {
-                        "state": NOTES_ERROR,
-                        "notes": [],
-                        "fetched_at": fetched_at,
-                        "collector_revision": NOTE_COLLECTION_REVISION,
-                        "error": f"page {page}: {type(exc).__name__}",
-                    }
+                    return None, f"page {page}: {type(exc).__name__}"
                 time.sleep(0.1 * (attempt + 1))
         for note in page_notes:
             if note["id"] in seen_note_ids:
-                return {
-                    "state": NOTES_ERROR,
-                    "notes": [],
-                    "fetched_at": fetched_at,
-                    "collector_revision": NOTE_COLLECTION_REVISION,
-                    "error": f"page {page}: duplicate note id {note['id']}",
-                }
+                return None, f"page {page}: duplicate note id {note['id']}"
             seen_note_ids.add(note["id"])
             notes.append(note)
         if len(page_notes) < NOTE_PAGE_SIZE:
-            notes.sort(key=lambda note: (note["created_at"], note["id"]), reverse=True)
-            return {
-                "state": NOTES_OK if notes else NOTES_EMPTY,
-                "notes": notes,
-                "fetched_at": fetched_at,
-                "collector_revision": NOTE_COLLECTION_REVISION,
-            }
+            return notes, None
+    return None, f"pagination exceeded {NOTE_MAX_PAGES} pages"
+
+
+def _note_snapshot_signature(notes: list[dict]) -> list[tuple[int, str]]:
+    return sorted((note["id"], note["body_digest"]) for note in notes)
+
+
+def collect_issue_notes(
+    request,
+    project_id: str,
+    issue_iid: int,
+    *,
+    fetched_at: str | None = None,
+    retries: int = NOTE_PAGE_RETRIES,
+) -> dict:
+    """Accept only two matching complete reads of the paginated GitLab note trace."""
+    fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
+    last_error = "snapshot drift"
+    for attempt in range(retries + 1):
+        first, error = _read_issue_notes(
+            request, project_id, issue_iid, fetched_at, retries
+        )
+        if error or first is None:
+            last_error = error or "empty primary snapshot"
+            continue
+        second, error = _read_issue_notes(
+            request, project_id, issue_iid, fetched_at, retries
+        )
+        if error or second is None:
+            last_error = error or "empty verification snapshot"
+            continue
+        if _note_snapshot_signature(first) != _note_snapshot_signature(second):
+            last_error = "snapshot drift"
+            continue
+        first.sort(key=lambda note: (note["created_at"], note["id"]), reverse=True)
+        return {
+            "state": NOTES_OK if first else NOTES_EMPTY,
+            "notes": first,
+            "fetched_at": fetched_at,
+            "collector_revision": NOTE_COLLECTION_REVISION,
+        }
     return {
         "state": NOTES_ERROR,
         "notes": [],
         "fetched_at": fetched_at,
         "collector_revision": NOTE_COLLECTION_REVISION,
-        "error": f"pagination exceeded {NOTE_MAX_PAGES} pages",
+        "error": last_error,
     }
+
+
+def _authority_note(note: dict) -> bool:
+    if note.get("system"):
+        return False
+    body = str(note.get("body") or "")
+    return bool(
+        re.search(
+            r"immutable PlanningRecord|\*\*Approve\*\*|Product Owner approval|Approved .*PlanningRecord",
+            body,
+            re.I,
+        )
+    )
+
+
+def _stored_notes(notes: list[dict]) -> list[dict]:
+    return [
+        note | {"body": str(note["body"])[:NOTE_BODY_LIMIT]}
+        for note in notes[:NOTE_STORAGE_LIMIT]
+    ]
 
 
 def issue_ref(project: dict, issue: dict) -> str:
@@ -358,7 +394,7 @@ def extract_findings(
     notes: list[dict],
     owner_ref: str,
     source_sha: str | None = None,
-    trusted_principals: set[str] | None = None,
+    trusted_principals: set[int | str] | None = None,
 ) -> list[dict]:
     return normalize_gitlab_findings(
         notes, owner_ref, source_sha, trusted_principals
@@ -407,15 +443,15 @@ def retire_unsupported_watchdog_assignment(raw_assignment: dict) -> bool:
 
 
 def approval_note_url(
-    notes: list[dict], product_owner_usernames: set[str], digest: str | None, issue_url: str
+    notes: list[dict], trusted_user_ids: set[int | str], digest: str | None, issue_url: str
 ) -> str | None:
     if not digest:
         return None
     for note in notes:
         body = str(note.get("body") or "")
         if (
-            str((note.get("author") or {}).get("username") or "")
-            in product_owner_usernames
+            not note.get("system")
+            and (note.get("author") or {}).get("id") in trusted_user_ids
             and re.search(
                 r"\*\*Approve\*\*|Product Owner approval (?:with conditions|—)|Approved .*PlanningRecord",
                 body,
@@ -648,10 +684,10 @@ def write_inventory(path: Path, inventory: dict) -> None:
 def main() -> int:
     started = time.time()
     control = load_control()
-    product_owner_usernames = {
-        str(value)
-        for value in control.get("product_owner_usernames") or []
-        if str(value)
+    trusted_user_ids: set[int | str] = {
+        int(value)
+        for value in control.get("trusted_gitlab_user_ids") or []
+        if isinstance(value, int)
     }
     owned_branch_prefixes = tuple(control.get("owned_branch_prefixes") or ["hermes/"])
     owned_worktree_root = Path(
@@ -776,15 +812,20 @@ def main() -> int:
                     if relationship == "is_blocked_by" and link.get("state") == "opened":
                         blocking_dependencies.append(target)
 
-            note_bodies = [str(note.get("body") or "") for note in notes]
+            authority_notes = [note for note in notes if _authority_note(note)]
+            authority_bodies = [str(note["body"]) for note in authority_notes]
             approval_bodies = [
-                str(note.get("body") or "")
-                for note in notes
-                if str((note.get("author") or {}).get("username") or "")
-                in product_owner_usernames
+                str(note["body"])
+                for note in authority_notes
+                if (note.get("author") or {}).get("id") in trusted_user_ids
+                and re.search(
+                    r"\*\*Approve\*\*|Product Owner approval|Approved .*PlanningRecord",
+                    str(note["body"]),
+                    re.I,
+                )
             ]
             description = str(issue.get("description") or "")
-            text = f"{description}\n{'\n'.join(note_bodies)}"
+            text = f"{description}\n{'\n'.join(authority_bodies)}"
             parent_refs = sorted(
                 set(
                     blocking_dependencies
@@ -806,11 +847,11 @@ def main() -> int:
                         }
                     )
             authority_facts = extract_authority_facts(
-                text, note_bodies, approval_bodies
+                text, authority_bodies, approval_bodies
             )
             approved_note_url = approval_note_url(
                 notes,
-                product_owner_usernames,
+                trusted_user_ids,
                 authority_facts.get("record_digest"),
                 str(issue.get("web_url") or ""),
             )
@@ -822,7 +863,7 @@ def main() -> int:
                 repositories[project["path_with_namespace"]]["local_facts"].get(
                     "default_remote_head"
                 ),
-                product_owner_usernames,
+                trusted_user_ids,
             )
             source_items.append(
                 {
@@ -868,7 +909,16 @@ def main() -> int:
                     "web_url": issue.get("web_url"),
                     "source_evidence": {
                         "description": description[:12000],
-                        "notes": notes,
+                        "notes": _stored_notes(notes),
+                        "authority_notes": [
+                            {
+                                "id": note["id"],
+                                "author_identity": note["author_identity"],
+                                "updated_at": note["updated_at"],
+                                "body_digest": note["body_digest"],
+                            }
+                            for note in authority_notes[:NOTE_STORAGE_LIMIT]
+                        ],
                         "notes_state": note_snapshot["state"],
                         "notes_fetched_at": note_snapshot["fetched_at"],
                         "notes_collector_revision": note_snapshot[

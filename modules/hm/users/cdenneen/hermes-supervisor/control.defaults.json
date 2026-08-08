@@ -30,6 +30,7 @@
   ],
   "owned_branch_prefixes": ["hermes/"],
   "owned_worktree_root": "~/.hermes/supervisor/axis-development-supervisor/worktrees",
+  "trusted_gitlab_user_ids": [117046],
   "product_owner_usernames": ["cdenneen"],
   "semantic_priority_refs": [
     "ghostspace/axis#96",

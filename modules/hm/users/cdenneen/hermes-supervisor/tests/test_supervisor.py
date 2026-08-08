@@ -98,21 +98,21 @@ def test_approval_note_url_binds_exact_digest_not_first_product_owner_note():
     )
     digest = "sha256:" + "a" * 64
     notes = [
-        {"id": 3, "author": {"username": "cdenneen"}, "body": "ordinary note"},
+        {"id": 3, "author": {"id": 117046, "username": "cdenneen"}, "body": "ordinary note"},
         {
             "id": 2,
-            "author": {"username": "cdenneen"},
+            "author": {"id": 117046, "username": "cdenneen"},
             "body": "Product Owner approval — Approve exact digest sha256:" + "b" * 64,
         },
         {
             "id": 1,
-            "author": {"username": "cdenneen"},
+            "author": {"id": 117046, "username": "cdenneen"},
             "body": f"Product Owner approval — Approve exact digest {digest}",
         },
     ]
     assert (
         reconcile.approval_note_url(
-            notes, {"cdenneen"}, digest, "https://example.test/issue/1"
+            notes, {117046}, digest, "https://example.test/issue/1"
         )
         == "https://example.test/issue/1#note_1"
     )
@@ -215,7 +215,7 @@ def test_issue_note_collection_paginates_retries_and_preserves_provenance():
     )
     assert snapshot["state"] == NOTES_OK
     assert len(snapshot["notes"]) == 101
-    assert len(calls) == 3
+    assert len(calls) == 5
     collected = next(value for value in snapshot["notes"] if value["id"] == 101)
     assert collected["author_identity"] == "gitlab-user:42"
     assert collected["created_at"] == "2026-08-08T10:17:41.000Z"
@@ -297,6 +297,56 @@ def test_issue_note_collection_fails_closed_for_partial_duplicate_and_malformed_
         assert snapshot["notes"] == []
 
 
+def test_issue_note_collection_rejects_pagination_shift_and_note_id_reuse():
+    from axis_supervisor.collector import NOTES_ERROR, collect_issue_notes
+
+    def note(note_id: int, body: str = "note") -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:17:07.576Z",
+            "body": body,
+        }
+
+    shifted_calls = 0
+
+    def shifted(path: str):
+        nonlocal shifted_calls
+        if "&page=2" in path:
+            return []
+        shifted_calls += 1
+        start = 1 if shifted_calls % 2 else 2
+        return [note(value) for value in range(start, start + 100)]
+
+    reused_calls = 0
+
+    def reused(_path: str):
+        nonlocal reused_calls
+        reused_calls += 1
+        return [note(1, "before") if reused_calls % 2 else note(1, "after")]
+
+    assert collect_issue_notes(shifted, "123", 29, retries=0)["state"] == NOTES_ERROR
+    assert collect_issue_notes(reused, "123", 29, retries=0)["state"] == NOTES_ERROR
+
+
+def test_authority_uses_immutable_gitlab_id_and_rejects_system_approval():
+    from axis_supervisor.collector import approval_note_url
+
+    digest = "sha256:" + "a" * 64
+    renamed = {
+        "id": 1,
+        "author": {"id": 117046, "username": "renamed-account"},
+        "body": f"Product Owner approval — Approve exact digest {digest}",
+    }
+    system = renamed | {"id": 2, "system": True}
+    assert (
+        approval_note_url([renamed], {117046}, digest, "https://example.test/issue/1")
+        == "https://example.test/issue/1#note_1"
+    )
+    assert approval_note_url([system], {117046}, digest, "https://example.test/issue/1") is None
+
+
 def test_note_collection_cache_freshness_tracks_issue_note_and_finding_state():
     from axis_supervisor.decomposition import SemanticDecompositionEngine
 
@@ -309,6 +359,7 @@ def test_note_collection_cache_freshness_tracks_issue_note_and_finding_state():
             "notes_fetched_at": "2026-08-08T12:00:00Z",
             "canonical_finding_state": "absent",
             "notes": [],
+            "authority_notes": [],
         },
         "findings": [],
         "retrieval_errors": [],
@@ -327,7 +378,12 @@ def test_note_collection_cache_freshness_tracks_issue_note_and_finding_state():
         }
     }
     issue_edited = dict(base) | {"updated_at": "2026-08-08T10:01:00Z"}
+    noisy_note = dict(base) | {
+        "source_evidence": base["source_evidence"]
+        | {"notes": [{"id": 99, "body": "unrelated discussion"}]}
+    }
     assert fingerprint(base) == fingerprint(refreshed)
+    assert fingerprint(base) == fingerprint(noisy_note)
     assert fingerprint(base) != fingerprint(note_added)
     assert fingerprint(base) != fingerprint(issue_edited)
 
