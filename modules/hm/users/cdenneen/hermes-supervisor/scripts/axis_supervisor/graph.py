@@ -105,7 +105,9 @@ def _semantic_candidates(semantic: dict) -> list[dict]:
     """Only confirmed, structured findings may become ordinary governed candidates."""
     candidates = list(semantic.get("candidate_slices") or [])
     for finding in semantic.get("findings") or []:
-        candidate = finding.get("repair_candidate") if isinstance(finding, dict) else None
+        candidate = (
+            finding.get("repair_candidate") if isinstance(finding, dict) else None
+        )
         if (
             isinstance(candidate, dict)
             and finding.get("state") == "confirmed"
@@ -119,7 +121,9 @@ def _finding_candidates(item: dict) -> list[dict]:
     """Promote only canonical confirmed findings owned by this collected item."""
     candidates = []
     for finding in item.get("findings") or []:
-        candidate = finding.get("repair_candidate") if isinstance(finding, dict) else None
+        candidate = (
+            finding.get("repair_candidate") if isinstance(finding, dict) else None
+        )
         if (
             isinstance(candidate, dict)
             and finding.get("state") == "confirmed"
@@ -128,7 +132,7 @@ def _finding_candidates(item: dict) -> list[dict]:
             and (finding.get("provenance") or {}).get("source_sha")
             == item.get("repository_head")
             and (finding.get("provenance") or {}).get("parser_revision")
-            == "gitlab-finding-note-v1"
+            in {"gitlab-finding-note-v1", "gitlab-finding-note-v2"}
             and candidate.get("result") == "Executable"
         ):
             candidates.append(
@@ -203,11 +207,10 @@ def _flow_state(
         }
     ]
     if active:
-        assignment = sorted(
+        assignment = max(
             active,
             key=lambda value: int(value.get("created_at_epoch") or 0),
-            reverse=True,
-        )[0]
+        )
         lifecycle = assignment.get("lifecycle_state")
         assignment_type = assignment.get("assignment_type")
         if lifecycle == "awaiting-integration":
@@ -292,7 +295,9 @@ def _flow_state(
             f"authority decision required: {authority.get('state')}",
             str(authority.get("reason") or "decision evidence is incomplete"),
         ]
-    candidates = [candidate for candidate in candidates if candidate.get("result") == "Executable"]
+    candidates = [
+        candidate for candidate in candidates if candidate.get("result") == "Executable"
+    ]
     implementation_candidates = [
         candidate
         for candidate in candidates

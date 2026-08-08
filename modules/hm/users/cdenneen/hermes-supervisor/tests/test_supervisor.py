@@ -57,7 +57,9 @@ def write_claim_assignment(root: Path, assignment_id: str, run_id: str) -> None:
 
 
 def test_authority_requires_exact_approval_digest():
-    reconcile = load_module("reconcile", ROOT / "scripts" / "axis_supervisor" / "collector.py")
+    reconcile = load_module(
+        "reconcile", ROOT / "scripts" / "axis_supervisor" / "collector.py"
+    )
     record = "Immutable PlanningRecord\nDigest: `sha256:" + "a" * 64 + "`"
     matching = ["Product Owner approval — Approve exact digest sha256:" + "a" * 64]
     mismatch = ["Product Owner approval — Approve exact digest sha256:" + "b" * 64]
@@ -108,9 +110,12 @@ def test_approval_note_url_binds_exact_digest_not_first_product_owner_note():
             "body": f"Product Owner approval — Approve exact digest {digest}",
         },
     ]
-    assert reconcile.approval_note_url(
-        notes, {"cdenneen"}, digest, "https://example.test/issue/1"
-    ) == "https://example.test/issue/1#note_1"
+    assert (
+        reconcile.approval_note_url(
+            notes, {"cdenneen"}, digest, "https://example.test/issue/1"
+        )
+        == "https://example.test/issue/1#note_1"
+    )
 
 
 def test_ready_label_does_not_bypass_authority():
@@ -170,7 +175,9 @@ def test_waiting_decomposition_is_recorded():
 
 
 def test_paginated_gitlab_arrays_are_fully_decoded():
-    reconcile = load_module("reconcile_pages", ROOT / "scripts" / "axis_supervisor" / "collector.py")
+    reconcile = load_module(
+        "reconcile_pages", ROOT / "scripts" / "axis_supervisor" / "collector.py"
+    )
     assert reconcile.decode_json_stream('[{"id":1}]\n[{"id":2}]\n') == [
         {"id": 1},
         {"id": 2},
@@ -256,7 +263,10 @@ def verified_item_and_assignment():
         },
         "pipeline": {"status": "success", "url": "https://example.test/pipeline/1"},
         "evidence": [
-            {"kind": "implementation-wwwhh", "ref": "https://example.test/implementation"},
+            {
+                "kind": "implementation-wwwhh",
+                "ref": "https://example.test/implementation",
+            },
             {"kind": "integration-wwwhh", "ref": "https://example.test/integration"},
             {"kind": "post-merge-verification", "ref": "origin/main@merge-sha"},
         ],
@@ -274,9 +284,7 @@ def test_missing_semantic_record_creates_decomposition_assignment(tmp_path: Path
     from axis_supervisor.graph import ExecutionGraphBuilder
 
     (tmp_path / "control.json").write_text(
-        json.dumps(
-            control(semantic_priority_refs=[], allow_repository_mutation=True)
-        ),
+        json.dumps(control(semantic_priority_refs=[], allow_repository_mutation=True)),
         encoding="utf-8",
     )
     inventory = {
@@ -307,9 +315,7 @@ def test_inherited_authority_semantic_slice_becomes_executable(tmp_path: Path):
     from axis_supervisor.graph import ExecutionGraphBuilder
 
     (tmp_path / "control.json").write_text(
-        json.dumps(
-            control(semantic_priority_refs=[], allow_repository_mutation=True)
-        ),
+        json.dumps(control(semantic_priority_refs=[], allow_repository_mutation=True)),
         encoding="utf-8",
     )
     ref = "ghostspace/axis#2"
@@ -361,7 +367,7 @@ def test_inherited_authority_semantic_slice_becomes_executable(tmp_path: Path):
                 },
                 "dependencies": [],
             },
-            source_item
+            source_item,
         ],
         "executable_queue": [],
         "execution_graph": {"edges": []},
@@ -459,7 +465,10 @@ def test_exact_immutable_decision_releases_implementation_to_frontier(tmp_path: 
         item for item in graph["executable_queue"] if item["kind"] == "implementation"
     )
     assert implementation["authority"]["state"] == "direct"
-    assert implementation["authority"]["decision_record"]["conditions"] == "Keep rollout bounded."
+    assert (
+        implementation["authority"]["decision_record"]["conditions"]
+        == "Keep rollout bounded."
+    )
 
 
 def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authority_v2(
@@ -487,7 +496,9 @@ def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authori
     assert candidates[0]["slice_id"] == "axis29-mcp-timeout-repair"
 
 
-def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_path: Path):
+def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(
+    tmp_path: Path,
+):
     from axis_supervisor.collector import extract_findings
     from axis_supervisor.dispatcher import Dispatcher
     from axis_supervisor.graph import ExecutionGraphBuilder
@@ -556,7 +567,10 @@ Replay: exact three tests plus combined MCP suite after repair.
             "record_revision": 2,
             "approval_note": "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209",
             "approved_assignment_type": "code-implementation",
-            "approved_allowed_paths": ["src/axis_runtime/mcp_tasks.py", "tests/test_mcp_task_handles.py"],
+            "approved_allowed_paths": [
+                "src/axis_runtime/mcp_tasks.py",
+                "tests/test_mcp_task_handles.py",
+            ],
             "approved_required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
         },
         "blocking_dependency_refs": [],
@@ -725,10 +739,16 @@ Replay: run the task suite.
         {"id": 10, "author": {"username": "cdenneen"}, "body": body("timeout")},
         {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
     ]
-    first = normalize_gitlab_findings(notes, "ghostspace/axis#29", "a" * 40, {"cdenneen"})[0]
+    first = normalize_gitlab_findings(
+        notes, "ghostspace/axis#29", "a" * 40, {"cdenneen"}
+    )[0]
     edited = normalize_gitlab_findings(
         [
-            {"id": 10, "author": {"username": "cdenneen"}, "body": body("late timeout")},
+            {
+                "id": 10,
+                "author": {"username": "cdenneen"},
+                "body": body("late timeout"),
+            },
             {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
         ],
         "ghostspace/axis#29",
@@ -741,7 +761,11 @@ Replay: run the task suite.
     duplicate = normalize_gitlab_findings(
         [
             {"id": 10, "author": {"username": "cdenneen"}, "body": body("timeout")},
-            {"id": 11, "author": {"username": "cdenneen"}, "body": body("later timeout")},
+            {
+                "id": 11,
+                "author": {"username": "cdenneen"},
+                "body": body("later timeout"),
+            },
             {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
         ],
         "ghostspace/axis#29",
@@ -750,6 +774,212 @@ Replay: run the task suite.
     )
     states = {finding["note_id"]: finding["state"] for finding in duplicate}
     assert states == {10: "superseded", 11: "confirmed"}
+
+
+def test_finding_amendment_v2_merges_the_production_lineage_and_fails_closed(
+    tmp_path: Path,
+):
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+    from axis_supervisor.graph import ExecutionGraphBuilder
+
+    digest = "sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d"
+    source_sha = "a" * 40
+    original = f"""Current-main regression finding — MCP task-handle acceptance failure
+
+Affected tests:
+- test_live_schema_drift_blocks_task_startup
+- test_polling_budget_is_bounded_and_ambiguous_start_is_not_replayed
+- test_notification_is_only_a_hint_and_polling_establishes_completion
+
+Expected: bounded task-handle protocol tests terminate with governed drift/polling semantics.
+Actual: current-main tests timeout after merged !150–!153.
+Classification: PRODUCT_DEFECT
+Capability: MCP / Service Plane
+Affected gates: current-main verification, axis-lab conformance
+Authority: use existing axis#29 PlanningRecord v2 digest `{digest}` only for bounded same-owner repair scope; no new capability expansion.
+Replay: exact three tests plus combined MCP suite after repair. Do not close axis#29 until replay passes.
+"""
+    amendment = f"""Finding amendment v2 — supersedes finding note 3661401209 for structured Supervisor ingestion
+
+Finding ID: axis29-mcp-task-regression
+Finding class: PRODUCT_DEFECT
+Owner work item: ghostspace/axis#29
+Approved slice_id: axis29-task-handles
+PlanningRecord revision: 2
+PlanningRecord digest: `{digest}`
+Repository: ghostspace/axis
+Affected gate: current-main verification, axis-lab conformance
+Affected tests:
+- test_live_schema_drift_blocks_task_startup
+- test_polling_budget_is_bounded_and_ambiguous_start_is_not_replayed
+- test_notification_is_only_a_hint_and_polling_establishes_completion
+Expected behavior: bounded task-handle protocol terminates with governed drift/polling semantics.
+Observed behavior: current-main tests timeout after merged !150–!153.
+Source evidence: note 3661401209; current main task-handle implementation.
+Affected downstream: !155, !157, !158
+Replay: exact three tests, combined MCP suite, axis-lab MCP conformance.
+Scope: only src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py, tests/mcp_fixture_server_tasks.py; no credential custody, ProviderRuntime/plugin-host, or live Ghost authority.
+Supersession: this metadata amendment preserves original finding provenance and supplies the exact approved slice required for fail-closed promotion.
+"""
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py, tests/mcp_fixture_server_tasks.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+
+    def note(note_id: int, body: str, *, edited: bool = False) -> dict:
+        return {
+            "id": note_id,
+            "author": {"username": "cdenneen"},
+            "body": body,
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:18:07.576Z"
+            if edited
+            else "2026-08-08T10:17:07.576Z",
+        }
+
+    original_note = note(3661401209, original)
+    amendment_note = note(3661825323, amendment)
+    planning_note = note(3654285470, planning)
+    findings = normalize_gitlab_findings(
+        [amendment_note, planning_note, original_note],
+        "ghostspace/axis#29",
+        source_sha,
+        {"cdenneen"},
+    )
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["state"] == "confirmed"
+    assert (
+        finding["identity"]
+        == normalize_gitlab_findings(
+            [original_note, planning_note],
+            "ghostspace/axis#29",
+            source_sha,
+            {"cdenneen"},
+        )[0]["identity"]
+    )
+    assert finding["provenance"]["parser_revision"] == "gitlab-finding-note-v2"
+    assert [value["note_id"] for value in finding["provenance"]["version_chain"]] == [
+        3661401209,
+        3661825323,
+    ]
+    assert finding["shared_dependents"] == [
+        "ghostspace/axis!155",
+        "ghostspace/axis!157",
+        "ghostspace/axis!158",
+    ]
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
+    )
+    graph = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "amendment-v2",
+            "work_items": [
+                {
+                    "ref": "ghostspace/axis#29",
+                    "source_kind": "gitlab-issue",
+                    "kind": "issue",
+                    "project": "ghostspace/axis",
+                    "title": "MCP timeout regression",
+                    "source_state": "opened",
+                    "labels": ["p0"],
+                    "authority_facts": {
+                        "approval_matches_record": True,
+                        "record_digest": digest,
+                        "record_revision": 2,
+                    },
+                    "blocking_dependency_refs": [],
+                    "merge_request_facts": [],
+                    "acceptance_facts": {"ids": [], "open_ids": []},
+                    "source_evidence": {"notes": []},
+                    "retrieval_errors": [],
+                    "mutation_allowed": True,
+                    "repository_head": source_sha,
+                    "findings": findings,
+                }
+            ],
+        }
+    )
+    entry = graph["executable_queue"][0]
+    assert entry["ref"] == f"finding:{finding['identity']}"
+    assert json.loads((tmp_path / "executable-frontier.json").read_text())[
+        "schema"
+    ] == ("axis.external-development-supervisor.executable-frontier")
+
+    cases = {
+        "wrong-owner": (
+            amendment.replace("ghostspace/axis#29", "ghostspace/axis#30"),
+            "amendment-owner-mismatch",
+        ),
+        "wrong-repository": (
+            amendment.replace(
+                "Repository: ghostspace/axis", "Repository: ghostspace/axis-lab"
+            ),
+            "amendment-repository-mismatch",
+        ),
+        "wrong-digest": (
+            amendment.replace(digest, "sha256:" + "0" * 64),
+            "amendment-digest-mismatch",
+        ),
+        "unknown-slice": (
+            amendment.replace("axis29-task-handles", "unknown-slice"),
+            "amendment-unknown-approved-slice",
+        ),
+        "wrong-slice-repository": (
+            planning.replace(
+                "Repository: ghostspace/axis", "Repository: ghostspace/axis-lab"
+            ),
+            "amendment-slice-repository-mismatch",
+        ),
+        "malformed": (
+            amendment.replace("Finding ID:", "Finding identifier:"),
+            "malformed-finding-amendment",
+        ),
+        "v3": (
+            amendment.replace("Finding amendment v2", "Finding amendment v3"),
+            "unsupported-finding-amendment-version",
+        ),
+        "bad-supersession": (
+            amendment.replace("this metadata amendment", "a replacement"),
+            "invalid-amendment-supersession",
+        ),
+    }
+    for label, (candidate, reason) in cases.items():
+        notes = [note(3661825323, candidate), original_note, planning_note]
+        if label == "wrong-slice-repository":
+            notes[0] = amendment_note
+            notes[-1] = note(3654285470, candidate)
+        assert (
+            normalize_gitlab_findings(
+                notes, "ghostspace/axis#29", source_sha, {"cdenneen"}
+            )[0]["invalid_reason"]
+            == reason
+        )
+
+    assert (
+        normalize_gitlab_findings(
+            [amendment_note, note(3661825324, amendment), original_note, planning_note],
+            "ghostspace/axis#29",
+            source_sha,
+            {"cdenneen"},
+        )[0]["invalid_reason"]
+        == "competing-finding-amendments"
+    )
+    assert (
+        normalize_gitlab_findings(
+            [note(3661825323, amendment, edited=True), original_note, planning_note],
+            "ghostspace/axis#29",
+            source_sha,
+            {"cdenneen"},
+        )[0]["invalid_reason"]
+        == "finding-amendment-edited"
+    )
 
 
 def test_canonical_finding_missing_authority_is_invalid_and_never_executable():
@@ -862,7 +1092,7 @@ Digest: `{digest}`
 Assignment type: code-implementation
 Repository: ghostspace/axis
 Authorized slices:
-{chr(10).join(f'- {slice}' for slice in slices)}
+{chr(10).join(f"- {slice}" for slice in slices)}
 Required tests:
 - pytest -q tests/test_mcp_task_handles.py
 """
@@ -900,7 +1130,9 @@ Required tests:
             {
                 "id": 9,
                 "author": {"username": "cdenneen"},
-                "body": planning(["axis29-task-handles: src/axis_runtime/mcp_tasks.py"]),
+                "body": planning(
+                    ["axis29-task-handles: src/axis_runtime/mcp_tasks.py"]
+                ),
             },
         ],
         "ghostspace/axis#29",
@@ -992,9 +1224,12 @@ def test_product_heartbeat_is_compact_and_rate_limited(tmp_path: Path):
             "first_failing_gate": "validation",
         }
     }
-    assert record_product_heartbeat(
-        tmp_path, graduation, now=first["created_at_epoch"] + 29 * 60
-    ) is None
+    assert (
+        record_product_heartbeat(
+            tmp_path, graduation, now=first["created_at_epoch"] + 29 * 60
+        )
+        is None
+    )
     rendered = SlackProjection.render_event(first)
     assert "Product heartbeat" in rendered
     assert "Assignment" not in rendered
@@ -1089,7 +1324,9 @@ def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Pat
         }
     )
     target_entries = [
-        entry for entry in graph["executable_queue"] if entry.get("target_ref") == item["ref"]
+        entry
+        for entry in graph["executable_queue"]
+        if entry.get("target_ref") == item["ref"]
     ]
     assert [entry["kind"] for entry in target_entries] == ["technical-revalidation"]
 
@@ -1134,7 +1371,13 @@ def test_semantic_worker_cannot_self_grant_inherited_authority(tmp_path: Path):
         )
     )
     graph = ExecutionGraphBuilder(tmp_path).build(
-        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}},
+        {
+            "generation_id": "g1",
+            "work_items": [item],
+            "executable_queue": [],
+            "execution_graph": {"edges": []},
+            "idle_proof": {},
+        },
         {"available_model_call_budget": 10},
     )
     assert graph["executable_queue"] == []
@@ -1142,7 +1385,9 @@ def test_semantic_worker_cannot_self_grant_inherited_authority(tmp_path: Path):
     assert graph["governed_queue_zero_proven"] is False
 
 
-def test_global_mutation_disabled_keeps_grant_eligible_implementation_slice(tmp_path: Path):
+def test_global_mutation_disabled_keeps_grant_eligible_implementation_slice(
+    tmp_path: Path,
+):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -1182,14 +1427,24 @@ def test_global_mutation_disabled_keeps_grant_eligible_implementation_slice(tmp_
         source_fingerprint=fingerprint,
     )
     engine = SemanticDecompositionEngine(tmp_path)
-    record["evidence_fingerprint"] = engine.save_evidence(item["ref"], {"fixture": True})
+    record["evidence_fingerprint"] = engine.save_evidence(
+        item["ref"], {"fixture": True}
+    )
     engine.save(record)
     graph = ExecutionGraphBuilder(tmp_path).build(
-        {"generation_id": "g1", "work_items": [item], "executable_queue": [], "execution_graph": {"edges": []}, "idle_proof": {}},
+        {
+            "generation_id": "g1",
+            "work_items": [item],
+            "executable_queue": [],
+            "execution_graph": {"edges": []},
+            "idle_proof": {},
+        },
         {"available_model_call_budget": 10},
     )
     implementation = next(
-        entry for entry in graph["executable_queue"] if entry.get("kind") == "implementation"
+        entry
+        for entry in graph["executable_queue"]
+        if entry.get("kind") == "implementation"
     )
     assert implementation["assignment_type"] == "code-implementation"
     assert graph["scheduler_state"]["selected_batch"][0]["assignment_type"] == (
@@ -1198,7 +1453,9 @@ def test_global_mutation_disabled_keeps_grant_eligible_implementation_slice(tmp_
     assert graph["scheduler_state"]["limiting_constraint"] == "implementation-ready"
 
 
-def test_dispatcher_reuses_capacity_only_across_independent_repositories(tmp_path: Path):
+def test_dispatcher_reuses_capacity_only_across_independent_repositories(
+    tmp_path: Path,
+):
     from axis_supervisor.dispatcher import Dispatcher
 
     (tmp_path / "control.json").write_text(
@@ -1226,9 +1483,7 @@ def test_dispatcher_reuses_capacity_only_across_independent_repositories(tmp_pat
         "mutation_grant_id": None,
         "mutation_grant_uri": None,
     }
-    (assignments / "active-axis.json").write_text(
-        json.dumps(active), encoding="utf-8"
-    )
+    (assignments / "active-axis.json").write_text(json.dumps(active), encoding="utf-8")
     dispatcher = Dispatcher(tmp_path)
     same_project = {
         "ref": "semantic-decomposition:ghostspace/axis#2",
@@ -1468,7 +1723,13 @@ def test_complete_roadmap_is_numeric_and_execution_relevance_is_separate():
 
     milestones = [
         {"title": title, "state": "active"}
-        for title in ("AX-M14 End", "AX-M10 Deploy", "AX-M9.4 RC", "AX-M5 Execute", "AX-M4 Memory")
+        for title in (
+            "AX-M14 End",
+            "AX-M10 Deploy",
+            "AX-M9.4 RC",
+            "AX-M5 Execute",
+            "AX-M4 Memory",
+        )
     ]
     items = []
     for number in (14, 10, "9.4", 5, 4):
@@ -1713,7 +1974,16 @@ def test_fenced_lease_conflict_and_release(tmp_path: Path):
     write_claim_assignment(root, "a1", "r1")
     write_claim_assignment(root, "a2", "r2")
     first = subprocess.run(
-        [sys.executable, script, "claim", "a1", "--run-id", "r1", "--resource", "path:ghostspace/axis:src"],
+        [
+            sys.executable,
+            script,
+            "claim",
+            "a1",
+            "--run-id",
+            "r1",
+            "--resource",
+            "path:ghostspace/axis:src",
+        ],
         env=env,
         text=True,
         capture_output=True,
@@ -1721,7 +1991,16 @@ def test_fenced_lease_conflict_and_release(tmp_path: Path):
     )
     lease = json.loads(first.stdout)
     conflict = subprocess.run(
-        [sys.executable, script, "claim", "a2", "--run-id", "r2", "--resource", "path:ghostspace/axis:src"],
+        [
+            sys.executable,
+            script,
+            "claim",
+            "a2",
+            "--run-id",
+            "r2",
+            "--resource",
+            "path:ghostspace/axis:src",
+        ],
         env=env,
         text=True,
         capture_output=True,
@@ -1818,10 +2097,24 @@ def test_concurrent_claims_are_serialized(tmp_path: Path):
     write_claim_assignment(root, "a1", "a1")
     write_claim_assignment(root, "a2", "a2")
     commands = [
-        [sys.executable, script, "claim", assignment, "--run-id", assignment, "--resource", "path:ghostspace/axis:src"]
+        [
+            sys.executable,
+            script,
+            "claim",
+            assignment,
+            "--run-id",
+            assignment,
+            "--resource",
+            "path:ghostspace/axis:src",
+        ]
         for assignment in ("a1", "a2")
     ]
-    processes = [subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for command in commands]
+    processes = [
+        subprocess.Popen(
+            command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        for command in commands
+    ]
     returncodes = [process.wait(timeout=10) for process in processes]
     assert sorted(returncodes) == [0, 1]
 
@@ -1909,45 +2202,43 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
                 "verification": verification_for(waiting, [assignment]),
             },
         ],
-            "classification_counts": {"Integrated": 1, "Waiting": 1, "Unknown": 0},
-            "flow_counts": {
-                "backlog": 1,
-                "verified-complete": 1,
-            },
-            "scheduler_state": {
+        "classification_counts": {"Integrated": 1, "Waiting": 1, "Unknown": 0},
+        "flow_counts": {
+            "backlog": 1,
+            "verified-complete": 1,
+        },
+        "scheduler_state": {
             "configured_batch_ceiling": 2,
             "available_model_call_budget": 1,
             "selected_batch": [],
             "deferred_items": [],
             "next_eligible_work": None,
-                "limiting_constraint": "queue-depth",
-                "wip_limits": {
-                    "analysis": 2,
-                    "implementation": 2,
-                    "integration": 1,
-                    "verification": 2,
-                },
-                "wip_counts": {
-                    "analysis": 0,
-                    "implementation": 0,
-                    "integration": 0,
-                    "verification": 0,
-                },
-                "available_capacity": 2,
-                "current_constraint": {
-                    "name": "implementation-ready-supply",
-                    "evidence": ["one analysis item"],
-                    "engineering_impact": "verified roadmap progress is paced by this stage",
-                    "estimated_roadmap_delay_days": None,
-                    "forecast_confidence": "insufficient-history",
-                    "recommended_action": "analyze the next critical-path item",
-                },
+            "limiting_constraint": "queue-depth",
+            "wip_limits": {
+                "analysis": 2,
+                "implementation": 2,
+                "integration": 1,
+                "verification": 2,
             },
+            "wip_counts": {
+                "analysis": 0,
+                "implementation": 0,
+                "integration": 0,
+                "verification": 0,
+            },
+            "available_capacity": 2,
+            "current_constraint": {
+                "name": "implementation-ready-supply",
+                "evidence": ["one analysis item"],
+                "engineering_impact": "verified roadmap progress is paced by this stage",
+                "estimated_roadmap_delay_days": None,
+                "forecast_confidence": "insufficient-history",
+                "recommended_action": "analyze the next critical-path item",
+            },
+        },
     }
     control_value = control(slack_user_id="U1")
-    (tmp_path / "control.json").write_text(
-        json.dumps(control_value), encoding="utf-8"
-    )
+    (tmp_path / "control.json").write_text(json.dumps(control_value), encoding="utf-8")
     first = projection.update(inventory, graph, control_value)
     assert first["updated"] is True
     assert first["delivery_stage"] == "Slack_message_verified"
@@ -1958,11 +2249,11 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
         "conversations.history",
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
-    assert fallback.startswith("AXIS | Capabilities 0/0 graduated (0%) | Roadmap 1/2 verified")
+    assert fallback.startswith(
+        "AXIS | Capabilities 0/0 graduated (0%) | Roadmap 1/2 verified"
+    )
     assert blocks[0]["type"] == "header"
-    assert [
-        block["text"]["text"] for block in blocks if block["type"] == "header"
-    ] == [
+    assert [block["text"]["text"] for block in blocks if block["type"] == "header"] == [
         "AXIS",
         "ROADMAP",
         "CAPABILITIES",
@@ -2086,9 +2377,14 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     recovered = projection.update(inventory, graph, control_value)
     recovered_outbox = json.loads((tmp_path / "slack-outbox.json").read_text())
     assert recovered["delivery_stage"] == "Slack_message_verified"
-    assert recovered_outbox["notifications"][0]["current_stage"] == "Slack_message_verified"
+    assert (
+        recovered_outbox["notifications"][0]["current_stage"]
+        == "Slack_message_verified"
+    )
     assert recovered_outbox["notifications"][0]["recovery_summary"] is True
-    assert any("Recovered missed activity" in message["text"] for message in messages.values())
+    assert any(
+        "Recovered missed activity" in message["text"] for message in messages.values()
+    )
 
 
 def load_supervisor_slack_plugin():
@@ -2109,6 +2405,7 @@ def test_supervisor_slack_plugin_authorizes_only_exact_product_owner_dm(tmp_path
     (tmp_path / "slack-overview-state.json").write_text(
         json.dumps({"channel": "D1"}), encoding="utf-8"
     )
+
     class Platform:
         value = "slack"
 
@@ -2152,6 +2449,7 @@ def test_supervisor_slack_plugin_executes_typed_command_without_shell(
     (tmp_path / "slack-overview-state.json").write_text(
         json.dumps({"channel": "D1"}), encoding="utf-8"
     )
+
     class Platform:
         value = "slack"
 
