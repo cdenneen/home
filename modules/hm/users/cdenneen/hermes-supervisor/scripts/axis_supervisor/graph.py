@@ -105,6 +105,36 @@ def _semantic_candidates(semantic: dict) -> list[dict]:
     return candidates
 
 
+def _finding_candidates(item: dict) -> list[dict]:
+    """Promote only canonical confirmed findings owned by this collected item."""
+    candidates = []
+    for finding in item.get("findings") or []:
+        candidate = finding.get("repair_candidate") if isinstance(finding, dict) else None
+        if (
+            isinstance(candidate, dict)
+            and finding.get("state") == "confirmed"
+            and finding.get("owner_ref") == item.get("ref")
+            and finding.get("identity")
+            and candidate.get("result") == "Executable"
+        ):
+            candidates.append(
+                candidate
+                | {
+                    "finding_id": finding.get("finding_id"),
+                    "finding_identity": finding.get("identity"),
+                    "shared_dependents": list(finding.get("shared_dependents") or []),
+                }
+            )
+    return candidates
+
+
+def _candidates(item: dict, semantic: dict | None) -> list[dict]:
+    return [
+        *(_semantic_candidates(semantic) if semantic else []),
+        *_finding_candidates(item),
+    ]
+
+
 MUTATING_ASSIGNMENT_TYPES = {
     "governance-document-mutation",
     "code-implementation",
@@ -139,6 +169,7 @@ def _flow_state(
     verification: dict,
     authority: dict,
     assignments: list[dict],
+    candidates: list[dict],
 ) -> tuple[str, list[str]]:
     active = [
         assignment
@@ -200,12 +231,12 @@ def _flow_state(
         "local-convergence:"
     ):
         return "convergence", ["local repository custody requires convergence"]
-    if semantic is not None and any(
+    if candidates and any(
         candidate.get("result") == "Executable"
         and candidate.get("category")
         in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
         and candidate.get("required_tests")
-        for candidate in _semantic_candidates(semantic)
+        for candidate in candidates
     ):
         return "verification", [
             "historical evidence has an explicit bounded technical verification action"
@@ -232,13 +263,19 @@ def _flow_state(
         return "decomposition-needed", [
             "acceptance criteria exist but milestone ownership/decomposition is absent"
         ]
-    if semantic is None:
+    if semantic is None and not candidates:
         return "discovery", ["no current semantic engineering record exists"]
-    candidates = [
-        candidate
-        for candidate in _semantic_candidates(semantic)
-        if candidate.get("result") == "Executable"
-    ]
+    if authority.get("state") in {
+        "needs-product-owner",
+        "needs-governance",
+        "unresolved",
+        "prohibited",
+    }:
+        return "decision", [
+            f"authority decision required: {authority.get('state')}",
+            str(authority.get("reason") or "decision evidence is incomplete"),
+        ]
+    candidates = [candidate for candidate in candidates if candidate.get("result") == "Executable"]
     implementation_candidates = [
         candidate
         for candidate in candidates
@@ -663,8 +700,15 @@ class ExecutionGraphBuilder:
                     "reason": "exact immutable Product Owner decision",
                     "decision_record": decision_record,
                 }
+            candidates = _candidates(item, semantic)
+            if semantic is not None and authority["state"] in {
+                "unresolved",
+                "needs-product-owner",
+                "needs-governance",
+            }:
+                semantic_unresolved += 1
             flow_stage, flow_evidence = _flow_state(
-                item, semantic, verification, authority, assignments
+                item, semantic, verification, authority, assignments, candidates
             )
             ranking_score, ranking_factors = _rank_node(item, authority)
             node = {
@@ -685,6 +729,7 @@ class ExecutionGraphBuilder:
                 "ranking_score": ranking_score,
                 "ranking_factors": ranking_factors,
                 "semantic_record": semantic,
+                "findings": item.get("findings") or [],
                 "source_fingerprint": source_fingerprint,
                 "verification": verification,
                 "revalidation_tier": tier,
@@ -700,12 +745,6 @@ class ExecutionGraphBuilder:
                 continue
             if flow_stage in {"historical", "future", "decision", "superseded"}:
                 continue
-            if semantic is not None and authority["state"] in {
-                "unresolved",
-                "needs-product-owner",
-                "needs-governance",
-            }:
-                semantic_unresolved += 1
             if item["classification"] in {
                 "Blocked",
                 "Running",
@@ -749,6 +788,7 @@ class ExecutionGraphBuilder:
                     "Completed",
                 }
                 and semantic is None
+                and not candidates
             ):
                 if not item.get("project"):
                     continue
@@ -769,17 +809,17 @@ class ExecutionGraphBuilder:
                 queue.append(pending)
                 semantic_pending += 1
                 continue
-            if semantic is not None:
+            if candidates:
                 technical_candidate_ids = {
                     candidate.get("slice_id")
-                    for candidate in _semantic_candidates(semantic)
+                    for candidate in candidates
                     if candidate.get("result") == "Executable"
                     and candidate.get("category")
                     in {"audit", "tests", "fixtures", "benchmark", "negative-test"}
                     and candidate.get("required_tests")
                 }
                 if tier == "B" and control.get("allow_technical_revalidation"):
-                    for candidate in _semantic_candidates(semantic):
+                    for candidate in candidates:
                         if (
                             candidate.get("result") == "Executable"
                             and candidate.get("category")
@@ -817,7 +857,7 @@ class ExecutionGraphBuilder:
                                 "source_fingerprint": source_fingerprint,
                                 "revalidation_tier": "B",
                                 "milestone": item.get("milestone"),
-                                "semantic_evidence_fingerprint": semantic.get(
+                                "semantic_evidence_fingerprint": (semantic or {}).get(
                                     "evidence_fingerprint"
                                 ),
                             }
@@ -838,7 +878,7 @@ class ExecutionGraphBuilder:
                             break
                 elif tier == "B":
                     policy_suppressed_executable += len(technical_candidate_ids)
-                for candidate in _semantic_candidates(semantic):
+                for candidate in candidates:
                     if candidate.get("result") != "Executable":
                         continue
                     if (
@@ -862,7 +902,11 @@ class ExecutionGraphBuilder:
                         context=f"implementation-candidate:{candidate.get('slice_id')}",
                     )
                     entry = {
-                        "ref": f"slice:{item['ref']}:{candidate['slice_id']}",
+                        "ref": (
+                            f"finding:{candidate['finding_identity']}"
+                            if candidate.get("finding_identity")
+                            else f"slice:{item['ref']}:{candidate['slice_id']}"
+                        ),
                         "kind": "implementation",
                         "assignment_type": assignment_type,
                         "flow_stage": "implementation-ready",
@@ -875,6 +919,9 @@ class ExecutionGraphBuilder:
                         "ranking_score": int(candidate.get("ranking_score") or 200),
                         "authority": authority,
                         "candidate": candidate,
+                        "finding_id": candidate.get("finding_id"),
+                        "finding_identity": candidate.get("finding_identity"),
+                        "shared_dependents": candidate.get("shared_dependents") or [],
                         "source_item": item,
                         "source_fingerprint": source_fingerprint,
                         "revalidation_tier": tier,

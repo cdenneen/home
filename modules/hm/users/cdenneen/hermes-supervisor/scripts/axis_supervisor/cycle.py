@@ -55,6 +55,7 @@ from axis_supervisor.observability import (
     OperationalEventLog,
     record_engineering_retrospective,
     record_event,
+    record_product_heartbeat,
     record_observability_failure,
 )
 from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
@@ -85,6 +86,35 @@ def deployed_source_revision() -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def write_lease_claim_diagnostic(diagnostic: dict) -> Path:
+    directory = ROOT / "engineering-memory" / "lease-incidents"
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = directory / f"{diagnostic['assignment_id']}.json"
+    try:
+        path.write_text(
+            json.dumps(diagnostic, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return path
+    except ValueError as exc:
+        # Preserve the original lease failure even when its diagnostic is malformed.
+        ledger = directory / "diagnostic-invalid.jsonl"
+        ledger.write_text(
+            json.dumps(
+                {
+                    "assignment_id": diagnostic.get("assignment_id"),
+                    "error": f"ValueError: {exc}",
+                    "diagnostic_repr": repr(diagnostic),
+                    "recorded_at_epoch": int(time.time()),
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return ledger
 
 
 def save(path: Path, value: dict, gate: MutationGate) -> None:
@@ -569,6 +599,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
         inventory, graph, capability_convergence
     )
     ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
+    record_product_heartbeat(ROOT, graduation)
     if reconcile_decisions:
         completed, recovered_graph = recover_pending_decisions_safely()
         if completed and recovered_graph is not None:
@@ -627,17 +658,7 @@ def execute_new_assignment(
                 "supervisor_revision": deployed_source_revision(),
                 "inventory_revision": assignment.get("source_inventory_generation_id"),
             }
-            diagnostic_path = (
-                ROOT
-                / "engineering-memory"
-                / "lease-incidents"
-                / f"{assignment['assignment_id']}.json"
-            )
-            diagnostic_path.parent.mkdir(parents=True, exist_ok=True)
-            diagnostic_path.write_text(
-                json.dumps(diagnostic, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
+            diagnostic_path = write_lease_claim_diagnostic(diagnostic)
             raise RuntimeError(
                 f"lease infrastructure failure; diagnostic={diagnostic_path}; "
                 f"stdout={completed_claim.stdout[-1000:]}; "

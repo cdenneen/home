@@ -105,6 +105,18 @@ class Dispatcher:
                 return True
         return False
 
+    def _finding_suppressed(self, item: dict) -> bool:
+        identity = item.get("finding_identity")
+        if not identity:
+            return False
+        for assignment_path in self.assignments.glob("*.json"):
+            assignment = validate_assignment(
+                json.loads(assignment_path.read_text(encoding="utf-8")), self.root
+            )
+            if assignment.get("finding_identity") == identity:
+                return True
+        return False
+
     def dispatch(self, graph: dict, run_id: str, selected: dict | None = None) -> dict | None:
         active = self.active()
         control = json.loads((self.root / "control.json").read_text(encoding="utf-8"))
@@ -115,7 +127,7 @@ class Dispatcher:
         item = selected or graph["executable_queue"][0]
         if is_suppressed_no_op(
             item, active + self.completed_no_ops()
-        ) or self._effectiveness_suppressed(item):
+        ) or self._effectiveness_suppressed(item) or self._finding_suppressed(item):
             return None
         quarantine_path = self.root / "quarantines.json"
         if quarantine_path.exists():
@@ -209,6 +221,9 @@ class Dispatcher:
             or (item.get("candidate") or {}).get("result"),
             "planning_record": planning_record,
             "candidate": item.get("candidate"),
+            "finding_id": item.get("finding_id"),
+            "finding_identity": item.get("finding_identity"),
+            "shared_dependents": item.get("shared_dependents") or [],
             "allowed_paths": (item.get("candidate") or {}).get("allowed_paths") or [],
             "required_tests": (item.get("candidate") or {}).get("required_tests") or [],
             "source_item": source_item,

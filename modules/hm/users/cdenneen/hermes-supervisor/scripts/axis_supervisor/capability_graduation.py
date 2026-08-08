@@ -727,6 +727,9 @@ class CapabilityGraduationProjector:
             runtimes = [
                 runtime_by_name.get(value) or {} for value in required_runtime_names
             ]
+            runtime_collection_unavailable = bool(required_runtime_names) and all(
+                not runtime_by_name.get(value) for value in required_runtime_names
+            )
             deployment_passed = bool(runtimes) and all(
                 runtime.get("status") == "converged"
                 and name not in (runtime.get("capabilities_behind") or [])
@@ -757,6 +760,29 @@ class CapabilityGraduationProjector:
                 labels.intersection(
                     {"operator::accepted", "operator-accepted", "acceptance::operator"}
                 )
+            )
+            invalidation_payload = {
+                "capability": name,
+                "expected_revision": (convergence_by_name.get(name) or {}).get(
+                    "expected_revision"
+                ),
+                "post_merge_receipts": sorted(
+                    {
+                        str(
+                            (value.get("worker") or {}).get("commit")
+                            or value.get("source_fingerprint")
+                        )
+                        for value in completed
+                    }
+                ),
+            }
+            invalidation_fingerprint = (
+                "sha256:"
+                + hashlib.sha256(
+                    json.dumps(
+                        invalidation_payload, sort_keys=True, separators=(",", ":")
+                    ).encode()
+                ).hexdigest()
             )
             states = {
                 "implementation": _gate(
@@ -810,10 +836,30 @@ class CapabilityGraduationProjector:
                     "passed" if operator_accepted else "pending",
                     operator_evidence
                     or ["explicit source-linked operator acceptance is required"],
-                    applicability=applicability["operator_acceptance"],
-                    condition_met=operator_accepted,
-                ),
-            }
+                applicability=applicability["operator_acceptance"],
+                condition_met=operator_accepted,
+            ),
+        }
+            previous_capability = previous_by_name.get(name) or {}
+            # A rebuild cannot discard calibrated proof unless this capability's
+            # own source binding changed. Inventory/global-main churn is not evidence.
+            if (
+                previous.get("applicability_model_revision")
+                == applicability_model_revision
+                and previous_capability.get("invalidation_fingerprint")
+                == invalidation_fingerprint
+                and runtime_collection_unavailable
+            ):
+                for gate_name, current_gate in states.items():
+                    prior = (previous_capability.get("graduation_state") or {}).get(
+                        gate_name
+                    )
+                    if (
+                        prior
+                        and prior.get("state") == "passed"
+                        and current_gate.get("applicable")
+                    ):
+                        states[gate_name] = prior
             pending_gates = sum(
                 gate["state"] not in {"passed", "not-required"}
                 for gate in states.values()
@@ -856,29 +902,6 @@ class CapabilityGraduationProjector:
             )
             product_subdimensions = _product_subdimensions(
                 name, graduated, states, owned_paths, projected_runtimes
-            )
-            invalidation_payload = {
-                "capability": name,
-                "expected_revision": (convergence_by_name.get(name) or {}).get(
-                    "expected_revision"
-                ),
-                "post_merge_receipts": sorted(
-                    {
-                        str(
-                            (value.get("worker") or {}).get("commit")
-                            or value.get("source_fingerprint")
-                        )
-                        for value in completed
-                    }
-                ),
-            }
-            invalidation_fingerprint = (
-                "sha256:"
-                + hashlib.sha256(
-                    json.dumps(
-                        invalidation_payload, sort_keys=True, separators=(",", ":")
-                    ).encode()
-                ).hexdigest()
             )
             invalidated = bool(completed) and invalidation_fingerprint != (
                 previous_by_name.get(name) or {}

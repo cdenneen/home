@@ -38,6 +38,7 @@ class SemanticDecompositionEngine:
             "acceptance_facts": item.get("acceptance_facts"),
             "updated_at": item.get("updated_at"),
             "source_evidence": item.get("source_evidence"),
+            "findings": item.get("findings") or [],
             "repository_head": item.get("repository_head"),
             "retrieval_errors": item.get("retrieval_errors"),
             "mutation_allowed": item.get("mutation_allowed"),

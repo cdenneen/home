@@ -487,6 +487,160 @@ def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authori
     assert candidates[0]["slice_id"] == "axis29-mcp-timeout-repair"
 
 
+def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_path: Path):
+    from axis_supervisor.collector import extract_findings
+    from axis_supervisor.dispatcher import Dispatcher
+    from axis_supervisor.graph import ExecutionGraphBuilder
+
+    digest = "sha256:" + "2" * 64
+    finding = {
+        "finding_id": "axis29-mcp-timeout-regression",
+        "state": "confirmed",
+        "shared_dependents": ["ghostspace/axis#31"],
+        "repair_candidate": {
+            "slice_id": "axis29-mcp-timeout-repair",
+            "title": "Repair MCP timeout cancellation regression",
+            "category": "implementation",
+            "result": "Executable",
+            "project": "ghostspace/axis",
+            "responsibility": "axis-runtime/product",
+            "allowed_paths": ["src/axis_runtime/mcp.py"],
+            "required_tests": ["pytest -q tests/test_mcp_adapter.py"],
+            "rationale": "Bounded repair from the canonical finding.",
+        },
+    }
+    findings = extract_findings(
+        [
+            {
+                "id": 3661401209,
+                "body": "```axis-supervisor-finding\n"
+                + json.dumps(finding)
+                + "\n```",
+            }
+        ],
+        "ghostspace/axis#29",
+    )
+    assert findings[0]["owner_ref"] == "ghostspace/axis#29"
+    assert findings[0]["shared_dependents"] == ["ghostspace/axis#31"]
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
+    )
+    source = {
+        "ref": "ghostspace/axis#29",
+        "source_kind": "gitlab-issue",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "MCP timeout regression",
+        "source_state": "opened",
+        "labels": ["p0"],
+        "authority_facts": {
+            "approval_matches_record": True,
+            "record_digest": digest,
+            "record_revision": 2,
+            "approval_note": "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209",
+            "approved_assignment_type": "code-implementation",
+            "approved_allowed_paths": ["src/axis_runtime/mcp.py"],
+            "approved_required_tests": ["pytest -q tests/test_mcp_adapter.py"],
+        },
+        "blocking_dependency_refs": [],
+        "merge_request_facts": [],
+        "acceptance_facts": {"ids": [], "open_ids": []},
+        "source_evidence": {"notes": []},
+        "retrieval_errors": [],
+        "mutation_allowed": True,
+        "findings": findings,
+        "repository_head": "a" * 40,
+    }
+    inventory = {"generation_id": "finding-fixture", "work_items": [source]}
+    graph = ExecutionGraphBuilder(tmp_path).build(inventory)
+    entry = graph["executable_queue"][0]
+    assert entry["ref"] == f"finding:{findings[0]['identity']}"
+    assert entry["finding_identity"] == findings[0]["identity"]
+    assert entry["shared_dependents"] == ["ghostspace/axis#31"]
+
+    dispatched = Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry)
+    assert dispatched is not None
+    assert dispatched["finding_identity"] == findings[0]["identity"]
+    assert dispatched["planning_record"]["digest"] == digest
+    assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+
+def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path: Path):
+    from axis_supervisor.graph import ExecutionGraphBuilder
+
+    (tmp_path / "control.json").write_text(json.dumps(control()), encoding="utf-8")
+    source = {
+        "ref": "ghostspace/axis#29",
+        "source_kind": "gitlab-issue",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "MCP timeout regression",
+        "source_state": "opened",
+        "labels": [],
+        "authority_facts": {},
+        "blocking_dependency_refs": [],
+        "merge_request_facts": [],
+        "acceptance_facts": {"ids": [], "open_ids": []},
+        "source_evidence": {},
+        "retrieval_errors": [],
+        "mutation_allowed": True,
+        "findings": [
+            {
+                "finding_id": "missing-authority",
+                "state": "confirmed",
+                "owner_ref": "ghostspace/axis#29",
+                "identity": "sha256:" + "f" * 64,
+                "shared_dependents": [],
+                "repair_candidate": {
+                    "slice_id": "repair",
+                    "title": "Repair",
+                    "category": "implementation",
+                    "result": "Executable",
+                    "project": "ghostspace/axis",
+                    "responsibility": "axis-runtime/product",
+                    "allowed_paths": ["src/axis_runtime/mcp.py"],
+                    "required_tests": ["pytest -q tests/test_mcp_adapter.py"],
+                    "rationale": "Bounded repair.",
+                },
+            }
+        ],
+    }
+    graph = ExecutionGraphBuilder(tmp_path).build(
+        {"generation_id": "missing-authority", "work_items": [source]}
+    )
+    assert graph["executable_queue"] == []
+    assert graph["nodes"][0]["flow_stage"] == "decision"
+
+
+def test_product_heartbeat_is_compact_and_rate_limited(tmp_path: Path):
+    from axis_supervisor.observability import record_product_heartbeat
+    from axis_supervisor.slack_projection import SlackProjection
+
+    (tmp_path / "control.json").write_text(json.dumps(control()), encoding="utf-8")
+    graduation = {
+        "primary_kpi": {"count": 2, "denominator": 18},
+        "production_confidence": 40.0,
+        "capabilities": [{"first_failing_gate": "validation"}],
+    }
+    first = record_product_heartbeat(tmp_path, graduation)
+    assert first is not None
+    assert first["details"] == {
+        "product_outcome": {
+            "graduated_capabilities": 2,
+            "capability_denominator": 18,
+            "product_confidence": 40.0,
+            "first_failing_gate": "validation",
+        }
+    }
+    assert record_product_heartbeat(
+        tmp_path, graduation, now=first["created_at_epoch"] + 29 * 60
+    ) is None
+    rendered = SlackProjection.render_event(first)
+    assert "Product heartbeat" in rendered
+    assert "Assignment" not in rendered
+
+
 def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Path):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder

@@ -140,6 +140,17 @@ class SlackProjection:
     def render_event(event: dict) -> str:
         details = event.get("details") or {}
         event_type = str(event.get("event_type") or "unknown")
+        if event_type == "product_heartbeat":
+            outcome = details.get("product_outcome") or {}
+            gate = outcome.get("first_failing_gate") or "none"
+            return (
+                "*AXIS Product heartbeat*\n"
+                f"*Outcome:* {outcome.get('graduated_capabilities', 0)}/"
+                f"{outcome.get('capability_denominator', 0)} capabilities graduated; "
+                f"confidence {outcome.get('product_confidence', 0)}%; "
+                f"first failing gate {gate}\n"
+                f"*Recorded:* {event.get('created_at')}"
+            )
         headings: dict[str, str] = {
             "assignment_selected": "Assignment selected",
             "worker_started": "Worker started",
@@ -203,6 +214,8 @@ class SlackProjection:
                 or event.get("event_id")
             )
             return ("incident", incident_id)
+        if event_type == "product_heartbeat":
+            return ("product", "heartbeat")
         if details.get("assignment_type") == "no-op-verification":
             return ("assignment", "no-op-activity")
         if event_type in {"decision_required", "product_owner_decision"}:
