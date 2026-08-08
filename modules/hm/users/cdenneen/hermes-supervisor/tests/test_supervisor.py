@@ -354,6 +354,67 @@ def test_issue_note_collection_rejects_provenance_edits_with_same_body():
     assert collect_issue_notes(response, "123", 29, retries=0)["state"] == NOTES_ERROR
 
 
+def test_closed_issue_note_collection_is_limited_to_structured_or_active_findings():
+    from axis_supervisor.collector import (
+        NOTES_EMPTY,
+        NOTES_ERROR,
+        NOTES_OK,
+        collect_eligible_issue_notes,
+    )
+
+    project = {"path_with_namespace": "ghostspace/axis"}
+    irrelevant = {
+        "iid": 28,
+        "state": "closed",
+        "title": "Completed housekeeping",
+        "description": "No governed work remains.",
+    }
+    calls = []
+
+    def request(path: str):
+        calls.append(path)
+        return [
+            {
+                "id": 1,
+                "author": {"id": 42, "username": "cdenneen"},
+                "created_at": "2026-08-08T10:17:07.576Z",
+                "updated_at": "2026-08-08T10:17:07.576Z",
+                "body": "structured finding",
+            }
+        ]
+
+    snapshot = collect_eligible_issue_notes(request, project, "123", irrelevant, set())
+    assert snapshot["state"] == NOTES_EMPTY
+    assert calls == []
+
+    structured = {
+        "iid": 29,
+        "state": "closed",
+        "title": "MCP regression",
+        "description": "Immutable PlanningRecord v2 governs this finding.",
+    }
+    snapshot = collect_eligible_issue_notes(request, project, "123", structured, set())
+    assert snapshot["state"] == NOTES_OK
+    assert len(calls) == 2
+
+    def failing_request(_path: str):
+        raise RuntimeError("GitLab unavailable")
+
+    assert (
+        collect_eligible_issue_notes(
+            failing_request, project, "123", structured, set()
+        )["state"]
+        == NOTES_ERROR
+    )
+    active_only = dict(irrelevant, iid=30)
+    assert (
+        collect_eligible_issue_notes(
+            request, project, "123", active_only, {"ghostspace/axis#30"}
+        )["state"]
+        == NOTES_OK
+    )
+
+
 def test_planning_scope_requires_trusted_immutable_author_id():
     from axis_supervisor.finding_ingestion import _planning_scope
 
@@ -1036,7 +1097,7 @@ Replay: run the task suite.
 def test_finding_amendment_v2_merges_the_production_lineage_and_fails_closed(
     tmp_path: Path,
 ):
-    from axis_supervisor.collector import NOTES_OK, collect_issue_notes
+    from axis_supervisor.collector import NOTES_OK, collect_eligible_issue_notes
     from axis_supervisor.finding_ingestion import normalize_gitlab_findings
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -1104,11 +1165,17 @@ Required tests:
     amendment_note = note(3661825323, amendment)
     planning_note = note(3654285470, planning)
     fixture_notes = [amendment_note, planning_note, original_note]
-    snapshot = collect_issue_notes(
+    snapshot = collect_eligible_issue_notes(
         lambda path: fixture_notes if "&page=1" in path else [],
+        {"path_with_namespace": "ghostspace/axis"},
         "123",
-        29,
-        fetched_at="2026-08-08T12:00:00+00:00",
+        {
+            "iid": 29,
+            "state": "closed",
+            "title": "MCP timeout regression",
+            "description": "Immutable PlanningRecord v2 governs this finding.",
+        },
+        set(),
     )
     assert snapshot["state"] == NOTES_OK
     assert {value["id"] for value in snapshot["notes"]} == {
