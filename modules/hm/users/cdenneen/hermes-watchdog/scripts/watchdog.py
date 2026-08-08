@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -24,7 +25,16 @@ JOBS = Path(
 
 
 def main() -> int:
-    result = Watchdog(ROOT, SUPERVISOR_ROOT, JOBS).run()
+    ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = ROOT / "cycle.lock"
+    with lock_path.open("a", encoding="utf-8") as lock:
+        os.chmod(lock_path, 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(json.dumps({"status": "skipped", "reason": "cycle-already-running"}))
+            return 0
+        result = Watchdog(ROOT, SUPERVISOR_ROOT, JOBS).run()
     print(json.dumps(result, sort_keys=True))
     return 0
 

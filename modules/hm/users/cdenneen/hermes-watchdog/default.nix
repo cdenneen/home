@@ -11,6 +11,8 @@ let
   watchdogEnabled = config.profiles.hermesWatchdog.enable && packageAvailable;
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-watchdog";
   watchdogPython = pkgs.python3;
+  supervisorPython = pkgs.python3.withPackages (pythonPackages: [ pythonPackages.jsonschema ]);
+  hermesRevision = "f5be9236e00ddf2f2a412697f267078fc4ee068e";
   sourceRevision =
     if self ? rev then
       self.rev
@@ -28,7 +30,21 @@ let
   '';
   watchdogDiagnose = pkgs.writeShellScriptBin "axis-development-watchdog-diagnose" ''
     set -euo pipefail
+    export AXIS_WATCHDOG_HERMES_REVISION=${hermesRevision}
     exec ${agentPkgs.hermes.hermesVenv}/bin/python3 "$HOME/.hermes/scripts/axis-development-watchdog-diagnostic.py"
+  '';
+  watchdogCanonicalProjector = pkgs.writeShellScriptBin "axis-development-watchdog-canonical-projector" ''
+    set -euo pipefail
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-slack.py"
+  '';
+  watchdogSelfRepair = pkgs.writeShellScriptBin "axis-development-watchdog-self-repair" ''
+    set -euo pipefail
+    exec ${watchdogCronCtl}/bin/axis-development-watchdog-cronctl install --hermes ${agentPkgs.hermes}/bin/hermes
+  '';
+  watchdogRuntimeRepair = pkgs.writeShellScriptBin "axis-development-watchdog-runtime-repair" ''
+    set -euo pipefail
+    ${pkgs.systemd}/bin/systemctl --user reset-failed axis-development-watchdog-backup.service
+    exec ${pkgs.systemd}/bin/systemctl --user restart axis-development-watchdog-backup.timer
   '';
 in
 {
@@ -43,6 +59,9 @@ in
         watchdog
         watchdogCronCtl
         watchdogDiagnose
+        watchdogCanonicalProjector
+        watchdogSelfRepair
+        watchdogRuntimeRepair
       ];
 
       home.file = {
@@ -78,10 +97,34 @@ in
         Install.WantedBy = [ "default.target" ];
       };
 
+      systemd.user.services.axis-development-watchdog-backup = {
+        Unit = {
+          Description = "Independent backup execution for AXIS Development Watchdog";
+          After = [ "hermes-gateway.service" ];
+          Wants = [ "hermes-gateway.service" ];
+        };
+        Service = {
+          Type = "oneshot";
+          ExecStart = "${watchdog}/bin/axis-development-watchdog";
+        };
+      };
+
+      systemd.user.timers.axis-development-watchdog-backup = {
+        Unit.Description = "Backstop AXIS Development Watchdog heartbeat";
+        Timer = {
+          OnBootSec = "12m";
+          OnUnitActiveSec = "15m";
+          Persistent = true;
+          Unit = "axis-development-watchdog-backup.service";
+        };
+        Install.WantedBy = [ "timers.target" ];
+      };
+
       home.activation.hermesWatchdogState = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p \
           "$HOME/.hermes/scripts" \
-          "${runtimeRoot}"
+          "${runtimeRoot}" \
+          "${runtimeRoot}/repair-escalations"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \

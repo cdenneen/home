@@ -715,6 +715,64 @@ def test_decision_replay_resumes_an_interrupted_frontier_rebuild(tmp_path: Path)
     assert request["attempts"] == 2
 
 
+def test_decision_projection_recovers_persisted_card_timestamp_after_crash(
+    tmp_path: Path,
+):
+    from axis_supervisor.decisions import DECISION_ID, SlackDecisionController
+    from axis_supervisor.slack_projection import SlackProjection
+
+    write_control(tmp_path)
+    calls = []
+    messages = {}
+
+    def api(_token: str, method: str, payload: dict) -> dict:
+        calls.append((method, payload))
+        if method == "conversations.history":
+            return {"ok": True, "messages": list(messages.values())}
+        ts = str(payload.get("ts") or "7.5")
+        messages[ts] = {"ts": ts, "text": payload["text"]}
+        return {
+            "ok": True,
+            "channel": "D1",
+            "ts": ts,
+        }
+
+    controller = SlackDecisionController(tmp_path, api)
+    controller.project(
+        "token",
+        workspace_id="T1",
+        authorized_user_id="U1",
+        channel="D1",
+        decision_id=DECISION_ID,
+        packet=decision_packet(),
+        ts=None,
+    )
+    calls.clear()
+    projection = SlackProjection(tmp_path)
+    projection.api = api
+    _legacy_slack_state(projection.state_path)
+    state = projection.load_state()
+    state["workspace_id"] = "T1"
+    state["authorized_user_id"] = "U1"
+    state["channel"] = "D1"
+    projection.project_decisions(
+        "token",
+        "D1",
+        {
+            "nodes": [
+                {
+                    "ref": DECISION_ID,
+                    "semantic_record": {"decision_packet": decision_packet()},
+                }
+            ]
+        },
+        state,
+    )
+    assert calls[0][0] == "chat.update"
+    assert calls[0][1]["ts"] == "7.5"
+    assert not any(method == "chat.postMessage" for method, _payload in calls)
+
+
 def test_periodic_reconciliation_recovers_pending_decision_rebuild(tmp_path: Path):
     from axis_supervisor.decisions import (
         APPROVE_ACTION_ID,

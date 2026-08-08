@@ -6,6 +6,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .dashboard import render_executive_dashboard
 from .decisions import (
     DECISION_DIGEST,
     DECISION_ID,
@@ -13,7 +14,6 @@ from .decisions import (
     SlackDecisionController,
     decision_identity,
 )
-from .dashboard import render_executive_dashboard
 from .lifecycle import is_terminal
 from .models import validate_assignment
 from .mutation import MutationGate, OperationClass
@@ -124,7 +124,7 @@ class SlackProjection:
                         json.loads(path.read_text(encoding="utf-8")), self.root
                     )
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S112 - invalid live records are omitted
                 continue
         return values
 
@@ -247,7 +247,7 @@ class SlackProjection:
             matched = None
             for index, group in enumerate(groups):
                 first_epoch = int(
-                    ((group[0].get("event") or {}).get("created_at_epoch") or 0)
+                    (group[0].get("event") or {}).get("created_at_epoch") or 0
                 )
                 if key is not None and group_keys[index] == key and event_epoch - first_epoch <= window_seconds:
                     matched = index
@@ -456,7 +456,14 @@ class SlackProjection:
                     and store.load_card(identity) is not None
                 ):
                     continue
-                ts = state["projection_timestamps"]["decision"].get(identity)
+                persisted_card = store.load_card(identity)
+                ts = state["projection_timestamps"]["decision"].get(identity) or (
+                    str(persisted_card.get("ts") or "")
+                    if persisted_card
+                    and persisted_card.get("digest") == digest
+                    and persisted_card.get("channel") == channel
+                    else None
+                )
                 response_ts, fingerprint = controller.project(
                     token,
                     workspace_id=str(state.get("workspace_id") or ""),
@@ -630,7 +637,7 @@ class SlackProjection:
                     grant_path,
                     "axis.external-development-supervisor.mutation-grant",
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001, S112 - invalid grants are omitted
                 continue
             if grant.get("status") == "active":
                 active_grants.append(grant)

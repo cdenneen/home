@@ -11,6 +11,8 @@
     "action",
     "target",
     "status",
+    "transition",
+    "detail",
     "occurred_at"
   ],
   "properties": {
@@ -31,7 +33,26 @@
       ]
     },
     "target": { "enum": ["axis-development-watchdog", "cdenneen/home"] },
-    "status": { "enum": ["requested", "in-progress", "completed"] },
+    "status": {
+      "enum": [
+        "requested",
+        "in-progress",
+        "completed",
+        "failed",
+        "waiting-human"
+      ]
+    },
+    "transition": {
+      "enum": [
+        "requested",
+        "started",
+        "completed",
+        "failed",
+        "waiting-human",
+        "health-restored"
+      ]
+    },
+    "detail": { "type": "string", "maxLength": 1200 },
     "occurred_at": { "type": "string", "format": "date-time" }
   },
   "additionalProperties": false

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .diagnostics import SubprocessDiagnostic
-from .projection import SlackProjector
+from .projection import CanonicalSlackProjector
 from .records import (
     Ledger,
     atomic_write,
@@ -18,6 +18,7 @@ from .records import (
     parse_timestamp,
     timestamp,
 )
+from .recovery import RecoveryExecutor
 
 Clock = Callable[[], int]
 
@@ -70,13 +71,15 @@ class Watchdog:
         clock: Clock | None = None,
         projector: Any | None = None,
         diagnostic: Any | None = None,
+        recovery: Any | None = None,
     ):
         self.root = root
         self.supervisor_root = supervisor_root
         self.jobs_path = jobs_path
         self.clock = clock or (lambda: int(time.time()))
-        self.projector = projector or SlackProjector(supervisor_root)
+        self.projector = projector or CanonicalSlackProjector(supervisor_root)
         self.diagnostic = diagnostic or SubprocessDiagnostic()
+        self.recovery = recovery or RecoveryExecutor(root)
         self.states = Ledger(root, "states", "axis.development-watchdog.state")
         self.observations = Ledger(
             root, "observations", "axis.development-watchdog.observation"
@@ -110,6 +113,7 @@ class Watchdog:
             "capability-graduation",
             "capability-convergence",
             "slack-overview-state",
+            "slack-outbox",
         ):
             path = self.supervisor_root / f"{name}.json"
             if not path.exists():
@@ -144,12 +148,6 @@ class Watchdog:
             return True, "mission is completed"
         runnable = any(
             action.get("executable")
-            and action.get("kind")
-            in {
-                "dispatch-executable",
-                "reconcile-active-assignment",
-                "validate-capability-stream",
-            }
             for action in mission.get("generated_actions") or []
         )
         if mission.get("external_blockers") and not runnable:
@@ -169,41 +167,83 @@ class Watchdog:
 
     @staticmethod
     def _mission_progress(
-        mission: dict[str, Any], graduation: dict[str, Any], events: list[dict[str, Any]]
+        mission: dict[str, Any], graduation: dict[str, Any]
     ) -> tuple[str, dict[str, Any]]:
-        latest_progress = next(
-            (
-                event
-                for event in reversed(events)
-                if event.get("event_type") in PROGRESS_EVENTS
-            ),
-            {},
+        capabilities = sorted(
+            [
+                {
+                    "capability": item.get("capability"),
+                    "graduated": item.get("graduated"),
+                    "gates": {
+                        gate: {
+                            "applicable": value.get("applicable"),
+                            "state": value.get("state"),
+                        }
+                        for gate, value in sorted(
+                            (item.get("graduation_state") or {}).items()
+                        )
+                    },
+                    "product_subdimensions": {
+                        name: {
+                            "applicable": value.get("applicable"),
+                            "state": value.get("state"),
+                        }
+                        for name, value in sorted(
+                            (item.get("product_subdimensions") or {}).items()
+                        )
+                    },
+                }
+                for item in graduation.get("capabilities") or []
+            ],
+            key=lambda value: str(value["capability"]),
         )
-        capabilities = [
-            {
-                "capability": item.get("capability"),
-                "graduated": item.get("graduated"),
-                "production_confidence": item.get("production_confidence"),
-                "first_failing_gate": item.get("first_failing_gate"),
-            }
-            for item in graduation.get("capabilities") or []
-        ]
-        active = [
-            {
-                "assignment_id": item.get("assignment_id"),
-                "lifecycle_state": item.get("lifecycle_state"),
-                "result_state": item.get("result_state"),
-            }
-            for item in mission.get("active_assignments") or []
-        ]
+        missing_gates = sorted(
+            [
+                {
+                    "capability": item.get("capability"),
+                    "gate": item.get("gate"),
+                    "state": item.get("state"),
+                    "external_only": item.get("external_only"),
+                }
+                for item in mission.get("missing_gates") or []
+            ],
+            key=lambda value: (
+                str(value["capability"]),
+                str(value["gate"]),
+            ),
+        )
+        milestones = sorted(
+            [
+                {
+                    "milestone": item.get("milestone"),
+                    "gate": item.get("gate"),
+                    "graduated": (item.get("denominator") or {}).get("graduated"),
+                    "debts": sorted(
+                        [
+                            {
+                                "kind": debt.get("kind"),
+                                "ref": debt.get("ref"),
+                                "gate": debt.get("gate"),
+                                "reason": debt.get("reason"),
+                            }
+                            for debt in item.get("debts") or []
+                        ],
+                        key=lambda value: (
+                            str(value["kind"]),
+                            str(value["ref"]),
+                            str(value["gate"]),
+                        ),
+                    ),
+                }
+                for item in graduation.get("milestones") or []
+            ],
+            key=lambda value: str(value["milestone"]),
+        )
         snapshot = {
-            "mission_state": mission.get("current_state"),
-            "graduation_progress": mission.get("graduation_progress") or {},
-            "effectiveness_metrics": mission.get("effectiveness_metrics") or {},
+            "primary_kpi": graduation.get("primary_kpi") or {},
             "capabilities": capabilities,
-            "active_assignments": active,
-            "completed_assignment_count": len(mission.get("completed_assignments") or []),
-            "latest_progress_event": latest_progress.get("event_id"),
+            "missing_gates": missing_gates,
+            "milestones": milestones,
         }
         return _digest(snapshot), snapshot
 
@@ -363,6 +403,20 @@ class Watchdog:
                     1,
                 )
             )
+        failed_outbox = [
+            item
+            for item in (records["slack-outbox"].get("notifications") or [])
+            if item.get("current_stage") == "delivery_failed"
+        ]
+        if failed_outbox:
+            anomalies.append(
+                self._anomaly(
+                    "slack-outbox-undelivered",
+                    "delivery_effectiveness",
+                    f"canonical supervisor Slack outbox has {len(failed_outbox)} failed notification(s)",
+                    1,
+                )
+            )
         mission = records["active-mission"]
         effectiveness = mission.get("effectiveness_metrics") or {}
         evaluated = int(effectiveness.get("assignments_evaluated") or 0)
@@ -379,9 +433,8 @@ class Watchdog:
                 )
             )
 
-        events = _read_jsonl(self.supervisor_root / "operational-events.jsonl")
         fingerprint, progress_snapshot = self._mission_progress(
-            mission, records["capability-graduation"], events
+            mission, records["capability-graduation"]
         )
         previous_fingerprint = str(state.get("mission_progress_fingerprint") or "")
         progress_since = int(state.get("mission_progress_since_epoch") or now)
@@ -505,38 +558,124 @@ class Watchdog:
                     "action": "deterministic-health-restored",
                     "target": incident.get("repair_repository") or "axis-development-watchdog",
                     "status": "completed",
+                    "transition": "health-restored",
+                    "detail": "deterministic anomaly is no longer present",
                     "occurred_at": timestamp(now),
                 }
             )
             current[incident_id] = resolved
+        return current, newly_opened
+
+    @staticmethod
+    def _recovery_action(level: int) -> str:
+        return {
+            0: "observe-and-catch-up",
+            1: "retry-watchdog-projection",
+            2: "repair-watchdog-cron",
+            3: "restart-watchdog-runtime",
+            4: "escalate-supervisor-repair",
+            5: "require-product-owner-action",
+        }[level]
+
+    def _append_recovery(
+        self,
+        incident: dict[str, Any],
+        *,
+        status: str,
+        transition: str,
+        detail: str,
+        now: int,
+    ) -> dict[str, Any]:
+        level = int(incident["recovery_level"])
+        return self.recoveries.append(
+            {
+                "recovery_id": uuid.uuid4().hex,
+                "incident_id": incident["incident_id"],
+                "level": level,
+                "action": self._recovery_action(level),
+                "target": incident.get("repair_repository")
+                or "axis-development-watchdog",
+                "status": status,
+                "transition": transition,
+                "detail": detail[:1200],
+                "occurred_at": timestamp(now),
+            }
+        )
+
+    def _recover_incidents(
+        self,
+        control: dict[str, Any],
+        current: dict[str, dict[str, Any]],
+        newly_opened: list[dict[str, Any]],
+        now: int,
+    ) -> None:
         for incident in newly_opened:
             level = int(incident["recovery_level"])
-            action = {
-                0: "observe-and-catch-up",
-                1: "retry-watchdog-projection",
-                2: "repair-watchdog-cron",
-                3: "restart-watchdog-runtime",
-                4: "escalate-supervisor-repair",
-                5: "require-product-owner-action",
-            }[level]
             target = incident.get("repair_repository") or "axis-development-watchdog"
             if level == 4 and target != "cdenneen/home":
                 raise ValueError("level-4 repair escalation escaped cdenneen/home")
-            self.recoveries.append(
-                {
-                    "recovery_id": uuid.uuid4().hex,
-                    "incident_id": incident["incident_id"],
-                    "level": level,
-                    "action": action,
-                    "target": target,
-                    "status": "requested" if level >= 2 else "in-progress",
-                    "occurred_at": timestamp(now),
-                }
+            self._append_recovery(
+                incident,
+                status="requested",
+                transition="requested",
+                detail=f"deterministic anomaly requested recovery level {level}",
+                now=now,
             )
             incident["status"] = "recovering"
             incident["event"] = "recovery-started"
+            incident["observed_at"] = timestamp(now)
+            self.incidents.append(incident)
             current[incident["incident_id"]] = incident
-        return current, newly_opened
+            self._append_recovery(
+                incident,
+                status="in-progress",
+                transition="started",
+                detail="bounded recovery execution started",
+                now=now,
+            )
+            try:
+                status, detail = self.recovery.execute(
+                    incident,
+                    incident.get("diagnosis"),
+                    control,
+                    now,
+                )
+            except Exception as exc:  # noqa: BLE001 - failure is recovery evidence
+                self._append_recovery(
+                    incident,
+                    status="failed",
+                    transition="failed",
+                    detail=f"{type(exc).__name__}: {exc}",
+                    now=now,
+                )
+                continue
+            if status != "in-progress":
+                self._append_recovery(
+                    incident,
+                    status=status,
+                    transition="waiting-human" if status == "waiting-human" else "completed",
+                    detail=detail,
+                    now=now,
+                )
+
+    def _finish_projection_recoveries(
+        self,
+        incidents: list[dict[str, Any]],
+        *,
+        success: bool,
+        detail: str,
+        now: int,
+    ) -> None:
+        for incident in incidents:
+            if int(incident["recovery_level"]) != 1:
+                continue
+            self._append_recovery(
+                incident,
+                status="completed" if success else "failed",
+                transition="completed" if success else "failed",
+                detail=detail,
+                now=now,
+            )
 
     def _diagnose(
         self,
@@ -546,7 +685,12 @@ class Watchdog:
         evidence: dict[str, Any],
         now: int,
     ) -> str | None:
-        if not newly_opened:
+        diagnostic_incidents = [
+            incident
+            for incident in newly_opened
+            if int(incident.get("recovery_level") or 0) == 4
+        ]
+        if not diagnostic_incidents:
             return None
         calls = [
             int(value)
@@ -554,7 +698,7 @@ class Watchdog:
             if now - int(value) < 86_400
         ]
         signature = _digest(
-            sorted(incident["anomaly_code"] for incident in newly_opened)
+            sorted(incident["anomaly_code"] for incident in diagnostic_incidents)
         )
         last = (state.get("diagnostic_signatures") or {}).get(signature)
         if len(calls) >= int(control["diagnostic_daily_limit"]):
@@ -566,7 +710,7 @@ class Watchdog:
             "mission": evidence["mission"],
         }
         try:
-            result = self.diagnostic(newly_opened, bounded_evidence, control)
+            result = self.diagnostic(diagnostic_incidents, bounded_evidence, control)
         except Exception as exc:  # noqa: BLE001 - diagnostics must not stop recovery
             result = f"diagnostic failed: {type(exc).__name__}: {exc}"[:1200]
         calls.append(now)
@@ -574,7 +718,7 @@ class Watchdog:
         signatures[signature] = now
         state["diagnostic_calls"] = calls
         state["diagnostic_signatures"] = signatures
-        for incident in newly_opened:
+        for incident in diagnostic_incidents:
             incident["diagnosis"] = result
             self.incidents.append(
                 {
@@ -690,6 +834,7 @@ class Watchdog:
             state, anomalies, now
         )
         self._diagnose(control, state, newly_opened, evidence, now)
+        self._recover_incidents(control, incidents, newly_opened, now)
         report = self._report(evidence, dimensions, incidents)
         projection_error = None
         try:
@@ -706,8 +851,20 @@ class Watchdog:
                         **value,
                     }
                 )
+            self._finish_projection_recoveries(
+                newly_opened,
+                success=True,
+                detail="canonical Slack projection and readback completed",
+                now=now,
+            )
         except Exception as exc:  # noqa: BLE001 - projection failure is incident evidence
             projection_error = f"{type(exc).__name__}: {exc}"
+            self._finish_projection_recoveries(
+                newly_opened,
+                success=False,
+                detail=projection_error,
+                now=now,
+            )
             self.projections.append(
                 {
                     "projection_id": uuid.uuid4().hex,
@@ -734,6 +891,13 @@ class Watchdog:
                 {**state, "incidents": incidents}, anomalies, now
             )
             self._diagnose(control, state, delivery_opened, evidence, now)
+            self._recover_incidents(control, incidents, delivery_opened, now)
+            self._finish_projection_recoveries(
+                delivery_opened,
+                success=False,
+                detail=projection_error,
+                now=now,
+            )
 
         mission = evidence["mission"]
         observation = self.observations.append(

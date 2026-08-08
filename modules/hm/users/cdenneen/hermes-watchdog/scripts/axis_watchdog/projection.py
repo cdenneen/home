@@ -1,6 +1,8 @@
 import hashlib
 import json
-import re
+import os
+import shlex
+import subprocess
 import time
 import urllib.request
 from collections.abc import Callable
@@ -19,7 +21,7 @@ def _fingerprint(text: str, blocks: list[dict[str, Any]]) -> str:
 
 
 class SlackProjector:
-    """Projects watchdog-owned views while preserving the existing Slack map."""
+    """Adds watchdog incident cards to the canonical supervisor projection state."""
 
     def __init__(self, supervisor_root: Path, api: Api | None = None):
         self.supervisor_root = supervisor_root
@@ -111,28 +113,6 @@ class SlackProjector:
         return state
 
     @staticmethod
-    def render_dashboard(report: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
-        summary = report["summary"]
-        text = (
-            f"AXIS | Watchdog {summary['overall']} | Mission {summary['mission']} | "
-            f"Capabilities {summary['capabilities']} | Open incidents {summary['open_incidents']}"
-        )
-        blocks: list[dict[str, Any]] = []
-        for title, body in report["sections"]:
-            blocks.extend(
-                [
-                    {"type": "header", "text": {"type": "plain_text", "text": title}},
-                    {
-                        "type": "section",
-                        "block_id": "axis_"
-                        + re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_"),
-                        "text": {"type": "mrkdwn", "text": str(body)[:2900]},
-                    },
-                ]
-            )
-        return text, blocks
-
-    @staticmethod
     def render_incident(incident: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
         status = str(incident["status"]).replace("-", " ").title()
         text = (
@@ -148,7 +128,9 @@ class SlackProjector:
         )
         if incident.get("diagnosis"):
             body += f"\nDiagnostic: {incident['diagnosis']}"
-        return text, [{"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}}]
+        return text, [
+            {"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}}
+        ]
 
     def _verify(self, token: str, channel: str, ts: str, expected_text: str) -> None:
         response = self.api_call(
@@ -167,6 +149,33 @@ class SlackProjector:
         if not message or str(message.get("text") or "") != expected_text:
             raise RuntimeError("Slack message readback did not match expected text")
 
+    def _persist_accepted(
+        self,
+        state: dict[str, Any],
+        *,
+        category: str,
+        key: str,
+        channel: str,
+        response_ts: str,
+        fingerprint: str,
+        at_epoch: int,
+    ) -> None:
+        now = timestamp(at_epoch)
+        state["projection_timestamps"][category][key] = response_ts
+        state["projection_fingerprints"][category][key] = fingerprint
+        state["delivery_stage"] = "Slack_API_accepted"
+        state["delivery_history"] = (
+            list(state.get("delivery_history") or [])
+            + [{"stage": "Slack_API_accepted", "at": now}]
+        )[-100:]
+        state["last_api_response"] = {
+            "ok": True,
+            "channel": channel,
+            "ts": response_ts,
+        }
+        state["updated_at_epoch"] = at_epoch
+        atomic_write(self.state_path, state)
+
     def _project_one(
         self,
         token: str,
@@ -176,6 +185,7 @@ class SlackProjector:
         key: str,
         text: str,
         blocks: list[dict[str, Any]],
+        at_epoch: int,
     ) -> dict[str, Any]:
         fingerprint = _fingerprint(text, blocks)
         timestamps = state["projection_timestamps"][category]
@@ -186,7 +196,11 @@ class SlackProjector:
             operation = "verified"
             response_ts = existing_ts
         else:
-            payload: dict[str, Any] = {"channel": channel, "text": text, "blocks": blocks}
+            payload: dict[str, Any] = {
+                "channel": channel,
+                "text": text,
+                "blocks": blocks,
+            }
             if existing_ts:
                 payload["ts"] = existing_ts
             try:
@@ -205,8 +219,15 @@ class SlackProjector:
             if str(response.get("channel") or "") != channel or not response_ts:
                 raise RuntimeError("Slack projection omitted channel or timestamp")
             operation = "updated" if existing_ts and response_ts == existing_ts else "created"
-            timestamps[key] = response_ts
-            fingerprints[key] = fingerprint
+            self._persist_accepted(
+                state,
+                category=category,
+                key=key,
+                channel=channel,
+                response_ts=response_ts,
+                fingerprint=fingerprint,
+                at_epoch=at_epoch,
+            )
             self._verify(token, channel, response_ts, text)
         return {
             "target_type": category,
@@ -218,56 +239,21 @@ class SlackProjector:
             "fingerprint": fingerprint,
         }
 
-    def project(
-        self,
-        report: dict[str, Any],
-        incidents: list[dict[str, Any]],
-        at_epoch: int | None = None,
+    def project_incidents(
+        self, incidents: list[dict[str, Any]], at_epoch: int
     ) -> list[dict[str, Any]]:
-        at_epoch = at_epoch or int(time.time())
+        if not incidents:
+            return []
         control = load_optional(self.supervisor_root / "control.json")
         user_id = str(control.get("slack_user_id") or "")
         if not user_id:
             raise ValueError("supervisor slack_user_id is not configured")
         token = self.env_file()["SLACK_BOT_TOKEN"]
         state = self._normalize_state(load_optional(self.state_path), at_epoch, user_id)
-        state["last_attempt_at"] = timestamp(at_epoch)
-        state["delivery_stage"] = "notification_send_attempted"
-        auth = self.api_call(token, "auth.test", {})
-        opened = self.api_call(token, "conversations.open", {"users": user_id})
-        channel = str((opened.get("channel") or {}).get("id") or "")
-        if not auth.get("team_id") or not auth.get("user_id") or not channel:
-            raise RuntimeError("Slack identity or DM channel was incomplete")
-        if state.get("channel") and state["channel"] != channel:
-            raise RuntimeError("Slack DM channel changed from the persisted Product Owner route")
-        state.update(
-            {
-                "workspace_id": auth["team_id"],
-                "workspace_name": auth.get("team"),
-                "bot_user_id": auth["user_id"],
-                "channel": channel,
-            }
-        )
+        channel = str(state.get("channel") or "")
+        if not channel:
+            raise RuntimeError("canonical Slack projector did not persist a DM channel")
         projections = []
-        dashboard_text, dashboard_blocks = self.render_dashboard(report)
-        projections.append(
-            self._project_one(
-                token,
-                channel,
-                state,
-                "dashboard",
-                "overview",
-                dashboard_text,
-                dashboard_blocks,
-            )
-        )
-        state["dashboard_fallback"] = {
-            "text": dashboard_text,
-            "blocks": dashboard_blocks,
-            "fingerprint": projections[0]["fingerprint"],
-        }
-        state["ts"] = projections[0]["ts"]
-        state["fingerprint"] = projections[0]["fingerprint"]
         for incident in incidents:
             text, blocks = self.render_incident(incident)
             projections.append(
@@ -279,6 +265,7 @@ class SlackProjector:
                     str(incident["incident_id"]),
                     text,
                     blocks,
+                    at_epoch,
                 )
             )
         verified_at = timestamp(at_epoch)
@@ -292,11 +279,69 @@ class SlackProjector:
         state["last_successful_update_at"] = verified_at
         state["last_successful_update_epoch"] = at_epoch
         state["updated_at_epoch"] = at_epoch
-        state["message_operation"] = projections[0]["operation"]
-        state["last_api_response"] = {
-            "ok": True,
-            "channel": channel,
-            "ts": projections[0]["ts"],
-        }
         atomic_write(self.state_path, state)
+        return projections
+
+
+class CanonicalSlackProjector:
+    """Runs the canonical supervisor projector under watchdog scheduling authority."""
+
+    def __init__(
+        self,
+        supervisor_root: Path,
+        *,
+        command: str | None = None,
+        runner: Any | None = None,
+        incident_projector: SlackProjector | None = None,
+    ):
+        self.supervisor_root = supervisor_root
+        self.command = command or os.environ.get(
+            "AXIS_WATCHDOG_CANONICAL_PROJECTOR",
+            "axis-development-watchdog-canonical-projector",
+        )
+        self.runner = runner or subprocess.run
+        self.incident_projector = incident_projector or SlackProjector(supervisor_root)
+
+    def project(
+        self,
+        report: dict[str, Any],
+        incidents: list[dict[str, Any]],
+        at_epoch: int | None = None,
+    ) -> list[dict[str, Any]]:
+        del report
+        at_epoch = at_epoch or int(time.time())
+        result = self.runner(
+            shlex.split(self.command),
+            text=True,
+            capture_output=True,
+            timeout=300,
+            check=False,
+            env=os.environ
+            | {
+                "AXIS_SUPERVISOR_ROOT": str(self.supervisor_root),
+                "AXIS_SUPERVISOR_MUTATION_SOURCE": "watchdog-projector",
+            },
+        )
+        if result.returncode != 0:
+            output = (result.stdout or "") + (result.stderr or "")
+            raise RuntimeError(
+                f"canonical Slack projection exited {result.returncode}: {output[-2000:]}"
+            )
+        lines = [line for line in (result.stdout or "").splitlines() if line.strip()]
+        canonical = json.loads(lines[-1]) if lines else {}
+        state = load_optional(self.supervisor_root / "slack-overview-state.json")
+        projections = [
+            {
+                "target_type": "dashboard",
+                "target_id": "overview",
+                "operation": str(canonical.get("message_operation") or "verified"),
+                "status": "verified",
+                "channel": str(canonical.get("channel") or state.get("channel") or ""),
+                "ts": str(canonical.get("ts") or state.get("ts") or ""),
+                "fingerprint": str(state.get("fingerprint") or "canonical"),
+            }
+        ]
+        projections.extend(
+            self.incident_projector.project_incidents(incidents, at_epoch)
+        )
         return projections
