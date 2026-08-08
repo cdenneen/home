@@ -74,6 +74,8 @@ def _planning_scope(
     """Select the exact authorized slice referred to by a canonical finding."""
     untrusted_source = False
     for note in notes:
+        if note.get("system"):
+            continue
         body = str(note.get("body") or "")
         if "Immutable PlanningRecord" not in body or digest.lower() not in body.lower():
             continue
@@ -230,6 +232,17 @@ def _normalize_amendments(
                     amendment,
                     owner_ref,
                     "competing-finding-amendments",
+                    source_sha,
+                )
+            )
+            continue
+        if amendment.get("system") or (original is not None and original.get("system")):
+            normalized.append(
+                _amendment_invalid(
+                    original,
+                    amendment,
+                    owner_ref,
+                    "system-finding-note",
                     source_sha,
                 )
             )
@@ -502,6 +515,9 @@ def normalize_gitlab_findings(
             continue
         if not isinstance(note_id, int):
             normalized.append(_invalid(note, owner_ref, "missing-note-id", source_sha))
+            continue
+        if note.get("system"):
+            normalized.append(_invalid(note, owner_ref, "system-finding-note", source_sha))
             continue
         author = str((note.get("author") or {}).get("username") or "")
         if not trusted_principals or author not in trusted_principals:
