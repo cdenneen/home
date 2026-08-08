@@ -72,6 +72,7 @@ class Watchdog:
         projector: Any | None = None,
         diagnostic: Any | None = None,
         recovery: Any | None = None,
+        fault: Any | None = None,
     ):
         self.root = root
         self.supervisor_root = supervisor_root
@@ -84,6 +85,7 @@ class Watchdog:
         )
         self.diagnostic = diagnostic or SubprocessDiagnostic()
         self.recovery = recovery or RecoveryExecutor(root, supervisor_root)
+        self.fault = fault
         self.states = Ledger(root, "states", "axis.development-watchdog.state")
         self.observations = Ledger(
             root, "observations", "axis.development-watchdog.observation"
@@ -425,12 +427,22 @@ class Watchdog:
         *,
         repair: bool = False,
     ) -> dict[str, Any]:
+        repair_repository = "cdenneen/home" if repair else None
+        evidence_fingerprint = _digest(
+            {
+                "anomaly_code": code,
+                "dimension": dimension,
+                "recovery_level": level,
+                "repair_repository": repair_repository,
+            }
+        )
         return {
             "anomaly_code": code,
             "dimension": dimension,
             "summary": summary,
             "recovery_level": level,
-            "repair_repository": "cdenneen/home" if repair else None,
+            "repair_repository": repair_repository,
+            "evidence_fingerprint": evidence_fingerprint,
         }
 
     def _observe(
@@ -676,6 +688,31 @@ class Watchdog:
     @staticmethod
     def _incident_id(code: str) -> str:
         return "wd-" + hashlib.sha256(code.encode()).hexdigest()[:12]
+
+    def _rehydrate_completed_recoveries(
+        self, state: dict[str, Any], anomalies: list[dict[str, Any]]
+    ) -> None:
+        incidents = dict(state.get("incidents") or {})
+        for anomaly in anomalies:
+            incident_id = self._incident_id(str(anomaly["anomaly_code"]))
+            transaction = self.recovery_journal.completed_for_evidence(
+                incident_id,
+                str(anomaly["evidence_fingerprint"]),
+            )
+            if not transaction:
+                continue
+            authoritative = dict(transaction.get("incident") or {})
+            current = incidents.get(incident_id) or {}
+            if (
+                current
+                and current.get("status") != "resolved"
+                and current.get("opened_at") != authoritative.get("opened_at")
+            ):
+                continue
+            authoritative["status"] = "recovering"
+            authoritative["event"] = "recovery-started"
+            incidents[incident_id] = authoritative
+        state["incidents"] = incidents
 
     def _reconcile_incidents(
         self,
@@ -1048,6 +1085,7 @@ class Watchdog:
             control, state, prior_heartbeat, now
         )
         evidence["supervisor_root"] = str(self.supervisor_root)
+        self._rehydrate_completed_recoveries(state, anomalies)
         incidents, newly_opened = self._reconcile_incidents(
             state, anomalies, now
         )
@@ -1055,6 +1093,11 @@ class Watchdog:
         new_recoveries = self._recover_incidents(
             control, incidents, newly_opened, now
         )
+        if any(
+            transaction.get("status") == "completed"
+            for transaction in new_recoveries
+        ) and self.fault:
+            self.fault("after-recovery-completed-before-state")
         projection_recoveries = resumed_recoveries + new_recoveries
         report = self._report(evidence, dimensions, incidents)
         projection_error = None

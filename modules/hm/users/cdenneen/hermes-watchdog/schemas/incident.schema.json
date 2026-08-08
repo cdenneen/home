@@ -9,6 +9,7 @@
     "anomaly_code",
     "dimension",
     "summary",
+    "evidence_fingerprint",
     "recovery_level",
     "status",
     "event",
@@ -30,6 +31,10 @@
       ]
     },
     "summary": { "type": "string", "minLength": 1 },
+    "evidence_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "recovery_level": { "type": "integer", "minimum": 0, "maximum": 5 },
     "repair_repository": { "enum": ["cdenneen/home", null] },
     "status": { "enum": ["opened", "recovering", "resolved"] },

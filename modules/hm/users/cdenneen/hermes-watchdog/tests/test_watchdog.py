@@ -1326,6 +1326,75 @@ def test_watchdog_restart_resumes_pending_recovery_transaction(tmp_path: Path):
     assert ids == {persisted["recovery_id"]}
 
 
+def test_completed_recovery_journal_rebuilds_state_after_precommit_crash(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs_path = setup_runtime(tmp_path, now)
+    jobs = json.loads(jobs_path.read_text())
+    jobs["jobs"].append(
+        {
+            "id": "reporter",
+            "name": "axis-development-supervisor-report",
+            "enabled": True,
+        }
+    )
+    write(jobs_path, jobs)
+    write(root / "slack-cutover.json", {"generation": "C"})
+
+    def crash(point):
+        if point == "after-recovery-completed-before-state":
+            raise RuntimeError("injected post-effect crash")
+
+    with pytest.raises(RuntimeError, match="injected post-effect crash"):
+        Watchdog(
+            root,
+            supervisor,
+            jobs_path,
+            clock=lambda: now,
+            projector=FakeProjector(),
+            diagnostic=FakeDiagnostic(),
+            fault=crash,
+        ).run()
+
+    incident_id = Watchdog._incident_id("routine-slack-authority-conflict")
+    transaction_path = root / "recovery-transactions" / f"{incident_id}.json"
+    transaction = json.loads(transaction_path.read_text())
+    assert transaction["status"] == "completed"
+    recovery_id = transaction["recovery_id"]
+    assert not (root / "state.json").exists()
+
+    restarted = Watchdog(
+        root,
+        supervisor,
+        jobs_path,
+        clock=lambda: now + 1,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+    assert "routine-slack-authority-conflict" in restarted["anomalies"]
+    rebuilt = json.loads((root / "state.json").read_text())
+    assert rebuilt["incidents"][incident_id]["opened_at"] == transaction["opened_at"]
+    assert rebuilt["incidents"][incident_id]["evidence_fingerprint"] == transaction[
+        "evidence_fingerprint"
+    ]
+
+    recovery_entries = [
+        json.loads(line) for line in (root / "recoveries.jsonl").read_text().splitlines()
+    ]
+    assert {item["recovery_id"] for item in recovery_entries} == {recovery_id}
+    starts = [
+        json.loads(line)
+        for line in (root / "incidents.jsonl").read_text().splitlines()
+        if json.loads(line).get("event") == "recovery-started"
+    ]
+    assert len(starts) == 1
+    assignments = list((supervisor / "assignments").glob("assignment-watchdog-*.json"))
+    assert len(assignments) == 1
+    assignment = json.loads(assignments[0].read_text())
+    assert assignment["source_item"]["watchdog_recovery_id"] == recovery_id
+
+
 def test_home_manager_defines_external_nonrecursive_heartbeat_monitor():
     module = (ROOT / "default.nix").read_text()
     assert "systemd.user.timers.axis-development-watchdog-backup" in module

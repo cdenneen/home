@@ -40,6 +40,23 @@ class RecoveryJournal:
         return self.directory / f"{incident_id}.json"
 
     def begin(self, incident: dict[str, Any], now: int) -> dict[str, Any]:
+        incident = dict(incident)
+        evidence_fingerprint = str(
+            incident.get("evidence_fingerprint")
+            or "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    [
+                        incident.get("anomaly_code"),
+                        incident.get("dimension"),
+                        incident.get("recovery_level"),
+                        incident.get("repair_repository"),
+                    ],
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+        )
+        incident["evidence_fingerprint"] = evidence_fingerprint
         path = self._path(str(incident["incident_id"]))
         existing = load_optional(path)
         if existing and existing.get("opened_at") == incident.get("opened_at"):
@@ -53,6 +70,7 @@ class RecoveryJournal:
             "recovery_id": "recovery-" + hashlib.sha256(identity.encode()).hexdigest()[:20],
             "incident_id": incident["incident_id"],
             "opened_at": incident.get("opened_at"),
+            "evidence_fingerprint": evidence_fingerprint,
             "incident": incident,
             "status": "pending",
             "last_transition": None,
@@ -123,6 +141,23 @@ class RecoveryJournal:
 
     def for_incident(self, incident_id: str) -> dict[str, Any]:
         return load_optional(self._path(incident_id))
+
+    def completed_for_evidence(
+        self, incident_id: str, evidence_fingerprint: str
+    ) -> dict[str, Any]:
+        transaction = self.for_incident(incident_id)
+        if (
+            not transaction
+            or transaction.get("status") != "completed"
+            or transaction.get("evidence_fingerprint") != evidence_fingerprint
+        ):
+            return {}
+        restored = any(
+            entry.get("recovery_id") == transaction.get("recovery_id")
+            and entry.get("transition") == "health-restored"
+            for entry in self.ledger.entries()
+        )
+        return {} if restored else transaction
 
 
 class RecoveryExecutor:

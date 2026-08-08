@@ -8,6 +8,7 @@
     "recovery_id",
     "incident_id",
     "opened_at",
+    "evidence_fingerprint",
     "incident",
     "status",
     "last_transition",
@@ -21,6 +22,10 @@
     "recovery_id": { "type": "string", "pattern": "^recovery-[0-9a-f]{20}$" },
     "incident_id": { "type": "string", "minLength": 1 },
     "opened_at": { "type": ["string", "null"], "format": "date-time" },
+    "evidence_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "incident": { "type": "object" },
     "status": {
       "enum": [
