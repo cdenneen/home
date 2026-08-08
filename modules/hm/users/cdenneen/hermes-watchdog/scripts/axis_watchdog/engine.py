@@ -770,7 +770,7 @@ class Watchdog:
                 continue
             authoritative = dict(transaction.get("incident") or {})
             current = incidents.get(str(transaction["incident_id"])) or {}
-            if current and (
+            if current and current.get("status") != "resolved" and (
                 current.get("occurrence_generation")
                 != transaction.get("occurrence_generation")
                 or current.get("evidence_fingerprint")
