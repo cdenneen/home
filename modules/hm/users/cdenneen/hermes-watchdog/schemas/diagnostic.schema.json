@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.diagnostic",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "classification",
+    "summary",
+    "recommended_action",
+    "confidence"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.diagnostic" },
+    "schema_version": { "const": "1.0.0" },
+    "classification": {
+      "enum": [
+        "configuration",
+        "delivery",
+        "liveness",
+        "mission-stuck",
+        "runtime",
+        "unknown"
+      ]
+    },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "recommended_action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  },
+  "additionalProperties": false
+}

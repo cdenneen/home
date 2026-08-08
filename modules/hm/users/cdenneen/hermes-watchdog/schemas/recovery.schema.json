@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.recovery",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "recovery_id",
+    "incident_id",
+    "level",
+    "action",
+    "target",
+    "status",
+    "transition",
+    "detail",
+    "occurred_at"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.recovery" },
+    "schema_version": { "const": "1.0.0" },
+    "recovery_id": { "type": "string", "minLength": 1 },
+    "incident_id": { "type": "string", "minLength": 1 },
+    "level": { "type": "integer", "minimum": 0, "maximum": 5 },
+    "action": {
+      "enum": [
+        "observe-and-catch-up",
+        "retry-watchdog-projection",
+        "repair-watchdog-cron",
+        "restart-watchdog-runtime",
+        "escalate-supervisor-repair",
+        "require-product-owner-action",
+        "deterministic-health-restored"
+      ]
+    },
+    "target": { "enum": ["axis-development-watchdog", "cdenneen/home"] },
+    "status": {
+      "enum": [
+        "requested",
+        "in-progress",
+        "completed",
+        "failed",
+        "waiting-human"
+      ]
+    },
+    "transition": {
+      "enum": [
+        "requested",
+        "started",
+        "completed",
+        "failed",
+        "waiting-human",
+        "health-restored"
+      ]
+    },
+    "detail": { "type": "string", "maxLength": 1200 },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.slack-shadow",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "fingerprint",
+    "fallback",
+    "blocks",
+    "observed_at"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.slack-shadow" },
+    "schema_version": { "const": "1.0.0" },
+    "fingerprint": { "type": "string", "minLength": 1 },
+    "fallback": { "type": "string" },
+    "blocks": { "type": "array", "items": { "type": "object" } },
+    "observed_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.observation",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "observation_id",
+    "cycle_id",
+    "observed_at",
+    "observed_at_epoch",
+    "health",
+    "anomalies",
+    "mission",
+    "cutover",
+    "projection_status"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.observation" },
+    "schema_version": { "const": "1.0.0" },
+    "observation_id": { "type": "string", "minLength": 1 },
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "observed_at_epoch": { "type": "integer", "minimum": 1 },
+    "health": { "type": "object" },
+    "anomalies": { "type": "array", "items": { "type": "object" } },
+    "mission": { "type": "object" },
+    "cutover": { "type": "object" },
+    "projection_status": { "enum": ["verified", "failed"] }
+  },
+  "additionalProperties": false
+}

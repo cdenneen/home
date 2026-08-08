@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.state",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "cycle",
+    "last_cycle_id",
+    "last_observed_at",
+    "overall_status",
+    "health",
+    "incidents"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.state" },
+    "schema_version": { "const": "1.0.0" },
+    "cycle": { "type": "integer", "minimum": 1 },
+    "last_cycle_id": { "type": "string", "minLength": 1 },
+    "last_observed_at": { "type": "string", "format": "date-time" },
+    "last_observed_at_epoch": { "type": "integer", "minimum": 1 },
+    "overall_status": { "enum": ["healthy", "degraded"] },
+    "health": { "type": "object" },
+    "mission_progress_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "mission_progress_since_epoch": { "type": "integer", "minimum": 1 },
+    "slack_cutover_generation": {
+      "type": ["string", "null"],
+      "enum": ["A", "B", "C", "D", "E", null]
+    },
+    "incidents": {
+      "type": "object",
+      "additionalProperties": { "type": "object" }
+    },
+    "diagnostic_calls": { "type": "array", "items": { "type": "integer" } },
+    "diagnostic_signatures": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+    "last_projection_error": { "type": ["string", "null"] },
+    "last_observation_id": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

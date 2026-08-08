@@ -372,6 +372,31 @@
                     check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
                     touch "$out"
                   '';
+              hermes-watchdog =
+                pkgs.runCommand "hermes-watchdog-check"
+                  {
+                    nativeBuildInputs = [
+                      pkgs.check-jsonschema
+                      pkgs.pyright
+                      (pkgs.python3.withPackages (pythonPackages: [
+                        pythonPackages.jsonschema
+                        pythonPackages.pytest
+                      ]))
+                      pkgs.ruff
+                    ];
+                  }
+                  ''
+                    cp -R ${./modules/hm/users/cdenneen/hermes-watchdog} source
+                    cp -R ${./modules/hm/users/cdenneen/hermes-supervisor} hermes-supervisor
+                    chmod -R u+w source hermes-supervisor
+                    export PYTHONPATH="$PWD/source/scripts"
+                    ruff check source/scripts source/tests
+                    pytest -q source/tests
+                    pyright --project source/pyrightconfig.json
+                    check-jsonschema --check-metaschema source/schemas/*.schema.json
+                    check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
+                    touch "$out"
+                  '';
             };
         };
     };
