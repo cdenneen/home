@@ -60,6 +60,7 @@
         "ranking_score": { "type": "integer" },
         "ranking_factors": { "type": "object" },
         "semantic_record": { "type": ["object", "null"] },
+        "findings": { "type": "array", "items": { "type": "object" } },
         "source_fingerprint": { "type": "string", "minLength": 1 },
         "verification": {
           "type": "object",

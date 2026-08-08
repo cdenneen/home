@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -232,6 +233,62 @@ def extract_acceptance_facts(text: str) -> dict:
         }
     )
     return {"ids": acceptance_ids, "open_ids": open_ids}
+
+
+def extract_findings(notes: list[dict], owner_ref: str) -> list[dict]:
+    """Read explicitly marked, source-bound findings without inventing owners."""
+    findings = []
+    for note in notes:
+        body = str(note.get("body") or "")
+        match = re.search(
+            r"```axis-supervisor-finding\s*\n(?P<payload>.*?)\n```",
+            body,
+            re.I | re.S,
+        )
+        if not match:
+            continue
+        try:
+            finding = json.loads(match.group("payload"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(finding, dict):
+            continue
+        finding_id = str(finding.get("finding_id") or "")
+        state = str(finding.get("state") or "")
+        candidate = finding.get("repair_candidate")
+        if not finding_id or state not in {"confirmed", "resolved", "invalid"}:
+            continue
+        if state == "confirmed" and not isinstance(candidate, dict):
+            continue
+        identity = "sha256:" + hashlib.sha256(
+            json.dumps(
+                {
+                    "note_id": note.get("id"),
+                    "owner_ref": owner_ref,
+                    "finding_id": finding_id,
+                    "state": state,
+                    "repair_candidate": candidate,
+                    "shared_dependents": finding.get("shared_dependents") or [],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        findings.append(
+            {
+                "finding_id": finding_id,
+                "state": state,
+                "owner_ref": owner_ref,
+                "note_id": int(note["id"]),
+                "note_url": f"{owner_ref}#note_{note['id']}",
+                "identity": identity,
+                "shared_dependents": sorted(
+                    {str(value) for value in finding.get("shared_dependents") or []}
+                ),
+                "repair_candidate": candidate,
+            }
+        )
+    return sorted(findings, key=lambda value: (value["finding_id"], value["note_id"]))
 
 
 def approval_note_url(
@@ -669,6 +726,7 @@ def main() -> int:
                     "milestone": (issue.get("milestone") or {}).get("title"),
                     "priority": issue.get("severity") or None,
                     "authority_facts": authority_facts,
+                    "findings": extract_findings(notes, ref),
                     "blocking_dependency_refs": sorted(set(blocking_dependencies)),
                     "merge_request_facts": [
                         {

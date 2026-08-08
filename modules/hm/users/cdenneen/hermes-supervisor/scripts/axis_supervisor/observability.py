@@ -31,8 +31,10 @@ NOTIFY_EVENT_TYPES = frozenset(
     {
         "assignment_retry",
         "observability_recovered",
+        "product_heartbeat",
     }
 )
+PRODUCT_HEARTBEAT_SECONDS = 30 * 60
 
 
 def utc_now() -> str:
@@ -93,6 +95,39 @@ def is_routine_analysis_event(event: dict[str, Any]) -> bool:
         "failed",
         "recovery-required",
     }
+
+
+def record_product_heartbeat(
+    root: Path, graduation: dict[str, Any], *, now: int | None = None
+) -> dict[str, Any] | None:
+    """Deliver a bounded product outcome, never a worker/activity heartbeat."""
+    now = int(time.time()) if now is None else now
+    log = OperationalEventLog(root, "cycle")
+    latest = next(
+        (
+            event
+            for event in reversed(log.events(limit=1_000))
+            if event.get("event_type") == "product_heartbeat"
+        ),
+        None,
+    )
+    if latest and now - int(latest.get("created_at_epoch") or 0) < PRODUCT_HEARTBEAT_SECONDS:
+        return None
+    kpi = graduation.get("primary_kpi") or {}
+    outcome = {
+        "graduated_capabilities": int(kpi.get("count") or 0),
+        "capability_denominator": int(kpi.get("denominator") or 0),
+        "product_confidence": float(graduation.get("production_confidence") or 0),
+        "first_failing_gate": next(
+            (
+                value.get("first_failing_gate")
+                for value in graduation.get("capabilities") or []
+                if value.get("first_failing_gate")
+            ),
+            None,
+        ),
+    }
+    return log.emit("product_heartbeat", details={"product_outcome": outcome}, notify=True)
 
 
 class OperationalEventLog:

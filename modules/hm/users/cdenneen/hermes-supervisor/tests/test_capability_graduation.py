@@ -194,6 +194,18 @@ def test_mission_v2_projection_is_durable_and_gate_complete(tmp_path: Path):
     )
     assert unchanged["capabilities"][0]["scheduled_actions"] == []
 
+    # A process restart or unrelated main advance cannot erase this capability's
+    # still-valid calibrated evidence merely because runtime collection is absent.
+    unavailable_after_restart = convergence()
+    unavailable_after_restart["runtimes"] = []
+    restored = CapabilityGraduationProjector(tmp_path).build(
+        inventory | {"generation_id": "inventory-unrelated-main"},
+        graph | {"generation_id": "graph-unrelated-main"},
+        unavailable_after_restart,
+    )
+    assert restored["calibration_reconciliation"]["state"] == "complete"
+    assert restored["capabilities"][0]["graduated"] is True
+
     production_only_node = verified_node() | {"labels": []}
     production_only_convergence = convergence()
     production_only_convergence["runtimes"][0].update(
