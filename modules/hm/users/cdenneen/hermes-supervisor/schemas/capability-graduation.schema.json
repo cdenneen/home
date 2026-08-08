@@ -60,7 +60,8 @@
     "validation_streams",
     "milestones",
     "action_scores",
-    "merge_impact_projection"
+    "merge_impact_projection",
+    "calibration_reconciliation"
   ],
   "properties": {
     "schema": {
@@ -98,6 +99,24 @@
       "type": ["number", "null"],
       "minimum": 0,
       "maximum": 100
+    },
+    "calibration_reconciliation": {
+      "type": "object",
+      "required": [
+        "required",
+        "state",
+        "previous_revision",
+        "current_revision",
+        "evidence"
+      ],
+      "properties": {
+        "required": { "type": "boolean" },
+        "state": { "enum": ["required", "complete"] },
+        "previous_revision": { "type": ["string", "null"] },
+        "current_revision": { "type": "string" },
+        "evidence": { "type": "string" }
+      },
+      "additionalProperties": false
     },
     "denominator": {
       "type": "object",

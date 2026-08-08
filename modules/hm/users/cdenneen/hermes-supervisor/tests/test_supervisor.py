@@ -462,6 +462,31 @@ def test_exact_immutable_decision_releases_implementation_to_frontier(tmp_path: 
     assert implementation["authority"]["decision_record"]["conditions"] == "Keep rollout bounded."
 
 
+def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authority_v2(
+    tmp_path: Path,
+):
+    from axis_supervisor.graph import _semantic_candidates
+
+    finding = {
+        "finding_id": "axis29-mcp-timeout-regression",
+        "state": "confirmed",
+        "repair_candidate": {
+            "slice_id": "axis29-mcp-timeout-repair",
+            "title": "Repair MCP timeout cancellation regression",
+            "category": "implementation",
+            "result": "Executable",
+            "project": "ghostspace/axis",
+            "responsibility": "axis-runtime/product",
+            "allowed_paths": ["src/axis_runtime/mcp.py", "tests/test_mcp_adapter.py"],
+            "required_tests": ["pytest -q tests/test_mcp_adapter.py"],
+            "rationale": "The canonical axis#29 finding is bounded and repairable.",
+        },
+    }
+    candidates = _semantic_candidates({"candidate_slices": [], "findings": [finding]})
+    assert candidates[0]["finding_id"] == "axis29-mcp-timeout-regression"
+    assert candidates[0]["slice_id"] == "axis29-mcp-timeout-repair"
+
+
 def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Path):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder

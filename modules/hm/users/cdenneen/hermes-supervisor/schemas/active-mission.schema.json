@@ -12,6 +12,8 @@
     "current_state",
     "missing_gates",
     "generated_actions",
+    "retired_actions",
+    "invalidation_map",
     "active_assignments",
     "completed_assignments",
     "external_blockers",
@@ -25,7 +27,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.active-mission"
     },
-    "schema_version": { "const": "3.0.0" },
+    "schema_version": { "const": "4.0.0" },
     "mission_id": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
@@ -79,7 +81,9 @@
           "evidence_model_fingerprint",
           "applicability_model_revision",
           "pre_snapshot",
-          "suppression_fingerprint"
+          "suppression_fingerprint",
+          "binding",
+          "lifecycle"
         ],
         "properties": {
           "action_id": { "type": "string", "minLength": 1 },
@@ -125,11 +129,39 @@
           "suppression_fingerprint": {
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$"
-          }
+          },
+          "binding": { "type": "object" },
+          "lifecycle": { "enum": ["CURRENT", "STALE"] }
         },
         "additionalProperties": false
       }
     },
+    "retired_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action_id",
+          "classification",
+          "retired_at",
+          "purpose",
+          "binding",
+          "replacement_action_id"
+        ],
+        "properties": {
+          "action_id": { "type": "string" },
+          "classification": {
+            "enum": ["SATISFIED", "STALE", "SUPERSEDED", "BLOCKED"]
+          },
+          "retired_at": { "type": "string", "format": "date-time" },
+          "purpose": { "type": "string" },
+          "binding": { "type": "object" },
+          "replacement_action_id": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "invalidation_map": { "type": "object" },
     "active_assignments": {
       "type": "array",
       "items": { "$ref": "#/$defs/assignment" }

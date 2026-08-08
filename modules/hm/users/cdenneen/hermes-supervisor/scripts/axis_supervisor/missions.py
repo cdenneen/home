@@ -9,7 +9,7 @@ from .mutation import MutationGate, OperationClass
 from .schema_registry import validate_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.active-mission"
-SCHEMA_VERSION = "3.0.0"
+SCHEMA_VERSION = "4.0.0"
 DESIRED_END_STATE = "all-capabilities-graduated"
 MAX_ACTIONS = 8
 MAX_OBSERVATIONS = 100
@@ -262,6 +262,32 @@ def _backfill_action_context(action: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _action_binding(action: dict[str, Any], graph: dict[str, Any], graduation: dict[str, Any]) -> dict[str, Any]:
+    capabilities = sorted(set(action.get("expected_capabilities") or []))
+    records = {str(value.get("capability")): value for value in graduation.get("capabilities") or []}
+    linked = {str(ref) for capability in capabilities for ref in (records.get(capability) or {}).get("linked_work_items") or []}
+    refs = linked | {str(value) for value in (action.get("target"), action.get("source_ref")) if value}
+    edges = sorted(edge for edge in graph.get("edges") or [] if edge.get("from_ref") in refs or edge.get("to_ref") in refs)
+    authority = next((node.get("authority") or {} for node in graph.get("nodes") or [] if node.get("ref") in refs), {})
+    projection = [{"capability": name, "state": (records.get(name) or {}).get("graduation_state"), "invalidation": (records.get(name) or {}).get("invalidation_fingerprint")} for name in capabilities]
+    return {
+        "capabilities": capabilities,
+        "milestones": sorted(set(action.get("expected_milestones") or [])),
+        "applicability_revision": str(graduation.get("applicability_model_revision") or "legacy-boolean-v1"),
+        "capability_projection_fingerprint": _fingerprint({"capabilities": projection}),
+        "dependency_fingerprint": _fingerprint({"edges": edges}),
+        "gate_owner": str(action.get("gate_owner") or "unknown"),
+        "expected_transition": list(action.get("expected_gates") or []),
+        "authority_fingerprint": _fingerprint(authority),
+        "generation": {"inventory": graph.get("inventory_generation_id"), "graph": graph.get("generation_id"), "convergence": graduation.get("source_convergence_digest")},
+        "evidence_fingerprint": _fingerprint({"evidence": sorted(set(action.get("expected_evidence") or []))}),
+    }
+
+
+def _action_purpose(action: dict[str, Any]) -> tuple[str, str, tuple[str, ...]]:
+    return (str(action.get("gate") or ""), str(action.get("gate_owner") or ""), tuple(sorted(str(value) for value in action.get("expected_capabilities") or [])))
+
+
 def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
     migrated = json.loads(json.dumps(value))
     version = migrated.get("schema_version")
@@ -314,6 +340,51 @@ def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
             _backfill_action_context(action)
             for action in migrated.get("generated_actions") or []
         ]
+    if version == "3.0.0":
+        migrated["schema_version"] = SCHEMA_VERSION
+        migrated["generated_actions"] = [
+            _backfill_action_context(action)
+            | {
+                "binding": {
+                    "capabilities": sorted(set(action.get("expected_capabilities") or [])),
+                    "milestones": sorted(set(action.get("expected_milestones") or [])),
+                    "applicability_revision": str(action.get("applicability_model_revision") or "legacy-boolean-v1"),
+                    "capability_projection_fingerprint": _fingerprint({"legacy": action.get("capability_context") or []}),
+                    "dependency_fingerprint": _fingerprint({"legacy": action.get("source_ref")}),
+                    "gate_owner": str(action.get("gate_owner") or "unknown"),
+                    "expected_transition": list(action.get("expected_gates") or []),
+                    "authority_fingerprint": _fingerprint({}),
+                    "generation": {"inventory": None, "graph": None, "convergence": action.get("convergence_fingerprint")},
+                    "evidence_fingerprint": _fingerprint({"evidence": action.get("expected_evidence") or []}),
+                },
+                "lifecycle": "STALE",
+            }
+            for action in migrated.get("generated_actions") or []
+        ]
+    if migrated.get("schema_version") == SCHEMA_VERSION:
+        migrated["generated_actions"] = [
+            action
+            if action.get("binding")
+            else action
+            | {
+                "binding": {
+                    "capabilities": sorted(set(action.get("expected_capabilities") or [])),
+                    "milestones": sorted(set(action.get("expected_milestones") or [])),
+                    "applicability_revision": str(action.get("applicability_model_revision") or "legacy-boolean-v1"),
+                    "capability_projection_fingerprint": _fingerprint({"legacy": action.get("capability_context") or []}),
+                    "dependency_fingerprint": _fingerprint({"legacy": action.get("source_ref")}),
+                    "gate_owner": str(action.get("gate_owner") or "unknown"),
+                    "expected_transition": list(action.get("expected_gates") or []),
+                    "authority_fingerprint": _fingerprint({}),
+                    "generation": {"inventory": None, "graph": None, "convergence": action.get("convergence_fingerprint")},
+                    "evidence_fingerprint": _fingerprint({"evidence": action.get("expected_evidence") or []}),
+                },
+                "lifecycle": "STALE",
+            }
+            for action in migrated.get("generated_actions") or []
+        ]
+    migrated.setdefault("retired_actions", [])
+    migrated.setdefault("invalidation_map", {})
     return migrated
 
 
@@ -1012,6 +1083,59 @@ class ActiveMissionState:
         actions = self._actions(
             missing, graph, graduation, active, suppressed
         )
+        current_actions = []
+        for action in actions:
+            action = dict(action)
+            action["binding"] = _action_binding(action, graph, graduation)
+            action["lifecycle"] = "CURRENT"
+            current_actions.append(action)
+        current_by_purpose = {_action_purpose(action): action for action in current_actions}
+        retired_actions = list(previous.get("retired_actions") or [])
+        retired_ids = {(value.get("action_id"), value.get("classification")) for value in retired_actions}
+        missing_keys = {(value["capability"], value["gate"]) for value in missing}
+        for old in previous.get("generated_actions") or []:
+            expected = old.get("binding", {}).get("expected_transition") or old.get("expected_gates") or []
+            expected_keys = {(value.get("capability"), value.get("gate")) for value in expected}
+            replacement = current_by_purpose.get(_action_purpose(old))
+            if expected_keys and not expected_keys.intersection(missing_keys):
+                classification = "SATISFIED"
+            elif replacement is None:
+                classification = "BLOCKED" if any(
+                    value["external_only"] and (value["capability"], value["gate"]) in expected_keys
+                    for value in missing
+                ) else "STALE"
+            elif old.get("action_id") != replacement.get("action_id"):
+                classification = "SUPERSEDED"
+            elif old.get("binding") != replacement["binding"]:
+                classification = "STALE"
+            else:
+                continue
+            key = (old.get("action_id"), classification)
+            if key not in retired_ids:
+                retired_actions.append({
+                    "action_id": str(old.get("action_id")),
+                    "classification": classification,
+                    "retired_at": utc_now(),
+                    "purpose": str(old.get("engineering_purpose") or ""),
+                    "binding": old.get("binding") or {},
+                    "replacement_action_id": replacement.get("action_id") if replacement else None,
+                })
+                retired_ids.add(key)
+        actions = current_actions
+        invalidation_map = {
+            action["action_id"]: {
+                "changed_paths": sorted({
+                    path
+                    for node in graph.get("nodes") or []
+                    if node.get("ref") in {action.get("target"), action.get("source_ref")}
+                    for candidate in ((node.get("semantic_record") or {}).get("candidate_slices") or [])
+                    for path in candidate.get("allowed_paths") or []
+                }),
+                "dependency_fingerprint": action["binding"]["dependency_fingerprint"],
+                "evidence_fingerprint": action["binding"]["evidence_fingerprint"],
+            }
+            for action in actions
+        }
         kpi = graduation.get("primary_kpi") or {}
         graduated = int(kpi.get("count") or 0)
         denominator = int(kpi.get("denominator") or 0)
@@ -1059,6 +1183,8 @@ class ActiveMissionState:
             "current_state": current_state,
             "missing_gates": missing,
             "generated_actions": actions,
+            "retired_actions": retired_actions[-MAX_OBSERVATIONS:],
+            "invalidation_map": invalidation_map,
             "active_assignments": active,
             "completed_assignments": completed,
             "external_blockers": blockers,
@@ -1111,6 +1237,7 @@ def mission_summary(mission: dict[str, Any]) -> dict[str, Any]:
         "current_state": mission.get("current_state"),
         "graduation_progress": mission.get("graduation_progress"),
         "generated_actions": mission.get("generated_actions") or [],
+        "retired_actions": mission.get("retired_actions") or [],
         "effectiveness_metrics": mission.get("effectiveness_metrics") or {},
         "external_blockers": mission.get("external_blockers") or [],
         "termination_condition": mission.get("termination_condition"),
