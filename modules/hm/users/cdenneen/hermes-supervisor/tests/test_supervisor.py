@@ -493,35 +493,51 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_pat
     from axis_supervisor.graph import ExecutionGraphBuilder
 
     digest = "sha256:" + "2" * 64
-    finding = {
-        "finding_id": "axis29-mcp-timeout-regression",
-        "state": "confirmed",
-        "shared_dependents": ["ghostspace/axis#31"],
-        "repair_candidate": {
-            "slice_id": "axis29-mcp-timeout-repair",
-            "title": "Repair MCP timeout cancellation regression",
-            "category": "implementation",
-            "result": "Executable",
-            "project": "ghostspace/axis",
-            "responsibility": "axis-runtime/product",
-            "allowed_paths": ["src/axis_runtime/mcp.py"],
-            "required_tests": ["pytest -q tests/test_mcp_adapter.py"],
-            "rationale": "Bounded repair from the canonical finding.",
-        },
-    }
+    source_sha = "a" * 40
+    planning = """Immutable PlanningRecord v2 - MCP Parallel Tranche
+
+Digest: `sha256:2222222222222222222222222222222222222222222222222222222222222222`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+    finding = """Current-main regression finding - MCP task-handle acceptance failure
+
+Affected tests:
+- test_live_schema_drift_blocks_task_startup
+- test_polling_budget_is_bounded_and_ambiguous_start_is_not_replayed
+- test_notification_is_only_a_hint_and_polling_establishes_completion
+
+Expected: bounded task-handle protocol tests terminate.
+Actual: current-main tests timeout after merged work.
+Classification: PRODUCT_DEFECT
+Capability: MCP / Service Plane
+Affected gates: current-main verification
+Shared dependents: ghostspace/axis#31
+Approved slice_id: axis29-task-handles
+Authority: use existing axis#29 PlanningRecord v2 digest `sha256:2222222222222222222222222222222222222222222222222222222222222222` only for bounded same-owner repair scope.
+Replay: exact three tests plus combined MCP suite after repair.
+"""
     findings = extract_findings(
         [
             {
                 "id": 3661401209,
-                "body": "```axis-supervisor-finding\n"
-                + json.dumps(finding)
-                + "\n```",
-            }
+                "author": {"username": "cdenneen"},
+                "created_at": "2026-08-08T10:17:07.576Z",
+                "body": finding,
+            },
+            {"id": 3654285470, "author": {"username": "cdenneen"}, "body": planning},
         ],
         "ghostspace/axis#29",
+        source_sha,
+        {"cdenneen"},
     )
     assert findings[0]["owner_ref"] == "ghostspace/axis#29"
-    assert findings[0]["shared_dependents"] == ["ghostspace/axis#31"]
+    assert findings[0]["provenance"]["note_author"] == "cdenneen"
+    assert findings[0]["provenance"]["source_sha"] == source_sha
 
     (tmp_path / "control.json").write_text(
         json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
@@ -540,8 +556,8 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_pat
             "record_revision": 2,
             "approval_note": "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209",
             "approved_assignment_type": "code-implementation",
-            "approved_allowed_paths": ["src/axis_runtime/mcp.py"],
-            "approved_required_tests": ["pytest -q tests/test_mcp_adapter.py"],
+            "approved_allowed_paths": ["src/axis_runtime/mcp_tasks.py", "tests/test_mcp_task_handles.py"],
+            "approved_required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
         },
         "blocking_dependency_refs": [],
         "merge_request_facts": [],
@@ -550,19 +566,77 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(tmp_pat
         "retrieval_errors": [],
         "mutation_allowed": True,
         "findings": findings,
-        "repository_head": "a" * 40,
+        "repository_head": source_sha,
     }
     inventory = {"generation_id": "finding-fixture", "work_items": [source]}
     graph = ExecutionGraphBuilder(tmp_path).build(inventory)
     entry = graph["executable_queue"][0]
     assert entry["ref"] == f"finding:{findings[0]['identity']}"
     assert entry["finding_identity"] == findings[0]["identity"]
-    assert entry["shared_dependents"] == ["ghostspace/axis#31"]
+    assert entry["expected_gates"][0]["gate"] == "current-main verification"
+    assert entry["wake_refs"] == ["ghostspace/axis#31"]
+    assert graph["edges"][-1]["relationship"] == "finding-shared-dependent"
+
+    from axis_supervisor.missions import ActiveMissionState
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+
+    mission_path = tmp_path / "active-mission.json"
+    stale_mission = json.loads(mission_path.read_text())
+    stale_mission["generated_actions"][0]["lifecycle"] = "STALE"
+    mission_path.write_text(json.dumps(stale_mission), encoding="utf-8")
+    assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+    nonmatching_mission = json.loads(mission_path.read_text())
+    nonmatching_mission["generated_actions"][0]["source_ref"] = "finding:other"
+    mission_path.write_text(json.dumps(nonmatching_mission), encoding="utf-8")
+    assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
 
     dispatched = Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry)
     assert dispatched is not None
     assert dispatched["finding_identity"] == findings[0]["identity"]
     assert dispatched["planning_record"]["digest"] == digest
+    blocked_reasons = {
+        json.loads(line)["details"].get("reason")
+        for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
+        if json.loads(line).get("event_type") == "finding_dispatch_blocked"
+    }
+    assert {"mission-action-stale", "mission-action-nonmatching"}.issubset(
+        blocked_reasons
+    )
     assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
 
 
@@ -585,6 +659,7 @@ def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path:
         "source_evidence": {},
         "retrieval_errors": [],
         "mutation_allowed": True,
+        "repository_head": "a" * 40,
         "findings": [
             {
                 "finding_id": "missing-authority",
@@ -592,6 +667,11 @@ def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path:
                 "owner_ref": "ghostspace/axis#29",
                 "identity": "sha256:" + "f" * 64,
                 "shared_dependents": [],
+                "authority_digest": "sha256:" + "a" * 64,
+                "provenance": {
+                    "source_sha": "a" * 40,
+                    "parser_revision": "gitlab-finding-note-v1",
+                },
                 "repair_candidate": {
                     "slice_id": "repair",
                     "title": "Repair",
@@ -611,6 +691,285 @@ def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path:
     )
     assert graph["executable_queue"] == []
     assert graph["nodes"][0]["flow_stage"] == "decision"
+
+
+def test_canonical_finding_edits_are_idempotent_and_duplicate_notes_supersede():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "b" * 64
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+
+    def body(actual: str) -> str:
+        return f"""Current-main regression finding - MCP task-handle acceptance failure
+Affected tests:
+- test_task_handle
+Expected: task protocol terminates.
+Actual: {actual}
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Approved slice_id: axis29-task-handles
+Authority: bounded repair `{digest}`.
+Replay: run the task suite.
+"""
+
+    notes = [
+        {"id": 10, "author": {"username": "cdenneen"}, "body": body("timeout")},
+        {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
+    ]
+    first = normalize_gitlab_findings(notes, "ghostspace/axis#29", "a" * 40, {"cdenneen"})[0]
+    edited = normalize_gitlab_findings(
+        [
+            {"id": 10, "author": {"username": "cdenneen"}, "body": body("late timeout")},
+            {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )[0]
+    assert edited["identity"] == first["identity"]
+    assert edited["revision_identity"] != first["revision_identity"]
+
+    duplicate = normalize_gitlab_findings(
+        [
+            {"id": 10, "author": {"username": "cdenneen"}, "body": body("timeout")},
+            {"id": 11, "author": {"username": "cdenneen"}, "body": body("later timeout")},
+            {"id": 1, "author": {"username": "cdenneen"}, "body": planning},
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    states = {finding["note_id"]: finding["state"] for finding in duplicate}
+    assert states == {10: "superseded", 11: "confirmed"}
+
+
+def test_canonical_finding_missing_authority_is_invalid_and_never_executable():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    findings = normalize_gitlab_findings(
+        [
+            {
+                "id": 10,
+                "author": {"username": "cdenneen"},
+                "body": """Current-main regression finding - malformed
+Affected tests:
+- test_x
+Expected: pass.
+Actual: fail.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Replay: run tests.
+""",
+            }
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert findings[0]["state"] == "invalid"
+    assert findings[0]["invalid_reason"] == "missing-or-invalid-canonical-field"
+
+
+def test_untrusted_structured_finding_is_ingestion_invalid():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    findings = normalize_gitlab_findings(
+        [
+            {
+                "id": 10,
+                "author": {"username": "untrusted"},
+                "body": "Current-main regression finding - spoofed",
+            }
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert findings[0]["state"] == "invalid"
+    assert findings[0]["invalid_reason"] == "untrusted-finding-author"
+
+
+def test_untrusted_planning_record_scope_is_ingestion_invalid():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "a" * 64
+    finding = f"""Current-main regression finding - MCP task-handle failure
+Affected tests:
+- test_task_handle
+Expected: task protocol terminates.
+Actual: task protocol times out.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Approved slice_id: axis29-task-handles
+Authority: bounded repair `{digest}`.
+Replay: run the task suite.
+"""
+    planning = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+    findings = normalize_gitlab_findings(
+        [
+            {"id": 10, "author": {"username": "cdenneen"}, "body": finding},
+            {"id": 9, "author": {"username": "untrusted"}, "body": planning},
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert findings[0]["state"] == "invalid"
+    assert findings[0]["invalid_reason"] == "untrusted-planning-record"
+
+
+def test_finding_slice_id_must_match_exactly_one_authorized_slice():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "b" * 64
+
+    def finding(slice_id: str) -> str:
+        return f"""Current-main regression finding - MCP task-handle failure
+Affected tests:
+- test_task_handle
+Expected: task protocol terminates.
+Actual: task protocol times out.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Approved slice_id: {slice_id}
+Authority: bounded repair `{digest}`.
+Replay: run the task suite.
+"""
+
+    def planning(slices: list[str]) -> str:
+        return f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+{chr(10).join(f'- {slice}' for slice in slices)}
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+
+    for slices in (
+        ["axis29-other: src/axis_runtime/other.py"],
+        [
+            "axis29-task-handles: src/axis_runtime/mcp_tasks.py",
+            "axis29-task-handles: tests/test_mcp_task_handles.py",
+        ],
+    ):
+        value = normalize_gitlab_findings(
+            [
+                {
+                    "id": 10,
+                    "author": {"username": "cdenneen"},
+                    "body": finding("axis29-task-handles"),
+                },
+                {"id": 9, "author": {"username": "cdenneen"}, "body": planning(slices)},
+            ],
+            "ghostspace/axis#29",
+            "a" * 40,
+            {"cdenneen"},
+        )
+        assert value[0]["state"] == "invalid"
+        assert value[0]["invalid_reason"] == "unresolved-authorized-scope"
+
+    missing = normalize_gitlab_findings(
+        [
+            {
+                "id": 10,
+                "author": {"username": "cdenneen"},
+                "body": finding("").replace("Approved slice_id: \n", ""),
+            },
+            {
+                "id": 9,
+                "author": {"username": "cdenneen"},
+                "body": planning(["axis29-task-handles: src/axis_runtime/mcp_tasks.py"]),
+            },
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert missing[0]["state"] == "invalid"
+    assert missing[0]["invalid_reason"] == "missing-or-invalid-canonical-field"
+
+
+def test_finding_dispatch_blocks_missing_corrupt_and_stale_frontiers(tmp_path: Path):
+    from axis_supervisor.dispatcher import Dispatcher
+    from axis_supervisor.frontier import ExecutableFrontier
+
+    (tmp_path / "control.json").write_text(json.dumps(control()), encoding="utf-8")
+    item = {
+        "ref": "finding:sha256:frontier",
+        "target_ref": "ghostspace/axis#29",
+        "finding_identity": "sha256:frontier",
+        "project": "ghostspace/axis",
+        "assignment_type": "code-implementation",
+    }
+    graph = {"generation_id": "graph-current", "executable_queue": [item]}
+    dispatcher = Dispatcher(tmp_path)
+    assert dispatcher.dispatch(graph, "run-1", item) is None
+
+    (tmp_path / "executable-frontier.json").write_text("{", encoding="utf-8")
+    assert dispatcher.dispatch(graph, "run-2", item) is None
+
+    ExecutableFrontier(tmp_path).build([item], [], "graph-before-crash")
+    assert dispatcher.dispatch(graph, "run-3", item) is None
+
+    ExecutableFrontier(tmp_path).build([item], [], "graph-current")
+    assert dispatcher.dispatch(graph, "run-4", item) is None
+    (tmp_path / "active-mission.json").write_text("{", encoding="utf-8")
+    assert dispatcher.dispatch(graph, "run-5", item) is None
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
+    ]
+    assert [event["details"]["reason"] for event in events] == [
+        "frontier-unavailable:CorruptRecordError",
+        "frontier-unavailable:CorruptRecordError",
+        "frontier-generation-mismatch",
+        "mission-unavailable:missing",
+        "mission-unavailable:JSONDecodeError",
+    ]
+    assert events[2]["details"]["frontier_source_generation_id"] == "graph-before-crash"
+    assert events[2]["details"]["graph_generation_id"] == "graph-current"
+
+
+def test_watchdog_ready_semantic_assignment_is_retired_as_invalid_contract():
+    from axis_supervisor.collector import retire_unsupported_watchdog_assignment
+
+    assignment = {
+        "assignment_id": "assignment-watchdog-recovery-1",
+        "assignment_type": "read-only-analysis",
+        "lifecycle_state": "ready-semantic",
+        "result_state": "pending",
+        "work_item_disposition": "not-evaluated",
+        "action_contract": None,
+    }
+    assert retire_unsupported_watchdog_assignment(assignment) is True
+    assert assignment["lifecycle_state"] == "cancelled"
+    assert assignment["retirement"]["classification"] == "INVALID"
+    assert assignment["retirement"]["invalid_contract"]["review_path"] is None
+    assert assignment["provenance"]["invalid_contract"]["worker_path"] is None
+    assert retire_unsupported_watchdog_assignment(assignment) is False
 
 
 def test_product_heartbeat_is_compact_and_rate_limited(tmp_path: Path):

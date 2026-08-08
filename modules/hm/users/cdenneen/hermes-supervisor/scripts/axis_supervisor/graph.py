@@ -91,6 +91,16 @@ def _rank_queue_entry(entry: dict, authority: dict) -> None:
     entry["ranking_factors"] = factors
 
 
+def _edge_sort_key(edge: object) -> tuple[str, str, str]:
+    if not isinstance(edge, dict):
+        return ("", "", "")
+    return (
+        str(edge.get("from_ref") or ""),
+        str(edge.get("to_ref") or ""),
+        str(edge.get("relationship") or ""),
+    )
+
+
 def _semantic_candidates(semantic: dict) -> list[dict]:
     """Only confirmed, structured findings may become ordinary governed candidates."""
     candidates = list(semantic.get("candidate_slices") or [])
@@ -115,6 +125,10 @@ def _finding_candidates(item: dict) -> list[dict]:
             and finding.get("state") == "confirmed"
             and finding.get("owner_ref") == item.get("ref")
             and finding.get("identity")
+            and (finding.get("provenance") or {}).get("source_sha")
+            == item.get("repository_head")
+            and (finding.get("provenance") or {}).get("parser_revision")
+            == "gitlab-finding-note-v1"
             and candidate.get("result") == "Executable"
         ):
             candidates.append(
@@ -123,6 +137,9 @@ def _finding_candidates(item: dict) -> list[dict]:
                     "finding_id": finding.get("finding_id"),
                     "finding_identity": finding.get("identity"),
                     "shared_dependents": list(finding.get("shared_dependents") or []),
+                    "affected_gates": list(finding.get("affected_gates") or []),
+                    "capability": finding.get("capability"),
+                    "authority_digest": finding.get("authority_digest"),
                 }
             )
     return candidates
@@ -888,6 +905,10 @@ class ExecutionGraphBuilder:
                         continue
                     if authority["state"] not in {"direct", "inherited"}:
                         continue
+                    if candidate.get("finding_identity") and candidate.get(
+                        "authority_digest"
+                    ) != (item.get("authority_facts") or {}).get("record_digest"):
+                        continue
                     category = candidate.get("category")
                     assignment_type = (
                         "governance-document-mutation"
@@ -922,6 +943,17 @@ class ExecutionGraphBuilder:
                         "finding_id": candidate.get("finding_id"),
                         "finding_identity": candidate.get("finding_identity"),
                         "shared_dependents": candidate.get("shared_dependents") or [],
+                        "wake_refs": candidate.get("shared_dependents") or [],
+                        "expected_effect": "repair current-main regression",
+                        "expected_gates": [
+                            {
+                                "capability": candidate.get("capability") or "unknown",
+                                "gate": gate,
+                                "from_state": "pending",
+                                "to_state": "passed",
+                            }
+                            for gate in candidate.get("affected_gates") or []
+                        ],
                         "source_item": item,
                         "source_fingerprint": source_fingerprint,
                         "revalidation_tier": tier,
@@ -1029,6 +1061,22 @@ class ExecutionGraphBuilder:
             "no_policy_suppressed_executable_work": policy_suppressed_executable == 0,
         }
         governed_zero = all(proof_conditions.values())
+        finding_edges = []
+        for node in nodes:
+            for finding in node.get("findings") or []:
+                if not isinstance(finding, dict):
+                    continue
+                identity = str(finding.get("identity") or "")
+                if finding.get("state") != "confirmed" or not identity:
+                    continue
+                for dependent in finding.get("shared_dependents") or []:
+                    finding_edges.append(
+                        {
+                            "from_ref": f"finding:{identity}",
+                            "to_ref": str(dependent),
+                            "relationship": "finding-shared-dependent",
+                        }
+                    )
         graph = {
             "schema": "axis.external-development-supervisor.execution-graph",
             "schema_version": "1.0.0",
@@ -1037,12 +1085,11 @@ class ExecutionGraphBuilder:
             "inventory_generation_id": inventory.get("generation_id"),
             "nodes": nodes,
             "edges": sorted(
-                inventory.get("dependency_edges") or [],
-                key=lambda edge: (
-                    edge["from_ref"],
-                    edge["to_ref"],
-                    edge["relationship"],
-                ),
+                [
+                    *(inventory.get("dependency_edges") or []),
+                    *finding_edges,
+                ],
+                key=_edge_sort_key,
             ),
             "classification_counts": dict(sorted(classification_counts.items())),
             "flow_counts": dict(sorted(flow_counts.items())),

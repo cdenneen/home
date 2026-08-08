@@ -13,7 +13,7 @@ from .mutation import MutationGate, OperationClass
 from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
-from .schema_registry import write_record
+from .schema_registry import RecordError, read_record, write_record
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
 ACTION_CONTRACT_FIELDS = {
@@ -58,24 +58,101 @@ class Dispatcher:
             ),
         )
 
-    def _mission_action(self, item: dict) -> dict | None:
+    def _mission_action(self, item: dict, graph: dict) -> tuple[dict | None, str | None]:
         path = self.root / "active-mission.json"
         if not path.exists():
-            return None
-        mission = read_mission_record(path)
+            return None, "mission-unavailable:missing"
+        try:
+            mission = read_mission_record(path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return None, f"mission-unavailable:{type(exc).__name__}"
         item_ref = item.get("ref")
         target = item.get("target_ref") or item_ref
-        return next(
-            (
-                action
-                for action in mission.get("generated_actions") or []
-                if action.get("source_ref") == item_ref
-                or (
-                    action.get("kind") == "dispatch-executable"
-                    and action.get("target") == target
-                )
-            ),
-            None,
+        matches = [
+            action
+            for action in mission.get("generated_actions") or []
+            if action.get("kind") == "dispatch-executable"
+            and action.get("source_ref") == item_ref
+            and action.get("target") == target
+        ]
+        if not matches:
+            return None, "mission-action-nonmatching"
+        action = matches[0]
+        if action.get("lifecycle") != "CURRENT":
+            return None, "mission-action-stale"
+        if (action.get("binding") or {}).get("generation", {}).get("graph") != graph.get(
+            "generation_id"
+        ):
+            return None, "mission-action-generation-mismatch"
+        return action, None
+
+    def _finding_frontier_selected(self, item: dict, graph: dict) -> bool:
+        if not item.get("finding_identity"):
+            return True
+        path = self.root / "executable-frontier.json"
+        try:
+            frontier = read_record(
+                path, "axis.external-development-supervisor.executable-frontier"
+            )
+        except RecordError as exc:
+            self._record_frontier_block(
+                item, graph, f"frontier-unavailable:{type(exc).__name__}"
+            )
+            return False
+        if frontier.get("source_generation_id") != graph.get("generation_id"):
+            self._record_frontier_block(
+                item,
+                graph,
+                "frontier-generation-mismatch",
+                str(frontier.get("source_generation_id") or "") or None,
+            )
+            return False
+        if item.get("ref") not in set(frontier.get("selected") or []):
+            self._record_frontier_block(
+                item,
+                graph,
+                "finding-not-selected-by-frontier",
+                str(frontier.get("source_generation_id") or "") or None,
+            )
+            return False
+        return True
+
+    def _record_frontier_block(
+        self,
+        item: dict,
+        graph: dict,
+        reason: str,
+        frontier_source_generation_id: str | None = None,
+    ) -> None:
+        record_event(
+            self.root,
+            "finding_dispatch_blocked",
+            details={
+                "reason": reason,
+                "finding_identity": item.get("finding_identity"),
+                "frontier_source_generation_id": frontier_source_generation_id,
+                "graph_generation_id": graph.get("generation_id"),
+            },
+            source="dispatcher",
+        )
+
+    @staticmethod
+    def _dispatchable_action(action: dict | None, item: dict) -> bool:
+        if action is None:
+            return False
+        scope = action.get("assignment_scope") or {}
+        candidate = item.get("candidate") or {}
+        return bool(
+            action.get("dispatch_class") == "DISPATCHABLE"
+            and action.get("worker_path") == "implementation"
+            and action.get("handoff_path") == "implementation-handoff"
+            and action.get("review_path") == "independent-review"
+            and action.get("expected_effect")
+            and action.get("expected_gates")
+            and scope.get("target_ref") == (item.get("target_ref") or item.get("ref"))
+            and scope.get("project") == item.get("project")
+            and scope.get("allowed_paths") == candidate.get("allowed_paths")
+            and scope.get("required_tests") == candidate.get("required_tests")
         )
 
     def _effectiveness_suppressed(self, item: dict) -> bool:
@@ -125,6 +202,8 @@ class Dispatcher:
         ):
             return None
         item = selected or graph["executable_queue"][0]
+        if not self._finding_frontier_selected(item, graph):
+            return None
         if is_suppressed_no_op(
             item, active + self.completed_no_ops()
         ) or self._effectiveness_suppressed(item) or self._finding_suppressed(item):
@@ -174,7 +253,16 @@ class Dispatcher:
             if item.get("kind") == "repository-convergence"
             else "code-implementation"
         )
-        mission_action = self._mission_action(item)
+        mission_action, mission_reason = self._mission_action(item, graph)
+        if item.get("finding_identity"):
+            if mission_reason is not None:
+                self._record_frontier_block(item, graph, mission_reason)
+                return None
+            if not self._dispatchable_action(mission_action, item):
+                self._record_frontier_block(
+                    item, graph, "mission-action-invalid-contract"
+                )
+                return None
         action_contract = (
             {
                 "action_id": mission_action["action_id"],
