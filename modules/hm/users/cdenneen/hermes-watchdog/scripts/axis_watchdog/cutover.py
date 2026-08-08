@@ -25,7 +25,10 @@ class CutoverCoordinator:
         self.clock = clock
         self.reconcile_command = reconcile_command or os.environ.get(
             "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND",
-            "axis-development-watchdog-cutover-reconcile",
+            str(
+                Path.home()
+                / ".nix-profile/bin/axis-development-watchdog-cutover-reconcile"
+            ),
         )
         self.runner = runner or subprocess.run
 
