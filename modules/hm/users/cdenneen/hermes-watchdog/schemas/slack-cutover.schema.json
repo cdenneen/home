@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.slack-cutover",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "generation",
+    "status",
+    "shadow_fingerprint",
+    "canonical_fingerprint",
+    "parity_count",
+    "writer_verified_count",
+    "last_error",
+    "history",
+    "updated_at"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.slack-cutover" },
+    "schema_version": { "const": "1.0.0" },
+    "generation": { "enum": ["A", "B", "C", "D", "E"] },
+    "status": {
+      "enum": [
+        "shadowing",
+        "parity",
+        "watchdog-writer",
+        "reporter-removal",
+        "observing"
+      ]
+    },
+    "shadow_fingerprint": { "type": ["string", "null"] },
+    "canonical_fingerprint": { "type": ["string", "null"] },
+    "parity_count": { "type": "integer", "minimum": 0 },
+    "writer_verified_count": { "type": "integer", "minimum": 0 },
+    "last_error": { "type": ["string", "null"], "maxLength": 1200 },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["generation", "event", "at"],
+        "properties": {
+          "generation": { "enum": ["A", "B", "C", "D", "E"] },
+          "event": { "type": "string", "minLength": 1 },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

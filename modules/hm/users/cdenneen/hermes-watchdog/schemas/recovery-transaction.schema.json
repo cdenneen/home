@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "axis.development-watchdog.recovery-transaction",
+  "type": "object",
+  "required": [
+    "schema",
+    "schema_version",
+    "recovery_id",
+    "incident_id",
+    "opened_at",
+    "incident",
+    "status",
+    "last_transition",
+    "detail",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema": { "const": "axis.development-watchdog.recovery-transaction" },
+    "schema_version": { "const": "1.0.0" },
+    "recovery_id": { "type": "string", "pattern": "^recovery-[0-9a-f]{20}$" },
+    "incident_id": { "type": "string", "minLength": 1 },
+    "opened_at": { "type": ["string", "null"], "format": "date-time" },
+    "incident": { "type": "object" },
+    "status": {
+      "enum": [
+        "pending",
+        "requested",
+        "in-progress",
+        "completed",
+        "failed",
+        "waiting-human"
+      ]
+    },
+    "last_transition": {
+      "enum": [
+        null,
+        "requested",
+        "started",
+        "completed",
+        "failed",
+        "waiting-human",
+        "health-restored"
+      ]
+    },
+    "detail": { "type": "string", "maxLength": 1200 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

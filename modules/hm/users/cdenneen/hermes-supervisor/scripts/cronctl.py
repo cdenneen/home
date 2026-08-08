@@ -21,6 +21,16 @@ JOBS = Path(
     )
 )
 PROMPT = ROOT / "worker-prompt.txt"
+CUTOVER = Path(
+    os.environ.get(
+        "AXIS_WATCHDOG_CUTOVER_STATE",
+        Path.home()
+        / ".hermes"
+        / "supervisor"
+        / "axis-development-watchdog"
+        / "slack-cutover.json",
+    )
+)
 
 
 def load(path: Path) -> dict:
@@ -68,6 +78,7 @@ def main() -> int:
         else None
     )
     jobs = load(JOBS) if JOBS.exists() else {"jobs": []}
+
     def owned_job(name: str) -> dict | None:
         matches = [item for item in jobs.get("jobs", []) if item.get("name") == name]
         if len(matches) > 1:
@@ -76,6 +87,10 @@ def main() -> int:
 
     worker = owned_job("axis-development-supervisor-worker")
     projection = owned_job("axis-development-supervisor-report")
+    cutover = load(CUTOVER) if CUTOVER.exists() else {"generation": "A"}
+    cutover_generation = str(cutover.get("generation") or "A")
+    if cutover_generation not in {"A", "B", "C", "D", "E"}:
+        raise RuntimeError("unsupported Slack cutover generation")
     if args.command == "install":
         if control.get("cron_generation") not in {None, 1}:
             raise RuntimeError("unsupported cron_generation")
@@ -86,14 +101,47 @@ def main() -> int:
         if not configured_worker and worker is not None:
             raise RuntimeError("refusing to adopt same-name worker without a configured ownership ID")
         if projection is not None:
-            if not configured_projection:
+            projection_contract = {
+                "schedule_display": "every 5m",
+                "script": "axis-development-supervisor-slack.py",
+                "no_agent": True,
+            }
+            drift = [
+                key
+                for key, value in projection_contract.items()
+                if projection.get(key) != value
+            ]
+            if drift:
                 raise RuntimeError(
-                    "refusing to disable same-name Slack projection without its configured ownership ID"
+                    "legacy reporter cron contract drift: " + ", ".join(drift)
                 )
-            if str(projection.get("id")) != str(configured_projection):
+            if configured_projection and str(projection.get("id")) != str(
+                configured_projection
+            ):
                 raise RuntimeError(
                     "configured Slack projection cron ID ownership does not match"
                 )
+            configured_projection = str(projection["id"])
+        if cutover_generation in {"A", "B"} and projection is None:
+            configured_projection = create(
+                args.hermes,
+                [
+                    "--name",
+                    "axis-development-supervisor-report",
+                    "--script",
+                    "axis-development-supervisor-slack.py",
+                    "--no-agent",
+                    "every 5m",
+                ],
+                gate,
+                decision,
+            )
+            projection = {"id": configured_projection}
+        if cutover_generation == "C" and projection is None:
+            raise RuntimeError(
+                "watchdog-writer cutover requires a paused legacy reporter for rollback"
+            )
+        if cutover_generation in {"D", "E"} and projection is not None:
             projection_id = str(projection["id"])
             mutate(
                 gate,
@@ -107,7 +155,8 @@ def main() -> int:
                 [args.hermes, "cron", "remove", projection_id],
                 check=True,
             )
-        control["report_cron_job_id"] = None
+            projection = None
+            configured_projection = None
         if worker is None:
             worker_id = create(
                 args.hermes,
@@ -168,7 +217,7 @@ def main() -> int:
                     timeout=120,
                 )
         control["cron_job_id"] = worker_id
-        control["report_cron_job_id"] = None
+        control["report_cron_job_id"] = configured_projection
         control["cron_generation"] = 1
         write_control(control, gate, decision)
         lifecycle_command = (
@@ -182,9 +231,24 @@ def main() -> int:
             [args.hermes, "cron", lifecycle_command, worker_id],
             check=True,
         )
+        if projection is not None:
+            projection_lifecycle = (
+                "resume" if cutover_generation in {"A", "B"} else "pause"
+            )
+            mutate(
+                gate,
+                decision,
+                [args.hermes, "cron", projection_lifecycle, str(projection["id"])],
+                check=True,
+            )
         print(
             json.dumps(
-                {"worker": worker_id, "slack_projection": None}, sort_keys=True
+                {
+                    "worker": worker_id,
+                    "slack_projection": (projection or {}).get("id"),
+                    "cutover_generation": cutover_generation,
+                },
+                sort_keys=True,
             )
         )
         return 0

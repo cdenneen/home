@@ -1,6 +1,8 @@
 import hashlib
+import html
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -9,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .cutover import CutoverCoordinator
 from .records import atomic_write, load_optional, timestamp
 
 Api = Callable[[str, str, dict[str, Any]], dict[str, Any]]
@@ -18,6 +21,12 @@ def _fingerprint(text: str, blocks: list[dict[str, Any]]) -> str:
     return hashlib.sha256(
         json.dumps({"text": text, "blocks": blocks}, sort_keys=True).encode()
     ).hexdigest()
+
+
+def sanitize_slack(value: object, limit: int = 500) -> str:
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", str(value or ""))
+    text = html.escape(text, quote=False).replace("@", "＠")
+    return text[:limit]
 
 
 class SlackProjector:
@@ -114,20 +123,26 @@ class SlackProjector:
 
     @staticmethod
     def render_incident(incident: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
-        status = str(incident["status"]).replace("-", " ").title()
+        status = sanitize_slack(str(incident["status"]).replace("-", " ").title())
+        anomaly_code = sanitize_slack(incident["anomaly_code"], 120)
+        summary = sanitize_slack(incident["summary"])
         text = (
             f"AXIS Watchdog incident {incident['incident_id']} | {status} | "
-            f"{incident['anomaly_code']}"
+            f"{anomaly_code}"
         )
         body = (
-            f"*{status}: {incident['anomaly_code']}*\n"
-            f"{incident['summary']}\n"
+            f"*{status}: {anomaly_code}*\n"
+            f"{summary}\n"
             f"Recovery level: *{incident['recovery_level']}* | "
             f"Repair target: `{incident.get('repair_repository') or 'watchdog-only'}`\n"
             f"Last observed: `{incident['observed_at']}`"
         )
-        if incident.get("diagnosis"):
-            body += f"\nDiagnostic: {incident['diagnosis']}"
+        diagnosis = incident.get("diagnosis") or {}
+        if isinstance(diagnosis, dict):
+            if diagnosis.get("summary"):
+                body += f"\nDiagnostic: {sanitize_slack(diagnosis['summary'])}"
+            if diagnosis.get("recommended_action"):
+                body += f"\nRecommended: {sanitize_slack(diagnosis['recommended_action'])}"
         return text, [
             {"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}}
         ]
@@ -290,17 +305,29 @@ class CanonicalSlackProjector:
         self,
         supervisor_root: Path,
         *,
+        watchdog_root: Path | None = None,
+        jobs_path: Path | None = None,
         command: str | None = None,
         runner: Any | None = None,
         incident_projector: SlackProjector | None = None,
+        cutover: CutoverCoordinator | None = None,
     ):
         self.supervisor_root = supervisor_root
+        self.watchdog_root = watchdog_root or (
+            Path.home() / ".hermes" / "supervisor" / "axis-development-watchdog"
+        )
+        self.jobs_path = jobs_path or (Path.home() / ".hermes" / "cron" / "jobs.json")
         self.command = command or os.environ.get(
             "AXIS_WATCHDOG_CANONICAL_PROJECTOR",
             "axis-development-watchdog-canonical-projector",
         )
         self.runner = runner or subprocess.run
         self.incident_projector = incident_projector or SlackProjector(supervisor_root)
+        self.cutover = cutover or CutoverCoordinator(
+            self.watchdog_root,
+            self.jobs_path,
+            clock=lambda: int(time.time()),
+        )
 
     def project(
         self,
@@ -310,8 +337,10 @@ class CanonicalSlackProjector:
     ) -> list[dict[str, Any]]:
         del report
         at_epoch = at_epoch or int(time.time())
+        shadow = self.cutover.mode() == "shadow"
+        command = shlex.split(self.command) + (["--shadow"] if shadow else [])
         result = self.runner(
-            shlex.split(self.command),
+            command,
             text=True,
             capture_output=True,
             timeout=300,
@@ -324,12 +353,43 @@ class CanonicalSlackProjector:
         )
         if result.returncode != 0:
             output = (result.stdout or "") + (result.stderr or "")
+            if not shadow:
+                self.cutover.record_writer(False, output[-1200:])
             raise RuntimeError(
                 f"canonical Slack projection exited {result.returncode}: {output[-2000:]}"
             )
         lines = [line for line in (result.stdout or "").splitlines() if line.strip()]
         canonical = json.loads(lines[-1]) if lines else {}
         state = load_optional(self.supervisor_root / "slack-overview-state.json")
+        if shadow:
+            shadow_record = {
+                "schema": "axis.development-watchdog.slack-shadow",
+                "schema_version": "1.0.0",
+                "fingerprint": str(canonical.get("fingerprint") or ""),
+                "fallback": canonical.get("fallback"),
+                "blocks": canonical.get("blocks") or [],
+                "observed_at": timestamp(at_epoch),
+            }
+            atomic_write(self.watchdog_root / "slack-shadow.json", shadow_record)
+            try:
+                self.cutover.record_shadow(
+                    shadow_record["fingerprint"],
+                    str(state.get("fingerprint") or "") or None,
+                )
+            except Exception as exc:
+                self.cutover.rollback(f"shadow/parity transition failed: {exc}")
+                raise
+            return [
+                {
+                    "target_type": "dashboard",
+                    "target_id": "overview",
+                    "operation": "shadowed",
+                    "status": "verified",
+                    "channel": str(state.get("channel") or ""),
+                    "ts": str(state.get("ts") or ""),
+                    "fingerprint": shadow_record["fingerprint"],
+                }
+            ]
         projections = [
             {
                 "target_type": "dashboard",
@@ -341,7 +401,16 @@ class CanonicalSlackProjector:
                 "fingerprint": str(state.get("fingerprint") or "canonical"),
             }
         ]
-        projections.extend(
-            self.incident_projector.project_incidents(incidents, at_epoch)
-        )
+        try:
+            projections.extend(
+                self.incident_projector.project_incidents(incidents, at_epoch)
+            )
+        except Exception as exc:
+            self.cutover.record_writer(False, f"{type(exc).__name__}: {exc}")
+            raise
+        try:
+            self.cutover.record_writer(True)
+        except Exception as exc:
+            self.cutover.rollback(f"writer transition failed: {exc}")
+            raise
         return projections

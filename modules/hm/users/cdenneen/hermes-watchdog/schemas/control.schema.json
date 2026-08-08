@@ -11,6 +11,11 @@
     "heartbeat_grace_seconds",
     "supervisor_worker_freshness_seconds",
     "delivery_freshness_seconds",
+    "outbox_queued_max_age_seconds",
+    "outbox_sending_max_age_seconds",
+    "outbox_accepted_max_age_seconds",
+    "outbox_permanent_attempts",
+    "external_monitor_freshness_seconds",
     "stuck_floor_seconds",
     "stuck_ceiling_seconds",
     "stuck_history_multiplier",
@@ -35,6 +40,15 @@
       "minimum": 600
     },
     "delivery_freshness_seconds": { "type": "integer", "minimum": 300 },
+    "outbox_queued_max_age_seconds": { "type": "integer", "minimum": 60 },
+    "outbox_sending_max_age_seconds": { "type": "integer", "minimum": 30 },
+    "outbox_accepted_max_age_seconds": { "type": "integer", "minimum": 30 },
+    "outbox_permanent_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "external_monitor_freshness_seconds": { "type": "integer", "minimum": 300 },
     "stuck_floor_seconds": { "type": "integer", "minimum": 300 },
     "stuck_ceiling_seconds": { "type": "integer", "minimum": 1800 },
     "stuck_history_multiplier": { "type": "number", "minimum": 1 },

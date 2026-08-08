@@ -28,6 +28,15 @@ let
     set -euo pipefail
     exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog-cronctl.py" "$@"
   '';
+  watchdogCutoverCtl = pkgs.writeShellScriptBin "axis-development-watchdog-cutoverctl" ''
+    set -euo pipefail
+    exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog-cutoverctl.py" "$@"
+  '';
+  watchdogMonitor = pkgs.writeShellScriptBin "axis-development-watchdog-monitor" ''
+    set -euo pipefail
+    export AXIS_WATCHDOG_SYSTEMCTL=${pkgs.systemd}/bin/systemctl
+    exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog-monitor.py"
+  '';
   watchdogDiagnose = pkgs.writeShellScriptBin "axis-development-watchdog-diagnose" ''
     set -euo pipefail
     export AXIS_WATCHDOG_HERMES_REVISION=${hermesRevision}
@@ -35,7 +44,12 @@ let
   '';
   watchdogCanonicalProjector = pkgs.writeShellScriptBin "axis-development-watchdog-canonical-projector" ''
     set -euo pipefail
-    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-slack.py"
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-slack.py" "$@"
+  '';
+  watchdogCutoverReconcile = pkgs.writeShellScriptBin "axis-development-watchdog-cutover-reconcile" ''
+    set -euo pipefail
+    export AXIS_SUPERVISOR_MUTATION_SOURCE=home-manager
+    exec ${config.home.profileDirectory}/bin/axis-development-supervisor-cronctl install --hermes ${agentPkgs.hermes}/bin/hermes
   '';
   watchdogSelfRepair = pkgs.writeShellScriptBin "axis-development-watchdog-self-repair" ''
     set -euo pipefail
@@ -58,8 +72,11 @@ in
       home.packages = [
         watchdog
         watchdogCronCtl
+        watchdogCutoverCtl
+        watchdogMonitor
         watchdogDiagnose
         watchdogCanonicalProjector
+        watchdogCutoverReconcile
         watchdogSelfRepair
         watchdogRuntimeRepair
       ];
@@ -86,12 +103,35 @@ in
       systemd.user.services.hermes-watchdog-cron = {
         Unit = {
           Description = "Provision independent AXIS Development Watchdog cron";
-          After = [ "hermes-gateway.service" ];
+          After = [
+            "hermes-gateway.service"
+            "hermes-supervisor-cron.service"
+          ];
           Requires = [ "hermes-gateway.service" ];
         };
         Service = {
           Type = "oneshot";
           ExecStart = "${watchdogCronCtl}/bin/axis-development-watchdog-cronctl install --hermes ${agentPkgs.hermes}/bin/hermes";
+          RemainAfterExit = true;
+        };
+        Install.WantedBy = [ "default.target" ];
+      };
+
+      systemd.user.services.hermes-watchdog-cutover = {
+        Unit = {
+          Description = "Reconcile staged AXIS Slack projection cutover";
+          After = [
+            "hermes-supervisor-cron.service"
+            "hermes-watchdog-cron.service"
+          ];
+          Wants = [
+            "hermes-supervisor-cron.service"
+            "hermes-watchdog-cron.service"
+          ];
+        };
+        Service = {
+          Type = "oneshot";
+          ExecStart = "${watchdogCutoverCtl}/bin/axis-development-watchdog-cutoverctl reconcile";
           RemainAfterExit = true;
         };
         Install.WantedBy = [ "default.target" ];
@@ -109,13 +149,21 @@ in
         };
       };
 
+      systemd.user.services.axis-development-watchdog-monitor = {
+        Unit.Description = "Externally monitor and start AXIS Development Watchdog";
+        Service = {
+          Type = "oneshot";
+          ExecStart = "${watchdogMonitor}/bin/axis-development-watchdog-monitor";
+        };
+      };
+
       systemd.user.timers.axis-development-watchdog-backup = {
         Unit.Description = "Backstop AXIS Development Watchdog heartbeat";
         Timer = {
           OnBootSec = "12m";
           OnUnitActiveSec = "15m";
           Persistent = true;
-          Unit = "axis-development-watchdog-backup.service";
+          Unit = "axis-development-watchdog-monitor.service";
         };
         Install.WantedBy = [ "timers.target" ];
       };
@@ -124,11 +172,15 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p \
           "$HOME/.hermes/scripts" \
           "${runtimeRoot}" \
-          "${runtimeRoot}/repair-escalations"
+          "${runtimeRoot}/recovery-transactions"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/cronctl.py}" "$HOME/.hermes/scripts/axis-development-watchdog-cronctl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/cutoverctl.py}" "$HOME/.hermes/scripts/axis-development-watchdog-cutoverctl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${./scripts/monitor.py}" "$HOME/.hermes/scripts/axis-development-watchdog-monitor.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/diagnostic_stdin.py}" "$HOME/.hermes/scripts/axis-development-watchdog-diagnostic.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -rf "$HOME/.hermes/scripts/axis_watchdog"

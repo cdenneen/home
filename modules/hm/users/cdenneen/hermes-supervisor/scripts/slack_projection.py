@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 from pathlib import Path
 
-from axis_supervisor.slack_projection import SlackProjection
 from axis_supervisor.schema_registry import read_record
+from axis_supervisor.slack_projection import SlackProjection
 
 ROOT = Path(
     os.environ.get(
@@ -15,6 +16,9 @@ ROOT = Path(
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--shadow", action="store_true")
+    args = parser.parse_args()
     if (ROOT / "inventory.lock").exists():
         print(json.dumps({"updated": False, "reason": "inventory-generation-in-progress"}))
         return 0
@@ -30,6 +34,22 @@ def main() -> int:
     control = read_record(
         ROOT / "control.json", "axis.external-development-supervisor.control"
     )
+    if args.shadow:
+        fallback, blocks, fingerprint = SlackProjection(ROOT).render(
+            inventory, graph, control
+        )
+        print(
+            json.dumps(
+                {
+                    "shadow": True,
+                    "fallback": fallback,
+                    "blocks": blocks,
+                    "fingerprint": fingerprint,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     print(json.dumps(SlackProjection(ROOT).update(inventory, graph, control), sort_keys=True))
     return 0
 

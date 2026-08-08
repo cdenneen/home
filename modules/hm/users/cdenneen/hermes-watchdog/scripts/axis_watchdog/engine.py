@@ -18,7 +18,7 @@ from .records import (
     parse_timestamp,
     timestamp,
 )
-from .recovery import RecoveryExecutor
+from .recovery import RecoveryExecutor, RecoveryJournal, unavailable_diagnostic
 
 Clock = Callable[[], int]
 
@@ -77,9 +77,13 @@ class Watchdog:
         self.supervisor_root = supervisor_root
         self.jobs_path = jobs_path
         self.clock = clock or (lambda: int(time.time()))
-        self.projector = projector or CanonicalSlackProjector(supervisor_root)
+        self.projector = projector or CanonicalSlackProjector(
+            supervisor_root,
+            watchdog_root=root,
+            jobs_path=jobs_path,
+        )
         self.diagnostic = diagnostic or SubprocessDiagnostic()
-        self.recovery = recovery or RecoveryExecutor(root)
+        self.recovery = recovery or RecoveryExecutor(root, supervisor_root)
         self.states = Ledger(root, "states", "axis.development-watchdog.state")
         self.observations = Ledger(
             root, "observations", "axis.development-watchdog.observation"
@@ -88,6 +92,7 @@ class Watchdog:
         self.recoveries = Ledger(
             root, "recoveries", "axis.development-watchdog.recovery"
         )
+        self.recovery_journal = RecoveryJournal(root, self.recoveries)
         self.projections = Ledger(
             root, "projections", "axis.development-watchdog.projection"
         )
@@ -113,7 +118,6 @@ class Watchdog:
             "capability-graduation",
             "capability-convergence",
             "slack-overview-state",
-            "slack-outbox",
         ):
             path = self.supervisor_root / f"{name}.json"
             if not path.exists():
@@ -127,6 +131,130 @@ class Watchdog:
                 errors.append(f"invalid {name}.json: {type(exc).__name__}: {exc}")
                 values[name] = {}
         return values, errors
+
+    def _outbox_health(
+        self, control: dict[str, Any], now: int
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        path = self.supervisor_root / "slack-outbox.json"
+        metrics: dict[str, Any] = {
+            "status": "healthy",
+            "queued": 0,
+            "sending": 0,
+            "api_accepted": 0,
+            "failed": 0,
+            "permanent": 0,
+            "oldest_pending_age_seconds": 0,
+        }
+        if not path.exists():
+            metrics["status"] = "missing"
+            return metrics, [
+                self._anomaly(
+                    "slack-outbox-missing",
+                    "delivery_effectiveness",
+                    "canonical supervisor Slack outbox is missing",
+                    1,
+                )
+            ]
+        try:
+            outbox = load_object(path)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            metrics["status"] = "corrupt"
+            return metrics, [
+                self._anomaly(
+                    "slack-outbox-corrupt",
+                    "delivery_effectiveness",
+                    f"canonical supervisor Slack outbox is corrupt: {type(exc).__name__}",
+                    1,
+                )
+            ]
+
+        anomalies: list[dict[str, Any]] = []
+        pending_ages = []
+        thresholds = {
+            "notification_queued": (
+                "queued",
+                int(control["outbox_queued_max_age_seconds"]),
+            ),
+            "notification_send_attempted": (
+                "sending",
+                int(control["outbox_sending_max_age_seconds"]),
+            ),
+            "Slack_API_accepted": (
+                "api_accepted",
+                int(control["outbox_accepted_max_age_seconds"]),
+            ),
+            "Slack_message_created": (
+                "api_accepted",
+                int(control["outbox_accepted_max_age_seconds"]),
+            ),
+            "Slack_message_updated": (
+                "api_accepted",
+                int(control["outbox_accepted_max_age_seconds"]),
+            ),
+        }
+        for item in outbox.get("notifications") or []:
+            stage = str(item.get("current_stage") or "unknown")
+            if stage == "Slack_message_verified":
+                continue
+            event = item.get("event") or {}
+            stage_history = item.get("stage_history") or []
+            stage_at = next(
+                (
+                    parse_timestamp(entry.get("at"))
+                    for entry in reversed(stage_history)
+                    if entry.get("stage") == stage
+                ),
+                None,
+            )
+            observed_epoch = stage_at or int(event.get("created_at_epoch") or now)
+            age = max(0, now - observed_epoch)
+            pending_ages.append(age)
+            attempts = int(item.get("attempts") or 0)
+            permanent = bool(item.get("permanent_failure")) or (
+                stage == "delivery_failed"
+                and attempts >= int(control["outbox_permanent_attempts"])
+            )
+            if permanent:
+                metrics["permanent"] += 1
+            elif stage == "delivery_failed":
+                metrics["failed"] += 1
+            elif stage in thresholds:
+                key, maximum = thresholds[stage]
+                metrics[key] += 1
+                if age > maximum:
+                    anomalies.append(
+                        self._anomaly(
+                            f"slack-outbox-{key.replace('_', '-')}-stale",
+                            "delivery_effectiveness",
+                            f"oldest {key.replace('_', ' ')} Slack item is {age}s old",
+                            1,
+                        )
+                    )
+            else:
+                metrics["sending"] += 1
+        metrics["oldest_pending_age_seconds"] = max(pending_ages, default=0)
+        if metrics["failed"]:
+            anomalies.append(
+                self._anomaly(
+                    "slack-outbox-failed",
+                    "delivery_effectiveness",
+                    f"canonical Slack outbox has {metrics['failed']} retryable failure(s)",
+                    1,
+                )
+            )
+        if metrics["permanent"]:
+            anomalies.append(
+                self._anomaly(
+                    "slack-outbox-permanent-failure",
+                    "delivery_effectiveness",
+                    f"canonical Slack outbox has {metrics['permanent']} permanent failure(s)",
+                    4,
+                    repair=True,
+                )
+            )
+        if anomalies:
+            metrics["status"] = "degraded"
+        return metrics, anomalies
 
     @staticmethod
     def _job(jobs: list[dict[str, Any]], name: str) -> dict[str, Any]:
@@ -224,7 +352,6 @@ class Watchdog:
                                 "kind": debt.get("kind"),
                                 "ref": debt.get("ref"),
                                 "gate": debt.get("gate"),
-                                "reason": debt.get("reason"),
                             }
                             for debt in item.get("debts") or []
                         ],
@@ -317,6 +444,23 @@ class Watchdog:
                 "evidence": [f"prior heartbeat age {heartbeat_age}s", f"catch-up cycles {missed}"],
             }
 
+        external_heartbeat = load_optional(self.root / "external-heartbeat.json")
+        external_epoch = int(external_heartbeat.get("observed_at_epoch") or 0)
+        external_age = now - external_epoch if external_epoch else 0
+        if int(state.get("cycle") or 0) and (
+            not external_epoch
+            or external_age > int(control["external_monitor_freshness_seconds"])
+            or external_heartbeat.get("status") == "error"
+        ):
+            anomalies.append(
+                self._anomaly(
+                    "watchdog-external-monitor-unavailable",
+                    "liveness",
+                    "independent systemd watchdog monitor is missing, stale, or failed",
+                    3,
+                )
+            )
+
         worker = self._job(jobs, "axis-development-supervisor-worker")
         watchdog_job = self._job(jobs, "axis-development-watchdog")
         routine_report = self._job(jobs, "axis-development-supervisor-report")
@@ -403,20 +547,8 @@ class Watchdog:
                     1,
                 )
             )
-        failed_outbox = [
-            item
-            for item in (records["slack-outbox"].get("notifications") or [])
-            if item.get("current_stage") == "delivery_failed"
-        ]
-        if failed_outbox:
-            anomalies.append(
-                self._anomaly(
-                    "slack-outbox-undelivered",
-                    "delivery_effectiveness",
-                    f"canonical supervisor Slack outbox has {len(failed_outbox)} failed notification(s)",
-                    1,
-                )
-            )
+        outbox_health, outbox_anomalies = self._outbox_health(control, now)
+        anomalies.extend(outbox_anomalies)
         mission = records["active-mission"]
         effectiveness = mission.get("effectiveness_metrics") or {}
         evaluated = int(effectiveness.get("assignments_evaluated") or 0)
@@ -476,13 +608,28 @@ class Watchdog:
                     "status": "degraded",
                     "evidence": [a["summary"] for a in relevant],
                 }
+        def job_summary(value: dict[str, Any]) -> dict[str, Any]:
+            return {
+                key: value.get(key)
+                for key in (
+                    "id",
+                    "name",
+                    "enabled",
+                    "last_run_at",
+                    "last_status",
+                    "last_error",
+                    "next_run_at",
+                )
+            }
+
         evidence = {
             "records": records,
             "jobs": {
-                "supervisor_worker": worker,
-                "watchdog": watchdog_job,
-                "legacy_report": routine_report,
+                "supervisor_worker": job_summary(worker),
+                "watchdog": job_summary(watchdog_job),
+                "legacy_report": job_summary(routine_report),
             },
+            "external_heartbeat": external_heartbeat,
             "mission": {
                 "progress_fingerprint": fingerprint,
                 "progress_snapshot": progress_snapshot,
@@ -491,6 +638,8 @@ class Watchdog:
                 "expected_wait": expected_wait,
                 "expected_wait_reason": wait_reason,
             },
+            "outbox": outbox_health,
+            "cutover": load_optional(self.root / "slack-cutover.json"),
         }
         return evidence, anomalies, dimensions
 
@@ -550,19 +699,18 @@ class Watchdog:
                 "resolved_at": timestamp(now),
             }
             self.incidents.append(resolved)
-            self.recoveries.append(
-                {
-                    "recovery_id": uuid.uuid4().hex,
-                    "incident_id": incident_id,
-                    "level": int(incident["recovery_level"]),
-                    "action": "deterministic-health-restored",
-                    "target": incident.get("repair_repository") or "axis-development-watchdog",
-                    "status": "completed",
-                    "transition": "health-restored",
-                    "detail": "deterministic anomaly is no longer present",
-                    "occurred_at": timestamp(now),
-                }
-            )
+            transaction = self.recovery_journal.for_incident(incident_id)
+            if transaction:
+                self.recovery_journal.transition(
+                    transaction,
+                    action="deterministic-health-restored",
+                    target=incident.get("repair_repository")
+                    or "axis-development-watchdog",
+                    status="completed",
+                    transition="health-restored",
+                    detail="deterministic anomaly is no longer present",
+                    now=now,
+                )
             current[incident_id] = resolved
         return current, newly_opened
 
@@ -579,27 +727,87 @@ class Watchdog:
 
     def _append_recovery(
         self,
-        incident: dict[str, Any],
+        transaction: dict[str, Any],
         *,
         status: str,
         transition: str,
         detail: str,
         now: int,
     ) -> dict[str, Any]:
+        incident = transaction["incident"]
+        return self.recovery_journal.transition(
+            transaction,
+            action=self._recovery_action(int(incident["recovery_level"])),
+            target=incident.get("repair_repository") or "axis-development-watchdog",
+            status=status,
+            transition=transition,
+            detail=detail,
+            now=now,
+        )
+
+    def _execute_recovery_transaction(
+        self,
+        control: dict[str, Any],
+        transaction: dict[str, Any],
+        now: int,
+    ) -> dict[str, Any]:
+        incident = transaction["incident"]
         level = int(incident["recovery_level"])
-        return self.recoveries.append(
-            {
-                "recovery_id": uuid.uuid4().hex,
-                "incident_id": incident["incident_id"],
-                "level": level,
-                "action": self._recovery_action(level),
-                "target": incident.get("repair_repository")
-                or "axis-development-watchdog",
-                "status": status,
-                "transition": transition,
-                "detail": detail[:1200],
-                "occurred_at": timestamp(now),
-            }
+        target = incident.get("repair_repository") or "axis-development-watchdog"
+        if level == 4 and target != "cdenneen/home":
+            raise ValueError("level-4 repair escalation escaped cdenneen/home")
+        if transaction.get("last_transition") is None:
+            transaction = self._append_recovery(
+                transaction,
+                status="requested",
+                transition="requested",
+                detail=f"deterministic anomaly requested recovery level {level}",
+                now=now,
+            )
+        if transaction.get("last_transition") == "requested":
+            incident["status"] = "recovering"
+            incident["event"] = "recovery-started"
+            incident["observed_at"] = timestamp(now)
+            if not any(
+                entry.get("incident_id") == incident["incident_id"]
+                and entry.get("event") == "recovery-started"
+                for entry in self.incidents.entries()
+            ):
+                self.incidents.append(incident)
+            transaction["incident"] = incident
+            transaction = self._append_recovery(
+                transaction,
+                status="in-progress",
+                transition="started",
+                detail="bounded recovery execution started",
+                now=now,
+            )
+        if transaction.get("last_transition") != "started":
+            return transaction
+        try:
+            status, detail = self.recovery.execute(
+                transaction["recovery_id"],
+                incident,
+                incident.get("diagnosis"),
+                control,
+                now,
+            )
+        except Exception as exc:  # noqa: BLE001 - failure is recovery evidence
+            return self._append_recovery(
+                transaction,
+                status="failed",
+                transition="failed",
+                detail=f"{type(exc).__name__}: {exc}",
+                now=now,
+            )
+        if status == "in-progress":
+            return transaction
+        return self._append_recovery(
+            transaction,
+            status=status,
+            transition="waiting-human" if status == "waiting-human" else "completed",
+            detail=detail,
+            now=now,
         )
 
     def _recover_incidents(
@@ -608,69 +816,38 @@ class Watchdog:
         current: dict[str, dict[str, Any]],
         newly_opened: list[dict[str, Any]],
         now: int,
-    ) -> None:
+    ) -> list[dict[str, Any]]:
+        transactions = []
         for incident in newly_opened:
-            level = int(incident["recovery_level"])
-            target = incident.get("repair_repository") or "axis-development-watchdog"
-            if level == 4 and target != "cdenneen/home":
-                raise ValueError("level-4 repair escalation escaped cdenneen/home")
-            self._append_recovery(
-                incident,
-                status="requested",
-                transition="requested",
-                detail=f"deterministic anomaly requested recovery level {level}",
-                now=now,
-            )
-            incident["status"] = "recovering"
-            incident["event"] = "recovery-started"
-            incident["observed_at"] = timestamp(now)
-            self.incidents.append(incident)
-            current[incident["incident_id"]] = incident
-            self._append_recovery(
-                incident,
-                status="in-progress",
-                transition="started",
-                detail="bounded recovery execution started",
-                now=now,
-            )
-            try:
-                status, detail = self.recovery.execute(
-                    incident,
-                    incident.get("diagnosis"),
-                    control,
-                    now,
-                )
-            except Exception as exc:  # noqa: BLE001 - failure is recovery evidence
-                self._append_recovery(
-                    incident,
-                    status="failed",
-                    transition="failed",
-                    detail=f"{type(exc).__name__}: {exc}",
-                    now=now,
-                )
-                continue
-            if status != "in-progress":
-                self._append_recovery(
-                    incident,
-                    status=status,
-                    transition="waiting-human" if status == "waiting-human" else "completed",
-                    detail=detail,
-                    now=now,
-                )
+            transaction = self.recovery_journal.begin(incident, now)
+            transaction["incident"] = incident
+            transaction = self._execute_recovery_transaction(control, transaction, now)
+            current[incident["incident_id"]] = transaction["incident"]
+            transactions.append(transaction)
+        return transactions
+
+    def _resume_pending_recoveries(
+        self, control: dict[str, Any], now: int
+    ) -> list[dict[str, Any]]:
+        return [
+            self._execute_recovery_transaction(control, transaction, now)
+            for transaction in self.recovery_journal.pending()
+        ]
 
     def _finish_projection_recoveries(
         self,
-        incidents: list[dict[str, Any]],
+        transactions: list[dict[str, Any]],
         *,
         success: bool,
         detail: str,
         now: int,
     ) -> None:
-        for incident in incidents:
+        for transaction in transactions:
+            incident = transaction["incident"]
             if int(incident["recovery_level"]) != 1:
                 continue
             self._append_recovery(
-                incident,
+                transaction,
                 status="completed" if success else "failed",
                 transition="completed" if success else "failed",
                 detail=detail,
@@ -684,11 +861,11 @@ class Watchdog:
         newly_opened: list[dict[str, Any]],
         evidence: dict[str, Any],
         now: int,
-    ) -> str | None:
+    ) -> dict[str, Any] | None:
         diagnostic_incidents = [
             incident
             for incident in newly_opened
-            if int(incident.get("recovery_level") or 0) == 4
+            if int(incident.get("recovery_level") or 0) in {3, 4}
         ]
         if not diagnostic_incidents:
             return None
@@ -702,17 +879,20 @@ class Watchdog:
         )
         last = (state.get("diagnostic_signatures") or {}).get(signature)
         if len(calls) >= int(control["diagnostic_daily_limit"]):
-            return "diagnostic skipped: daily limit reached"
+            return None
         if last and now - int(last) < int(control["diagnostic_cooldown_seconds"]):
-            return "diagnostic skipped: fingerprint cooldown active"
+            return None
         bounded_evidence = {
             "jobs": evidence["jobs"],
             "mission": evidence["mission"],
+            "outbox": evidence["outbox"],
+            "external_heartbeat": evidence["external_heartbeat"],
         }
         try:
             result = self.diagnostic(diagnostic_incidents, bounded_evidence, control)
         except Exception as exc:  # noqa: BLE001 - diagnostics must not stop recovery
-            result = f"diagnostic failed: {type(exc).__name__}: {exc}"[:1200]
+            result = unavailable_diagnostic()
+            result["summary"] = f"Diagnostic failed: {type(exc).__name__}."[:500]
         calls.append(now)
         signatures = dict(state.get("diagnostic_signatures") or {})
         signatures[signature] = now
@@ -811,6 +991,13 @@ class Watchdog:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = self._control()
         state = load_optional(self.root / "state.json")
+        resumed_recoveries = self._resume_pending_recoveries(control, now)
+        resumed_incidents = dict(state.get("incidents") or {})
+        for transaction in resumed_recoveries:
+            incident = transaction.get("incident") or {}
+            if incident.get("incident_id"):
+                resumed_incidents[str(incident["incident_id"])] = incident
+        state["incidents"] = resumed_incidents
         prior_heartbeat = load_optional(self.root / "heartbeat.json")
         cycle_id = uuid.uuid4().hex
         atomic_write(
@@ -834,7 +1021,10 @@ class Watchdog:
             state, anomalies, now
         )
         self._diagnose(control, state, newly_opened, evidence, now)
-        self._recover_incidents(control, incidents, newly_opened, now)
+        new_recoveries = self._recover_incidents(
+            control, incidents, newly_opened, now
+        )
+        projection_recoveries = resumed_recoveries + new_recoveries
         report = self._report(evidence, dimensions, incidents)
         projection_error = None
         try:
@@ -852,7 +1042,7 @@ class Watchdog:
                     }
                 )
             self._finish_projection_recoveries(
-                newly_opened,
+                projection_recoveries,
                 success=True,
                 detail="canonical Slack projection and readback completed",
                 now=now,
@@ -860,7 +1050,7 @@ class Watchdog:
         except Exception as exc:  # noqa: BLE001 - projection failure is incident evidence
             projection_error = f"{type(exc).__name__}: {exc}"
             self._finish_projection_recoveries(
-                newly_opened,
+                projection_recoveries,
                 success=False,
                 detail=projection_error,
                 now=now,
@@ -891,9 +1081,11 @@ class Watchdog:
                 {**state, "incidents": incidents}, anomalies, now
             )
             self._diagnose(control, state, delivery_opened, evidence, now)
-            self._recover_incidents(control, incidents, delivery_opened, now)
+            delivery_recoveries = self._recover_incidents(
+                control, incidents, delivery_opened, now
+            )
             self._finish_projection_recoveries(
-                delivery_opened,
+                delivery_recoveries,
                 success=False,
                 detail=projection_error,
                 now=now,
@@ -909,6 +1101,7 @@ class Watchdog:
                 "health": dimensions,
                 "anomalies": anomalies,
                 "mission": mission,
+                "cutover": evidence["cutover"],
                 "projection_status": "failed" if projection_error else "verified",
             }
         )
@@ -926,6 +1119,7 @@ class Watchdog:
             "health": dimensions,
             "mission_progress_fingerprint": mission["progress_fingerprint"],
             "mission_progress_since_epoch": mission["progress_since_epoch"],
+            "slack_cutover_generation": evidence["cutover"].get("generation"),
             "incidents": incidents,
             "diagnostic_calls": state.get("diagnostic_calls") or [],
             "diagnostic_signatures": state.get("diagnostic_signatures") or {},

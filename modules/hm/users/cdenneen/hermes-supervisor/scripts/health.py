@@ -14,6 +14,13 @@ ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", HOME / ".hermes" / "superviso
 JOBS = Path(os.environ.get("AXIS_SUPERVISOR_CRON_JOBS", HOME / ".hermes" / "cron" / "jobs.json"))
 CRON_DIR = JOBS.parent
 GATEWAY = HOME / ".hermes" / "gateway_state.json"
+CUTOVER = (
+    HOME
+    / ".hermes"
+    / "supervisor"
+    / "axis-development-watchdog"
+    / "slack-cutover.json"
+)
 
 
 def load(path: Path) -> dict:
@@ -59,6 +66,8 @@ def main() -> int:
     control = validated(
         ROOT / "control.json", "axis.external-development-supervisor.control", errors
     )
+    cutover = load(CUTOVER) if CUTOVER.exists() else {"generation": "A"}
+    cutover_generation = str(cutover.get("generation") or "A")
     roadmap_quality_path = ROOT / "roadmap-quality.json"
     roadmap_quality = (
         validated(
@@ -172,7 +181,11 @@ def main() -> int:
         errors.append("Slack is not connected")
 
     expected_jobs = {str(control.get("cron_job_id") or "")} - {""}
-    if len(expected_jobs) != 1:
+    if cutover_generation in {"A", "B"}:
+        expected_jobs.add(str(control.get("report_cron_job_id") or ""))
+        expected_jobs.discard("")
+    expected_count = 2 if cutover_generation in {"A", "B"} else 1
+    if len(expected_jobs) != expected_count:
         errors.append("supervisor worker cron ID is not configured")
     actual_jobs = {str(item.get("id")) for item in jobs.get("jobs", []) if item.get("enabled")}
     for name in ("axis-development-supervisor-worker",):
@@ -182,10 +195,18 @@ def main() -> int:
     legacy_report = [
         item
         for item in jobs.get("jobs", [])
-        if item.get("name") == "axis-development-supervisor-report" and item.get("enabled")
+        if item.get("name") == "axis-development-supervisor-report"
     ]
-    if legacy_report:
-        errors.append("legacy supervisor report cron must be disabled; watchdog owns routine Slack projection")
+    if cutover_generation in {"A", "B"} and (
+        len(legacy_report) != 1 or not legacy_report[0].get("enabled")
+    ):
+        errors.append("Slack cutover shadow/parity requires one enabled legacy reporter")
+    if cutover_generation == "C" and (
+        len(legacy_report) != 1 or legacy_report[0].get("enabled")
+    ):
+        errors.append("Slack cutover writer generation requires one paused legacy reporter")
+    if cutover_generation in {"D", "E"} and legacy_report:
+        errors.append("Slack cutover reporter-removal/observation requires no legacy reporter")
     missing = sorted(expected_jobs - actual_jobs)
     if missing:
         errors.append(f"missing enabled cron jobs: {missing}")

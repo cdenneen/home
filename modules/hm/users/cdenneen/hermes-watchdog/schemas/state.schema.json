@@ -26,6 +26,10 @@
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "mission_progress_since_epoch": { "type": "integer", "minimum": 1 },
+    "slack_cutover_generation": {
+      "type": ["string", "null"],
+      "enum": ["A", "B", "C", "D", "E", null]
+    },
     "incidents": {
       "type": "object",
       "additionalProperties": { "type": "object" }

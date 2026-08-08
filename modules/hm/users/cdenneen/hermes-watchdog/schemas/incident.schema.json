@@ -47,7 +47,17 @@
     "observed_at": { "type": "string", "format": "date-time" },
     "resolved_at": { "type": "string", "format": "date-time" },
     "occurrences": { "type": "integer", "minimum": 1 },
-    "diagnosis": { "type": ["string", "null"], "maxLength": 1200 }
+    "diagnosis": {
+      "type": ["object", "null"],
+      "properties": {
+        "schema": { "const": "axis.development-watchdog.diagnostic" },
+        "schema_version": { "const": "1.0.0" },
+        "classification": { "type": "string" },
+        "summary": { "type": "string" },
+        "recommended_action": { "type": "string" },
+        "confidence": { "type": "number" }
+      }
+    }
   },
   "additionalProperties": false
 }

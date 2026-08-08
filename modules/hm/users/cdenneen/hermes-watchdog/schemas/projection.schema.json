@@ -19,7 +19,9 @@
     "projected_at": { "type": "string", "format": "date-time" },
     "target_type": { "enum": ["dashboard", "incident"] },
     "target_id": { "type": "string", "minLength": 1 },
-    "operation": { "enum": ["created", "updated", "verified", "attempted"] },
+    "operation": {
+      "enum": ["created", "updated", "verified", "attempted", "shadowed"]
+    },
     "status": { "enum": ["verified", "failed"] },
     "channel": { "type": "string" },
     "ts": { "type": "string" },
