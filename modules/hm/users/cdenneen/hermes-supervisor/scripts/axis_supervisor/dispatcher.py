@@ -58,24 +58,33 @@ class Dispatcher:
             ),
         )
 
-    def _mission_action(self, item: dict) -> dict | None:
+    def _mission_action(self, item: dict, graph: dict) -> tuple[dict | None, str | None]:
         path = self.root / "active-mission.json"
         if not path.exists():
-            return None
-        mission = read_mission_record(path)
+            return None, "mission-unavailable:missing"
+        try:
+            mission = read_mission_record(path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return None, f"mission-unavailable:{type(exc).__name__}"
         item_ref = item.get("ref")
         target = item.get("target_ref") or item_ref
-        return next(
-            (
-                action
-                for action in mission.get("generated_actions") or []
-                if action.get("kind") == "dispatch-executable"
-                and action.get("lifecycle") == "CURRENT"
-                and action.get("source_ref") == item_ref
-                and action.get("target") == target
-            ),
-            None,
-        )
+        matches = [
+            action
+            for action in mission.get("generated_actions") or []
+            if action.get("kind") == "dispatch-executable"
+            and action.get("source_ref") == item_ref
+            and action.get("target") == target
+        ]
+        if not matches:
+            return None, "mission-action-nonmatching"
+        action = matches[0]
+        if action.get("lifecycle") != "CURRENT":
+            return None, "mission-action-stale"
+        if (action.get("binding") or {}).get("generation", {}).get("graph") != graph.get(
+            "generation_id"
+        ):
+            return None, "mission-action-generation-mismatch"
+        return action, None
 
     def _finding_frontier_selected(self, item: dict, graph: dict) -> bool:
         if not item.get("finding_identity"):
@@ -244,9 +253,15 @@ class Dispatcher:
             if item.get("kind") == "repository-convergence"
             else "code-implementation"
         )
-        mission_action = self._mission_action(item)
-        if item.get("finding_identity") and (self.root / "active-mission.json").exists():
+        mission_action, mission_reason = self._mission_action(item, graph)
+        if item.get("finding_identity"):
+            if mission_reason is not None:
+                self._record_frontier_block(item, graph, mission_reason)
+                return None
             if not self._dispatchable_action(mission_action, item):
+                self._record_frontier_block(
+                    item, graph, "mission-action-invalid-contract"
+                )
                 return None
         action_contract = (
             {

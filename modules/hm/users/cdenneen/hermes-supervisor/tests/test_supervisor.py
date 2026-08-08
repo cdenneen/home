@@ -517,6 +517,7 @@ Classification: PRODUCT_DEFECT
 Capability: MCP / Service Plane
 Affected gates: current-main verification
 Shared dependents: ghostspace/axis#31
+Approved slice_id: axis29-task-handles
 Authority: use existing axis#29 PlanningRecord v2 digest `sha256:2222222222222222222222222222222222222222222222222222222222222222` only for bounded same-owner repair scope.
 Replay: exact three tests plus combined MCP suite after repair.
 """
@@ -576,10 +577,66 @@ Replay: exact three tests plus combined MCP suite after repair.
     assert entry["wake_refs"] == ["ghostspace/axis#31"]
     assert graph["edges"][-1]["relationship"] == "finding-shared-dependent"
 
+    from axis_supervisor.missions import ActiveMissionState
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+
+    mission_path = tmp_path / "active-mission.json"
+    stale_mission = json.loads(mission_path.read_text())
+    stale_mission["generated_actions"][0]["lifecycle"] = "STALE"
+    mission_path.write_text(json.dumps(stale_mission), encoding="utf-8")
+    assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+    nonmatching_mission = json.loads(mission_path.read_text())
+    nonmatching_mission["generated_actions"][0]["source_ref"] = "finding:other"
+    mission_path.write_text(json.dumps(nonmatching_mission), encoding="utf-8")
+    assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+
     dispatched = Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry)
     assert dispatched is not None
     assert dispatched["finding_identity"] == findings[0]["identity"]
     assert dispatched["planning_record"]["digest"] == digest
+    blocked_reasons = {
+        json.loads(line)["details"].get("reason")
+        for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
+        if json.loads(line).get("event_type") == "finding_dispatch_blocked"
+    }
+    assert {"mission-action-stale", "mission-action-nonmatching"}.issubset(
+        blocked_reasons
+    )
     assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
 
 
@@ -659,6 +716,7 @@ Actual: {actual}
 Classification: PRODUCT_DEFECT
 Capability: MCP
 Affected gates: verification
+Approved slice_id: axis29-task-handles
 Authority: bounded repair `{digest}`.
 Replay: run the task suite.
 """
@@ -753,6 +811,7 @@ Actual: task protocol times out.
 Classification: PRODUCT_DEFECT
 Capability: MCP
 Affected gates: verification
+Approved slice_id: axis29-task-handles
 Authority: bounded repair `{digest}`.
 Replay: run the task suite.
 """
@@ -778,6 +837,80 @@ Required tests:
     assert findings[0]["invalid_reason"] == "untrusted-planning-record"
 
 
+def test_finding_slice_id_must_match_exactly_one_authorized_slice():
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+
+    digest = "sha256:" + "b" * 64
+
+    def finding(slice_id: str) -> str:
+        return f"""Current-main regression finding - MCP task-handle failure
+Affected tests:
+- test_task_handle
+Expected: task protocol terminates.
+Actual: task protocol times out.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: verification
+Approved slice_id: {slice_id}
+Authority: bounded repair `{digest}`.
+Replay: run the task suite.
+"""
+
+    def planning(slices: list[str]) -> str:
+        return f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+{chr(10).join(f'- {slice}' for slice in slices)}
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+
+    for slices in (
+        ["axis29-other: src/axis_runtime/other.py"],
+        [
+            "axis29-task-handles: src/axis_runtime/mcp_tasks.py",
+            "axis29-task-handles: tests/test_mcp_task_handles.py",
+        ],
+    ):
+        value = normalize_gitlab_findings(
+            [
+                {
+                    "id": 10,
+                    "author": {"username": "cdenneen"},
+                    "body": finding("axis29-task-handles"),
+                },
+                {"id": 9, "author": {"username": "cdenneen"}, "body": planning(slices)},
+            ],
+            "ghostspace/axis#29",
+            "a" * 40,
+            {"cdenneen"},
+        )
+        assert value[0]["state"] == "invalid"
+        assert value[0]["invalid_reason"] == "unresolved-authorized-scope"
+
+    missing = normalize_gitlab_findings(
+        [
+            {
+                "id": 10,
+                "author": {"username": "cdenneen"},
+                "body": finding("").replace("Approved slice_id: \n", ""),
+            },
+            {
+                "id": 9,
+                "author": {"username": "cdenneen"},
+                "body": planning(["axis29-task-handles: src/axis_runtime/mcp_tasks.py"]),
+            },
+        ],
+        "ghostspace/axis#29",
+        "a" * 40,
+        {"cdenneen"},
+    )
+    assert missing[0]["state"] == "invalid"
+    assert missing[0]["invalid_reason"] == "missing-or-invalid-canonical-field"
+
+
 def test_finding_dispatch_blocks_missing_corrupt_and_stale_frontiers(tmp_path: Path):
     from axis_supervisor.dispatcher import Dispatcher
     from axis_supervisor.frontier import ExecutableFrontier
@@ -800,6 +933,11 @@ def test_finding_dispatch_blocks_missing_corrupt_and_stale_frontiers(tmp_path: P
     ExecutableFrontier(tmp_path).build([item], [], "graph-before-crash")
     assert dispatcher.dispatch(graph, "run-3", item) is None
 
+    ExecutableFrontier(tmp_path).build([item], [], "graph-current")
+    assert dispatcher.dispatch(graph, "run-4", item) is None
+    (tmp_path / "active-mission.json").write_text("{", encoding="utf-8")
+    assert dispatcher.dispatch(graph, "run-5", item) is None
+
     events = [
         json.loads(line)
         for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
@@ -808,9 +946,11 @@ def test_finding_dispatch_blocks_missing_corrupt_and_stale_frontiers(tmp_path: P
         "frontier-unavailable:CorruptRecordError",
         "frontier-unavailable:CorruptRecordError",
         "frontier-generation-mismatch",
+        "mission-unavailable:missing",
+        "mission-unavailable:JSONDecodeError",
     ]
-    assert events[-1]["details"]["frontier_source_generation_id"] == "graph-before-crash"
-    assert events[-1]["details"]["graph_generation_id"] == "graph-current"
+    assert events[2]["details"]["frontier_source_generation_id"] == "graph-before-crash"
+    assert events[2]["details"]["graph_generation_id"] == "graph-current"
 
 
 def test_watchdog_ready_semantic_assignment_is_retired_as_invalid_contract():

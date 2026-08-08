@@ -32,7 +32,7 @@ def _list_field(body: str, name: str) -> list[str]:
 
 
 def _planning_scope(
-    notes: list[dict], digest: str, title: str, trusted_principals: set[str]
+    notes: list[dict], digest: str, slice_id: str, trusted_principals: set[str]
 ) -> tuple[dict | None, bool]:
     """Select the exact authorized slice referred to by a canonical finding."""
     untrusted_source = False
@@ -50,24 +50,20 @@ def _planning_scope(
         required_tests = _list_field(body, "Required tests")
         if assignment_type != "code-implementation" or not repository or not required_tests:
             continue
-        title_words = {word for word in re.findall(r"[a-z0-9]+", title.lower()) if len(word) > 2}
-        selected = next(
-            (
-                value
-                for value in slices
-                if title_words.intersection(re.findall(r"[a-z0-9]+", value.lower()))
-            ),
-            None,
-        )
-        if selected is None:
+        selected = [
+            value
+            for value in slices
+            if value.partition(":")[0].strip() == slice_id
+        ]
+        if len(selected) != 1:
             continue
-        slice_id, separator, paths = selected.partition(":")
+        selected_slice_id, separator, paths = selected[0].partition(":")
         allowed_paths = [path.strip() for path in paths.split(",") if path.strip()]
-        if not separator or not slice_id or not allowed_paths:
+        if not separator or not selected_slice_id or not allowed_paths:
             continue
         return (
             {
-                "slice_id": slice_id.strip(),
+                "slice_id": selected_slice_id.strip(),
                 "repository": repository,
                 "allowed_paths": allowed_paths,
                 "required_tests": required_tests,
@@ -125,6 +121,7 @@ def normalize_gitlab_findings(
         replay = _field(body, "Replay")
         expected = _field(body, "Expected")
         actual = _field(body, "Actual")
+        approved_slice_id = _field(body, "Approved slice_id")
         authority_digest = next(iter(_DIGEST.findall(authority or "")), None)
         affected_tests = _list_field(body, "Affected tests")
         shared_dependents = _list_field(body, "Shared dependents")
@@ -143,12 +140,13 @@ def normalize_gitlab_findings(
             or not expected
             or not actual
             or not affected_tests
+            or not approved_slice_id
             or not re.fullmatch(r"[0-9a-f]{40}", source_sha or "", re.I)
         ):
             normalized.append(_invalid(note, owner_ref, "missing-or-invalid-canonical-field", source_sha))
             continue
         scope, untrusted_scope_source = _planning_scope(
-            notes, authority_digest.lower(), first_line, trusted_principals
+            notes, authority_digest.lower(), approved_slice_id, trusted_principals
         )
         if scope is None:
             normalized.append(
