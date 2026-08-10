@@ -961,6 +961,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     if deployment_plans:
         plan = deployment_plans[0]
         existing = []
+        prior_failures = []
         for assignment_path in (ROOT / "assignments").glob("*.json"):
             value = validate_assignment(
                 json.loads(assignment_path.read_text(encoding="utf-8")), ROOT
@@ -968,10 +969,13 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if (
                 value.get("assignment_type") == "capability-deployment"
                 and value.get("source_fingerprint") == plan["assignment_id"]
-                and not is_terminal(value)
             ):
-                existing.append(value)
-        if not existing:
+                if is_terminal(value):
+                    if value.get("result_state") == "deployment-failed":
+                        prior_failures.append(value)
+                else:
+                    existing.append(value)
+        if not existing and not prior_failures:
             deployment_assignment = create_deployment_assignment(ROOT, plan, run_id)
             return execute_deployment_assignment(
                 ROOT, deployment_assignment, supervisorctl

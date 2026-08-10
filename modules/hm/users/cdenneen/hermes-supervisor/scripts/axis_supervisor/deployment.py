@@ -328,39 +328,83 @@ def _write_verified_identity(
     return identity
 
 
+def _deployment_failure(
+    root: Path, assignment: dict, target: str, stage: str, exc: Exception
+) -> dict:
+    """Return the durable classification for a bounded deployment failure."""
+    error = f"{type(exc).__name__}: {exc}"
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(exc, stream_name, None)
+        if stream:
+            error = f"{error}\n{stream_name}: {stream}"
+    optional_runtime = None
+    try:
+        matrix = json.loads((root / "capability-runtime-matrix.json").read_text())
+        optional_runtime = next(
+            (
+                name
+                for name, runtime in (matrix.get("runtimes") or {}).items()
+                if runtime.get("participation") == "optional"
+                and (
+                    name in error
+                    or str(runtime.get("host") or "") in error
+                )
+            ),
+            None,
+        )
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {
+        "duration_seconds": 0,
+        "failure_stage": stage,
+        "failure_classification": (
+            "optional-runtime-evidence-unavailable"
+            if optional_runtime
+            else f"deployment-{stage}-failed"
+        ),
+        "target_runtime": target,
+        "optional_runtime": optional_runtime,
+        "error": error,
+    }
+
+
 def execute_deployment_assignment(
     root: Path, assignment: dict, supervisorctl: str
 ) -> dict:
     path = root / "assignments" / f"{assignment['assignment_id']}.json"
     target = assignment["source_item"]["target_runtime"]
-    claim = subprocess.check_output(
-        [
-            sys.executable,
-            supervisorctl,
-            "claim",
-            assignment["assignment_id"],
-            "--run-id",
-            assignment["created_by_run"],
-            "--resource",
-            f"runtime:{target}",
-            "--ttl",
-            "3600",
-        ],
-        text=True,
-        timeout=30,
-    )
-    lease = json.loads(claim)
-    assignment["lease_id"] = lease["lease_id"]
-    assignment["lease_uri"] = (
-        (root / "leases" / lease["lease_id"] / "lease.json").resolve().as_uri()
-    )
-    set_lifecycle(assignment, "running-implementation")
     gate = MutationGate(root, source="cycle")
-    decision = gate.decide(OperationClass.RECONCILIATION)
-    gate.require(decision, OperationClass.RECONCILIATION)
-    write_record(path, assignment, "axis.external-development-supervisor.assignment")
-    home = Path("/home/cdenneen/src/workspace/nix/home")
+    lease = None
+    started = time.time()
+    stage = "lease-claim"
     try:
+        claim = subprocess.check_output(
+            [
+                sys.executable,
+                supervisorctl,
+                "claim",
+                assignment["assignment_id"],
+                "--run-id",
+                assignment["created_by_run"],
+                "--resource",
+                f"runtime:{target}",
+                "--ttl",
+                "3600",
+            ],
+            text=True,
+            timeout=30,
+        )
+        lease = json.loads(claim)
+        assignment["lease_id"] = lease["lease_id"]
+        assignment["lease_uri"] = (
+            (root / "leases" / lease["lease_id"] / "lease.json").resolve().as_uri()
+        )
+        set_lifecycle(assignment, "running-implementation")
+        decision = gate.decide(OperationClass.RECONCILIATION)
+        gate.require(decision, OperationClass.RECONCILIATION)
+        write_record(path, assignment, "axis.external-development-supervisor.assignment")
+        stage = "runtime-convergence"
+        home = Path("/home/cdenneen/src/workspace/nix/home")
         if subprocess.check_output(
             ["git", "status", "--porcelain"], cwd=home, text=True
         ).strip():
@@ -373,7 +417,6 @@ def execute_deployment_assignment(
         ).strip()
         if local_head != remote_head:
             raise RuntimeError("deployment source is not pushed to origin/main")
-        started = time.time()
         matrix = json.loads((root / "capability-runtime-matrix.json").read_text())
         identity_path = matrix["runtimes"][target]["identity_path"]
         try:
@@ -444,19 +487,42 @@ def execute_deployment_assignment(
         assignment["result_state"] = "deployment-failed"
         assignment["work_item_disposition"] = "requires-runtime-convergence"
         set_lifecycle(assignment, "deployment-failed")
-        raise
-    finally:
-        subprocess.run(
-            [
-                sys.executable,
-                supervisorctl,
-                "release",
-                assignment["assignment_id"],
-                "--token",
-                lease["fencing_token"],
-            ],
-            check=False,
+        assignment["deployment_result"] = _deployment_failure(
+            root, assignment, target, stage, exc
+        ) | {"duration_seconds": round(time.time() - started, 3)}
+        record_event(
+            root,
+            "assignment_disposition",
+            assignment=assignment,
+            details={
+                "disposition": "deployment-failed",
+                "work_item_disposition": "requires-runtime-convergence",
+                "assignment_type": "capability-deployment",
+                "target_runtime": target,
+                "failed_gate": stage,
+                "failure_classification": assignment["deployment_result"][
+                    "failure_classification"
+                ],
+                "optional_runtime": assignment["deployment_result"][
+                    "optional_runtime"
+                ],
+                "corrective_action": "reconcile required runtime evidence before retrying",
+            },
+            source="cycle",
         )
+    finally:
+        if lease is not None:
+            subprocess.run(
+                [
+                    sys.executable,
+                    supervisorctl,
+                    "release",
+                    assignment["assignment_id"],
+                    "--token",
+                    lease["fencing_token"],
+                ],
+                check=False,
+            )
         assignment["lease_id"] = None
         assignment["lease_uri"] = None
         decision = gate.decide(OperationClass.RECONCILIATION)

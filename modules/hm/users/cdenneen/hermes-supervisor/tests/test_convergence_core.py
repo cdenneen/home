@@ -1077,6 +1077,92 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
     assert converged["runtimes"][0]["status"] == "converged"
 
 
+def test_deployment_claim_failure_is_terminal_and_classifies_optional_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from axis_supervisor.deployment import execute_deployment_assignment
+    from axis_supervisor.repository_ownership import validate_repository_ownership
+    from axis_supervisor.schema_registry import read_record, write_record
+
+    write_record(
+        tmp_path / "control.json",
+        control(),
+        "axis.external-development-supervisor.control",
+    )
+    (tmp_path / "assignments").mkdir()
+    (tmp_path / "capability-runtime-matrix.json").write_text(
+        json.dumps(
+            {
+                "runtimes": {
+                    "ghost": {"host": "local"},
+                    "mbair": {
+                        "host": "100.79.172.12",
+                        "participation": "optional",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    deployment = assignment(
+        tmp_path,
+        assignment_id="deployment-ghost-stranded",
+        assignment_type="capability-deployment",
+        project="ghostspace/axis-lab",
+        responsibility="deployment/realistic-validation",
+        repository_ownership=validate_repository_ownership(
+            "deployment/realistic-validation",
+            "ghostspace/axis-lab",
+            context="test-deployment-assignment",
+        ),
+        work_item="runtime:ghost@test-revision",
+        source_item={
+            "target_runtime": "ghost",
+            "expected_revision": "test-revision",
+            "affected_capabilities": ["Service"],
+        },
+        deployment_plan={},
+        lease_id=None,
+        lease_uri=None,
+        worker=None,
+        lifecycle_state="ready-implementation",
+    )
+    path = tmp_path / "assignments" / "deployment-ghost-stranded.json"
+    write_record(path, deployment, "axis.external-development-supervisor.assignment")
+
+    def failed_claim(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(
+            255,
+            "claim",
+            stderr="ssh: connect to host 100.79.172.12 port 22: Connection timed out",
+        )
+
+    monkeypatch.setattr("axis_supervisor.deployment.subprocess.check_output", failed_claim)
+
+    result = execute_deployment_assignment(tmp_path, deployment, "supervisorctl")
+
+    persisted = read_record(path, "axis.external-development-supervisor.assignment")
+    assert result == {
+        "assignment": "deployment-ghost-stranded",
+        "result": "deployment-failed",
+        "target_runtime": "ghost",
+    }
+    assert persisted["lifecycle_state"] == "deployment-failed"
+    assert persisted["result_state"] == "deployment-failed"
+    assert persisted["lease_id"] is None
+    assert persisted["lease_uri"] is None
+    assert persisted["worker"] is None
+    assert persisted["deployment_result"]["failure_stage"] == "lease-claim"
+    assert (
+        persisted["deployment_result"]["failure_classification"]
+        == "optional-runtime-evidence-unavailable"
+    )
+    assert "100.79.172.12" in persisted["deployment_result"]["error"]
+    event = json.loads((tmp_path / "operational-events.jsonl").read_text().splitlines()[-1])
+    assert event["event_type"] == "assignment_disposition"
+    assert event["details"]["optional_runtime"] == "mbair"
+
+
 @pytest.mark.parametrize(
     "path",
     ["/home/cdenneen/.ssh/id_ed25519", "../secret", ".git/config", "src/../secret"],
