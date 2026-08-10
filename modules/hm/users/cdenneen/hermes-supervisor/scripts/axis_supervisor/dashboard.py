@@ -87,7 +87,6 @@ def _recent_lines(events: list[dict]) -> list[str]:
         "mr_merged": "Engineering change integrated",
         "post_main_verified": "Mainline evidence verified",
         "capability_deployment_verified": "Product capability verified",
-        "assignment_retry": "Corrective recovery started",
     }
     visible = []
     for event in reversed(events):

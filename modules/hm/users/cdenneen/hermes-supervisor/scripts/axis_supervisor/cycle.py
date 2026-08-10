@@ -33,6 +33,8 @@ from axis_supervisor.deployment import (
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
+from axis_supervisor.merge_lanes import consume_next as consume_next_merge_lane
+from axis_supervisor.merge_lanes import reconcile as reconcile_merge_lanes
 from axis_supervisor.lifecycle import (
     is_completed,
     is_integrable,
@@ -66,6 +68,7 @@ from axis_supervisor.schema_registry import (
     validate_record,
     write_record,
 )
+from axis_supervisor.semantic_escalation import quarantine_failed_assignment
 from axis_supervisor.verification import completion_receipt
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
 from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
@@ -387,7 +390,7 @@ def release_failed_assignment(
     path: Path,
     supervisorctl: str,
     gate: MutationGate,
-) -> None:
+) -> dict | None:
     reconciliation = gate.decide(
         OperationClass.RECONCILIATION,
         assignment=assignment,
@@ -461,6 +464,20 @@ def release_failed_assignment(
         else "analyzed-only"
     )
     save(path, assignment, gate)
+    quarantine = quarantine_failed_assignment(ROOT, assignment)
+    if quarantine is not None:
+        record_event(
+            ROOT,
+            "semantic_escalation_quarantined",
+            assignment=assignment,
+            details={
+                "disposition": "pending-human-escalation",
+                "authority_invariant": quarantine["authority_invariant"],
+                "corrective_action": "await changed authority evidence or human escalation",
+            },
+            source="cycle",
+        )
+    return quarantine
 
 
 def recover_pending_decisions() -> tuple[list[str], dict | None]:
@@ -541,6 +558,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
     graduation = CapabilityGraduationProjector(ROOT).build(
         inventory, graph, capability_convergence
     )
+    reconcile_merge_lanes(ROOT, inventory)
     assignment_by_id = {
         value.get("assignment_id"): value
         for value in inventory.get("supervisor_assignments") or []
@@ -917,7 +935,7 @@ def execute_new_assignment(
         }
     except Exception as exc:
         assignment["error"] = f"{type(exc).__name__}: {exc}"
-        release_failed_assignment(assignment, path, supervisorctl, gate)
+        quarantine = release_failed_assignment(assignment, path, supervisorctl, gate)
         record_event(
             ROOT,
             "assignment_disposition",
@@ -935,11 +953,39 @@ def execute_new_assignment(
             expire_grant(ROOT, "failed")
         if assignment.get("mutation_grant_id"):
             finish_assignment_grant(ROOT, assignment, "failed")
+        if quarantine is not None:
+            # The failure has already been durably quarantined and its lease
+            # released.  Return control to the scheduler so capacity is refilled
+            # in this same cycle rather than turning the retry into a sink.
+            rebuild()
+            return {
+                "result": "semantic-escalation-quarantined",
+                "assignment": assignment["assignment_id"],
+            }
         raise
 
 
 def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     graph = rebuild()
+    inventory = read_record(
+        ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
+    )
+    lane = consume_next_merge_lane(
+        ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
+    )
+    if lane is not None:
+        record_event(
+            ROOT,
+            "merge_lane_consumed",
+            details={
+                "repository": lane["repository"],
+                "mr_iid": lane["mr_iid"],
+                "lane": lane["lane"],
+                "reason": lane["reason"],
+            },
+            source="cycle",
+            notify=False,
+        )
     mission = read_mission_record(ROOT / "active-mission.json")
     if (mission.get("termination_condition") or {}).get("should_terminate"):
         return {
@@ -1034,6 +1080,22 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
 
     def execute_with_continuation(assignment: dict) -> dict:
         first = execute_new_assignment(assignment, manager, supervisorctl, gate)
+        if first.get("result") == "semantic-escalation-quarantined":
+            # The failed read-only task released its lease.  Rebuild the frontier
+            # with the durable authority invariant excluded, then spend the freed
+            # capacity on the next compatible governed item immediately.
+            continuation_graph = rebuild()
+            next_assignment = dispatch_first_available(continuation_graph)
+            if next_assignment is None:
+                return first
+            second = execute_new_assignment(
+                next_assignment, manager, supervisorctl, gate
+            )
+            return {
+                "result": "semantic-quarantine-capacity-refilled",
+                "quarantined": first,
+                "replacement": second,
+            }
         if (
             assignment.get("assignment_type")
             not in {"read-only-analysis", "no-op-verification"}

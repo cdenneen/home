@@ -21,6 +21,8 @@ from .classifier import (
 from .decisions import DecisionStore
 from .decomposition import SemanticDecompositionEngine
 from .frontier import ExecutableFrontier
+from .semantic_escalation import exclude_pending as exclude_pending_semantic_escalations
+from .semantic_escalation import pending as pending_semantic_escalation
 from .mutation import MutationGate, OperationClass
 from .noop import (
     is_suppressed_no_op,
@@ -992,6 +994,15 @@ class ExecutionGraphBuilder:
                     _rank_queue_entry(entry, authority)
                     queue.append(entry)
 
+        semantic_quarantined = [
+            entry
+            for entry in queue
+            if pending_semantic_escalation(self.root, entry) is not None
+        ]
+        if semantic_quarantined:
+            queue = exclude_pending_semantic_escalations(self.root, queue)
+            semantic_pending = max(0, semantic_pending - len(semantic_quarantined))
+
         for entry in queue:
             entry["selection_rationale"] = _selection_rationale(entry)
         queue.sort(
@@ -1128,6 +1139,7 @@ class ExecutionGraphBuilder:
             "queue_depth": len(queue),
             "semantic_decomposition_pending": semantic_pending,
             "semantic_authority_unresolved": semantic_unresolved,
+            "semantic_escalation_quarantined": len(semantic_quarantined),
             "policy_suppressed_executable_count": policy_suppressed_executable,
             "scheduler_state": _scheduler_state(queue, control, scheduler_context),
             "queue_zero_proof": proof_conditions,

@@ -244,6 +244,16 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
         },
     )
     write(
+        supervisor / "operational-events.jsonl",
+        {
+            "event_type": "mr_merged",
+            "repository": "ghostspace/axis",
+            "created_at_epoch": now,
+            "created_at": iso(now),
+            "details": {"mr_iid": 1},
+        },
+    )
+    write(
         jobs_path,
         {
             "jobs": [
@@ -285,6 +295,63 @@ def supervisor_digest(root: Path) -> str:
             digest.update(str(path.relative_to(root)).encode())
             digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def test_real_delivery_excludes_slack_and_retry_churn(tmp_path: Path):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    events = supervisor / "operational-events.jsonl"
+    events.write_text(
+        json.dumps(
+            {
+                "event_type": "assignment_retry",
+                "repository": "ghostspace/axis",
+                "created_at_epoch": now,
+                "created_at": iso(now),
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "event_type": "implementation_completed",
+                "repository": "ghostspace/axis",
+                "created_at_epoch": now,
+                "created_at": iso(now),
+                "details": {"commit": None},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    inventory = {"repository_allowlist": ["ghostspace/axis"]}
+    stale = watchdog._real_delivery(inventory, {}, now)
+    assert stale["last_real_product_transition"] is None
+    assert stale["time_since_real_product_transition_seconds"] > stale["threshold_seconds"]
+
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "event_type": "mr_merged",
+                    "repository": "ghostspace/axis",
+                    "created_at_epoch": now,
+                    "created_at": iso(now),
+                    "details": {"mr_iid": 154},
+                }
+            )
+            + "\n"
+        )
+    current = watchdog._real_delivery(inventory, {}, now)
+    assert current["last_real_product_transition_type"] == "mr_merged"
+    assert current["time_since_real_product_transition_seconds"] == 0
 
 
 def test_independence_both_directions_and_read_only_supervisor(tmp_path: Path):

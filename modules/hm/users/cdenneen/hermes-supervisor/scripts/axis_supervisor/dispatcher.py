@@ -15,6 +15,7 @@ from .noop import is_suppressed_no_op, no_op_fingerprint
 from .observability import record_event
 from .repository_ownership import resolve_repository_ownership
 from .schema_registry import RecordError, read_record, write_record
+from .semantic_escalation import pending as pending_semantic_escalation
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
 ACTION_CONTRACT_FIELDS = {
@@ -257,6 +258,8 @@ class Dispatcher:
         if is_suppressed_no_op(
             item, active + self.completed_no_ops()
         ) or self._effectiveness_suppressed(item) or self._finding_suppressed(item):
+            return None
+        if pending_semantic_escalation(self.root, item) is not None:
             return None
         quarantine_path = self.root / "quarantines.json"
         if quarantine_path.exists():

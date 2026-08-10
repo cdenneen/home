@@ -801,6 +801,16 @@ def main() -> int:
             for milestone in project_milestones
         )
         project_open_mrs = [mr for mr in mrs if mr.get("state") == "opened"]
+        approval_facts = {}
+        for mr in project_open_mrs:
+            try:
+                approval_facts[int(mr["iid"])] = glab(
+                    f"projects/{encoded}/merge_requests/{int(mr['iid'])}/approvals"
+                )
+            except Exception:
+                # Keep collection available; unknown approval state must not be
+                # mistaken for an approved, ownerless merge lane.
+                approval_facts[int(mr["iid"])] = {}
         open_mrs.extend(
             {
                 "project": project["path_with_namespace"],
@@ -813,6 +823,29 @@ def main() -> int:
                 "web_url": mr.get("web_url"),
                 "merge_status": mr.get("detailed_merge_status")
                 or mr.get("merge_status"),
+                "pipeline_status": (mr.get("head_pipeline") or {}).get("status"),
+                "draft": bool(mr.get("draft") or mr.get("work_in_progress")),
+                "updated_at": mr.get("updated_at"),
+                "assignees": [
+                    str(value.get("username") or value.get("id"))
+                    for value in mr.get("assignees") or []
+                    if isinstance(value, dict)
+                    and (value.get("username") or value.get("id"))
+                ],
+                "merge_owner": (
+                    (mr.get("merge_user") or {}).get("username")
+                    or (mr.get("merge_user") or {}).get("id")
+                ),
+                "approved": bool(
+                    mr.get("approved_by")
+                    or mr.get("approved")
+                    or approval_facts[int(mr["iid"])].get("approved_by")
+                ),
+                "approved_by": mr.get("approved_by")
+                or approval_facts[int(mr["iid"])].get("approved_by")
+                or [],
+                "approval_state": mr.get("approval_state")
+                or approval_facts[int(mr["iid"])].get("approval_state"),
             }
             for mr in project_open_mrs
         )

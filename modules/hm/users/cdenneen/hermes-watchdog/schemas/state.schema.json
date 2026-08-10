@@ -26,6 +26,9 @@
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "mission_progress_since_epoch": { "type": "integer", "minimum": 1 },
+    "last_real_product_transition": { "type": ["string", "null"], "format": "date-time" },
+    "last_real_product_transition_epoch": { "type": ["integer", "null"], "minimum": 1 },
+    "time_since_real_product_transition_seconds": { "type": "integer", "minimum": 0 },
     "slack_cutover_generation": {
       "type": ["string", "null"],
       "enum": ["A", "B", "C", "D", "E", null]

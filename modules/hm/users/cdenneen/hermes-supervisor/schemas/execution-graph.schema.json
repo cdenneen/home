@@ -206,6 +206,7 @@
     "queue_depth": { "type": "integer", "minimum": 0 },
     "semantic_decomposition_pending": { "type": "integer", "minimum": 0 },
     "semantic_authority_unresolved": { "type": "integer", "minimum": 0 },
+    "semantic_escalation_quarantined": { "type": "integer", "minimum": 0 },
     "policy_suppressed_executable_count": { "type": "integer", "minimum": 0 },
     "scheduler_state": {
       "type": "object",

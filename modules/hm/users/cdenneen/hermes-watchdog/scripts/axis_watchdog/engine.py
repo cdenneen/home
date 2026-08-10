@@ -34,6 +34,15 @@ PROGRESS_EVENTS = {
     "post_main_verified",
     "capability_deployment_verified",
 }
+REAL_PRODUCT_EVENTS = {
+    "implementation_completed",
+    "mr_created",
+    "mr_updated",
+    "mr_merged",
+    "post_main_verified",
+    "capability_deployment_verified",
+    "validation_completed",
+}
 TERMINAL_ASSIGNMENT_STATES = {
     "completed",
     "waiting",
@@ -103,6 +112,33 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         if isinstance(value, dict):
             values.append(value)
     return values
+
+
+def _event_project(event: dict[str, Any]) -> str:
+    details = event.get("details") or {}
+    return str(
+        event.get("project")
+        or event.get("repository")
+        or details.get("repository")
+        or details.get("project")
+        or ""
+    )
+
+
+def _is_real_product_event(event: dict[str, Any], repositories: set[str]) -> bool:
+    """Reject worker, Slack, and other internal activity as delivery evidence."""
+    event_type = str(event.get("event_type") or "")
+    if event_type not in REAL_PRODUCT_EVENTS:
+        return False
+    if repositories and _event_project(event) not in repositories:
+        return False
+    if event_type == "implementation_completed":
+        # A changed worktree without a durable commit remains internal custody.
+        return bool((event.get("details") or {}).get("commit"))
+    if event_type in {"mr_created", "mr_updated", "mr_merged"}:
+        details = event.get("details") or {}
+        return bool(details.get("mr_iid") or details.get("mr_url"))
+    return True
 
 
 class Watchdog:
@@ -302,6 +338,117 @@ class Watchdog:
         if anomalies:
             metrics["status"] = "degraded"
         return metrics, anomalies
+
+    def _real_delivery(
+        self, inventory: dict[str, Any], state: dict[str, Any], now: int
+    ) -> dict[str, Any]:
+        repositories = set(inventory.get("repository_allowlist") or [])
+        if not repositories:
+            repositories = set((inventory.get("repositories") or {}).keys())
+        events = _read_jsonl(self.supervisor_root / "operational-events.jsonl")
+        real_events = [
+            event
+            for event in events
+            if _is_real_product_event(event, repositories)
+            and int(event.get("created_at_epoch") or 0) <= now
+        ]
+        for merge_request in inventory.get("open_merge_requests") or []:
+            updated_epoch = parse_timestamp(merge_request.get("updated_at"))
+            if (
+                updated_epoch is not None
+                and updated_epoch <= now
+                and _event_project(merge_request) in repositories
+            ):
+                real_events.append(
+                    {
+                        "event_type": "mr_updated",
+                        "created_at": merge_request.get("updated_at"),
+                        "created_at_epoch": updated_epoch,
+                        "repository": merge_request.get("project"),
+                        "details": {
+                            "mr_iid": merge_request.get("iid"),
+                            "mr_url": merge_request.get("web_url"),
+                            "sha": merge_request.get("sha"),
+                        },
+                    }
+                )
+        latest = max(real_events, key=lambda event: int(event.get("created_at_epoch") or 0), default=None)
+        latest_epoch = int((latest or {}).get("created_at_epoch") or 0)
+        prior_epoch = int(state.get("last_real_product_transition_epoch") or 0)
+        prior_transition = state.get("last_real_product_transition")
+        prior_type = state.get("last_real_product_transition_type")
+        if prior_epoch > latest_epoch:
+            latest_epoch = prior_epoch
+            latest = None
+        threshold = int(self._control()["delivery_freshness_seconds"])
+        return {
+            "last_real_product_transition": (latest or {}).get("created_at")
+            or prior_transition,
+            "last_real_product_transition_epoch": latest_epoch or None,
+            "last_real_product_transition_type": (latest or {}).get("event_type")
+            or prior_type,
+            "time_since_real_product_transition_seconds": max(0, now - latest_epoch)
+            if latest_epoch
+            else threshold + 1,
+            "threshold_seconds": threshold,
+            "event_count": len(real_events),
+        }
+
+    @staticmethod
+    def _executable_work_exists(graph: dict[str, Any], mission: dict[str, Any]) -> bool:
+        if graph.get("executable_queue"):
+            return True
+        if any(
+            node.get("classification") == "Executable" for node in graph.get("nodes") or []
+        ):
+            return True
+        return any(
+            action.get("executable")
+            for action in mission.get("generated_actions") or []
+        )
+
+    def _stale_approved_merge_requests(
+        self, inventory: dict[str, Any], now: int, threshold: int
+    ) -> list[dict[str, Any]]:
+        try:
+            merge_lanes = json.loads(
+                (self.supervisor_root / "merge-lanes.json").read_text(
+                    encoding="utf-8"
+                )
+            ).get("items") or []
+        except (OSError, json.JSONDecodeError, AttributeError):
+            merge_lanes = []
+        owned_lanes = {
+            f"{lane.get('repository')}!{lane.get('mr_iid')}"
+            for lane in merge_lanes
+            if isinstance(lane, dict)
+            and lane.get("owner")
+            and lane.get("lane") not in {"EXTERNAL_WAIT", "PRODUCT_OWNER_DECISION"}
+        }
+        stale = []
+        for merge_request in inventory.get("open_merge_requests") or []:
+            mergeable = str(merge_request.get("merge_status") or "").lower() in {
+                "mergeable",
+                "can_be_merged",
+            }
+            approved = bool(
+                merge_request.get("approved")
+                or merge_request.get("approved_by")
+                or merge_request.get("approval_state") == "approved"
+            )
+            owner = merge_request.get("merge_owner") or merge_request.get("assignees")
+            updated_epoch = parse_timestamp(merge_request.get("updated_at"))
+            if (
+                mergeable
+                and approved
+                and not owner
+                and f"{merge_request.get('project')}!{merge_request.get('iid')}"
+                not in owned_lanes
+                and updated_epoch is not None
+                and now - updated_epoch > threshold
+            ):
+                stale.append(merge_request)
+        return stale
 
     @staticmethod
     def _job(jobs: list[dict[str, Any]], name: str) -> dict[str, Any]:
@@ -651,6 +798,39 @@ class Watchdog:
                 )
             )
 
+        real_delivery = self._real_delivery(records["inventory"], state, now)
+        executable_work = self._executable_work_exists(records["execution-graph"], mission)
+        if (
+            executable_work
+            and real_delivery["time_since_real_product_transition_seconds"]
+            > real_delivery["threshold_seconds"]
+        ):
+            anomalies.append(
+                self._anomaly(
+                    "real-product-delivery-stale",
+                    "delivery_effectiveness",
+                    "no governed-repository product transition for "
+                    f"{real_delivery['time_since_real_product_transition_seconds']}s while executable work exists",
+                    5,
+                )
+            )
+        stale_merge_requests = self._stale_approved_merge_requests(
+            records["inventory"], now, int(control["delivery_freshness_seconds"])
+        )
+        if stale_merge_requests:
+            refs = ", ".join(
+                f"{value.get('project')}!{value.get('iid')}"
+                for value in stale_merge_requests[:4]
+            )
+            anomalies.append(
+                self._anomaly(
+                    "stale-approved-merge-lane",
+                    "delivery_effectiveness",
+                    "approved mergeable merge request(s) lack a merge-lane owner: " + refs,
+                    2,
+                )
+            )
+
         coherence = _progress_coherence(
             records["inventory"],
             records["execution-graph"],
@@ -711,6 +891,16 @@ class Watchdog:
                 wait_reason or "no expected wait",
             ],
         }
+        dimensions["delivery_effectiveness"]["evidence"] = [
+            "last real product transition "
+            + (
+                str(real_delivery["last_real_product_transition"])
+                if real_delivery["last_real_product_transition"]
+                else "not observed"
+            ),
+            f"time since real product transition "
+            f"{real_delivery['time_since_real_product_transition_seconds']}s",
+        ]
         for dimension in dimensions:
             relevant = [a for a in anomalies if a["dimension"] == dimension]
             if relevant and dimensions[dimension]["status"] == "healthy":
@@ -748,6 +938,18 @@ class Watchdog:
                 "expected_wait": expected_wait,
                 "expected_wait_reason": wait_reason,
                 "coherence": coherence,
+            },
+            "real_delivery": {
+                **real_delivery,
+                "executable_work_exists": executable_work,
+                "stale_approved_merge_requests": [
+                    {
+                        "project": value.get("project"),
+                        "iid": value.get("iid"),
+                        "web_url": value.get("web_url"),
+                    }
+                    for value in stale_merge_requests
+                ],
             },
             "outbox": outbox_health,
             "cutover": cutover,
@@ -1188,10 +1390,13 @@ class Watchdog:
             if isinstance((node.get("semantic_record") or {}).get("decision_packet"), dict)
         ] or ["• No Product Owner decision is pending"]
         events = _read_jsonl(Path(evidence.get("supervisor_root") or ".") / "operational-events.jsonl")
+        repositories = set(records["inventory"].get("repository_allowlist") or [])
+        if not repositories:
+            repositories = set((records["inventory"].get("repositories") or {}).keys())
         recent = [
             f"• {event.get('event_type', 'activity').replace('_', ' ').title()} — `{event.get('work_item') or 'AXIS'}`"
             for event in events
-            if event.get("event_type") in PROGRESS_EVENTS
+            if _is_real_product_event(event, repositories)
         ][-4:] or ["• No material product progress in the current evidence window"]
         open_incidents = [value for value in incidents.values() if value.get("status") != "resolved"]
         health_lines = [
@@ -1362,6 +1567,15 @@ class Watchdog:
             "health": dimensions,
             "mission_progress_fingerprint": mission["progress_fingerprint"],
             "mission_progress_since_epoch": mission["progress_since_epoch"],
+            "last_real_product_transition": evidence["real_delivery"][
+                "last_real_product_transition"
+            ],
+            "last_real_product_transition_epoch": evidence["real_delivery"][
+                "last_real_product_transition_epoch"
+            ],
+            "time_since_real_product_transition_seconds": evidence["real_delivery"][
+                "time_since_real_product_transition_seconds"
+            ],
             "slack_cutover_generation": evidence["cutover"].get("generation"),
             "incidents": incidents,
             "diagnostic_calls": state.get("diagnostic_calls") or [],
