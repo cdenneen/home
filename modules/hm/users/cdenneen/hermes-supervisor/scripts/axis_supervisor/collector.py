@@ -779,7 +779,12 @@ def normalize_open_merge_request(
     detail = detail_facts if isinstance(detail_facts, dict) else {}
     approval_facts_available, approved = _approval_status(approval_facts)
     pipeline_status = _pipeline_status(detail) or _pipeline_status(merge_request)
-    approved_by = _approved_by(approval_facts) or _approved_by(merge_request)
+    approved_by = (
+        approval_facts["approved_by"]
+        if isinstance(approval_facts, dict)
+        and isinstance(approval_facts.get("approved_by"), list)
+        else _approved_by(merge_request)
+    )
     return {
         "project": project,
         "iid": merge_request["iid"],

@@ -143,6 +143,48 @@ def test_gitlab_approval_and_detail_pipeline_facts_adopt_an_owned_lane(
     assert adopted["items"][0]["owner"] == "supervisor-integration"
 
 
+def test_stale_list_approvers_do_not_override_an_unapproved_endpoint_decision(
+    tmp_path: Path,
+):
+    listed_mr = {
+        "iid": 154,
+        "title": "Stale list approval",
+        "state": "opened",
+        "target_branch": "main",
+        "detailed_merge_status": "mergeable",
+        "head_pipeline": {"status": "success"},
+        "approved_by": [{"user": {"username": "stale-reviewer"}}],
+        "draft": False,
+    }
+    merge_request = normalize_open_merge_request(
+        "ghostspace/axis", listed_mr, {"approved": False}, {}
+    )
+
+    assert merge_request["approved"] is False
+    assert merge_request["approved_by"] == listed_mr["approved_by"]
+    adopted = reconcile(tmp_path, {"open_merge_requests": [merge_request]})
+    assert adopted["items"][0]["lane"] != INTEGRATION
+    assert adopted["items"][0]["reason"] == "required approval is not observed"
+
+
+def test_empty_approvals_endpoint_approvers_override_stale_list_approvers():
+    listed_mr = {
+        "iid": 154,
+        "title": "Stale list approver",
+        "state": "opened",
+        "target_branch": "main",
+        "approved_by": [{"user": {"username": "stale-reviewer"}}],
+    }
+    merge_request = normalize_open_merge_request(
+        "ghostspace/axis",
+        listed_mr,
+        {"approved": False, "approved_by": []},
+        {},
+    )
+
+    assert merge_request["approved_by"] == []
+
+
 def test_unavailable_gitlab_facts_fail_closed_with_an_explicit_reason(tmp_path: Path):
     listed_mr = _actionable_mr(154)
     listed_mr.pop("approval_facts_available")

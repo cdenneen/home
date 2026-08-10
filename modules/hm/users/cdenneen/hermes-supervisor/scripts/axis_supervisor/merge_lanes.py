@@ -22,7 +22,6 @@ def lane_id(merge_request: dict) -> str:
 def _approved(merge_request: dict) -> bool:
     return bool(
         merge_request.get("approved")
-        or merge_request.get("approved_by")
         or merge_request.get("approval_state") == "approved"
     )
 
