@@ -19,6 +19,8 @@ from axis_supervisor.semantic_escalation import (  # noqa: E402
     pending,
     quarantine_failed_assignment,
 )
+from axis_supervisor.repository_ownership import assignment_ownership  # noqa: E402
+from axis_supervisor.schema_registry import write_record  # noqa: E402
 
 
 def _semantic_assignment(repository_head: str = "a" * 40) -> dict:
@@ -132,18 +134,124 @@ def _custody_inventory(mrs: list[dict], owned_iids: set[int]) -> dict:
         branches.append(
             {
                 "name": branch,
+                "head": mr["sha"],
                 "owned_by_supervisor": iid in owned_iids,
                 "active_worktree": worktree,
+                "merge_request": {"iid": iid, "sha": mr["sha"]},
             }
         )
     return {
         "open_merge_requests": mrs,
         "repositories": {
-            "ghostspace/axis": {"local_facts": {"remote_branches": branches}}
+            "ghostspace/axis": {
+                "local_facts": {
+                    "remote_branches": branches,
+                    "worktrees": [
+                        {
+                            "path": branch["active_worktree"],
+                            "branch": branch["name"],
+                            "head": branch["head"],
+                        }
+                        for branch in branches
+                        if branch["active_worktree"]
+                    ],
+                }
+            }
         },
         "supervisor_assignments": assignments,
         "active_leases": leases,
     }
+
+
+def _write_durable_integration_binding(
+    root: Path,
+    *,
+    assignment_id: str,
+    branch: str,
+    sha: str,
+    iid: int,
+    worktree: str,
+):
+    assignment = {
+        "schema": "axis.external-development-supervisor.assignment",
+        "schema_version": "4.0.0",
+        "assignment_id": assignment_id,
+        "assignment_type": "code-implementation",
+        "result_state": "awaiting-integration",
+        "work_item_disposition": "requires-integration",
+        "lifecycle_state": "awaiting-integration",
+        "project": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
+        "work_item": "ghostspace/axis#155",
+        "planning_record": None,
+        "allowed_paths": ["src/axis/cli.py"],
+        "required_tests": ["pytest -q"],
+        "action_contract": None,
+        "mutation_grant_id": None,
+        "mutation_grant_uri": None,
+        "created_by_run": "run-155",
+        "lease_id": f"lease-{assignment_id}",
+        "lease_uri": (
+            root / "leases" / f"lease-{assignment_id}" / "lease.json"
+        ).resolve().as_uri(),
+        "worker": {
+            "branch": branch,
+            "commit": sha,
+            "worktree": worktree,
+            "handoff": {"mr_iid": iid},
+        },
+    }
+    assignment["repository_ownership"] = assignment_ownership(
+        assignment, context=f"test-binding:{assignment_id}"
+    )
+    handoff = {
+        "schema": "axis.external-development-supervisor.implementation-handoff",
+        "schema_version": "2.0.0",
+        "assignment_id": assignment_id,
+        "work_item": assignment["work_item"],
+        "repository": assignment["project"],
+        "responsibility": assignment["responsibility"],
+        "repository_ownership": assignment["repository_ownership"],
+        "branch": branch,
+        "commit": sha,
+        "allowed_paths": assignment["allowed_paths"],
+        "changed_paths": assignment["allowed_paths"],
+        "tests": [{"command": command} for command in assignment["required_tests"]],
+        "mr_iid": iid,
+        "mr_url": f"https://gitlab.example/ghostspace/axis/-/merge_requests/{iid}",
+        "source_main_sha": "main-sha",
+        "created_at": "2026-08-10T00:00:00+00:00",
+        "state": "ready-for-integration",
+    }
+    lease = {
+        "schema": "axis.external-development-supervisor.lease",
+        "schema_version": "1.0.0",
+        "lease_id": assignment["lease_id"],
+        "assignment_id": assignment_id,
+        "owner_run_id": assignment["created_by_run"],
+        "fencing_token": "f" * 32,
+        "resources": ["repo:ghostspace/axis"],
+        "read_only": False,
+        "acquired_at_epoch": 1_700_000_000,
+        "heartbeat_at_epoch": 1_700_000_000,
+        "expires_at_epoch": 4_000_000_000,
+    }
+    write_record(
+        root / "assignments" / f"{assignment_id}.json",
+        assignment,
+        "axis.external-development-supervisor.assignment",
+    )
+    write_record(
+        root / "implementation-handoffs" / f"{assignment_id}.json",
+        handoff,
+        "axis.external-development-supervisor.implementation-handoff",
+    )
+    write_record(
+        root / "leases" / assignment["lease_id"] / "lease.json",
+        lease,
+        "axis.external-development-supervisor.lease",
+    )
+    return assignment
 
 
 def test_actionable_external_mrs_are_adopted_and_consumed_by_integrator(
@@ -205,6 +313,83 @@ def test_bound_lane_selects_its_existing_gated_integration_assignment():
     )
 
     assert selected == bound_assignment
+
+
+def test_durable_binding_recovers_a_missing_inventory_projection(tmp_path: Path):
+    from axis_supervisor.cycle import select_integrable_assignment
+
+    external = _actionable_mr(154) | {"source_branch": "macos-11-compat"}
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([external, owned], {155})
+    inventory["supervisor_assignments"] = []
+    inventory["active_leases"] = []
+    durable = _write_durable_integration_binding(
+        tmp_path,
+        assignment_id="assignment-155",
+        branch=owned["source_branch"],
+        sha=owned["sha"],
+        iid=155,
+        worktree="/supervisor/worktrees/assignment-155",
+    )
+
+    consumed = consume_next(tmp_path, inventory, FakeIntegrator())
+
+    assert consumed is not None
+    assert consumed["mr_iid"] == 155
+    assert consumed["mutation_disposition"] == GATED_INTEGRATION
+    assert consumed["custody"]["assignment_id"] == "assignment-155"
+    assert consumed["custody"]["binding_source"] == "durable-recovery"
+    assert select_integrable_assignment([durable], consumed) == durable
+
+
+def test_durable_binding_recovery_rejects_wrong_branch_sha_and_ambiguity(
+    tmp_path: Path,
+):
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([owned], {155})
+    inventory["supervisor_assignments"] = []
+    inventory["active_leases"] = []
+    worktree = "/supervisor/worktrees/assignment-155"
+
+    _write_durable_integration_binding(
+        tmp_path / "wrong-branch",
+        assignment_id="assignment-wrong-branch",
+        branch="hermes/other",
+        sha=owned["sha"],
+        iid=155,
+        worktree=worktree,
+    )
+    wrong_branch = reconcile(tmp_path / "wrong-branch", inventory)["items"][0]
+    assert wrong_branch["mutation_disposition"] == INSPECTION_ONLY
+    assert wrong_branch["custody"]["assignment_id"] is None
+
+    _write_durable_integration_binding(
+        tmp_path / "wrong-sha",
+        assignment_id="assignment-wrong-sha",
+        branch=owned["source_branch"],
+        sha="other-sha",
+        iid=155,
+        worktree=worktree,
+    )
+    wrong_sha = reconcile(tmp_path / "wrong-sha", inventory)["items"][0]
+    assert wrong_sha["mutation_disposition"] == INSPECTION_ONLY
+    assert wrong_sha["custody"]["assignment_id"] is None
+
+    ambiguous_root = tmp_path / "ambiguous"
+    for assignment_id in ("assignment-155-a", "assignment-155-b"):
+        _write_durable_integration_binding(
+            ambiguous_root,
+            assignment_id=assignment_id,
+            branch=owned["source_branch"],
+            sha=owned["sha"],
+            iid=155,
+            worktree=worktree,
+        )
+    ambiguous = reconcile(ambiguous_root, inventory)["items"][0]
+    assert ambiguous["mutation_disposition"] == INSPECTION_ONLY
+    assert ambiguous["custody"]["reason"] == (
+        "multiple exact durable integration bindings are ambiguous"
+    )
 
 
 def test_external_lane_stays_non_destructive_without_custody(tmp_path: Path):

@@ -1,11 +1,14 @@
 import fcntl
 import json
 import os
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
-from .mutation import MutationGate, OperationClass
+from .lifecycle import is_integrable
+from .models import validate_assignment
+from .mutation import MutationGate, OperationClass, load_canonical_lease
 from .repository_ownership import (
     assignment_ownership,
     ownership_denial,
@@ -59,6 +62,94 @@ def classify_main_advance(
     if implementation and not any(_overlap(a, b) for a in implementation for b in advanced):
         return "compatible"
     return "repair-required"
+
+
+def recover_integration_binding(
+    root: Path,
+    *,
+    project: str,
+    branch: str,
+    sha: str,
+    mr_iid: int,
+    worktree: str,
+) -> tuple[dict | None, str]:
+    """Recover one exact integration binding from durable supervisor records.
+
+    Inventory is a projection and may lag or omit a valid assignment/lease pair.
+    This recovery is deliberately narrower than normal assignment discovery: every
+    custody fact must agree across the assignment, its persisted handoff, and its
+    canonical writable lease.  The returned assignment remains subject to the
+    normal cycle lease heartbeat, mutation gate, and fresh GitLab inspection.
+    """
+    if not all((project, branch, sha, mr_iid, worktree)):
+        return None, "local custody facts are incomplete"
+
+    candidates = []
+    assignments = root / "assignments"
+    for path in sorted(assignments.glob("*.json")) if assignments.exists() else []:
+        try:
+            assignment = validate_assignment(
+                json.loads(path.read_text(encoding="utf-8")), root
+            )
+            if not is_integrable(assignment) or assignment.get("project") != project:
+                continue
+            worker = assignment.get("worker") or {}
+            if (
+                worker.get("branch") != branch
+                or worker.get("commit") != sha
+                or worker.get("worktree") != worktree
+                or int((worker.get("handoff") or {}).get("mr_iid") or 0) != mr_iid
+            ):
+                continue
+            assignment_ownership_value = assignment_ownership(
+                assignment,
+                context=f"integration-binding-recovery:{assignment.get('assignment_id')}",
+            )
+            if not ownership_evidence_matches(
+                assignment.get("repository_ownership"), assignment_ownership_value
+            ):
+                continue
+            handoff = read_record(
+                root
+                / "implementation-handoffs"
+                / f"{assignment['assignment_id']}.json",
+                HANDOFF_SCHEMA,
+            )
+            handoff_ownership = validate_repository_ownership(
+                handoff.get("responsibility"),
+                handoff.get("repository"),
+                context=f"integration-binding-recovery-handoff:{assignment.get('assignment_id')}",
+            )
+            if (
+                handoff.get("assignment_id") != assignment["assignment_id"]
+                or handoff.get("repository") != project
+                or handoff.get("branch") != branch
+                or handoff.get("commit") != sha
+                or int(handoff.get("mr_iid") or 0) != mr_iid
+                or handoff.get("state") != "ready-for-integration"
+                or any(
+                    handoff_ownership.get(key) != assignment_ownership_value.get(key)
+                    for key in ("responsibility", "repository", "canonical_repository")
+                )
+                or not ownership_evidence_matches(
+                    handoff.get("repository_ownership"), handoff_ownership
+                )
+            ):
+                continue
+            lease = load_canonical_lease(root, assignment)
+            if lease.get("read_only") or int(lease.get("expires_at_epoch") or 0) <= int(
+                time.time()
+            ):
+                continue
+            candidates.append(assignment)
+        except Exception:  # A malformed durable record can never grant recovery.
+            continue
+
+    if len(candidates) == 1:
+        return candidates[0], "recovered exact durable integration binding"
+    if len(candidates) > 1:
+        return None, "multiple exact durable integration bindings are ambiguous"
+    return None, "no exact durable integration binding"
 
 
 class WorkflowState:

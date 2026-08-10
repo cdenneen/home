@@ -9,6 +9,7 @@ from pathlib import Path
 from .integrator import Integrator
 from .lifecycle import is_integrable
 from .repository_ownership import responsibility_for_repository
+from .workflow_state import recover_integration_binding
 
 FILENAME = "merge-lanes.json"
 INTEGRATION = "INTEGRATION"
@@ -109,10 +110,12 @@ def _active_assignment_for(merge_request: dict, inventory: dict) -> dict | None:
     return assignment if matching_lease is not None else None
 
 
-def _custody_for(merge_request: dict, inventory: dict) -> dict:
-    """Derive fail-closed lane custody from current local and durable facts."""
+def _exact_local_custody_for(merge_request: dict, inventory: dict) -> tuple[dict | None, str]:
+    """Require the local branch and worktree observations to match this MR SHA."""
     project = str(merge_request.get("project") or "")
     source_branch = str(merge_request.get("source_branch") or "")
+    sha = str(merge_request.get("sha") or "")
+    iid = int(merge_request.get("iid") or 0)
     local = ((inventory.get("repositories") or {}).get(project) or {}).get(
         "local_facts"
     ) or {}
@@ -124,28 +127,73 @@ def _custody_for(merge_request: dict, inventory: dict) -> dict:
         ),
         None,
     )
-    assignment = _active_assignment_for(merge_request, inventory)
+    if not branch:
+        return None, "source branch has no current local custody record"
+    if not branch.get("owned_by_supervisor"):
+        return None, "source branch is not supervisor-owned"
+    worktree = branch.get("active_worktree")
+    if not worktree:
+        return None, "supervisor-owned source branch has no active worktree"
+    if branch.get("head") != sha:
+        return None, "local source branch head does not match the merge request SHA"
+    local_mr = branch.get("merge_request") or {}
+    if (
+        int(local_mr.get("iid") or 0) != iid
+        or local_mr.get("sha") != sha
+    ):
+        return None, "local branch merge request does not match the observed MR SHA"
+    exact_worktree = next(
+        (
+            value
+            for value in local.get("worktrees") or []
+            if isinstance(value, dict)
+            and value.get("path") == worktree
+            and value.get("branch") == source_branch
+            and value.get("head") == sha
+        ),
+        None,
+    )
+    if exact_worktree is None:
+        return None, "active worktree does not match the observed branch and MR SHA"
+    return branch, "exact local branch, worktree, and merge request custody"
+
+
+def _custody_for(root: Path, merge_request: dict, inventory: dict) -> dict:
+    """Derive fail-closed lane custody from current local and durable facts."""
+    branch, local_reason = _exact_local_custody_for(merge_request, inventory)
     worktree = (branch or {}).get("active_worktree")
-    assignment_worktree = ((assignment or {}).get("worker") or {}).get("worktree")
     owned = bool((branch or {}).get("owned_by_supervisor"))
+    assignment = _active_assignment_for(merge_request, inventory) if branch else None
+    recovered = False
+    recovery_reason = None
+    if branch and assignment is None:
+        assignment, recovery_reason = recover_integration_binding(
+            root=root,
+            project=str(merge_request.get("project") or ""),
+            branch=str(merge_request.get("source_branch") or ""),
+            sha=str(merge_request.get("sha") or ""),
+            mr_iid=int(merge_request.get("iid") or 0),
+            worktree=str(worktree or ""),
+        )
+        recovered = assignment is not None
+    assignment_worktree = ((assignment or {}).get("worker") or {}).get("worktree")
     exact_worktree = bool(worktree and assignment_worktree and worktree == assignment_worktree)
-    eligible = bool(owned and exact_worktree and assignment)
-    if eligible:
+    eligible = bool(branch and exact_worktree and assignment)
+    if eligible and recovered:
+        reason = "supervisor-owned branch and worktree recovered an exact durable binding"
+    elif eligible:
         reason = "supervisor-owned branch, worktree, assignment, and lease are bound"
     elif not branch:
-        reason = "source branch has no current local custody record"
-    elif not owned:
-        reason = "source branch is not supervisor-owned"
-    elif not worktree:
-        reason = "supervisor-owned source branch has no active worktree"
+        reason = local_reason
     elif assignment is None:
-        reason = "no uniquely bound active assignment with a writable lease"
+        reason = recovery_reason or "no uniquely bound active assignment with a writable lease"
     else:
         reason = "active worktree does not match the bound assignment"
     return {
         "supervisor_owned": owned,
         "active_worktree": worktree,
         "assignment_id": (assignment or {}).get("assignment_id"),
+        "binding_source": "durable-recovery" if recovered else "inventory-projection",
         "disposition": GATED_INTEGRATION if eligible else INSPECTION_ONLY,
         "reason": reason,
     }
@@ -203,7 +251,7 @@ def reconcile(root: Path, inventory: dict) -> dict:
         if not merge_request.get("project") or not int(merge_request.get("iid") or 0):
             continue
         lane, reason = classify(merge_request)
-        custody = _custody_for(merge_request, inventory)
+        custody = _custody_for(root, merge_request, inventory)
         old = previous.get(identifier) or {}
         items.append(
             {
