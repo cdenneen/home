@@ -24,6 +24,7 @@ from axis_supervisor.schema_registry import read_record, write_record  # noqa: E
 from axis_supervisor.workflow_state import (  # noqa: E402
     HANDOFF_SCHEMA,
     WorkflowState,
+    is_mr_driven_integration_projection,
     recover_integration_binding,
 )
 
@@ -442,6 +443,73 @@ def test_exact_owned_mr_projects_its_handoff_and_canonical_lease(
     by_iid = {item["mr_iid"]: item for item in adopted["items"]}
     assert by_iid[155]["mutation_disposition"] == GATED_INTEGRATION
     assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
+
+
+def test_projected_mr_assignment_skips_issue_closure_after_verification(
+    tmp_path: Path,
+):
+    from axis_supervisor.cycle import close_work_item
+
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    facts = {
+        "project": "ghostspace/axis",
+        "branch": owned["source_branch"],
+        "sha": owned["sha"],
+        "mr_iid": 155,
+        "mr_url": owned["web_url"],
+        "worktree": "/supervisor/worktrees/assignment-155",
+        "changed_paths": ["src/axis/cli.py"],
+        "source_main_sha": "main-sha",
+    }
+    assignment = WorkflowState(tmp_path)._adopted_assignment(facts)
+
+    # This represents the actual MR-driven integration: there is no fabricated
+    # issue ref for a post-merge close operation to target.
+    assert assignment["work_item"] == "ghostspace/axis!155"
+    assert is_mr_driven_integration_projection(assignment)
+    assert (
+        close_work_item(
+            assignment,
+            "glab-not-invoked",
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            [],
+        )
+        is False
+    )
+
+
+def test_missing_issue_ref_still_fails_closed_without_projection(tmp_path: Path):
+    from axis_supervisor.cycle import close_work_item
+
+    assignment = WorkflowState(tmp_path)._adopted_assignment(
+        {
+            "project": "ghostspace/axis",
+            "branch": "hermes/axm4-desktop-ui",
+            "sha": "sha-155",
+            "mr_iid": 155,
+            "mr_url": "https://gitlab.example/ghostspace/axis/-/merge_requests/155",
+            "worktree": "/supervisor/worktrees/assignment-155",
+            "changed_paths": ["src/axis/cli.py"],
+            "source_main_sha": "main-sha",
+        }
+    )
+    assignment.pop("integration_recovery")
+
+    try:
+        close_work_item(
+            assignment,
+            "glab-not-invoked",
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            [],
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "integrated assignment has no GitLab work item ref"
+    else:
+        raise AssertionError("missing issue ref bypassed normal fail-closed closure")
 
 
 def test_projection_rejects_stale_handoff_and_never_claims_a_lease(tmp_path: Path):

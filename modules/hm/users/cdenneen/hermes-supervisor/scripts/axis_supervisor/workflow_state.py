@@ -239,6 +239,43 @@ def _exact_owned_integration_facts(inventory: dict, merge_request: dict) -> dict
     }
 
 
+def is_mr_driven_integration_projection(assignment: dict) -> bool:
+    """Whether an assignment is the exact inherited projection of one MR.
+
+    A projected assignment represents an already-published Supervisor MR, not a
+    controlling GitLab issue.  Its ``work_item`` therefore deliberately uses
+    GitLab's MR notation (``project!iid``).  Keep this recognition strict so a
+    malformed ordinary assignment cannot bypass the normal issue-closure gate.
+    """
+    try:
+        recovery = assignment.get("integration_recovery") or {}
+        worker = assignment.get("worker") or {}
+        handoff = worker.get("handoff") or {}
+        authority = assignment.get("authority") or {}
+        source = authority.get("source") or {}
+        project = str(assignment.get("project") or "")
+        iid = int(recovery.get("mr_iid") or 0)
+        return bool(
+            project
+            and iid > 0
+            and assignment.get("work_item") == f"{project}!{iid}"
+            and recovery.get("project") == project
+            and recovery.get("branch") == worker.get("branch")
+            and recovery.get("sha") == worker.get("commit")
+            and recovery.get("worktree") == worker.get("worktree")
+            and recovery.get("changed_paths") == worker.get("changed_paths")
+            and int(handoff.get("mr_iid") or 0) == iid
+            and authority.get("state") == "inherited"
+            and source.get("kind")
+            == "exact-supervisor-owned-awaiting-integration"
+            and source.get("branch") == recovery.get("branch")
+            and source.get("commit") == recovery.get("sha")
+            and int(source.get("mr_iid") or 0) == iid
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 class WorkflowState:
     def __init__(self, root: Path):
         self.root = root

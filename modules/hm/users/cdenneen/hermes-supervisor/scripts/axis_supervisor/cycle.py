@@ -72,7 +72,11 @@ from axis_supervisor.schema_registry import (
 from axis_supervisor.semantic_escalation import quarantine_failed_assignment
 from axis_supervisor.verification import completion_receipt
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
-from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
+from axis_supervisor.workflow_state import (
+    WorkflowState,
+    classify_main_advance,
+    is_mr_driven_integration_projection,
+)
 
 ROOT = Path(
     os.environ.get(
@@ -309,9 +313,14 @@ def close_work_item(
     close_decision: GateDecision,
     evidence_decision: GateDecision,
     evidence: list[str],
-) -> None:
+) -> bool:
     target = str(assignment.get("work_item") or "")
     if "#" not in target:
+        if is_mr_driven_integration_projection(assignment):
+            # The inherited projection has no separate controlling issue to
+            # close: its MR was the integration work item and is already
+            # merged.  This is not a verification failure.
+            return False
         raise RuntimeError("integrated assignment has no GitLab work item ref")
     project, iid = target.rsplit("#", 1)
     encoded = quote(project, safe="")
@@ -406,6 +415,7 @@ def close_work_item(
         text=True,
         timeout=120,
     )
+    return True
 
 
 def release_failed_assignment(
@@ -1622,7 +1632,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
             if not verification_error:
                 try:
-                    close_work_item(
+                    work_item_closed = close_work_item(
                         assignment,
                         "/etc/profiles/per-user/cdenneen/bin/glab",
                         gate,
@@ -1634,6 +1644,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                                 (inspection.get("pipeline") or {}).get("web_url") or ""
                             ),
                         ],
+                    )
+                    integration["work_item_closure"] = (
+                        "closed" if work_item_closed else "not-applicable-mr-driven"
                     )
                 except Exception as exc:
                     verification_error = f"{type(exc).__name__}: {exc}"
