@@ -729,6 +729,107 @@ def write_inventory(path: Path, inventory: dict) -> None:
     write_record(path, inventory, "axis.external-development-supervisor.inventory")
 
 
+def _pipeline_status(merge_request: object) -> str | None:
+    if not isinstance(merge_request, dict):
+        return None
+    for field in ("head_pipeline", "pipeline"):
+        pipeline = merge_request.get(field)
+        if isinstance(pipeline, dict):
+            status = pipeline.get("status")
+            if isinstance(status, str) and status:
+                return status
+    return None
+
+
+def _approval_status(approval_facts: object) -> tuple[bool, bool]:
+    """Return (available, approved) from GitLab's MR approvals response."""
+    if not isinstance(approval_facts, dict):
+        return False, False
+    approved = approval_facts.get("approved")
+    if isinstance(approved, bool):
+        return True, approved
+    approvals_left = approval_facts.get("approvals_left")
+    approvals_required = approval_facts.get("approvals_required")
+    if (
+        isinstance(approvals_left, int)
+        and not isinstance(approvals_left, bool)
+        and isinstance(approvals_required, int)
+        and not isinstance(approvals_required, bool)
+    ):
+        return True, approvals_left == 0
+    return False, False
+
+
+def _approved_by(merge_request: object) -> list:
+    if not isinstance(merge_request, dict):
+        return []
+    approved_by = merge_request.get("approved_by")
+    return approved_by if isinstance(approved_by, list) else []
+
+
+def normalize_open_merge_request(
+    project: str, merge_request: dict, approval_facts: object, detail_facts: object
+) -> dict:
+    """Normalize list, approvals, and detail API responses for lane adoption.
+
+    The list endpoint can omit both approvals and head-pipeline data.  Approval
+    facts are authoritative only when the dedicated approvals endpoint provides
+    an explicit decision; unavailable facts intentionally remain non-actionable.
+    """
+    detail = detail_facts if isinstance(detail_facts, dict) else {}
+    approval_facts_available, approved = _approval_status(approval_facts)
+    pipeline_status = _pipeline_status(detail) or _pipeline_status(merge_request)
+    approved_by = _approved_by(approval_facts) or _approved_by(merge_request)
+    return {
+        "project": project,
+        "iid": merge_request["iid"],
+        "title": merge_request["title"],
+        "state": merge_request["state"],
+        "source_branch": merge_request.get("source_branch"),
+        "target_branch": merge_request.get("target_branch"),
+        "sha": detail.get("sha") or merge_request.get("sha"),
+        "web_url": detail.get("web_url") or merge_request.get("web_url"),
+        "merge_status": (
+            detail.get("detailed_merge_status")
+            or detail.get("merge_status")
+            or merge_request.get("detailed_merge_status")
+            or merge_request.get("merge_status")
+        ),
+        "pipeline_status": pipeline_status,
+        "pipeline_facts_available": bool(pipeline_status),
+        "draft": bool(
+            detail.get("draft")
+            or detail.get("work_in_progress")
+            or merge_request.get("draft")
+            or merge_request.get("work_in_progress")
+        ),
+        "updated_at": detail.get("updated_at") or merge_request.get("updated_at"),
+        "assignees": [
+            str(value.get("username") or value.get("id"))
+            for value in merge_request.get("assignees") or []
+            if isinstance(value, dict) and (value.get("username") or value.get("id"))
+        ],
+        "merge_owner": (
+            (detail.get("merge_user") or merge_request.get("merge_user") or {}).get(
+                "username"
+            )
+            or (detail.get("merge_user") or merge_request.get("merge_user") or {}).get(
+                "id"
+            )
+        ),
+        "approved": approved,
+        "approved_by": approved_by,
+        "approval_state": (
+            "approved"
+            if approval_facts_available and approved
+            else "not-approved"
+            if approval_facts_available
+            else None
+        ),
+        "approval_facts_available": approval_facts_available,
+    }
+
+
 def main() -> int:
     started = time.time()
     control = load_control()
@@ -802,51 +903,30 @@ def main() -> int:
         )
         project_open_mrs = [mr for mr in mrs if mr.get("state") == "opened"]
         approval_facts = {}
+        detail_facts = {}
         for mr in project_open_mrs:
+            iid = int(mr["iid"])
             try:
-                approval_facts[int(mr["iid"])] = glab(
-                    f"projects/{encoded}/merge_requests/{int(mr['iid'])}/approvals"
+                approval_facts[iid] = glab(
+                    f"projects/{encoded}/merge_requests/{iid}/approvals"
                 )
             except Exception:
                 # Keep collection available; unknown approval state must not be
                 # mistaken for an approved, ownerless merge lane.
-                approval_facts[int(mr["iid"])] = {}
+                approval_facts[iid] = None
+            try:
+                detail_facts[iid] = glab(f"projects/{encoded}/merge_requests/{iid}")
+            except Exception:
+                # The list response is an acceptable pipeline fallback, but a
+                # missing pipeline fact must remain explicitly non-actionable.
+                detail_facts[iid] = None
         open_mrs.extend(
-            {
-                "project": project["path_with_namespace"],
-                "iid": mr["iid"],
-                "title": mr["title"],
-                "state": mr["state"],
-                "source_branch": mr.get("source_branch"),
-                "target_branch": mr.get("target_branch"),
-                "sha": mr.get("sha"),
-                "web_url": mr.get("web_url"),
-                "merge_status": mr.get("detailed_merge_status")
-                or mr.get("merge_status"),
-                "pipeline_status": (mr.get("head_pipeline") or {}).get("status"),
-                "draft": bool(mr.get("draft") or mr.get("work_in_progress")),
-                "updated_at": mr.get("updated_at"),
-                "assignees": [
-                    str(value.get("username") or value.get("id"))
-                    for value in mr.get("assignees") or []
-                    if isinstance(value, dict)
-                    and (value.get("username") or value.get("id"))
-                ],
-                "merge_owner": (
-                    (mr.get("merge_user") or {}).get("username")
-                    or (mr.get("merge_user") or {}).get("id")
-                ),
-                "approved": bool(
-                    mr.get("approved_by")
-                    or mr.get("approved")
-                    or approval_facts[int(mr["iid"])].get("approved_by")
-                ),
-                "approved_by": mr.get("approved_by")
-                or approval_facts[int(mr["iid"])].get("approved_by")
-                or [],
-                "approval_state": mr.get("approval_state")
-                or approval_facts[int(mr["iid"])].get("approval_state"),
-            }
+            normalize_open_merge_request(
+                project["path_with_namespace"],
+                mr,
+                approval_facts.get(int(mr["iid"])),
+                detail_facts.get(int(mr["iid"])),
+            )
             for mr in project_open_mrs
         )
         repositories[project["path_with_namespace"]] = {

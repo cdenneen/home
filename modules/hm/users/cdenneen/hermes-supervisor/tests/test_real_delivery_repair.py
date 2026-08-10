@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from axis_supervisor.dashboard import _recent_lines  # noqa: E402
+from axis_supervisor.collector import normalize_open_merge_request  # noqa: E402
 from axis_supervisor.merge_lanes import INTEGRATION, consume_next, reconcile  # noqa: E402
 from axis_supervisor.semantic_escalation import (  # noqa: E402
     exclude_pending,
@@ -78,7 +79,9 @@ def _actionable_mr(iid: int) -> dict:
         "target_branch": "main",
         "merge_status": "mergeable",
         "pipeline_status": "success",
+        "pipeline_facts_available": True,
         "approved": True,
+        "approval_facts_available": True,
         "draft": False,
         "sha": f"sha-{iid}",
         "web_url": f"https://gitlab.example/ghostspace/axis/-/merge_requests/{iid}",
@@ -102,3 +105,49 @@ def test_actionable_external_mrs_are_adopted_and_consumed_by_integrator(
     assert {iid for _, iid, _ in integrator.calls} == {154, 155, 157, 158}
     persisted = json.loads((tmp_path / "merge-lanes.json").read_text(encoding="utf-8"))
     assert all(value["last_consumed_at_epoch"] for value in persisted["items"])
+
+
+def test_gitlab_approval_and_detail_pipeline_facts_adopt_an_owned_lane(
+    tmp_path: Path,
+):
+    listed_mr = {
+        "iid": 154,
+        "title": "Production-shaped actionable MR",
+        "state": "opened",
+        "target_branch": "main",
+        "detailed_merge_status": "mergeable",
+        "head_pipeline": None,
+        "approved_by": [],
+        "draft": False,
+    }
+    approvals = {
+        "approved": True,
+        "approvals_required": 0,
+        "approvals_left": 0,
+        "approved_by": [],
+    }
+    detail = {"head_pipeline": {"status": "success"}}
+
+    merge_request = normalize_open_merge_request(
+        "ghostspace/axis", listed_mr, approvals, detail
+    )
+
+    assert merge_request["approved"] is True
+    assert merge_request["approved_by"] == []
+    assert merge_request["approval_state"] == "approved"
+    assert merge_request["pipeline_status"] == "success"
+    assert merge_request["approval_facts_available"] is True
+    assert merge_request["pipeline_facts_available"] is True
+    adopted = reconcile(tmp_path, {"open_merge_requests": [merge_request]})
+    assert adopted["items"][0]["lane"] == INTEGRATION
+    assert adopted["items"][0]["owner"] == "supervisor-integration"
+
+
+def test_unavailable_gitlab_facts_fail_closed_with_an_explicit_reason(tmp_path: Path):
+    listed_mr = _actionable_mr(154)
+    listed_mr.pop("approval_facts_available")
+    listed_mr.pop("pipeline_facts_available")
+
+    adopted = reconcile(tmp_path, {"open_merge_requests": [listed_mr]})
+    assert adopted["items"][0]["lane"] != INTEGRATION
+    assert adopted["items"][0]["reason"] == "GitLab approval facts are unavailable"

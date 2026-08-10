@@ -44,10 +44,14 @@ def classify(merge_request: dict) -> tuple[str, str]:
         return EXTERNAL_WAIT, "merge request is no longer open"
     if merge_request.get("target_branch") != "main":
         return EXTERNAL_WAIT, "merge request does not target protected main"
+    if not merge_request.get("approval_facts_available"):
+        return EXTERNAL_WAIT, "GitLab approval facts are unavailable"
     if not _approved(merge_request):
         return EXTERNAL_WAIT, "required approval is not observed"
     if not _mergeable(merge_request):
         return EXTERNAL_WAIT, "GitLab does not report the merge request as mergeable"
+    if not merge_request.get("pipeline_facts_available"):
+        return EXTERNAL_WAIT, "GitLab head-pipeline facts are unavailable"
     if not _pipeline_successful(merge_request):
         return EXTERNAL_WAIT, "head pipeline is not successful"
     if merge_request.get("draft"):
