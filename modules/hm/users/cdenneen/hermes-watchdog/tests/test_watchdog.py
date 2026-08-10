@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import types
@@ -950,14 +951,64 @@ def test_projector_spawn_failure_rolls_writer_cutover_back(tmp_path: Path):
 
 def test_watchdog_module_injects_deployed_runtime_commands():
     module = (ROOT / "default.nix").read_text()
-    assert "AXIS_WATCHDOG_CANONICAL_PROJECTOR=${watchdogCanonicalProjector}/bin/axis-development-watchdog-canonical-projector" in module
-    assert "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND=${watchdogCutoverReconcile}/bin/axis-development-watchdog-cutover-reconcile" in module
+    assert "watchdogLauncher = pkgs.substituteAll" in module
+    assert "inherit watchdogPython watchdogCanonicalProjector watchdogCutoverReconcile;" in module
+    assert '"${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog-impl.py"' in module
+    assert '"${watchdogLauncher}" "$HOME/.hermes/scripts/axis-development-watchdog.py"' in module
+    assert 'exec "$HOME/.hermes/scripts/axis-development-watchdog.py" "$@"' in module
     assert ".nix-profile/bin/axis-development-watchdog-cutover-reconcile" not in (
         ROOT / "scripts" / "axis_watchdog" / "cutover.py"
     ).read_text()
     assert '"axis-development-watchdog-canonical-projector"' not in (
         ROOT / "scripts" / "axis_watchdog" / "projection.py"
     ).read_text()
+
+
+def test_installed_cron_entrypoint_injects_deployed_runtime_commands(
+    tmp_path: Path,
+):
+    """The Hermes --no-agent script path gets the same pinned commands as systemd."""
+    fake_home = tmp_path / "home"
+    script_dir = fake_home / ".hermes" / "scripts"
+    script_dir.mkdir(parents=True)
+    runtime_python = tmp_path / "runtime" / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.symlink_to(sys.executable)
+    canonical_projector = "/nix/store/canonical-projector"
+    cutover_reconcile = "/nix/store/cutover-reconcile"
+    launcher = (ROOT / "scripts" / "watchdog_launcher.py.in").read_text()
+    launcher = launcher.replace("@watchdogPython@", str(runtime_python.parent.parent))
+    launcher = launcher.replace("@watchdogCanonicalProjector@", canonical_projector)
+    launcher = launcher.replace("@watchdogCutoverReconcile@", cutover_reconcile)
+    cron_entrypoint = script_dir / "axis-development-watchdog.py"
+    cron_entrypoint.write_text(launcher, encoding="utf-8")
+    cron_entrypoint.chmod(0o700)
+    (script_dir / "axis-development-watchdog-impl.py").write_text(
+        "import json, os\n"
+        "print(json.dumps({\n"
+        "    'projector': os.environ['AXIS_WATCHDOG_CANONICAL_PROJECTOR'],\n"
+        "    'cutover': os.environ['AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND'],\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+    environment = os.environ | {
+        "HOME": str(fake_home),
+        "AXIS_WATCHDOG_CANONICAL_PROJECTOR": "untrusted-projector",
+        "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND": "untrusted-cutover",
+    }
+
+    result = subprocess.run(
+        [str(cron_entrypoint)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert json.loads(result.stdout) == {
+        "projector": f"{canonical_projector}/bin/axis-development-watchdog-canonical-projector",
+        "cutover": f"{cutover_reconcile}/bin/axis-development-watchdog-cutover-reconcile",
+    }
 
 
 @pytest.mark.parametrize("generation", ["A", "B"])
