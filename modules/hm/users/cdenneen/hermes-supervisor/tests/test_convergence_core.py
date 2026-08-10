@@ -1163,6 +1163,74 @@ def test_deployment_claim_failure_is_terminal_and_classifies_optional_runtime(
     assert event["details"]["optional_runtime"] == "mbair"
 
 
+def test_run_next_does_not_recreate_terminal_failed_deployment_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from axis_supervisor import cycle
+
+    plan = {
+        "assignment_id": "deployment-plan-fingerprint",
+        "target_runtime": "ghost",
+        "expected_revision": "test-revision",
+        "affected_capabilities": ["Service"],
+        "deployment_target": "nixosConfigurations.ghost",
+        "verification_plan": {},
+        "rollback_plan": {},
+        "ring": 0,
+        "status": "deployment-required",
+    }
+    failed_assignment = assignment(
+        tmp_path,
+        assignment_id="deployment-ghost-failed",
+        assignment_type="capability-deployment",
+        result_state="deployment-failed",
+        lifecycle_state="deployment-failed",
+        project="ghostspace/axis-lab",
+        responsibility="deployment/realistic-validation",
+        source_fingerprint=plan["assignment_id"],
+        source_item={
+            "target_runtime": "ghost",
+            "expected_revision": "test-revision",
+            "affected_capabilities": ["Service"],
+        },
+        deployment_plan=plan,
+        lease_id=None,
+        lease_uri=None,
+        worker=None,
+    )
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "deployment-ghost-failed.json").write_text(
+        json.dumps(failed_assignment), encoding="utf-8"
+    )
+
+    class DeploymentGateReached(Exception):
+        pass
+
+    def stop_after_deployment_gate(_root: Path):
+        raise DeploymentGateReached
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "rebuild", lambda: {})
+    monkeypatch.setattr(
+        cycle, "read_mission_record", lambda _path: {"termination_condition": {}}
+    )
+    monkeypatch.setattr(
+        cycle,
+        "read_record",
+        lambda _path, _schema: {"deployment_assignments": [plan]},
+    )
+    monkeypatch.setattr(cycle, "Dispatcher", stop_after_deployment_gate)
+    monkeypatch.setattr(
+        cycle,
+        "create_deployment_assignment",
+        lambda *_args: pytest.fail("unchanged failed deployment plan was recreated"),
+    )
+
+    with pytest.raises(DeploymentGateReached):
+        cycle.run_next("run-2", "hermes", "supervisorctl")
+
+
 @pytest.mark.parametrize(
     "path",
     ["/home/cdenneen/.ssh/id_ed25519", "../secret", ".git/config", "src/../secret"],
