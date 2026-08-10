@@ -273,7 +273,11 @@ def _flow_state(
         return "verification", [
             "historical evidence has an explicit bounded technical verification action"
         ]
-    if item.get("source_state") == "closed":
+    if item.get("source_state") == "closed" and not any(
+        candidate.get("finding_identity")
+        and candidate.get("result") == "Executable"
+        for candidate in candidates
+    ):
         return "historical", [
             f"closed source projected outside active engineering flow; classification={item.get('classification')}"
         ]
@@ -685,6 +689,11 @@ class ExecutionGraphBuilder:
         for assignment in (scheduler_context or {}).get("active_assignments") or []:
             assignment_by_id[assignment.get("assignment_id")] = assignment
         assignments = list(assignment_by_id.values())
+        dispatched_finding_identities = {
+            assignment.get("finding_identity")
+            for assignment in assignments
+            if assignment.get("finding_identity")
+        }
         nodes = []
         queue = []
         semantic_pending = 0
@@ -914,6 +923,8 @@ class ExecutionGraphBuilder:
                     policy_suppressed_executable += len(technical_candidate_ids)
                 for candidate in candidates:
                     if candidate.get("result") != "Executable":
+                        continue
+                    if candidate.get("finding_identity") in dispatched_finding_identities:
                         continue
                     if (
                         tier == "B"
