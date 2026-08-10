@@ -34,6 +34,7 @@ from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.merge_lanes import consume_next as consume_next_merge_lane
+from axis_supervisor.merge_lanes import GATED_INTEGRATION
 from axis_supervisor.merge_lanes import reconcile as reconcile_merge_lanes
 from axis_supervisor.lifecycle import (
     is_completed,
@@ -118,6 +119,28 @@ def write_lease_claim_diagnostic(diagnostic: dict) -> Path:
             encoding="utf-8",
         )
         return ledger
+
+
+def select_integrable_assignment(integrable: list[dict], lane: dict | None) -> dict:
+    """Prefer the exact active assignment selected by a custody-bound lane.
+
+    The lane never gives the cycle merge authority.  It only selects an already
+    active assignment whose normal lease, mutation-grant, and GitLab gates will
+    be evaluated below.
+    """
+    if lane and lane.get("mutation_disposition") == GATED_INTEGRATION:
+        assignment_id = (lane.get("custody") or {}).get("assignment_id")
+        bound = next(
+            (
+                value
+                for value in integrable
+                if value.get("assignment_id") == assignment_id
+            ),
+            None,
+        )
+        if bound is not None:
+            return bound
+    return integrable[0]
 
 
 def save(path: Path, value: dict, gate: MutationGate) -> None:
@@ -1147,7 +1170,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "assignments": [value["assignment_id"] for value in active],
                 "lifecycle_states": [value.get("lifecycle_state") for value in active],
             }
-        assignment = validate_assignment(integrable[0])
+        assignment = validate_assignment(select_integrable_assignment(integrable, lane))
         path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
         if not is_integrable(assignment):
             return {

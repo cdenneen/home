@@ -7,7 +7,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from axis_supervisor.dashboard import _recent_lines  # noqa: E402
 from axis_supervisor.collector import normalize_open_merge_request  # noqa: E402
-from axis_supervisor.merge_lanes import INTEGRATION, consume_next, reconcile  # noqa: E402
+from axis_supervisor.merge_lanes import (  # noqa: E402
+    GATED_INTEGRATION,
+    INTEGRATION,
+    INSPECTION_ONLY,
+    consume_next,
+    reconcile,
+)
 from axis_supervisor.semantic_escalation import (  # noqa: E402
     exclude_pending,
     pending,
@@ -88,6 +94,58 @@ def _actionable_mr(iid: int) -> dict:
     }
 
 
+def _supervisor_assignment(iid: int, branch: str, sha: str) -> dict:
+    return {
+        "assignment_id": f"assignment-{iid}",
+        "project": "ghostspace/axis",
+        "lifecycle_state": "awaiting-integration",
+        "lease_id": f"lease-{iid}",
+        "worker": {
+            "branch": branch,
+            "commit": sha,
+            "worktree": f"/supervisor/worktrees/assignment-{iid}",
+            "handoff": {"mr_iid": iid},
+        },
+    }
+
+
+def _custody_inventory(mrs: list[dict], owned_iids: set[int]) -> dict:
+    assignments = []
+    leases = []
+    branches = []
+    for mr in mrs:
+        iid = int(mr["iid"])
+        branch = str(mr.get("source_branch") or f"macos-{iid}")
+        if iid in owned_iids:
+            assignment = _supervisor_assignment(iid, branch, str(mr["sha"]))
+            assignments.append(assignment)
+            leases.append(
+                {
+                    "assignment_id": assignment["assignment_id"],
+                    "lease_id": assignment["lease_id"],
+                    "read_only": False,
+                }
+            )
+            worktree = assignment["worker"]["worktree"]
+        else:
+            worktree = None
+        branches.append(
+            {
+                "name": branch,
+                "owned_by_supervisor": iid in owned_iids,
+                "active_worktree": worktree,
+            }
+        )
+    return {
+        "open_merge_requests": mrs,
+        "repositories": {
+            "ghostspace/axis": {"local_facts": {"remote_branches": branches}}
+        },
+        "supervisor_assignments": assignments,
+        "active_leases": leases,
+    }
+
+
 def test_actionable_external_mrs_are_adopted_and_consumed_by_integrator(
     tmp_path: Path,
 ):
@@ -105,6 +163,63 @@ def test_actionable_external_mrs_are_adopted_and_consumed_by_integrator(
     assert {iid for _, iid, _ in integrator.calls} == {154, 155, 157, 158}
     persisted = json.loads((tmp_path / "merge-lanes.json").read_text(encoding="utf-8"))
     assert all(value["last_consumed_at_epoch"] for value in persisted["items"])
+
+
+def test_custody_bound_merge_lane_preempts_an_external_actionable_mr(
+    tmp_path: Path,
+):
+    external = _actionable_mr(154) | {"source_branch": "macos-11-compat"}
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([external, owned], {155})
+
+    adopted = reconcile(tmp_path, inventory)
+    by_iid = {item["mr_iid"]: item for item in adopted["items"]}
+    assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
+    assert by_iid[154]["custody"]["reason"] == "source branch is not supervisor-owned"
+    assert by_iid[155]["mutation_disposition"] == GATED_INTEGRATION
+    assert by_iid[155]["custody"]["assignment_id"] == "assignment-155"
+
+    integrator = FakeIntegrator()
+    consumed = consume_next(tmp_path, inventory, integrator)
+
+    assert consumed is not None
+    assert consumed["mr_iid"] == 155
+    assert consumed["reason"] == (
+        "integration inspection passed; lane is bound to governed assignment "
+        "assignment-155"
+    )
+    assert integrator.calls == [("ghostspace/axis", 155, "axis-runtime/product")]
+
+
+def test_bound_lane_selects_its_existing_gated_integration_assignment():
+    from axis_supervisor.cycle import select_integrable_assignment
+
+    external_assignment = {"assignment_id": "external-like"}
+    bound_assignment = {"assignment_id": "assignment-155"}
+    selected = select_integrable_assignment(
+        [external_assignment, bound_assignment],
+        {
+            "mutation_disposition": GATED_INTEGRATION,
+            "custody": {"assignment_id": "assignment-155"},
+        },
+    )
+
+    assert selected == bound_assignment
+
+
+def test_external_lane_stays_non_destructive_without_custody(tmp_path: Path):
+    external = _actionable_mr(154) | {"source_branch": "macos-11-compat"}
+    inventory = _custody_inventory([external], set())
+
+    consumed = consume_next(tmp_path, inventory, FakeIntegrator())
+
+    assert consumed is not None
+    assert consumed["mutation_disposition"] == INSPECTION_ONLY
+    assert consumed["custody"]["assignment_id"] is None
+    assert consumed["reason"] == (
+        "integration inspection passed; merge remains non-destructive because "
+        "source branch is not supervisor-owned"
+    )
 
 
 def test_gitlab_approval_and_detail_pipeline_facts_adopt_an_owned_lane(
