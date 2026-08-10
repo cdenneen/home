@@ -56,24 +56,6 @@ def write_claim_assignment(root: Path, assignment_id: str, run_id: str) -> None:
     )
 
 
-def test_authority_requires_exact_approval_digest():
-    reconcile = load_module(
-        "reconcile", ROOT / "scripts" / "axis_supervisor" / "collector.py"
-    )
-    record = "Immutable PlanningRecord\nDigest: `sha256:" + "a" * 64 + "`"
-    matching = ["Product Owner approval — Approve exact digest sha256:" + "a" * 64]
-    mismatch = ["Product Owner approval — Approve exact digest sha256:" + "b" * 64]
-    assert reconcile.extract_authority_facts("", [record, *matching], matching)[
-        "approval_matches_record"
-    ]
-    assert reconcile.extract_authority_facts("", [record, *mismatch], mismatch)[
-        "approval_mismatch"
-    ]
-    assert not reconcile.extract_authority_facts("", matching, matching)[
-        "approval_matches_record"
-    ]
-
-
 def test_canonical_work_item_chooses_highest_complete_trusted_revision_only():
     from axis_supervisor.canonical_work_item import reconstruct_work_item
 
@@ -106,7 +88,7 @@ def test_canonical_work_item_chooses_highest_complete_trusted_revision_only():
         notes_state="NOTES_OK",
         issue_url="https://example.test/29",
     )
-    assert projection["current_record"]["digest"] == current
+    assert projection["current_planning_record"]["digest"] == current
     assert projection["authority_facts"]["approval_matches_record"] is True
     assert projection["slice_inventory"] == [
         {"slice_id": "repair", "allowed_paths": ["src/repair.py"]}
@@ -145,51 +127,208 @@ Required tests:
         "", [note(1, digest), note(2, other)], {117046}, notes_state="NOTES_OK"
     )
     assert conflict["record_conflict"] is True
-    assert conflict["current_record"] is None
-
-
-def test_latest_immutable_record_supersedes_older_approval():
-    reconcile = load_module(
-        "reconcile_latest_record", ROOT / "scripts" / "axis_supervisor" / "collector.py"
+    assert conflict["current_planning_record"] is None
+    unknown = reconstruct_work_item(
+        "", [note(1, digest)], {117046}, notes_state="NOTES_OK"
     )
-    old_digest = "sha256:" + "a" * 64
-    new_digest = "sha256:" + "b" * 64
-    newest_record_first = [
-        f"Immutable PlanningRecord\nDigest: `{new_digest}`",
-        f"Product Owner approval — Approve exact digest {old_digest}",
-        f"Immutable PlanningRecord\nDigest: `{old_digest}`",
-    ]
-    approval = [newest_record_first[1]]
-    result = reconcile.extract_authority_facts("", newest_record_first, approval)
-    assert result["record_digest"] == new_digest
-    assert result["approval_matches_record"] is False
-    assert result["approval_mismatch"] is True
+    assert unknown["current_planning_record"] is not None
+    assert unknown["authority_facts"]["approval_matches_record"] is False
 
 
-def test_approval_note_url_binds_exact_digest_not_first_product_owner_note():
-    reconcile = load_module(
-        "reconcile_approval_url", ROOT / "scripts" / "axis_supervisor" / "collector.py"
-    )
-    digest = "sha256:" + "a" * 64
+def test_current_v2_projection_drives_amended_finding_frontier_and_dispatch(
+    tmp_path: Path,
+):
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
+    from axis_supervisor.dispatcher import Dispatcher
+    from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+    from axis_supervisor.graph import ExecutionGraphBuilder
+    from axis_supervisor.missions import ActiveMissionState
+
+    v1_digest = "sha256:" + "1" * 64
+    v2_digest = "sha256:" + "2" * 64
+    source_sha = "a" * 40
+    description = f"""## Immutable PlanningRecord v1
+Digest: `{v1_digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- historical: src/retired.py
+Required tests:
+- pytest -q tests/test_retired.py
+"""
+    v2 = f"""## Immutable PlanningRecord v2
+Digest: `{v2_digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- repair: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py
+- unrelated: src/axis_runtime/unrelated.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py
+"""
+    finding = f"""Current-main regression finding - task handles timeout
+Affected tests:
+- test_task_handles
+Expected: task handles terminate.
+Actual: task handles time out.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: current-main verification
+Authority: bounded repair `{v2_digest}`.
+Replay: run the task suite.
+"""
+    amendment = f"""Finding amendment v2 — supersedes finding note 30 for structured Supervisor ingestion
+Finding ID: task-handles-timeout
+Finding class: PRODUCT_DEFECT
+Owner work item: ghostspace/axis#29
+Approved slice_id: repair
+PlanningRecord revision: 2
+PlanningRecord digest: `{v2_digest}`
+Repository: ghostspace/axis
+Affected gate: current-main verification
+Affected tests:
+- test_task_handles
+Expected behavior: task handles terminate.
+Observed behavior: task handles time out.
+Source evidence: note 30 on current main.
+Affected downstream: !155
+Replay: run the task suite.
+Scope: exact repair slice only.
+Supersession: this metadata amendment preserves original finding provenance and supplies exact scope.
+"""
+
+    def note(note_id: int, body: str) -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-09T00:00:00Z",
+            "updated_at": "2026-08-09T00:00:00Z",
+            "body": body,
+        }
+
     notes = [
-        {"id": 3, "author": {"id": 117046, "username": "cdenneen"}, "body": "ordinary note"},
-        {
-            "id": 2,
-            "author": {"id": 117046, "username": "cdenneen"},
-            "body": "Product Owner approval — Approve exact digest sha256:" + "b" * 64,
-        },
-        {
-            "id": 1,
-            "author": {"id": 117046, "username": "cdenneen"},
-            "body": f"Product Owner approval — Approve exact digest {digest}",
-        },
+        note(20, v2),
+        note(21, f"**Approve** PlanningRecord v2 exact digest {v2_digest}"),
+        note(30, finding),
+        note(31, amendment),
     ]
-    assert (
-        reconcile.approval_note_url(
-            notes, {117046}, digest, "https://example.test/issue/1"
-        )
-        == "https://example.test/issue/1#note_1"
+    projection = reconstruct_work_item(
+        description,
+        notes,
+        {117046},
+        notes_state="NOTES_OK",
+        issue_url="https://gitlab.test/ghostspace/axis/-/issues/29",
     )
+    current = projection["current_planning_record"]
+    assert projection["description_history"] == {
+        "digest_present": True,
+        "revision": 1,
+        "superseded": True,
+    }
+    assert current["revision"] == 2
+    assert current["digest"] == v2_digest
+    assert current["source"]["note_id"] == 20
+    assert projection["authority_facts"]["approval_source"]["note_id"] == 21
+
+    unknown_slice = normalize_gitlab_findings(
+        notes[:-1] + [note(31, amendment.replace("Approved slice_id: repair", "Approved slice_id: unknown"))],
+        "ghostspace/axis#29",
+        source_sha,
+        {117046},
+        projection,
+    )
+    assert unknown_slice[0]["invalid_reason"] == "amendment-unknown-approved-slice"
+    conflict = reconstruct_work_item(
+        description,
+        notes + [note(22, v2.replace(v2_digest, "sha256:" + "3" * 64))],
+        {117046},
+        notes_state="NOTES_OK",
+        issue_url="https://gitlab.test/ghostspace/axis/-/issues/29",
+    )
+    assert conflict["record_conflict"] is True
+    assert conflict["current_planning_record"] is None
+    assert normalize_gitlab_findings(
+        notes,
+        "ghostspace/axis#29",
+        source_sha,
+        {117046},
+        conflict,
+    )[0]["invalid_reason"] == "amendment-unknown-approved-slice"
+
+    findings = normalize_gitlab_findings(
+        notes,
+        "ghostspace/axis#29",
+        source_sha,
+        {117046},
+        projection,
+    )
+    assert findings[0]["state"] == "confirmed"
+    assert findings[0]["repair_candidate"]["allowed_paths"] == [
+        "src/axis_runtime/mcp_tasks.py",
+        "tests/test_mcp_task_handles.py",
+    ]
+    assert findings[0]["repair_candidate"]["required_tests"] == [
+        "pytest -q tests/test_mcp_task_handles.py"
+    ]
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
+    )
+    source = {
+        "ref": "ghostspace/axis#29",
+        "source_kind": "gitlab-issue",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "MCP task handle timeout",
+        "source_state": "opened",
+        "labels": ["p0"],
+        "canonical_work_item": projection,
+        "authority_facts": projection["authority_facts"],
+        "blocking_dependency_refs": [],
+        "merge_request_facts": [],
+        "acceptance_facts": {"ids": [], "open_ids": []},
+        "source_evidence": {"description": description, "notes": []},
+        "retrieval_errors": [],
+        "mutation_allowed": True,
+        "findings": findings,
+        "repository_head": source_sha,
+    }
+    inventory = {"generation_id": "canonical-v2", "work_items": [source]}
+    graph = ExecutionGraphBuilder(tmp_path).build(inventory)
+    entry = graph["executable_queue"][0]
+    assert entry["finding_identity"] == findings[0]["identity"]
+    assert entry["candidate"]["allowed_paths"] == findings[0]["repair_candidate"][
+        "allowed_paths"
+    ]
+    frontier = json.loads((tmp_path / "executable-frontier.json").read_text())
+    assert frontier["selected"] == [entry["ref"]]
+
+    ActiveMissionState(tmp_path).reconcile(
+        inventory,
+        graph,
+        {
+            "primary_kpi": {"count": 0, "denominator": 1, "percent": 0.0},
+            "capabilities": [],
+            "milestones": [],
+            "effectiveness_fingerprint": "sha256:" + "e" * 64,
+            "repository_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+    assignment = Dispatcher(tmp_path).dispatch(graph, "canonical-v2", entry)
+    assert assignment is not None
+    assert assignment["planning_record"] == {
+        "revision": 2,
+        "digest": v2_digest,
+        "approval_note": "https://gitlab.test/ghostspace/axis/-/issues/29#note_21",
+        "record_source": current["source"],
+        "approval_source": projection["authority_facts"]["approval_source"],
+        "slice_id": "repair",
+        "allowed_paths": [
+            "src/axis_runtime/mcp_tasks.py",
+            "tests/test_mcp_task_handles.py",
+        ],
+        "required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
+    }
 
 
 def test_ready_label_does_not_bypass_authority():
@@ -606,23 +745,6 @@ Required tests:
     )
     assert scope is None
     assert untrusted is True
-
-
-def test_authority_uses_immutable_gitlab_id_and_rejects_system_approval():
-    from axis_supervisor.collector import approval_note_url
-
-    digest = "sha256:" + "a" * 64
-    renamed = {
-        "id": 1,
-        "author": {"id": 117046, "username": "renamed-account"},
-        "body": f"Product Owner approval — Approve exact digest {digest}",
-    }
-    system = renamed | {"id": 2, "system": True}
-    assert (
-        approval_note_url([renamed], {117046}, digest, "https://example.test/issue/1")
-        == "https://example.test/issue/1#note_1"
-    )
-    assert approval_note_url([system], {117046}, digest, "https://example.test/issue/1") is None
 
 
 def test_note_collection_cache_freshness_tracks_issue_note_and_finding_state():

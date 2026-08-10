@@ -9,7 +9,11 @@ class AuthorityResolver:
         self, item: dict, semantic_record: dict | None, parent_item: dict | None = None
     ) -> dict:
         projection = projection_for(item)
-        direct = projection.get("authority_facts") or item.get("authority_facts") or item.get("authority") or {}
+        direct = projection.get("authority_facts") or (
+            item.get("authority_facts") or item.get("authority") or {}
+            if not item.get("canonical_work_item")
+            else {}
+        )
         if item.get("canonical_work_item") and not projection.get("collection_complete_for_authority"):
             return {"state": "unresolved", "source": direct, "reason": "authority note collection is incomplete"}
         if direct.get("repository_convergence_authorized"):
@@ -39,10 +43,13 @@ class AuthorityResolver:
         }:
             return {"state": "unresolved", "source": resolution, "reason": "invalid semantic authority state"}
         if state == "inherited":
-            parent_authority = (
+            parent_projection = projection_for(parent_item or {})
+            parent_authority = parent_projection.get("authority_facts") or (
                 (parent_item or {}).get("authority_facts")
                 or (parent_item or {}).get("authority")
                 or {}
+                if not (parent_item or {}).get("canonical_work_item")
+                else {}
             )
             controlling_parent = resolution.get("controlling_parent")
             source_refs = resolution.get("source_refs") or []

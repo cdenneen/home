@@ -138,7 +138,7 @@ def _finding_candidates(item: dict) -> list[dict]:
             and (
                 not item.get("canonical_work_item")
                 or finding.get("authority_digest")
-                == (projection.get("current_record") or {}).get("digest")
+                == (projection.get("current_planning_record") or {}).get("digest")
             )
             and finding.get("identity")
             and (finding.get("provenance") or {}).get("source_sha")

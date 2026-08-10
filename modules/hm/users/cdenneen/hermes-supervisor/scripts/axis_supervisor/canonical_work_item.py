@@ -4,7 +4,9 @@ import re
 
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.IGNORECASE)
-_RECORD = re.compile(r"(?:immutable\s+)?planningrecord\s+v?(\d+)?", re.IGNORECASE)
+_RECORD = re.compile(
+    r"(?mi)^\s*(?:#+\s*)?(?:immutable\s+)?planningrecord\s+v(\d+)\b"
+)
 _APPROVAL = re.compile(
     r"\*\*approve\*\*|product owner approval|approved .*planningrecord",
     re.IGNORECASE,
@@ -34,7 +36,7 @@ def _list(body: str, name: str) -> list[str]:
     return [line.removeprefix("-").strip() for line in match.group(1).splitlines()] if match else []
 
 
-def _record(note: dict, principals: set[int | str]) -> dict | None:
+def _record(note: dict, principals: set[int | str], issue_url: str) -> dict | None:
     body = str(note.get("body") or "")
     marker = _RECORD.search(body)
     digest = _DIGEST.search(_field(body, "Digest") or "")
@@ -47,14 +49,24 @@ def _record(note: dict, principals: set[int | str]) -> dict | None:
         if separator and slice_id.strip() and paths:
             slices.append({"slice_id": slice_id.strip(), "allowed_paths": paths})
     assignment_type = _field(body, "Assignment type")
+    repository = _field(body, "Repository")
+    required_tests = _list(body, "Required tests")
+    if not assignment_type or not repository or not slices or not required_tests:
+        return None
     return {
         "revision": int(marker.group(1) or 1),
         "digest": digest.group(0).lower(),
         "note_id": note.get("id"),
-        "assignment_type": assignment_type.lower() if assignment_type else None,
-        "repository": _field(body, "Repository"),
+        "assignment_type": assignment_type.lower(),
+        "repository": repository,
         "slices": slices,
-        "required_tests": _list(body, "Required tests"),
+        "required_tests": required_tests,
+        "source": {
+            "note_id": note.get("id"),
+            "note_url": f"{issue_url}#note_{note.get('id')}"
+            if issue_url and note.get("id")
+            else None,
+        },
     }
 
 
@@ -68,7 +80,9 @@ def reconstruct_work_item(
 ) -> dict:
     """Return the sole authority projection; incomplete collection never grants authority."""
     complete = notes_state == "NOTES_OK"
-    records = [_record(note, trusted_principals) for note in notes] if complete else []
+    records = (
+        [_record(note, trusted_principals, issue_url) for note in notes] if complete else []
+    )
     records = [record for record in records if record is not None]
     highest = max((record["revision"] for record in records), default=None)
     current = [record for record in records if record["revision"] == highest] if highest else []
@@ -78,35 +92,55 @@ def reconstruct_work_item(
     if selected:
         for note in notes:
             body = str(note.get("body") or "")
-            stated_revision = re.search(r"(?i)planningrecord\s+v(\d+)", body)
+            stated_revision = re.search(r"(?i)planningrecord\s+v(\d+)\b", body)
             if (
                 _trusted(note, trusted_principals)
                 and _immutable(note)
                 and _APPROVAL.search(body)
                 and selected["digest"] in body.lower()
-                and (stated_revision is None or int(stated_revision.group(1)) == selected["revision"])
+                and stated_revision is not None
+                and int(stated_revision.group(1)) == selected["revision"]
             ):
                 approvals.append(note)
     approval = approvals[0] if len(approvals) == 1 else None
-    approval_note = f"{issue_url}#note_{approval.get('id')}" if approval and issue_url and approval.get("id") else None
+    approval_note = (
+        f"{issue_url}#note_{approval.get('id')}"
+        if approval and issue_url and approval.get("id")
+        else None
+    )
     current_authority = bool(complete and selected and approval)
     facts = {
         "collection_complete_for_authority": complete,
         "record_digest": selected.get("digest") if selected else None,
         "record_revision": selected.get("revision") if selected else None,
         "approval_note": approval_note,
+        "record_source": selected.get("source") if selected else None,
+        "approval_source": {
+            "note_id": approval.get("id"),
+            "note_url": approval_note,
+        }
+        if approval
+        else None,
         "approval_matches_record": current_authority,
         "approval_mismatch": bool(complete and selected and not current_authority),
         "approved_assignment_type": selected.get("assignment_type") if selected else None,
-        "approved_allowed_paths": selected["slices"][0]["allowed_paths"] if selected and len(selected["slices"]) == 1 else [],
+        "approved_allowed_paths": selected["slices"][0]["allowed_paths"]
+        if selected and len(selected["slices"]) == 1
+        else [],
         "approved_required_tests": selected.get("required_tests") if selected else [],
     }
     return {
         "schema": "axis.supervisor.canonical-work-item.v1",
-        "description_digest_present": bool(_DIGEST.search(description)),
+        # Description records are retained as non-authoritative history only. They
+        # can never supply fields to, or be merged with, the current note record.
+        "description_history": {
+            "digest_present": bool(_DIGEST.search(description)),
+            "revision": int(match.group(1)) if (match := _RECORD.search(description)) else None,
+            "superseded": bool(selected and _RECORD.search(description)),
+        },
         "collection_complete_for_authority": complete,
         "records": sorted(records, key=lambda value: (value["revision"], str(value.get("note_id")))),
-        "current_record": selected,
+        "current_planning_record": selected,
         "record_conflict": conflict,
         "matching_approval_note_id": approval.get("id") if approval else None,
         "slice_inventory": selected.get("slices") if selected else [],
@@ -119,4 +153,8 @@ def projection_for(item: dict) -> dict:
     value = item.get("canonical_work_item")
     if isinstance(value, dict):
         return value
-    return {"collection_complete_for_authority": False, "authority_facts": {}}
+    return {
+        "collection_complete_for_authority": False,
+        "current_planning_record": None,
+        "authority_facts": {},
+    }
