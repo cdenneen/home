@@ -6,6 +6,7 @@ from urllib.parse import unquote, urlparse
 
 from .accounting import AccountingLedger
 from .canary import current_main_sha
+from .canonical_work_item import projection_for
 from .models import validate_allowed_path
 from .repository_ownership import (
     RepositoryOwnershipDenied,
@@ -109,9 +110,10 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     required_tests = list(dict.fromkeys(assignment.get("required_tests") or []))
     if not allowed_paths or not required_tests:
         raise AssignmentGrantDenied("bounded mutation grant requires exact paths and tests")
-    authority_facts = (assignment.get("source_item") or {}).get(
-        "authority_facts"
-    ) or {}
+    source_item = assignment.get("source_item") or {}
+    authority_facts = projection_for(source_item).get("authority_facts") or source_item.get("authority_facts") or {}
+    if source_item.get("canonical_work_item") and not authority_facts.get("collection_complete_for_authority"):
+        raise AssignmentGrantDenied("authority note collection is incomplete")
     approved_assignment_type = authority_facts.get("approved_assignment_type")
     assignment_type_matches = approved_assignment_type == assignment[
         "assignment_type"

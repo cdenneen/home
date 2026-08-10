@@ -74,6 +74,80 @@ def test_authority_requires_exact_approval_digest():
     ]
 
 
+def test_canonical_work_item_chooses_highest_complete_trusted_revision_only():
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
+
+    old = "sha256:" + "a" * 64
+    current = "sha256:" + "b" * 64
+
+    def note(note_id: int, body: str) -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 117046},
+            "created_at": "t",
+            "updated_at": "t",
+            "body": body,
+        }
+
+    projection = reconstruct_work_item(
+        f"description only mentions {old}",
+        [
+            note(
+                1,
+                f"Immutable PlanningRecord v1\nDigest: `{old}`\nAssignment type: code-implementation\nRepository: ghostspace/axis\nAuthorized slices:\n- old: old.py\nRequired tests:\n- pytest old",
+            ),
+            note(
+                2,
+                f"Immutable PlanningRecord v2\nDigest: `{current}`\nAssignment type: code-implementation\nRepository: ghostspace/axis\nAuthorized slices:\n- repair: src/repair.py\nRequired tests:\n- pytest repair",
+            ),
+            note(3, f"Product Owner approval -- Approve PlanningRecord v2 {current}"),
+        ],
+        {117046},
+        notes_state="NOTES_OK",
+        issue_url="https://example.test/29",
+    )
+    assert projection["current_record"]["digest"] == current
+    assert projection["authority_facts"]["approval_matches_record"] is True
+    assert projection["slice_inventory"] == [
+        {"slice_id": "repair", "allowed_paths": ["src/repair.py"]}
+    ]
+
+
+def test_canonical_work_item_denies_incomplete_notes_conflicts_and_wrong_digest():
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
+
+    digest = "sha256:" + "a" * 64
+    other = "sha256:" + "b" * 64
+    def body(value: str) -> str:
+        return f"""Immutable PlanningRecord v2
+Digest: `{value}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- repair: src/repair.py
+Required tests:
+- pytest repair"""
+
+    def note(note_id: int, value: str) -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 117046},
+            "created_at": "t",
+            "updated_at": "t",
+            "body": body(value),
+        }
+    incomplete = reconstruct_work_item(
+        body(digest), [note(1, digest)], {117046}, notes_state="NOTES_ERROR"
+    )
+    assert incomplete["authority_facts"]["approval_matches_record"] is False
+    assert incomplete["collection_complete_for_authority"] is False
+    conflict = reconstruct_work_item(
+        "", [note(1, digest), note(2, other)], {117046}, notes_state="NOTES_OK"
+    )
+    assert conflict["record_conflict"] is True
+    assert conflict["current_record"] is None
+
+
 def test_latest_immutable_record_supersedes_older_approval():
     reconcile = load_module(
         "reconcile_latest_record", ROOT / "scripts" / "axis_supervisor" / "collector.py"

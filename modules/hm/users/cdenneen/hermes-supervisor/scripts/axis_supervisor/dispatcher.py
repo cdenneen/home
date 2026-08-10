@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from .assignment_grants import create_grant
+from .canonical_work_item import projection_for
 from .capability_graduation import read_capability_graduation
 from .frontier import compatible
 from .lifecycle import is_terminal
@@ -221,10 +222,11 @@ class Dispatcher:
         if any(not compatible(item, value) for value in active):
             return None
         source_item = item.get("source_item") or {}
-        authority_facts = source_item.get("authority_facts") or {}
+        authority_facts = projection_for(source_item).get("authority_facts") or source_item.get("authority_facts") or {}
         planning_record = None
         if (
-            authority_facts.get("approval_matches_record")
+            authority_facts.get("collection_complete_for_authority", True)
+            and authority_facts.get("approval_matches_record")
             and authority_facts.get("record_digest")
             and authority_facts.get("approval_note")
         ):
