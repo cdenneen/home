@@ -1426,6 +1426,7 @@ def test_closed_finding_frontier_excludes_duplicate_stale_and_satisfied_candidat
     )
 
     assert duplicate["executable_queue"] == []
+    assert duplicate["nodes"][0]["flow_stage"] == "historical"
     assert stale["executable_queue"] == []
     assert satisfied["executable_queue"] == []
 

@@ -743,7 +743,11 @@ class ExecutionGraphBuilder:
                     "reason": "exact immutable Product Owner decision",
                     "decision_record": decision_record,
                 }
-            candidates = _candidates(item, semantic)
+            candidates = [
+                candidate
+                for candidate in _candidates(item, semantic)
+                if candidate.get("finding_identity") not in dispatched_finding_identities
+            ]
             if semantic is not None and authority["state"] in {
                 "unresolved",
                 "needs-product-owner",
@@ -923,8 +927,6 @@ class ExecutionGraphBuilder:
                     policy_suppressed_executable += len(technical_candidate_ids)
                 for candidate in candidates:
                     if candidate.get("result") != "Executable":
-                        continue
-                    if candidate.get("finding_identity") in dispatched_finding_identities:
                         continue
                     if (
                         tier == "B"
