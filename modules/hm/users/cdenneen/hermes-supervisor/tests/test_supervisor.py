@@ -135,6 +135,52 @@ Required tests:
     assert unknown["authority_facts"]["approval_matches_record"] is False
 
 
+def test_same_revision_records_require_identical_payload_and_ignore_note_order():
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
+
+    digest = "sha256:" + "a" * 64
+
+    def note(note_id: int, body: str) -> dict:
+        return {
+            "id": note_id,
+            "author": {"id": 117046},
+            "created_at": "t",
+            "updated_at": "t",
+            "body": body,
+        }
+
+    def record(paths: str) -> str:
+        return f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- repair: {paths}
+Required tests:
+- pytest -q tests/test_repair.py
+"""
+
+    approval = note(30, f"**Approve** PlanningRecord v2 exact digest {digest}")
+    duplicate_a = note(20, record("src/repair.py"))
+    duplicate_b = note(10, record("src/repair.py"))
+    first = reconstruct_work_item(
+        "", [duplicate_a, duplicate_b, approval], {117046}, notes_state="NOTES_OK", issue_url="https://example.test/29"
+    )
+    reversed_notes = reconstruct_work_item(
+        "", [approval, duplicate_b, duplicate_a], {117046}, notes_state="NOTES_OK", issue_url="https://example.test/29"
+    )
+    assert first["record_conflict"] is False
+    assert first["current_planning_record"] == reversed_notes["current_planning_record"]
+    assert first["current_planning_record"]["source"]["note_id"] == 10
+
+    conflict = reconstruct_work_item(
+        "", [duplicate_a, note(21, record("src/other.py")), approval], {117046}, notes_state="NOTES_OK", issue_url="https://example.test/29"
+    )
+    assert conflict["record_conflict"] is True
+    assert conflict["current_planning_record"] is None
+    assert conflict["authority_facts"]["approval_matches_record"] is False
+
+
 def test_current_v2_projection_drives_amended_finding_frontier_and_dispatch(
     tmp_path: Path,
 ):
@@ -329,6 +375,27 @@ Supersession: this metadata amendment preserves original finding provenance and 
         ],
         "required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
     }
+
+    import pytest
+
+    from axis_supervisor.assignment_grants import (
+        AssignmentGrantDenied,
+        load_grant,
+    )
+    from axis_supervisor.schema_registry import write_record
+
+    grant_path = tmp_path / "mutation-grants" / assignment["assignment_id"] / "grant.json"
+    legacy_grant = json.loads(grant_path.read_text())
+    legacy_grant["approval_source"].pop("record_source")
+    legacy_grant["approval_source"].pop("approval_source")
+    write_record(grant_path, legacy_grant, "axis.external-development-supervisor.mutation-grant")
+    with pytest.raises(AssignmentGrantDenied, match="provenance; reissue required"):
+        load_grant(tmp_path, assignment)
+    retired = json.loads(grant_path.read_text())
+    assert retired["status"] == "revoked"
+    assert retired["events"][-1]["event"] == (
+        "grant-revoked-legacy-canonical-provenance-reissue-required"
+    )
 
 
 def test_ready_label_does_not_bypass_authority():

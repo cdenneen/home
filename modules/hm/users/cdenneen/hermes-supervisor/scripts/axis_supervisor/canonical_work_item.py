@@ -1,5 +1,7 @@
 """One fail-closed reconstruction of a governed GitLab work item."""
 
+import hashlib
+import json
 import re
 
 
@@ -36,11 +38,35 @@ def _list(body: str, name: str) -> list[str]:
     return [line.removeprefix("-").strip() for line in match.group(1).splitlines()] if match else []
 
 
+def _payload_identity(record: dict) -> str:
+    payload = {
+        field: record[field]
+        for field in (
+            "revision",
+            "digest",
+            "assignment_type",
+            "repository",
+            "slices",
+            "required_tests",
+        )
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
+
+
 def _record(note: dict, principals: set[int | str], issue_url: str) -> dict | None:
     body = str(note.get("body") or "")
     marker = _RECORD.search(body)
     digest = _DIGEST.search(_field(body, "Digest") or "")
-    if not marker or not digest or not _trusted(note, principals) or not _immutable(note):
+    note_id = note.get("id")
+    if (
+        not marker
+        or not digest
+        or not isinstance(note_id, int)
+        or note_id < 1
+        or not _trusted(note, principals)
+        or not _immutable(note)
+    ):
         return None
     slices = []
     for value in _list(body, "Authorized slices"):
@@ -53,21 +79,23 @@ def _record(note: dict, principals: set[int | str], issue_url: str) -> dict | No
     required_tests = _list(body, "Required tests")
     if not assignment_type or not repository or not slices or not required_tests:
         return None
-    return {
+    record = {
         "revision": int(marker.group(1) or 1),
         "digest": digest.group(0).lower(),
-        "note_id": note.get("id"),
+        "note_id": note_id,
         "assignment_type": assignment_type.lower(),
         "repository": repository,
         "slices": slices,
         "required_tests": required_tests,
         "source": {
-            "note_id": note.get("id"),
-            "note_url": f"{issue_url}#note_{note.get('id')}"
-            if issue_url and note.get("id")
+            "note_id": note_id,
+            "note_url": f"{issue_url}#note_{note_id}"
+            if issue_url
             else None,
         },
     }
+    record["payload_identity"] = _payload_identity(record)
+    return record
 
 
 def reconstruct_work_item(
@@ -86,8 +114,12 @@ def reconstruct_work_item(
     records = [record for record in records if record is not None]
     highest = max((record["revision"] for record in records), default=None)
     current = [record for record in records if record["revision"] == highest] if highest else []
-    conflict = len({record["digest"] for record in current}) > 1
-    selected = current[0] if current and not conflict else None
+    conflict = len({record["payload_identity"] for record in current}) > 1
+    selected = (
+        min(current, key=lambda record: int(record["source"]["note_id"]))
+        if current and not conflict
+        else None
+    )
     approvals = []
     if selected:
         for note in notes:
@@ -108,7 +140,13 @@ def reconstruct_work_item(
         if approval and issue_url and approval.get("id")
         else None
     )
-    current_authority = bool(complete and selected and approval)
+    current_authority = bool(
+        complete
+        and selected
+        and selected["source"].get("note_url")
+        and approval
+        and approval_note
+    )
     facts = {
         "collection_complete_for_authority": complete,
         "record_digest": selected.get("digest") if selected else None,

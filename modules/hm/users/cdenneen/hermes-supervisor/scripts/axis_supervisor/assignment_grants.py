@@ -83,6 +83,29 @@ def scope_digest(grant: dict) -> str:
     return f"sha256:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
+def _canonical_provenance(value: object) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and isinstance(value.get("note_id"), int)
+        and value["note_id"] > 0
+        and isinstance(value.get("note_url"), str)
+        and value["note_url"]
+    )
+
+
+def _revoke_legacy_canonical_grant(root: Path, assignment: dict, grant: dict) -> None:
+    grant["status"] = "revoked"
+    grant["expires_at_epoch"] = min(int(grant["expires_at_epoch"]), int(time.time()))
+    grant["events"].append(
+        {
+            "event": "grant-revoked-legacy-canonical-provenance-reissue-required",
+            "recorded_at_epoch": int(time.time()),
+        }
+    )
+    grant["scope_digest"] = scope_digest(grant)
+    write_record(canonical_grant_path(root, assignment), grant, SCHEMA)
+
+
 def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     assignment_id = assignment["assignment_id"]
     planning = assignment.get("planning_record") or {}
@@ -123,8 +146,8 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     if source_item.get("canonical_work_item") and (
         planning.get("record_source") != authority_facts.get("record_source")
         or planning.get("approval_source") != authority_facts.get("approval_source")
-        or not isinstance(planning.get("record_source"), dict)
-        or not isinstance(planning.get("approval_source"), dict)
+        or not _canonical_provenance(planning.get("record_source"))
+        or not _canonical_provenance(planning.get("approval_source"))
     ):
         raise AssignmentGrantDenied("assignment PlanningRecord source changed")
     approved_assignment_type = authority_facts.get("approved_assignment_type")
@@ -272,7 +295,7 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
 def load_grant(root: Path, assignment: dict) -> dict:
     path = canonical_grant_path(root, assignment)
     try:
-        return read_record(path, SCHEMA)
+        grant = read_record(path, SCHEMA)
     except RecordVersionError:
         legacy = json.loads(path.read_text(encoding="utf-8"))
         if legacy.get("schema") != SCHEMA or legacy.get("schema_version") != "1.0.0":
@@ -286,7 +309,16 @@ def load_grant(root: Path, assignment: dict) -> dict:
         legacy["repository_ownership"] = ownership
         legacy["scope_digest"] = scope_digest(legacy)
         write_record(path, legacy, SCHEMA)
-        return legacy
+        grant = legacy
+    if assignment.get("source_item", {}).get("canonical_work_item") and not (
+        _canonical_provenance((grant.get("approval_source") or {}).get("record_source"))
+        and _canonical_provenance((grant.get("approval_source") or {}).get("approval_source"))
+    ):
+        _revoke_legacy_canonical_grant(root, assignment, grant)
+        raise AssignmentGrantDenied(
+            "canonical mutation grant lacks record and approval provenance; reissue required"
+        )
+    return grant
 
 
 def merged_recovery_matches(grant: dict, assignment: dict, mr: dict | None, main_sha: str) -> bool:
@@ -367,7 +399,11 @@ def validate_grant(
         or (
             assignment.get("source_item", {}).get("canonical_work_item")
             and (
-                planning.get("record_source") != approval.get("record_source")
+                not _canonical_provenance(planning.get("record_source"))
+                or not _canonical_provenance(planning.get("approval_source"))
+                or not _canonical_provenance(approval.get("record_source"))
+                or not _canonical_provenance(approval.get("approval_source"))
+                or planning.get("record_source") != approval.get("record_source")
                 or planning.get("approval_source") != approval.get("approval_source")
             )
         )
