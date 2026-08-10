@@ -967,7 +967,7 @@ Replay: exact three tests plus combined MCP suite after repair.
         "kind": "issue",
         "project": "ghostspace/axis",
         "title": "MCP timeout regression",
-        "source_state": "opened",
+        "source_state": "closed",
         "labels": ["p0"],
         "authority_facts": {
             "approval_matches_record": True,
@@ -998,6 +998,9 @@ Replay: exact three tests plus combined MCP suite after repair.
     assert entry["expected_gates"][0]["gate"] == "current-main verification"
     assert entry["wake_refs"] == ["ghostspace/axis#31"]
     assert graph["edges"][-1]["relationship"] == "finding-shared-dependent"
+    frontier = json.loads((tmp_path / "executable-frontier.json").read_text())
+    assert frontier["source_generation_id"] == graph["generation_id"]
+    assert frontier["selected"] == [entry["ref"]]
 
     from axis_supervisor.missions import ActiveMissionState
 
@@ -1060,6 +1063,108 @@ Replay: exact three tests plus combined MCP suite after repair.
         blocked_reasons
     )
     assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+
+def test_closed_finding_frontier_excludes_duplicate_stale_and_satisfied_candidates(
+    tmp_path: Path,
+):
+    from axis_supervisor.decomposition import SemanticDecompositionEngine
+    from axis_supervisor.graph import ExecutionGraphBuilder
+    from axis_supervisor.verification import CHECK_NAMES, verification_result
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
+    )
+    identity = "sha256:" + "f" * 64
+    candidate = {
+        "slice_id": "axis29-task-handles",
+        "title": "Repair MCP task handles",
+        "category": "implementation",
+        "result": "Executable",
+        "project": "ghostspace/axis",
+        "responsibility": "axis-runtime/product",
+        "allowed_paths": ["src/axis_runtime/mcp_tasks.py"],
+        "required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
+    }
+    finding = {
+        "finding_id": "axis29-mcp-task-handles",
+        "identity": identity,
+        "state": "confirmed",
+        "owner_ref": "ghostspace/axis#29",
+        "authority_digest": "sha256:" + "2" * 64,
+        "provenance": {
+            "source_sha": "a" * 40,
+            "parser_revision": "gitlab-finding-note-v2",
+        },
+        "repair_candidate": candidate,
+    }
+    source = {
+        "ref": "ghostspace/axis#29",
+        "source_kind": "gitlab-issue",
+        "kind": "issue",
+        "project": "ghostspace/axis",
+        "title": "MCP timeout regression",
+        "source_state": "closed",
+        "labels": [],
+        "authority_facts": {
+            "approval_matches_record": True,
+            "record_digest": "sha256:" + "2" * 64,
+        },
+        "blocking_dependency_refs": [],
+        "merge_request_facts": [],
+        "acceptance_facts": {"ids": [], "open_ids": []},
+        "source_evidence": {},
+        "retrieval_errors": [],
+        "mutation_allowed": True,
+        "repository_head": "a" * 40,
+        "findings": [finding],
+    }
+
+    duplicate = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "duplicate",
+            "work_items": [source],
+            "supervisor_assignments": [
+                {
+                    "assignment_id": "duplicate-finding",
+                    "finding_identity": identity,
+                    "lifecycle_state": "completed",
+                }
+            ],
+        }
+    )
+    stale = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "stale",
+            "work_items": [source | {"repository_head": "b" * 40}],
+        }
+    )
+    satisfied = ExecutionGraphBuilder(tmp_path).build(
+        {
+            "generation_id": "satisfied",
+            "work_items": [source],
+            "supervisor_assignments": [
+                {
+                    "assignment_id": "satisfied-finding",
+                    "work_item": source["ref"],
+                    "lifecycle_state": "completed",
+                    "source_inventory_generation_id": "before-satisfied",
+                    "source_fingerprint": SemanticDecompositionEngine.source_fingerprint(
+                        source
+                    ),
+                    "completion_receipt": verification_result(
+                        {name: True for name in CHECK_NAMES},
+                        ["https://example.test/receipt"],
+                        tier="C",
+                    ),
+                }
+            ],
+        }
+    )
+
+    assert duplicate["executable_queue"] == []
+    assert stale["executable_queue"] == []
+    assert satisfied["executable_queue"] == []
 
 
 def test_confirmed_finding_without_owner_authority_stays_decision_only(tmp_path: Path):
