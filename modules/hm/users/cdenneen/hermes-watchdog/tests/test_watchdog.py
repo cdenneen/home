@@ -127,6 +127,7 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
         supervisor / "execution-graph.json",
         {
             "generation_id": "graph-1",
+            "inventory_generation_id": "inventory-1",
             "nodes": [
                 {
                     "ref": "ghostspace/axis#1",
@@ -162,6 +163,12 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
                 }
             ],
             "graduation_progress": {"graduated": 1, "total": 2},
+            "source_generations": {
+                "inventory": "inventory-1",
+                "graph": "graph-1",
+                "graduation": "sha256:" + "a" * 64,
+                "convergence": "sha256:" + "b" * 64,
+            },
             "effectiveness_metrics": {
                 "assignments_evaluated": 2,
                 "state_model_defects": 0,
@@ -172,6 +179,10 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
     write(
         supervisor / "capability-graduation.json",
         {
+            "projection_digest": "sha256:" + "a" * 64,
+            "source_inventory_generation_id": "inventory-1",
+            "source_graph_generation_id": "graph-1",
+            "source_convergence_digest": "sha256:" + "b" * 64,
             "primary_kpi": {"count": 1, "denominator": 2, "percent": 50},
             "capabilities": [
                 {
@@ -418,6 +429,43 @@ def test_product_progress_fingerprint_ignores_assignment_activity(tmp_path: Path
     graduation["milestones"][0]["debts"] = []
     debt_transition, _snapshot = Watchdog._mission_progress(mission, graduation)
     assert debt_transition != gate_transition
+
+
+def test_watchdog_rejects_stale_mission_progress_after_graph_refresh(tmp_path: Path):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    inventory = json.loads((supervisor / "inventory.json").read_text())
+    graph = json.loads((supervisor / "execution-graph.json").read_text())
+    graduation = json.loads((supervisor / "capability-graduation.json").read_text())
+    inventory["generation_id"] = "inventory-2"
+    graph.update({"generation_id": "graph-2", "inventory_generation_id": "inventory-2"})
+    graduation.update(
+        {
+            "source_inventory_generation_id": "inventory-2",
+            "source_graph_generation_id": "graph-2",
+            "projection_digest": "sha256:" + "c" * 64,
+        }
+    )
+    write(supervisor / "inventory.json", inventory)
+    write(supervisor / "execution-graph.json", graph)
+    write(supervisor / "capability-graduation.json", graduation)
+
+    result = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+
+    assert "supervisor-state-incoherent" in result["anomalies"]
+    assert "mission-progress-stuck" not in result["anomalies"]
+    state = json.loads((root / "state.json").read_text())
+    assert state["health"]["mission_progress"]["status"] == "degraded"
+    observation = json.loads((root / "observations.jsonl").read_text().splitlines()[-1])
+    assert observation["mission"]["coherence"]["trusted"] is False
+    assert "mission_inventory" in observation["mission"]["coherence"]["failures"]
 
 
 def test_expected_wait_does_not_hide_executable_evidence_actions():

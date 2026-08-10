@@ -364,7 +364,25 @@ def _product_subdimensions(
 
 def adapt_capability_graduation(value: dict) -> dict:
     migrated = json.loads(json.dumps(value))
-    if migrated.get("schema_version") != "4.0.0":
+    version = migrated.get("schema_version")
+    if version == SCHEMA_VERSION:
+        # v5 records written before calibration reconciliation became mandatory
+        # are a supported persisted history, not an unknown schema revision.
+        migrated.setdefault(
+            "calibration_reconciliation",
+            {
+                "required": False,
+                "state": "complete",
+                "previous_revision": None,
+                "current_revision": str(
+                    migrated.get("applicability_model_revision")
+                    or "legacy-boolean-v1"
+                ),
+                "evidence": "legacy v5 projection migrated; next reconciliation recomputes canonical evidence",
+            },
+        )
+        return migrated
+    if version != "4.0.0":
         return migrated
     migrated["schema_version"] = SCHEMA_VERSION
     for capability in migrated.get("capabilities") or []:

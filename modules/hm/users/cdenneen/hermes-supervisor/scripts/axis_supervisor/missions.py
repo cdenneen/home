@@ -9,7 +9,7 @@ from .mutation import MutationGate, OperationClass
 from .schema_registry import validate_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.active-mission"
-SCHEMA_VERSION = "4.0.0"
+SCHEMA_VERSION = "5.0.0"
 DESIRED_END_STATE = "all-capabilities-graduated"
 MAX_ACTIONS = 8
 MAX_OBSERVATIONS = 100
@@ -340,7 +340,7 @@ def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
             _backfill_action_context(action)
             for action in migrated.get("generated_actions") or []
         ]
-    if version == "3.0.0":
+    if version in {"3.0.0", "4.0.0"}:
         migrated["schema_version"] = SCHEMA_VERSION
         migrated["generated_actions"] = [
             _backfill_action_context(action)
@@ -385,6 +385,15 @@ def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
         ]
     migrated.setdefault("retired_actions", [])
     migrated.setdefault("invalidation_map", {})
+    migrated.setdefault(
+        "source_generations",
+        {
+            "inventory": None,
+            "graph": None,
+            "graduation": None,
+            "convergence": None,
+        },
+    )
     return migrated
 
 
@@ -1244,6 +1253,12 @@ class ActiveMissionState:
                 "active_assignment_count": len(active),
                 "completed_assignment_count": len(completed),
                 "suppressed_action_count": len(suppressed),
+            },
+            "source_generations": {
+                "inventory": inventory.get("generation_id"),
+                "graph": graph.get("generation_id"),
+                "graduation": graduation.get("projection_digest"),
+                "convergence": graduation.get("source_convergence_digest"),
             },
             "termination_condition": {
                 "desired_state_achieved": desired_achieved,

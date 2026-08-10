@@ -3088,7 +3088,12 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
     assert fallback.startswith(
-        "AXIS | Capabilities 0/0 graduated (0%) | Roadmap 1/2 verified"
+        "AXIS | Progress reconciling | Capabilities 0/0 graduated (0%) | "
+        "Roadmap 1/2 verified"
+    )
+    assert any(
+        "progress state is reconciling" in block.get("text", {}).get("text", "")
+        for block in blocks
     )
     assert blocks[0]["type"] == "header"
     assert [block["text"]["text"] for block in blocks if block["type"] == "header"] == [

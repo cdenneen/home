@@ -20,6 +20,7 @@
     "action_effectiveness",
     "effectiveness_metrics",
     "graduation_progress",
+    "source_generations",
     "termination_condition",
     "observations"
   ],
@@ -27,7 +28,7 @@
     "schema": {
       "const": "axis.external-development-supervisor.active-mission"
     },
-    "schema_version": { "const": "4.0.0" },
+    "schema_version": { "const": "5.0.0" },
     "mission_id": { "type": "string", "minLength": 1 },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
@@ -329,6 +330,17 @@
         "active_assignment_count": { "type": "integer", "minimum": 0 },
         "completed_assignment_count": { "type": "integer", "minimum": 0 },
         "suppressed_action_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "source_generations": {
+      "type": "object",
+      "required": ["inventory", "graph", "graduation", "convergence"],
+      "properties": {
+        "inventory": { "type": ["string", "null"] },
+        "graph": { "type": ["string", "null"] },
+        "graduation": { "type": ["string", "null"] },
+        "convergence": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },

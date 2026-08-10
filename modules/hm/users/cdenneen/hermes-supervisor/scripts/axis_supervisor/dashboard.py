@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 
+from . import progress_coherence
 from .capability_graduation import read_capability_graduation
 from .decisions import DecisionStore
 from .missions import read_mission_record
@@ -168,7 +169,6 @@ def render_executive_dashboard(
     semantics: dict,
     events: list[dict],
 ) -> tuple[str, list[dict], str]:
-    del inventory
     graduation_path = root / "capability-graduation.json"
     graduation = (
         read_capability_graduation(graduation_path)
@@ -182,6 +182,17 @@ def render_executive_dashboard(
     )
     mission_path = root / "active-mission.json"
     mission = read_mission_record(mission_path) if mission_path.exists() else {}
+    coherence = progress_coherence(inventory, graph, graduation, mission)
+    progress_notice = None
+    if not coherence["trusted"]:
+        progress_notice = (
+            "⚠️ Supervisor progress state is reconciling; capability and mission "
+            "claims are withheld until source generations agree ("
+            + ", ".join(coherence["failures"])
+            + ")."
+        )
+        graduation = {}
+        mission = {}
 
     total = int(semantics.get("total_governed_items") or 0)
     verified = int(
@@ -279,7 +290,8 @@ def render_executive_dashboard(
     sections = (
         (
             "AXIS",
-            f"Capabilities `{progress_bar(graduated, capability_total)}` *{graduated}/{capability_total} graduated* "
+            (progress_notice + "\n" if progress_notice else "")
+            + f"Capabilities `{progress_bar(graduated, capability_total)}` *{graduated}/{capability_total} graduated* "
             f"({capability_percent:g}%)\nProduction confidence *{production_confidence:g}%* | "
             f"Operator confidence *{confidence_text(operator_confidence)}* | "
             f"Risk *{public_text(risk.get('level') or 'unknown')} ({int(risk.get('score') or 0)}/100)*\n"
@@ -322,7 +334,8 @@ def render_executive_dashboard(
         raise ValueError("product dashboard section contract changed")
 
     fallback = (
-        f"AXIS | Capabilities {graduated}/{capability_total} graduated ({capability_percent:g}%) | "
+        ("AXIS | Progress reconciling | " if progress_notice else "AXIS | ")
+        + f"Capabilities {graduated}/{capability_total} graduated ({capability_percent:g}%) | "
         f"Roadmap {verified}/{total} verified | Production confidence {production_confidence:g}% | "
         f"Operator confidence {confidence_text(operator_confidence)} | "
         f"Risk {public_text(risk.get('level') or 'unknown')} | "

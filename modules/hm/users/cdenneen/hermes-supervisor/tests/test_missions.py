@@ -278,7 +278,7 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
         {}, graph(), graduation(capability("Service", missing_gate="verification"))
     )
 
-    assert migrated["schema_version"] == "4.0.0"
+    assert migrated["schema_version"] == "5.0.0"
     assert migrated["mission_id"] == "persisted-v1-mission"
     assert migrated["created_at"] == "2026-08-06T00:00:00+00:00"
     assert migrated["observations"][0]["source"] == "cycle-response"
@@ -316,10 +316,33 @@ def test_v2_mission_action_context_is_backfilled_before_validation(tmp_path: Pat
 
     migrated = read_mission_record(path)
     action = migrated["generated_actions"][0]
-    assert migrated["schema_version"] == "4.0.0"
+    assert migrated["schema_version"] == "5.0.0"
     assert action["capability_context"] == [{"capability": "CLI"}]
     assert action["merge_impact_projection"]["affected_capabilities"] == ["CLI"]
     assert action["merge_impact_projection"]["production_confidence_before"] == 40.0
+
+
+def test_mission_publishes_the_snapshot_generations_it_consumed(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    current = ActiveMissionState(tmp_path).reconcile(
+        {"generation_id": "inventory-current"},
+        graph() | {"generation_id": "graph-current"},
+        graduation(capability("Service", missing_gate="verification"))
+        | {
+            "projection_digest": "sha256:" + "c" * 64,
+            "source_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+
+    assert current["schema_version"] == "5.0.0"
+    assert current["source_generations"] == {
+        "inventory": "inventory-current",
+        "graph": "graph-current",
+        "graduation": "sha256:" + "c" * 64,
+        "convergence": "sha256:" + "d" * 64,
+    }
 
 
 def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(

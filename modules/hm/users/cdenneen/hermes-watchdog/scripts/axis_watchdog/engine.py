@@ -50,6 +50,45 @@ def _digest(value: object) -> str:
     ).hexdigest()
 
 
+def _progress_coherence(
+    inventory: dict[str, Any],
+    graph: dict[str, Any],
+    graduation: dict[str, Any],
+    mission: dict[str, Any],
+) -> dict[str, Any]:
+    """Independently validate the Supervisor's published progress snapshot."""
+    inventory_generation = inventory.get("generation_id")
+    graph_generation = graph.get("generation_id")
+    graduation_digest = graduation.get("projection_digest")
+    convergence_digest = graduation.get("source_convergence_digest")
+    mission_sources = mission.get("source_generations") or {}
+    checks = {
+        "graph_inventory": (graph.get("inventory_generation_id"), inventory_generation),
+        "graduation_inventory": (
+            graduation.get("source_inventory_generation_id"),
+            inventory_generation,
+        ),
+        "graduation_graph": (graduation.get("source_graph_generation_id"), graph_generation),
+        "mission_inventory": (mission_sources.get("inventory"), inventory_generation),
+        "mission_graph": (mission_sources.get("graph"), graph_generation),
+        "mission_graduation": (mission_sources.get("graduation"), graduation_digest),
+        "mission_convergence": (mission_sources.get("convergence"), convergence_digest),
+    }
+    failures = [
+        name
+        for name, (actual, expected) in checks.items()
+        if actual is None or expected is None or actual != expected
+    ]
+    return {
+        "trusted": not failures,
+        "failures": failures,
+        "checks": {
+            name: {"actual": actual, "expected": expected}
+            for name, (actual, expected) in checks.items()
+        },
+    }
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -612,34 +651,58 @@ class Watchdog:
                 )
             )
 
-        fingerprint, progress_snapshot = self._mission_progress(
-            mission, records["capability-graduation"]
+        coherence = _progress_coherence(
+            records["inventory"],
+            records["execution-graph"],
+            records["capability-graduation"],
+            mission,
         )
         previous_fingerprint = str(state.get("mission_progress_fingerprint") or "")
         progress_since = int(state.get("mission_progress_since_epoch") or now)
-        if fingerprint != previous_fingerprint:
-            progress_since = now
         threshold = self._historical_threshold(control)
-        expected_wait, wait_reason = self._expected_wait(
-            supervisor_control, mission, records["execution-graph"]
-        )
-        stuck_age = now - progress_since
-        if (
-            previous_fingerprint
-            and fingerprint == previous_fingerprint
-            and stuck_age > threshold
-            and not expected_wait
-            and mission.get("current_state") != "completed"
-        ):
+        if not coherence["trusted"]:
+            fingerprint = "untrusted:" + _digest(coherence)
+            progress_snapshot = {"coherence": coherence}
+            progress_since = now
+            expected_wait = False
+            wait_reason = "source generations are incoherent"
             anomalies.append(
                 self._anomaly(
-                    "mission-progress-stuck",
+                    "supervisor-state-incoherent",
                     "mission_progress",
-                    f"mission progress fingerprint has not changed for {stuck_age}s; historical threshold is {threshold}s",
+                    "supervisor state generations disagree: "
+                    + ", ".join(coherence["failures"]),
                     4,
                     repair=True,
                 )
             )
+        else:
+            fingerprint, progress_snapshot = self._mission_progress(
+                mission, records["capability-graduation"]
+            )
+            if fingerprint != previous_fingerprint:
+                progress_since = now
+            expected_wait, wait_reason = self._expected_wait(
+                supervisor_control, mission, records["execution-graph"]
+            )
+            stuck_age = now - progress_since
+            if (
+                previous_fingerprint
+                and fingerprint == previous_fingerprint
+                and stuck_age > threshold
+                and not expected_wait
+                and mission.get("current_state") != "completed"
+            ):
+                anomalies.append(
+                    self._anomaly(
+                        "mission-progress-stuck",
+                        "mission_progress",
+                        f"mission progress fingerprint has not changed for {stuck_age}s; historical threshold is {threshold}s",
+                        4,
+                        repair=True,
+                    )
+                )
+        stuck_age = now - progress_since
         dimensions["mission_progress"] = {
             "status": "waiting" if expected_wait else "degraded" if any(a["dimension"] == "mission_progress" for a in anomalies) else "healthy",
             "evidence": [
@@ -684,6 +747,7 @@ class Watchdog:
                 "stuck_threshold_seconds": threshold,
                 "expected_wait": expected_wait,
                 "expected_wait_reason": wait_reason,
+                "coherence": coherence,
             },
             "outbox": outbox_health,
             "cutover": cutover,

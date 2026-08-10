@@ -564,6 +564,8 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     fallback, blocks, fingerprint = render_executive_dashboard(
         tmp_path, inventory, graph, semantics, events
     )
+    assert fallback.startswith("AXIS | Progress reconciling |")
+    assert "progress state is reconciling" in json.dumps(blocks)
     headers = [block["text"]["text"] for block in blocks if block["type"] == "header"]
     sections = [block for block in blocks if block["type"] == "section"]
     assert len(sections) == 8
@@ -604,7 +606,7 @@ def test_executive_dashboard_has_mission_v2_proof_sections_and_no_internal_text(
     assert "░" in visible_blocks
     assert "\n" not in fallback
     assert "*" not in fallback
-    assert fallback.startswith("AXIS | Capabilities")
+    assert fallback.startswith("AXIS | Progress reconciling | Capabilities")
     assert len(fingerprint) == 64
 
 
