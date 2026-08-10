@@ -415,6 +415,51 @@ def test_closed_issue_note_collection_is_limited_to_structured_or_active_finding
     )
 
 
+def test_closed_current_planning_record_fetches_axis29_finding_notes():
+    from axis_supervisor.collector import NOTES_OK, collect_eligible_issue_notes
+
+    project = {"path_with_namespace": "ghostspace/axis"}
+    # Captured production issue shape: the current record is not labelled immutable.
+    axis29 = {
+        "iid": 29,
+        "state": "closed",
+        "title": "Implement governed MCP client host and adapter registry",
+        "labels": ["roadmap::AX-M6", "scope:axis"],
+        "milestone": None,
+        "description": """# Purpose
+
+Implement AXIS as a governed MCP host with one isolated client per configured server.
+
+## PlanningRecord v1 — MCP Local Conformance Slice
+
+The local fixture scope is complete.
+
+## PlanningRecord v2 completion evidence
+- MRs !150, !151, !152, !153 merged
+- Product Owner-approved digest sha256:5ac201b880ffcfc6ca4642a7b9beb525d5e1dd0a3f784a01564139ed85c3dd3d
+""",
+    }
+    calls = []
+
+    def request(path: str):
+        calls.append(path)
+        return [
+            {
+                "id": 3661401209,
+                "author": {"id": 117046, "username": "cdenneen"},
+                "created_at": "2026-08-08T10:17:07.576Z",
+                "updated_at": "2026-08-08T10:17:07.576Z",
+                "body": "Current-main regression finding - MCP task-handle acceptance failure",
+            }
+        ]
+
+    snapshot = collect_eligible_issue_notes(request, project, "123", axis29, set())
+
+    assert snapshot["state"] == NOTES_OK
+    assert [note["id"] for note in snapshot["notes"]] == [3661401209]
+    assert len(calls) == 2
+
+
 def test_closed_issue_note_collection_writes_bounded_eligibility_trace(tmp_path, monkeypatch):
     import json
 
@@ -450,7 +495,10 @@ def test_closed_issue_note_collection_writes_bounded_eligibility_trace(tmp_path,
     assert trace["milestone"] == "AX-M4"
     assert trace["title"] == "MCP regression"
     assert trace["raw_description_type"] == "str"
-    assert trace["normalized_text_marker_detection"] == ["immutable planningrecord"]
+    assert trace["normalized_text_marker_detection"] == [
+        "immutable planningrecord",
+        "planningrecord v2",
+    ]
     assert trace["predicate_inputs"]["active_mission"] is False
     assert trace["predicate_result"] is True
     assert trace["reason"] == "structured-marker"
