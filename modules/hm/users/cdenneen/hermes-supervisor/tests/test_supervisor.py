@@ -2472,7 +2472,10 @@ def test_reconciliation_failure_suppresses_agent(tmp_path: Path):
         encoding="utf-8",
     )
     failing = tmp_path / "fail.py"
-    failing.write_text("raise SystemExit(2)\n", encoding="utf-8")
+    failing.write_text(
+        "import sys\nsys.stderr.write('inventory authentication failed\\n')\nraise SystemExit(2)\n",
+        encoding="utf-8",
+    )
     env = os.environ | {
         "AXIS_SUPERVISOR_ROOT": str(root),
         "AXIS_SUPERVISOR_RECONCILE": str(failing),
@@ -2488,6 +2491,44 @@ def test_reconciliation_failure_suppresses_agent(tmp_path: Path):
     payload = json.loads(result.stdout)
     assert payload["wakeAgent"] is False
     assert "live reconciliation failed closed" in payload["reason"]
+    assert "inventory authentication failed" in payload["diagnostic"]
+    events = [
+        json.loads(line)
+        for line in (root / "operational-events.jsonl").read_text().splitlines()
+    ]
+    assert events[-1]["event_type"] == "preflight_skip"
+    assert events[-1]["details"]["diagnostic_id"] == payload["diagnostic_id"]
+    assert "inventory authentication failed" in events[-1]["details"]["diagnostic"]
+
+
+def test_recovery_failure_preserves_durable_child_diagnostic(tmp_path: Path):
+    root = tmp_path / "runtime"
+    root.mkdir()
+    (root / "control.json").write_text(
+        json.dumps(control(minimum_free_disk_gib=0)), encoding="utf-8"
+    )
+    failing = tmp_path / "recover.py"
+    failing.write_text(
+        "import sys\nsys.stderr.write('lease schema mismatch\\n')\nraise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    env = os.environ | {
+        "AXIS_SUPERVISOR_ROOT": str(root),
+        "AXIS_SUPERVISOR_CTL": str(failing),
+    }
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "preflight.py")],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert "supervisor recovery failed closed" in payload["reason"]
+    assert "lease schema mismatch" in payload["diagnostic"]
+    event = json.loads((root / "operational-events.jsonl").read_text().splitlines()[-1])
+    assert event["event_type"] == "preflight_skip"
+    assert event["details"]["diagnostic_id"] == payload["diagnostic_id"]
 
 
 def test_fenced_lease_conflict_and_release(tmp_path: Path):

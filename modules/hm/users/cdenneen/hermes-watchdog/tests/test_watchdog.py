@@ -839,6 +839,79 @@ def test_slack_cutover_advances_a_through_e_and_rolls_back(tmp_path: Path):
     assert reconciles == [["reconcile-cutover"]] * 5
 
 
+def test_cutover_failed_reconcile_keeps_committed_generation_and_error(tmp_path: Path):
+    jobs = tmp_path / "jobs.json"
+    write(jobs, {"jobs": []})
+    observed = []
+
+    def runner(command, **kwargs):
+        observed.append((command, kwargs["env"].get("AXIS_SUPERVISOR_CUTOVER_GENERATION")))
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="cannot apply")
+
+    coordinator = CutoverCoordinator(
+        tmp_path,
+        jobs,
+        clock=lambda: 1_800_000_000,
+        reconcile_command="reconcile-cutover",
+        runner=runner,
+    )
+    value = coordinator.load()
+    with pytest.raises(RuntimeError, match="cannot apply"):
+        coordinator._transition(value, "B", "shadow-and-reporter-observed")
+    persisted = coordinator.load()
+    assert persisted["generation"] == "A"
+    assert "shadow-and-reporter-observed reconcile failed" in persisted["last_error"]
+    assert persisted["history"][-1]["event"] == "transition-reconcile-failed"
+    assert observed == [(["reconcile-cutover"], "B")]
+
+
+def test_projector_spawn_failure_rolls_writer_cutover_back(tmp_path: Path):
+    jobs = tmp_path / "jobs.json"
+    write(jobs, {"jobs": [{"name": "axis-development-supervisor-report"}]})
+
+    def reconcile_runner(command, **_kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    cutover = CutoverCoordinator(
+        tmp_path / "watchdog",
+        jobs,
+        clock=lambda: 1_800_000_000,
+        reconcile_command="reconcile-cutover",
+        runner=reconcile_runner,
+    )
+    cutover.load()
+    cutover.record_shadow("fp", "fp")
+    cutover.record_shadow("fp", "fp")
+    assert cutover.load()["generation"] == "C"
+
+    def missing_projector(_command, **_kwargs):
+        raise FileNotFoundError("canonical projector missing")
+
+    projector = CanonicalSlackProjector(
+        tmp_path / "supervisor",
+        command="/nix/store/canonical-projector",
+        runner=missing_projector,
+        cutover=cutover,
+    )
+    with pytest.raises(RuntimeError, match="could not start"):
+        projector.project({}, [], 1_800_000_000)
+    persisted = cutover.load()
+    assert persisted["generation"] == "A"
+    assert "FileNotFoundError" in persisted["last_error"]
+
+
+def test_watchdog_module_injects_deployed_runtime_commands():
+    module = (ROOT / "default.nix").read_text()
+    assert "AXIS_WATCHDOG_CANONICAL_PROJECTOR=${watchdogCanonicalProjector}/bin/axis-development-watchdog-canonical-projector" in module
+    assert "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND=${watchdogCutoverReconcile}/bin/axis-development-watchdog-cutover-reconcile" in module
+    assert ".nix-profile/bin/axis-development-watchdog-cutover-reconcile" not in (
+        ROOT / "scripts" / "axis_watchdog" / "cutover.py"
+    ).read_text()
+    assert '"axis-development-watchdog-canonical-projector"' not in (
+        ROOT / "scripts" / "axis_watchdog" / "projection.py"
+    ).read_text()
+
+
 @pytest.mark.parametrize("generation", ["A", "B"])
 def test_shadow_generations_allow_one_active_reporter(generation: str):
     jobs = [

@@ -22,6 +22,8 @@ let
       "unknown";
   watchdog = pkgs.writeShellScriptBin "axis-development-watchdog" ''
     set -euo pipefail
+    export AXIS_WATCHDOG_CANONICAL_PROJECTOR=${watchdogCanonicalProjector}/bin/axis-development-watchdog-canonical-projector
+    export AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND=${watchdogCutoverReconcile}/bin/axis-development-watchdog-cutover-reconcile
     exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog.py" "$@"
   '';
   watchdogCronCtl = pkgs.writeShellScriptBin "axis-development-watchdog-cronctl" ''
@@ -30,6 +32,7 @@ let
   '';
   watchdogCutoverCtl = pkgs.writeShellScriptBin "axis-development-watchdog-cutoverctl" ''
     set -euo pipefail
+    export AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND=${watchdogCutoverReconcile}/bin/axis-development-watchdog-cutover-reconcile
     exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog-cutoverctl.py" "$@"
   '';
   watchdogMonitor = pkgs.writeShellScriptBin "axis-development-watchdog-monitor" ''

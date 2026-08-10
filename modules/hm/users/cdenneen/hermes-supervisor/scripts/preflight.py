@@ -72,13 +72,41 @@ def process_alive(pid: int, expected_start_time: str | None = None) -> bool:
         return False
 
 
-def skip(run_id: str, mode: str | None, reason: str) -> int:
+def child_diagnostic(exc: BaseException) -> str:
+    output = []
+    for name in ("stdout", "stderr", "output"):
+        value = getattr(exc, name, None)
+        if value:
+            if isinstance(value, bytes):
+                value = value.decode(errors="replace")
+            output.append(f"{name}: {value}")
+    return "\n".join(output)[-1200:]
+
+
+def skip(
+    run_id: str,
+    mode: str | None,
+    reason: str,
+    *,
+    diagnostic: str | None = None,
+) -> int:
+    diagnostic_id = uuid.uuid4().hex
+    details = {
+        "run_id": run_id,
+        "mode": mode,
+        "reason": reason,
+        "diagnostic_id": diagnostic_id,
+        "diagnostic": diagnostic,
+    }
+    record_event(ROOT, "preflight_skip", details=details, source="preflight", notify=False)
     emit({
         "wakeAgent": False,
         "run_id": run_id,
         "skip_agent": True,
         "reason": reason,
         "mode": mode,
+        "diagnostic_id": diagnostic_id,
+        "diagnostic": diagnostic,
     })
     return 0
 
@@ -179,13 +207,22 @@ def main() -> int:
     calls_today = accounting.model_attempts_today(now)
 
     reconcile_prior_runs(control, now, gate)
-    subprocess.run(
-        [sys.executable, str(SUPERVISORCTL), "recover"],
-        check=True,
-        text=True,
-        capture_output=True,
-        timeout=30,
-    )
+    try:
+        subprocess.run(
+            [sys.executable, str(SUPERVISORCTL), "recover"],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception as exc:
+        diagnostic = child_diagnostic(exc)
+        return skip(
+            run_id,
+            control.get("mode"),
+            f"supervisor recovery failed closed: {type(exc).__name__}: {exc}; {diagnostic}"[-1800:],
+            diagnostic=diagnostic,
+        )
     if INVENTORY_LOCK.exists() and now - int(INVENTORY_LOCK.stat().st_mtime) > 300:
         try:
             owner = json.loads(INVENTORY_LOCK_OWNER.read_text(encoding="utf-8"))
@@ -237,10 +274,12 @@ def main() -> int:
             timeout=60,
         )
     except Exception as exc:
+        diagnostic = child_diagnostic(exc)
         return skip(
             run_id,
             control.get("mode"),
-            f"live reconciliation failed closed: {type(exc).__name__}: {exc}",
+            f"live reconciliation failed closed: {type(exc).__name__}: {exc}; {diagnostic}"[-1800:],
+            diagnostic=diagnostic,
         )
     finally:
         try:
@@ -404,9 +443,19 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        emit({
-            "wakeAgent": False,
-            "skip_agent": True,
-            "reason": f"preflight failure: {type(exc).__name__}: {exc}",
-        })
+        diagnostic = child_diagnostic(exc)
+        try:
+            skip(
+                f"axis-supervisor-failure-{uuid.uuid4().hex[:8]}",
+                None,
+                f"preflight failure: {type(exc).__name__}: {exc}; {diagnostic}"[-1800:],
+                diagnostic=diagnostic,
+            )
+        except Exception:
+            emit({
+                "wakeAgent": False,
+                "skip_agent": True,
+                "reason": f"preflight failure: {type(exc).__name__}: {exc}",
+                "diagnostic": diagnostic,
+            })
         raise SystemExit(0)
