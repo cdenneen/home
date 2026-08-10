@@ -19,7 +19,9 @@ from axis_supervisor.lifecycle import (
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.canary import CanaryDenied, validate_canary
 from axis_supervisor.assignment_grants import AssignmentGrantDenied, validate_grant
-from axis_supervisor.canonical_work_item import projection_for
+from axis_supervisor.canonical_work_item import authority_lineage_for, projection_for
+from axis_supervisor.finding_ingestion import normalize_gitlab_findings
+from axis_supervisor.canonical_work_item import reconstruct_work_item
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 CONTROL = ROOT / "control.json"
@@ -383,8 +385,93 @@ def canonical_work_items(args: argparse.Namespace) -> int:
     return 0
 
 
+def authority_lineage_probe(_args: argparse.Namespace) -> int:
+    """Print a no-write, production-shaped authority chain for axis#29."""
+    digest = "sha256:" + "2" * 64
+    source_sha = "a" * 40
+    issue_url = "https://gitlab.test/ghostspace/axis/-/issues/29"
+    def note(note_id: int, body: str) -> dict:
+        return {"id": note_id, "author": {"id": 117046}, "created_at": "t", "updated_at": "t", "body": body}
+    description = """Immutable PlanningRecord v1
+Digest: `sha256:1111111111111111111111111111111111111111111111111111111111111111`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- historical: src/retired.py
+Required tests:
+- pytest -q tests/test_retired.py"""
+    record = f"""Immutable PlanningRecord v2
+Digest: `{digest}`
+Assignment type: code-implementation
+Repository: ghostspace/axis
+Authorized slices:
+- repair: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py
+Required tests:
+- pytest -q tests/test_mcp_task_handles.py"""
+    finding = f"""Current-main regression finding
+Finding ID: task-handles-timeout
+Affected tests:
+- test_task_handles
+Expected: task handles terminate.
+Actual: task handles time out.
+Classification: PRODUCT_DEFECT
+Capability: MCP
+Affected gates: current-main verification
+Authority: bounded repair `{digest}`.
+Replay: pytest -q tests/test_mcp_task_handles.py"""
+    amendment = f"""Finding amendment v2
+Finding ID: task-handles-timeout
+Finding class: PRODUCT_DEFECT
+Owner work item: ghostspace/axis#29
+Approved slice_id: repair
+PlanningRecord revision: 2
+PlanningRecord digest: `{digest}`
+Repository: ghostspace/axis
+Affected gate: current-main verification
+Affected tests:
+- test_task_handles
+Expected behavior: task handles terminate.
+Observed behavior: task handles time out.
+Source evidence: note 30 on current main.
+Replay: pytest -q tests/test_mcp_task_handles.py
+Scope: exact repair slice only.
+Supersession: this metadata amendment preserves original finding provenance and supplies exact scope."""
+    notes = [
+        note(20, record),
+        note(21, f"**Approve** PlanningRecord v2 {digest}"),
+        note(30, finding),
+        note(31, amendment),
+    ]
+    projection = reconstruct_work_item(description, notes, {117046}, notes_state="NOTES_OK", issue_url=issue_url)
+    findings = normalize_gitlab_findings(notes, "ghostspace/axis#29", source_sha, {117046}, projection)
+    candidate = (findings[0].get("repair_candidate") if findings else None) or {
+        "slice_id": "repair",
+        "allowed_paths": ["src/axis_runtime/mcp_tasks.py", "tests/test_mcp_task_handles.py"],
+        "required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
+    }
+    source = {"ref": "ghostspace/axis#29", "canonical_work_item": projection}
+    lineage = authority_lineage_for(source, candidate)
+    if lineage is None:
+        raise RuntimeError("probe fixture did not produce canonical authority lineage")
+    print(json.dumps({
+        "dry_run": True,
+        "axis": 29,
+        "description_history": projection["description_history"],
+        "authority_lineage": lineage,
+        "chain": {
+            "graph_candidate": candidate | {"authority_lineage": lineage},
+            "frontier_entry": {"entry_id": "finding:axis29-task-handles-timeout", "authority_lineage": lineage},
+            "scheduler_selection": {"source_ref": source["ref"], "authority_lineage": lineage},
+            "assignment": {"planning_record": {"digest": lineage["record_digest"], "revision": lineage["record_revision"], "approval_note": lineage["approval_note"]}, "authority_lineage": lineage},
+            "grant": {"approval_source": {"planning_digest": lineage["record_digest"], "authority_lineage": lineage}},
+            "worker": {"required_authority_lineage": lineage},
+            "handoff": {"authority_lineage": lineage},
+        },
+    }, sort_keys=True))
+    return 0
+
+
 def main() -> int:
-    LEASES.mkdir(mode=0o700, parents=True, exist_ok=True)
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -415,10 +502,15 @@ def main() -> int:
     canonical_parser.add_argument("--inventory")
     canonical_parser.set_defaults(handler=canonical_work_items)
 
+    lineage_probe_parser = subparsers.add_parser("authority-lineage-probe")
+    lineage_probe_parser.set_defaults(handler=authority_lineage_probe)
+
     status_parser = subparsers.add_parser("status")
     status_parser.set_defaults(handler=lambda _args: (print(json.dumps({"leases": active_leases(int(time.time()))}, sort_keys=True)), 0)[1])
 
     args = parser.parse_args()
+    if args.command != "authority-lineage-probe":
+        LEASES.mkdir(mode=0o700, parents=True, exist_ok=True)
     return args.handler(args)
 
 

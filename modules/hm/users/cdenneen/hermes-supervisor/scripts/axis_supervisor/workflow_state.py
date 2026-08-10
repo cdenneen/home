@@ -138,6 +138,7 @@ class WorkflowState:
             "source_main_sha": (assignment.get("source_item") or {}).get(
                 "repository_head"
             ),
+            "authority_lineage": assignment.get("authority_lineage"),
             "created_at": utc_now(),
             "state": "ready-for-integration",
         }
@@ -180,6 +181,8 @@ class WorkflowState:
     ) -> dict:
         original_handoff = handoff
         handoff = self.adapt_handoff(handoff)
+        if handoff.get("authority_lineage") != assignment.get("authority_lineage"):
+            raise ValueError("handoff authority lineage does not match assignment")
         handoff_path = self.handoffs / f"{assignment['assignment_id']}.json"
         if handoff != original_handoff or not handoff_path.exists():
             self._authorize()

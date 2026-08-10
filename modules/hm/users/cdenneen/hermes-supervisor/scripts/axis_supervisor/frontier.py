@@ -134,6 +134,8 @@ def build_executable_frontier(
             "conflict_domains": conflict_domains(value),
             "ranking_score": int(value.get("ranking_score") or 0),
             "assignment_type": value.get("assignment_type"),
+            "authority_lineage": value.get("authority_lineage")
+            or (value.get("candidate") or {}).get("authority_lineage"),
         }
         entries.append(entry)
         if entry_id in seen:

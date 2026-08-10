@@ -36,7 +36,8 @@
     "required_evidence",
     "integration_conditions",
     "mr_iid",
-    "events"
+    "events",
+    "authority_lineage"
   ],
   "properties": {
     "schema": {
@@ -167,6 +168,7 @@
         },
         "planning_revision": { "type": "integer", "minimum": 1 },
         "approval_note": { "type": "string", "format": "uri" },
+        "authority_lineage": { "type": ["object", "null"] },
         "record_source": {
           "type": "object",
           "required": ["note_id", "note_url"],
@@ -219,7 +221,8 @@
     },
     "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
     "mr_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
-    "events": { "type": "array", "items": { "type": "object" } }
+    "events": { "type": "array", "items": { "type": "object" } },
+    "authority_lineage": { "type": ["object", "null"] }
   },
   "additionalProperties": false
 }

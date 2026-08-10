@@ -543,7 +543,7 @@ class HermesWorkerManager:
                     "source_inventory_generation_id"
                 )
                 source_item = assignment.get("source_item") or {}
-                authority_facts = projection_for(source_item).get("authority_facts") or source_item.get("authority_facts") or {}
+                authority_facts = projection_for(source_item).get("authority_facts") or {}
                 if authority_facts.get("approval_matches_record"):
                     approved_paths = authority_facts.get(
                         "approved_allowed_paths"

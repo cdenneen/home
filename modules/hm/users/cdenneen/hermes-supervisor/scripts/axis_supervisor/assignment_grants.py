@@ -6,7 +6,7 @@ from urllib.parse import unquote, urlparse
 
 from .accounting import AccountingLedger
 from .canary import current_main_sha
-from .canonical_work_item import projection_for
+from .canonical_work_item import lineage_matches, projection_for
 from .models import validate_allowed_path
 from .repository_ownership import (
     RepositoryOwnershipDenied,
@@ -72,6 +72,7 @@ def immutable_scope(grant: dict) -> dict:
             "max_prompt_bytes",
             "max_cost_usd",
             "approval_source",
+            "authority_lineage",
             "required_evidence",
             "integration_conditions",
         )
@@ -134,12 +135,21 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
     if not allowed_paths or not required_tests:
         raise AssignmentGrantDenied("bounded mutation grant requires exact paths and tests")
     source_item = assignment.get("source_item") or {}
+    candidate = assignment.get("candidate") or {}
+    lineage = assignment.get("authority_lineage")
+    if source_item.get("canonical_work_item") and not lineage_matches(source_item, lineage, candidate):
+        raise AssignmentGrantDenied("assignment authority lineage no longer matches canonical work item")
+    if source_item.get("canonical_work_item"):
+        assert isinstance(lineage, dict)
+        if (
+            planning.get("digest") != lineage["record_digest"]
+            or planning.get("approval_note") != lineage["approval_note"]
+            or planning.get("record_source") != lineage["record_source"]
+            or planning.get("approval_source") != lineage["approval_source"]
+        ):
+            raise AssignmentGrantDenied("assignment PlanningRecord does not match authority lineage")
     projection = projection_for(source_item)
-    authority_facts = projection.get("authority_facts") or (
-        source_item.get("authority_facts") or {}
-        if not source_item.get("canonical_work_item")
-        else {}
-    )
+    authority_facts = projection.get("authority_facts") or source_item.get("authority_facts") or {}
     current_planning_record = projection.get("current_planning_record") or {}
     if source_item.get("canonical_work_item") and not authority_facts.get("collection_complete_for_authority"):
         raise AssignmentGrantDenied("authority note collection is incomplete")
@@ -251,6 +261,7 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
             "planning_digest": planning["digest"],
             "planning_revision": int(planning["revision"]),
             "approval_note": planning["approval_note"],
+            "authority_lineage": lineage,
             **(
                 {
                     "record_source": planning["record_source"],
@@ -282,6 +293,7 @@ def create_grant(root: Path, assignment: dict, control: dict) -> dict:
         "mr_iid": None,
         "mr_sha": None,
         "events": [{"event": "grant-created", "recorded_at_epoch": now}],
+        "authority_lineage": lineage,
     }
     grant["scope_digest"] = scope_digest(grant)
     validate_record(grant, SCHEMA)

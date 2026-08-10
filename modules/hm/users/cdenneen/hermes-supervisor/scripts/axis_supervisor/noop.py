@@ -2,6 +2,7 @@ import hashlib
 import json
 
 from .capability_graduation import paths_overlap
+from .canonical_work_item import projection_for
 
 POST_MERGE_STATES = {
     "integrated-post-main-verified",
@@ -78,9 +79,7 @@ def no_op_fingerprint(entry: dict, semantic_record: dict | None = None) -> str:
         or [],
         "acceptance_facts": source.get("acceptance_facts"),
         "source_evidence": source.get("source_evidence"),
-        "authority_digest": (
-            source.get("authority_facts") or source.get("authority") or {}
-        ).get("record_digest"),
+        "authority_digest": (projection_for(source).get("authority_facts") or source.get("authority_facts") or source.get("authority") or {}).get("record_digest"),
         "semantic_evidence_fingerprint": semantic.get("evidence_fingerprint")
         or entry.get("semantic_evidence_fingerprint"),
     }

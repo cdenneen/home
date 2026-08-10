@@ -196,3 +196,41 @@ def projection_for(item: dict) -> dict:
         "current_planning_record": None,
         "authority_facts": {},
     }
+
+
+def authority_lineage_for(item: dict, candidate: dict | None = None) -> dict | None:
+    """Return the immutable executable-authority chain, or deny by omission."""
+    projection = projection_for(item)
+    facts = projection.get("authority_facts") or {}
+    record = projection.get("current_planning_record") or {}
+    if not (
+        projection.get("collection_complete_for_authority")
+        and facts.get("approval_matches_record")
+        and record.get("digest")
+        and record.get("source")
+        and facts.get("approval_source")
+        and facts.get("approval_note")
+    ):
+        return None
+    lineage = {
+        "record_digest": record["digest"],
+        "record_revision": record["revision"],
+        "record_source": record["source"],
+        "approval_source": facts["approval_source"],
+        "approval_note": facts["approval_note"],
+    }
+    if candidate is not None:
+        slice_id = candidate.get("slice_id")
+        slices = [value for value in record.get("slices") or [] if value.get("slice_id") == slice_id]
+        if len(slices) != 1:
+            return None
+        if sorted(candidate.get("allowed_paths") or []) != sorted(slices[0].get("allowed_paths") or []):
+            return None
+        if list(candidate.get("required_tests") or []) != list(record.get("required_tests") or []):
+            return None
+        lineage["slice_id"] = slice_id
+    return lineage
+
+
+def lineage_matches(item: dict, lineage: object, candidate: dict | None = None) -> bool:
+    return isinstance(lineage, dict) and lineage == authority_lineage_for(item, candidate)

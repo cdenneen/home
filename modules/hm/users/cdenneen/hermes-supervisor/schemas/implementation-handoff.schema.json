@@ -45,6 +45,7 @@
     "mr_iid": { "type": ["integer", "null"], "minimum": 1 },
     "mr_url": { "type": ["string", "null"], "format": "uri" },
     "source_main_sha": { "type": ["string", "null"] },
+    "authority_lineage": { "type": ["object", "null"] },
     "created_at": { "type": "string", "format": "date-time" },
     "state": { "enum": ["ready-for-integration", "integrated", "blocked"] }
   },

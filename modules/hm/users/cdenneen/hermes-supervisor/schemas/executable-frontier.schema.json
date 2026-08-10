@@ -38,7 +38,8 @@
           "uniqueItems": true
         },
         "ranking_score": { "type": "integer" },
-        "assignment_type": { "type": ["string", "null"] }
+        "assignment_type": { "type": ["string", "null"] },
+        "authority_lineage": { "type": ["object", "null"] }
       },
       "additionalProperties": false
     },

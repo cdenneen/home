@@ -1,5 +1,7 @@
 import re
 
+from .canonical_work_item import projection_for
+
 
 CLASSIFICATIONS = {
     "Executable",
@@ -33,7 +35,7 @@ def adapt_source_item(item: dict) -> dict:
             "source_kind": source_kind,
             "kind": kind,
             "source_state": item.get("source_state") or item.get("state") or "opened",
-            "authority_facts": dict(item.get("authority_facts") or item.get("authority") or {}),
+            "authority_facts": dict(projection_for(item).get("authority_facts") or item.get("authority_facts") or item.get("authority") or {}),
             "blocking_dependency_refs": list(
                 item.get("blocking_dependency_refs") or item.get("dependencies") or []
             ),
@@ -90,7 +92,7 @@ def legacy_fingerprint_item(item: dict) -> dict:
 
 
 def _waiting_reason(item: dict, blocker_type: str | None) -> str:
-    authority = item.get("authority_facts") or {}
+    authority = projection_for(item).get("authority_facts") or item.get("authority_facts") or {}
     labels = " ".join(str(value).lower() for value in item.get("labels") or [])
     evidence = item.get("source_evidence") or {}
     combined = (
@@ -209,7 +211,7 @@ def classify_source_item(item: dict) -> dict:
     normalized["state"] = item.get("source_state")
     normalized["dependencies"] = list(item.get("blocking_dependency_refs") or [])
     normalized["merge_requests"] = list(item.get("merge_request_facts") or [])
-    normalized["authority"] = dict(item.get("authority_facts") or {})
+    normalized["authority"] = dict(projection_for(item).get("authority_facts") or item.get("authority_facts") or item.get("authority") or {})
 
     if item.get("retrieval_errors"):
         classification, blocker_type, waiting_reason, rationale = (
@@ -227,7 +229,7 @@ def classify_source_item(item: dict) -> dict:
             normalized["authority"]["repository_convergence_authorized"] = True
     else:
         labels = {str(value).lower() for value in item.get("labels") or []}
-        authority = item.get("authority_facts") or {}
+        authority = projection_for(item).get("authority_facts") or item.get("authority_facts") or {}
         merge_requests = item.get("merge_request_facts") or []
         dependencies = item.get("blocking_dependency_refs") or []
         waiting_reason = None

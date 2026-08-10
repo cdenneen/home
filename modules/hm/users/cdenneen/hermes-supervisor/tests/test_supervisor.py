@@ -375,6 +375,7 @@ Supersession: this metadata amendment preserves original finding provenance and 
         ],
         "required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
     }
+    assert assignment["authority_lineage"] == entry["authority_lineage"]
 
     import pytest
 
@@ -396,6 +397,22 @@ Supersession: this metadata amendment preserves original finding provenance and 
     assert retired["events"][-1]["event"] == (
         "grant-revoked-legacy-canonical-provenance-reissue-required"
     )
+
+
+def test_authority_lineage_probe_is_read_only_and_carries_the_same_chain():
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "supervisorctl.py"), "authority-lineage-probe"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    probe = json.loads(result.stdout)
+    lineage = probe["authority_lineage"]
+    assert probe["dry_run"] is True
+    assert probe["description_history"]["superseded"] is True
+    assert probe["chain"]["graph_candidate"]["authority_lineage"] == lineage
+    assert probe["chain"]["grant"]["approval_source"]["authority_lineage"] == lineage
+    assert probe["chain"]["handoff"]["authority_lineage"] == lineage
 
 
 def test_ready_label_does_not_bypass_authority():

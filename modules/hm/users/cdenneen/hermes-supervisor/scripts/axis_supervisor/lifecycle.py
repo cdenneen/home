@@ -101,6 +101,7 @@ def adapt_assignment(
         adapted["responsibility"] = ownership["responsibility"]
         adapted["repository_ownership"] = ownership
     adapted.setdefault("planning_record", None)
+    adapted.setdefault("authority_lineage", None)
     adapted.setdefault("allowed_paths", [])
     adapted.setdefault("required_tests", [])
     adapted.setdefault("action_contract", None)

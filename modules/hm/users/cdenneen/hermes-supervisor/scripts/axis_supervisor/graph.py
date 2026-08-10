@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .authority import AuthorityResolver
-from .canonical_work_item import projection_for
+from .canonical_work_item import authority_lineage_for, projection_for
 from .capability_graduation import (
     action_score,
     capabilities_for_paths,
@@ -135,11 +135,7 @@ def _finding_candidates(item: dict) -> list[dict]:
             isinstance(candidate, dict)
             and finding.get("state") == "confirmed"
             and finding.get("owner_ref") == item.get("ref")
-            and (
-                not item.get("canonical_work_item")
-                or finding.get("authority_digest")
-                == (projection.get("current_planning_record") or {}).get("digest")
-            )
+            and (not item.get("canonical_work_item") or finding.get("authority_digest") == (projection.get("current_planning_record") or {}).get("digest"))
             and finding.get("identity")
             and (finding.get("provenance") or {}).get("source_sha")
             == item.get("repository_head")
@@ -924,7 +920,7 @@ class ExecutionGraphBuilder:
                         continue
                     if candidate.get("finding_identity") and candidate.get(
                         "authority_digest"
-                    ) != (item.get("authority_facts") or {}).get("record_digest"):
+                    ) != (projection_for(item).get("authority_facts") or item.get("authority_facts") or {}).get("record_digest"):
                         continue
                     category = candidate.get("category")
                     assignment_type = (
@@ -976,6 +972,13 @@ class ExecutionGraphBuilder:
                         "revalidation_tier": tier,
                         "milestone": item.get("milestone"),
                     }
+                    lineage = authority_lineage_for(item, candidate)
+                    if item.get("canonical_work_item") and lineage is None:
+                        continue
+                    if lineage is not None:
+                        candidate = candidate | {"authority_lineage": lineage}
+                        entry["candidate"] = candidate
+                        entry["authority_lineage"] = lineage
                     _rank_queue_entry(entry, authority)
                     queue.append(entry)
 

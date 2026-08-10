@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 
+from .canonical_work_item import projection_for
 from .models import validate_semantic_record
 from .mutation import MutationGate, OperationClass
 from .repository_ownership import responsibility_for_repository
@@ -41,7 +42,7 @@ class SemanticDecompositionEngine:
             "source_state": item.get("source_state") or item.get("state"),
             "labels": item.get("labels"),
             "milestone": item.get("milestone"),
-            "authority_facts": item.get("authority_facts") or item.get("authority"),
+            "authority_facts": projection_for(item).get("authority_facts") or item.get("authority_facts") or item.get("authority"),
             "blocking_dependency_refs": item.get("blocking_dependency_refs")
             or item.get("dependencies"),
             "merge_request_facts": item.get("merge_request_facts")

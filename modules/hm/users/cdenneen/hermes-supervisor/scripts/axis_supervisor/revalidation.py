@@ -18,11 +18,7 @@ def roadmap_order(item: dict) -> int:
 
 def reserved_authority_required(item: dict) -> bool:
     projection = projection_for(item)
-    authority = projection.get("authority_facts") or (
-        item.get("authority") or item.get("authority_facts") or {}
-        if not item.get("canonical_work_item")
-        else {}
-    )
+    authority = projection.get("authority_facts") or item.get("authority") or item.get("authority_facts") or {}
     return bool(
         authority.get("approval_mismatch")
         or (authority.get("approval_required") and not authority.get("approval_matches_record"))
@@ -109,11 +105,7 @@ def select_tier_a_batch(
         project = item.get("project")
         source_item = item.get("source_item") or {}
         projection = projection_for(source_item)
-        facts = projection.get("authority_facts") or (
-            source_item.get("authority_facts") or source_item.get("authority") or {}
-            if not source_item.get("canonical_work_item")
-            else {}
-        )
+        facts = projection.get("authority_facts") or source_item.get("authority_facts") or source_item.get("authority") or {}
         authority = {facts["record_digest"]} if facts.get("record_digest") else set()
         if (
             item.get("revalidation_tier") != "A"

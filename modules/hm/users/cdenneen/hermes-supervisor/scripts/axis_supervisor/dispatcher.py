@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 from .assignment_grants import create_grant
-from .canonical_work_item import projection_for
+from .canonical_work_item import lineage_matches
 from .capability_graduation import read_capability_graduation
 from .frontier import compatible
 from .lifecycle import is_terminal
@@ -222,42 +222,36 @@ class Dispatcher:
         if any(not compatible(item, value) for value in active):
             return None
         source_item = item.get("source_item") or {}
-        projection = projection_for(source_item)
-        authority_facts = projection.get("authority_facts") or (
-            source_item.get("authority_facts") or {}
-            if not source_item.get("canonical_work_item")
-            else {}
-        )
-        current_planning_record = projection.get("current_planning_record") or {}
-        planning_record = None
-        if (
-            authority_facts.get("collection_complete_for_authority", True)
-            and authority_facts.get("approval_matches_record")
-            and authority_facts.get("record_digest")
-            and authority_facts.get("approval_note")
-        ):
+        candidate = item.get("candidate") or {}
+        lineage = item.get("authority_lineage") or candidate.get("authority_lineage")
+        if not lineage_matches(source_item, lineage, candidate):
+            if source_item.get("canonical_work_item"):
+                return None
+            lineage = None
+            facts = source_item.get("authority_facts") or {}
+            planning_record = (
+                {
+                    "revision": int(facts.get("record_revision") or 1),
+                    "digest": facts["record_digest"],
+                    "approval_note": facts["approval_note"],
+                    "slice_id": candidate.get("slice_id"),
+                    "allowed_paths": candidate.get("allowed_paths") or [],
+                    "required_tests": candidate.get("required_tests") or [],
+                }
+                if facts.get("record_digest") and facts.get("approval_note")
+                else None
+            )
+        else:
+            assert isinstance(lineage, dict)
             planning_record = {
-                "revision": int(authority_facts.get("record_revision") or 1),
-                "digest": authority_facts.get("record_digest"),
-                "approval_note": authority_facts.get("approval_note"),
-                "record_source": authority_facts.get("record_source"),
-                "approval_source": authority_facts.get("approval_source"),
-                "slice_id": (item.get("candidate") or {}).get("slice_id"),
-                "allowed_paths": (item.get("candidate") or {}).get("allowed_paths")
-                or current_planning_record.get("slices"),
-                "required_tests": (item.get("candidate") or {}).get("required_tests")
-                or current_planning_record.get("required_tests"),
-            }
-        decision_record = (item.get("authority") or {}).get("decision_record")
-        if planning_record is None and isinstance(decision_record, dict):
-            planning_record = {
-                "revision": 1,
-                "digest": decision_record["digest"],
-                "approval_note": self.root.joinpath(
-                    "decisions", f"{decision_record['decision_id']}.json"
-                ).resolve().as_uri(),
-                "conditions": decision_record.get("conditions"),
-                "verification": decision_record.get("verification"),
+                "revision": lineage["record_revision"],
+                "digest": lineage["record_digest"],
+                "approval_note": lineage["approval_note"],
+                "record_source": lineage["record_source"],
+                "approval_source": lineage["approval_source"],
+                "slice_id": lineage["slice_id"],
+                "allowed_paths": candidate.get("allowed_paths") or [],
+                "required_tests": candidate.get("required_tests") or [],
             }
         assignment_type = item.get("assignment_type") or (
             "read-only-analysis"
@@ -323,7 +317,8 @@ class Dispatcher:
             "governance_state": item.get("classification")
             or (item.get("candidate") or {}).get("result"),
             "planning_record": planning_record,
-            "candidate": item.get("candidate"),
+            "candidate": candidate,
+            "authority_lineage": lineage,
             "finding_id": item.get("finding_id"),
             "finding_identity": item.get("finding_identity"),
             "shared_dependents": item.get("shared_dependents") or [],
@@ -369,6 +364,11 @@ class Dispatcher:
                     prior_failures,
                     key=lambda value: int(value.get("created_at_epoch") or 0),
                 )
+                if any(
+                    prior.get(key) != assignment.get(key)
+                    for key in ("project", "work_item", "source_fingerprint", "authority_lineage")
+                ):
+                    return None
                 patch_path = (
                     self.root
                     / "recovery"
@@ -385,6 +385,13 @@ class Dispatcher:
                         "Preserve participant-visible success paths; apply current-control "
                         "denial only when current controls fail."
                     ),
+                    "canonical_branch_custody": {
+                        "prior_assignment_id": prior["assignment_id"],
+                        "repository": assignment["project"],
+                        "work_item": assignment["work_item"],
+                        "source_fingerprint": assignment["source_fingerprint"],
+                        "authority_lineage": assignment["authority_lineage"],
+                    },
                 }
         path = self.assignments / f"{assignment_id}.json"
         decision = self.gate.decide(OperationClass.RECONCILIATION)
@@ -394,7 +401,8 @@ class Dispatcher:
             "code-implementation",
             "ci-integration-repair",
         }:
-            create_grant(self.root, assignment, control)
+            if (assignment["planning_record"] or {}).get("digest") and (assignment["planning_record"] or {}).get("approval_note"):
+                create_grant(self.root, assignment, control)
         validate_assignment(assignment)
         write_record(path, assignment, "axis.external-development-supervisor.assignment")
         record_event(
