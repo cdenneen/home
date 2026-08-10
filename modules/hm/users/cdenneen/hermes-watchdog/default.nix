@@ -20,8 +20,7 @@ let
       self.dirtyRev
     else
       "unknown";
-  watchdogLauncher = pkgs.substituteAll {
-    src = ./scripts/watchdog_launcher.py.in;
+  watchdogLauncher = pkgs.replaceVars ./scripts/watchdog_launcher.py.in {
     inherit watchdogPython watchdogCanonicalProjector watchdogCutoverReconcile;
   };
   watchdog = pkgs.writeShellScriptBin "axis-development-watchdog" ''

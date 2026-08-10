@@ -951,7 +951,8 @@ def test_projector_spawn_failure_rolls_writer_cutover_back(tmp_path: Path):
 
 def test_watchdog_module_injects_deployed_runtime_commands():
     module = (ROOT / "default.nix").read_text()
-    assert "watchdogLauncher = pkgs.substituteAll" in module
+    assert "watchdogLauncher = pkgs.replaceVars ./scripts/watchdog_launcher.py.in {" in module
+    assert "substituteAll" not in module
     assert "inherit watchdogPython watchdogCanonicalProjector watchdogCutoverReconcile;" in module
     assert '"${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog-impl.py"' in module
     assert '"${watchdogLauncher}" "$HOME/.hermes/scripts/axis-development-watchdog.py"' in module
