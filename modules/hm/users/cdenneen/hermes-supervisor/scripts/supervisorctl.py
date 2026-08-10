@@ -374,7 +374,7 @@ def canonical_work_items(args: argparse.Namespace) -> int:
                 "ref": item.get("ref"),
                 "migration_state": "canonical" if item.get("canonical_work_item") else "n-1-legacy",
                 "collection_complete_for_authority": projection.get("collection_complete_for_authority", False),
-                "current_record": projection.get("current_record"),
+                "current_planning_record": projection.get("current_planning_record"),
                 "slice_inventory": projection.get("slice_inventory", []),
                 "authority_facts": projection.get("authority_facts", {}),
             }

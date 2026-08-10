@@ -166,7 +166,25 @@
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
         "planning_revision": { "type": "integer", "minimum": 1 },
-        "approval_note": { "type": "string", "format": "uri" }
+        "approval_note": { "type": "string", "format": "uri" },
+        "record_source": {
+          "type": "object",
+          "required": ["note_id", "note_url"],
+          "properties": {
+            "note_id": { "type": "integer", "minimum": 1 },
+            "note_url": { "type": "string", "format": "uri" }
+          },
+          "additionalProperties": false
+        },
+        "approval_source": {
+          "type": "object",
+          "required": ["note_id", "note_url"],
+          "properties": {
+            "note_id": { "type": "integer", "minimum": 1 },
+            "note_url": { "type": "string", "format": "uri" }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

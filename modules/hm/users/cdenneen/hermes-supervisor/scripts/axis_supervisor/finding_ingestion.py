@@ -82,7 +82,7 @@ def _planning_scope(
 ) -> tuple[dict | None, bool]:
     """Select the exact authorized slice referred to by a canonical finding."""
     if canonical_work_item is not None:
-        current = canonical_work_item.get("current_record") or {}
+        current = canonical_work_item.get("current_planning_record") or {}
         facts = canonical_work_item.get("authority_facts") or {}
         if (
             not canonical_work_item.get("collection_complete_for_authority")
@@ -93,7 +93,18 @@ def _planning_scope(
         selected = [value for value in current.get("slices") or [] if value.get("slice_id") == slice_id]
         if len(selected) != 1 or not current.get("repository") or not current.get("required_tests"):
             return None, False
-        return ({"slice_id": slice_id, "repository": current["repository"], "allowed_paths": selected[0].get("allowed_paths") or [], "required_tests": current["required_tests"]}, False)
+        return (
+            {
+                "slice_id": slice_id,
+                "repository": current["repository"],
+                "allowed_paths": selected[0].get("allowed_paths") or [],
+                "required_tests": current["required_tests"],
+                "planning_record_source": current.get("source"),
+            },
+            False,
+        )
+    # Canonical callers must supply the projection; raw-note parsing is retained
+    # only for legacy inventory migration and cannot authorize a collected item.
     untrusted_source = False
     for note in notes:
         if note.get("system"):
@@ -480,6 +491,7 @@ def _normalize_amendments(
                 "actual": fields["Observed behavior"],
                 "replay": fields["Replay"],
                 "authority_digest": digest,
+                "planning_record_source": scope.get("planning_record_source"),
                 "repair_candidate": {
                     "slice_id": scope["slice_id"],
                     "title": original_fields["title"],
@@ -636,6 +648,7 @@ def normalize_gitlab_findings(
                 "actual": actual,
                 "replay": replay,
                 "authority_digest": authority_digest.lower(),
+                "planning_record_source": scope.get("planning_record_source"),
                 "repair_candidate": candidate,
                 "shared_dependents": sorted(set(shared_dependents)),
                 "provenance": {

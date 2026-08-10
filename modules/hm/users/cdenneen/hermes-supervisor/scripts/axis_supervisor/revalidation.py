@@ -1,5 +1,7 @@
 import re
 
+from .canonical_work_item import projection_for
+
 
 def roadmap_order(item: dict) -> int:
     values = [str(item.get("milestone") or ""), *(str(label) for label in item.get("labels") or [])]
@@ -15,7 +17,12 @@ def roadmap_order(item: dict) -> int:
 
 
 def reserved_authority_required(item: dict) -> bool:
-    authority = item.get("authority") or {}
+    projection = projection_for(item)
+    authority = projection.get("authority_facts") or (
+        item.get("authority") or item.get("authority_facts") or {}
+        if not item.get("canonical_work_item")
+        else {}
+    )
     return bool(
         authority.get("approval_mismatch")
         or (authority.get("approval_required") and not authority.get("approval_matches_record"))
@@ -100,14 +107,14 @@ def select_tier_a_batch(
         return selected
     for item in queue:
         project = item.get("project")
-        authority = set(
-            (
-                (item.get("source_item") or {}).get("authority_facts")
-                or (item.get("source_item") or {}).get("authority")
-                or {}
-            ).get("digests")
-            or []
+        source_item = item.get("source_item") or {}
+        projection = projection_for(source_item)
+        facts = projection.get("authority_facts") or (
+            source_item.get("authority_facts") or source_item.get("authority") or {}
+            if not source_item.get("canonical_work_item")
+            else {}
         )
+        authority = {facts["record_digest"]} if facts.get("record_digest") else set()
         if (
             item.get("revalidation_tier") != "A"
             or not project
