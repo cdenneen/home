@@ -156,6 +156,55 @@ class Dispatcher:
             and scope.get("required_tests") == candidate.get("required_tests")
         )
 
+    @staticmethod
+    def _source_item_with_direct_candidate_scope(item: dict, source_item: dict) -> dict:
+        """Bind a direct finding assignment to its exact approved slice scope.
+
+        Source-level authority facts describe the approved PlanningRecord, while a
+        canonical current-main finding selects one bounded slice from that record.
+        Preserve the source facts unless that finding proves the same PlanningRecord
+        digest and supplies a complete candidate scope.  Grant creation then retains
+        its exact-set comparison as the final fail-closed guard.
+        """
+        projection = projection_for(source_item)
+        authority_facts = projection.get("authority_facts") or (
+            source_item.get("authority_facts") or {}
+            if not source_item.get("canonical_work_item")
+            else {}
+        )
+        candidate = item.get("candidate") or {}
+        approved_digest = str(authority_facts.get("record_digest") or "").lower()
+        candidate_digest = str(candidate.get("authority_digest") or "").lower()
+        allowed_paths = candidate.get("allowed_paths") or []
+        required_tests = candidate.get("required_tests") or []
+        if not (
+            (item.get("authority") or {}).get("state") == "direct"
+            and item.get("finding_identity")
+            and authority_facts.get("approval_matches_record")
+            and approved_digest
+            and approved_digest == candidate_digest
+            and candidate.get("category") == "implementation"
+            and candidate.get("result") == "Executable"
+            and all(isinstance(path, str) and path for path in allowed_paths)
+            and all(isinstance(test, str) and test for test in required_tests)
+        ):
+            return source_item
+        scoped_source_item = dict(source_item)
+        scoped_authority_facts = dict(authority_facts)
+        scoped_authority_facts.update(
+            {
+                "approved_assignment_type": "code-implementation",
+                "approved_allowed_paths": list(allowed_paths),
+                "approved_required_tests": list(required_tests),
+            }
+        )
+        scoped_source_item["authority_facts"] = scoped_authority_facts
+        if isinstance(source_item.get("canonical_work_item"), dict):
+            scoped_projection = dict(projection)
+            scoped_projection["authority_facts"] = scoped_authority_facts
+            scoped_source_item["canonical_work_item"] = scoped_projection
+        return scoped_source_item
+
     def _effectiveness_suppressed(self, item: dict) -> bool:
         path = self.root / "capability-graduation.json"
         if not path.exists():
@@ -221,7 +270,9 @@ class Dispatcher:
                 return None
         if any(not compatible(item, value) for value in active):
             return None
-        source_item = item.get("source_item") or {}
+        source_item = self._source_item_with_direct_candidate_scope(
+            item, item.get("source_item") or {}
+        )
         projection = projection_for(source_item)
         authority_facts = projection.get("authority_facts") or (
             source_item.get("authority_facts") or {}

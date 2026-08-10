@@ -1189,7 +1189,7 @@ def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authori
 def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(
     tmp_path: Path,
 ):
-    from axis_supervisor.collector import extract_findings
+    from axis_supervisor.collector import extract_authority_facts, extract_findings
     from axis_supervisor.dispatcher import Dispatcher
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -1197,14 +1197,20 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(
     source_sha = "a" * 40
     planning = """Immutable PlanningRecord v2 - MCP Parallel Tranche
 
+Revision: 2
 Digest: `sha256:2222222222222222222222222222222222222222222222222222222222222222`
 Assignment type: code-implementation
 Repository: ghostspace/axis
 Authorized slices:
-- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py
+- axis29-http-transport: src/axis_runtime/mcp_http.py, tests/test_mcp_adapter_http.py, tests/mcp_http_fixture_server.py
+- axis29-primitives-refresh: src/axis_runtime/mcp_primitives.py, tests/test_mcp_discovery_refresh.py, tests/mcp_fixture_server.py
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py, tests/mcp_fixture_server_tasks.py
 Required tests:
-- pytest -q tests/test_mcp_task_handles.py
+- uv run --extra dev pytest -q tests/test_mcp_adapter_http.py tests/test_mcp_adapter.py
+- uv run --extra dev pytest -q tests/test_mcp_discovery_refresh.py tests/test_mcp_adapter.py
+- uv run --extra dev pytest -q tests/test_mcp_task_handles.py tests/test_effect_time_authority_fixtures.py
 """
+    approval = f"**Approve** PlanningRecord revision 2 for exact digest `{digest}`"
     finding = """Current-main regression finding - MCP task-handle acceptance failure
 
 Affected tests:
@@ -1239,6 +1245,14 @@ Replay: exact three tests plus combined MCP suite after repair.
     assert findings[0]["owner_ref"] == "ghostspace/axis#29"
     assert findings[0]["provenance"]["note_author"] == "cdenneen"
     assert findings[0]["provenance"]["source_sha"] == source_sha
+    authority_facts = extract_authority_facts("", [planning, approval], [approval])
+    assert authority_facts["approval_matches_record"] is True
+    # This is the production defect shape: a PlanningRecord uses Authorized
+    # slices, so the source-level collector has no aggregate Allowed paths.
+    assert authority_facts["approved_allowed_paths"] == []
+    authority_facts["approval_note"] = (
+        "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209"
+    )
 
     (tmp_path / "control.json").write_text(
         json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
@@ -1251,18 +1265,7 @@ Replay: exact three tests plus combined MCP suite after repair.
         "title": "MCP timeout regression",
         "source_state": "closed",
         "labels": ["p0"],
-        "authority_facts": {
-            "approval_matches_record": True,
-            "record_digest": digest,
-            "record_revision": 2,
-            "approval_note": "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209",
-            "approved_assignment_type": "code-implementation",
-            "approved_allowed_paths": [
-                "src/axis_runtime/mcp_tasks.py",
-                "tests/test_mcp_task_handles.py",
-            ],
-            "approved_required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
-        },
+        "authority_facts": authority_facts,
         "blocking_dependency_refs": [],
         "merge_request_facts": [],
         "acceptance_facts": {"ids": [], "open_ids": []},
@@ -1336,6 +1339,13 @@ Replay: exact three tests plus combined MCP suite after repair.
     assert dispatched is not None
     assert dispatched["finding_identity"] == findings[0]["identity"]
     assert dispatched["planning_record"]["digest"] == digest
+    assert dispatched["source_item"]["authority_facts"][
+        "approved_allowed_paths"
+    ] == entry["candidate"]["allowed_paths"]
+    assert dispatched["source_item"]["authority_facts"][
+        "approved_required_tests"
+    ] == entry["candidate"]["required_tests"]
+    assert dispatched["mutation_grant_id"]
     blocked_reasons = {
         json.loads(line)["details"].get("reason")
         for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
@@ -1345,6 +1355,32 @@ Replay: exact three tests plus combined MCP suite after repair.
         blocked_reasons
     )
     assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+
+def test_direct_finding_scope_requires_matching_approved_digest():
+    from axis_supervisor.dispatcher import Dispatcher
+
+    source = {
+        "authority_facts": {
+            "approval_matches_record": True,
+            "record_digest": "sha256:" + "a" * 64,
+            "approved_allowed_paths": [],
+            "approved_required_tests": ["pytest -q tests/test_existing.py"],
+        }
+    }
+    item = {
+        "authority": {"state": "direct"},
+        "finding_identity": "sha256:" + "c" * 64,
+        "candidate": {
+            "authority_digest": "sha256:" + "b" * 64,
+            "category": "implementation",
+            "result": "Executable",
+            "allowed_paths": ["src/new.py"],
+            "required_tests": ["pytest -q tests/test_new.py"],
+        },
+    }
+
+    assert Dispatcher._source_item_with_direct_candidate_scope(item, source) == source
 
 
 def test_closed_finding_frontier_excludes_duplicate_stale_and_satisfied_candidates(
