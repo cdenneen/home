@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .accounting import AccountingLedger
+from .canonical_work_item import projection_for
 from .assignment_grants import load_grant as load_assignment_grant
 from .decomposition import SemanticDecompositionEngine
 from .models import test_command_argv, validate_allowed_path, validate_semantic_record
@@ -541,9 +542,8 @@ class HermesWorkerManager:
                 candidate["source_inventory_generation_id"] = assignment.get(
                     "source_inventory_generation_id"
                 )
-                authority_facts = (assignment.get("source_item") or {}).get(
-                    "authority_facts"
-                ) or {}
+                source_item = assignment.get("source_item") or {}
+                authority_facts = projection_for(source_item).get("authority_facts") or source_item.get("authority_facts") or {}
                 if authority_facts.get("approval_matches_record"):
                     approved_paths = authority_facts.get(
                         "approved_allowed_paths"

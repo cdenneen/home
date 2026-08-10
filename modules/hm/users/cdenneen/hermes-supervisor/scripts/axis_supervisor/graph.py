@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .authority import AuthorityResolver
+from .canonical_work_item import projection_for
 from .capability_graduation import (
     action_score,
     capabilities_for_paths,
@@ -119,6 +120,12 @@ def _semantic_candidates(semantic: dict) -> list[dict]:
 
 def _finding_candidates(item: dict) -> list[dict]:
     """Promote only canonical confirmed findings owned by this collected item."""
+    projection = projection_for(item)
+    if item.get("canonical_work_item") and not (
+        projection.get("collection_complete_for_authority")
+        and (projection.get("authority_facts") or {}).get("approval_matches_record")
+    ):
+        return []
     candidates = []
     for finding in item.get("findings") or []:
         candidate = (
@@ -128,6 +135,11 @@ def _finding_candidates(item: dict) -> list[dict]:
             isinstance(candidate, dict)
             and finding.get("state") == "confirmed"
             and finding.get("owner_ref") == item.get("ref")
+            and (
+                not item.get("canonical_work_item")
+                or finding.get("authority_digest")
+                == (projection.get("current_record") or {}).get("digest")
+            )
             and finding.get("identity")
             and (finding.get("provenance") or {}).get("source_sha")
             == item.get("repository_head")

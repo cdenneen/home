@@ -12,12 +12,14 @@ from pathlib import Path
 from urllib.parse import quote
 
 try:
+    from .canonical_work_item import reconstruct_work_item
     from .finding_ingestion import normalize_gitlab_findings
     from .lifecycle import is_terminal
     from .models import validate_assignment
     from .mutation import MutationGate, OperationClass
     from .schema_registry import read_record, write_record
 except ImportError:
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
     from axis_supervisor.finding_ingestion import normalize_gitlab_findings
     from axis_supervisor.lifecycle import is_terminal
     from axis_supervisor.models import validate_assignment
@@ -563,9 +565,10 @@ def extract_findings(
     owner_ref: str,
     source_sha: str | None = None,
     trusted_principals: set[int | str] | None = None,
+    canonical_work_item: dict | None = None,
 ) -> list[dict]:
     return normalize_gitlab_findings(
-        notes, owner_ref, source_sha, trusted_principals
+        notes, owner_ref, source_sha, trusted_principals, canonical_work_item
     )
 
 
@@ -988,16 +991,6 @@ def main() -> int:
                 note for note in notes if _authority_note(note, trusted_user_ids)
             ]
             authority_bodies = [str(note["body"]) for note in authority_notes]
-            approval_bodies = [
-                str(note["body"])
-                for note in authority_notes
-                if (note.get("author") or {}).get("id") in trusted_user_ids
-                and re.search(
-                    r"\*\*Approve\*\*|Product Owner approval|Approved .*PlanningRecord",
-                    str(note["body"]),
-                    re.I,
-                )
-            ]
             description = str(issue.get("description") or "")
             text = f"{description}\n{'\n'.join(authority_bodies)}"
             parent_refs = sorted(
@@ -1020,17 +1013,14 @@ def main() -> int:
                             "relationship": "authority_parent",
                         }
                     )
-            authority_facts = extract_authority_facts(
-                text, authority_bodies, approval_bodies
-            )
-            approved_note_url = approval_note_url(
+            canonical_work_item = reconstruct_work_item(
+                description,
                 notes,
                 trusted_user_ids,
-                authority_facts.get("record_digest"),
-                str(issue.get("web_url") or ""),
+                notes_state=note_snapshot["state"],
+                issue_url=str(issue.get("web_url") or ""),
             )
-            if approved_note_url and authority_facts.get("approval_matches_record"):
-                authority_facts["approval_note"] = approved_note_url
+            authority_facts = canonical_work_item["authority_facts"]
             findings = extract_findings(
                 notes,
                 ref,
@@ -1038,7 +1028,9 @@ def main() -> int:
                     "default_remote_head"
                 ),
                 trusted_user_ids,
+                canonical_work_item,
             )
+            canonical_work_item["findings"] = findings
             source_items.append(
                 {
                     "ref": ref,
@@ -1065,6 +1057,7 @@ def main() -> int:
                     "milestone": (issue.get("milestone") or {}).get("title"),
                     "priority": issue.get("severity") or None,
                     "authority_facts": authority_facts,
+                    "canonical_work_item": canonical_work_item,
                     "findings": findings,
                     "blocking_dependency_refs": sorted(set(blocking_dependencies)),
                     "merge_request_facts": [

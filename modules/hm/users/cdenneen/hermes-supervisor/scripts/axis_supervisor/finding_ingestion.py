@@ -78,9 +78,22 @@ def _trusted(note: dict, principals: set[int | str]) -> bool:
 
 
 def _planning_scope(
-    notes: list[dict], digest: str, slice_id: str, trusted_principals: set[int | str]
+    notes: list[dict], digest: str, slice_id: str, trusted_principals: set[int | str], canonical_work_item: dict | None = None
 ) -> tuple[dict | None, bool]:
     """Select the exact authorized slice referred to by a canonical finding."""
+    if canonical_work_item is not None:
+        current = canonical_work_item.get("current_record") or {}
+        facts = canonical_work_item.get("authority_facts") or {}
+        if (
+            not canonical_work_item.get("collection_complete_for_authority")
+            or not facts.get("approval_matches_record")
+            or current.get("digest") != digest.lower()
+        ):
+            return None, False
+        selected = [value for value in current.get("slices") or [] if value.get("slice_id") == slice_id]
+        if len(selected) != 1 or not current.get("repository") or not current.get("required_tests"):
+            return None, False
+        return ({"slice_id": slice_id, "repository": current["repository"], "allowed_paths": selected[0].get("allowed_paths") or [], "required_tests": current["required_tests"]}, False)
     untrusted_source = False
     for note in notes:
         if note.get("system"):
@@ -190,6 +203,7 @@ def _normalize_amendments(
     owner_ref: str,
     source_sha: str | None,
     trusted_principals: set[int | str],
+    canonical_work_item: dict | None = None,
 ) -> tuple[list[dict], set[int]]:
     """Join an immutable v2 amendment to exactly one original finding lineage."""
     normalized: list[dict] = []
@@ -395,7 +409,7 @@ def _normalize_amendments(
             )
             continue
         scope, untrusted_scope_source = _planning_scope(
-            notes, digest, fields["Approved slice_id"], trusted_principals
+            notes, digest, fields["Approved slice_id"], trusted_principals, canonical_work_item
         )
         if scope is None:
             reason = (
@@ -505,11 +519,12 @@ def normalize_gitlab_findings(
     owner_ref: str,
     source_sha: str | None = None,
     trusted_principals: set[int | str] | None = None,
+    canonical_work_item: dict | None = None,
 ) -> list[dict]:
     """Normalize only canonical current-main finding notes; invalid notes never dispatch."""
     trusted_principals = set(trusted_principals or [])
     normalized, amended_note_ids = _normalize_amendments(
-        notes, owner_ref, source_sha, trusted_principals
+        notes, owner_ref, source_sha, trusted_principals, canonical_work_item
     )
     for note in notes:
         body = str(note.get("body") or "")
@@ -566,7 +581,7 @@ def normalize_gitlab_findings(
             )
             continue
         scope, untrusted_scope_source = _planning_scope(
-            notes, authority_digest.lower(), approved_slice_id, trusted_principals
+            notes, authority_digest.lower(), approved_slice_id, trusted_principals, canonical_work_item
         )
         if scope is None:
             normalized.append(

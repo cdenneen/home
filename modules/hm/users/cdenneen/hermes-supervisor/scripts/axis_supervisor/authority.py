@@ -1,4 +1,5 @@
 from .models import validate_semantic_record
+from .canonical_work_item import projection_for
 
 
 class AuthorityResolver:
@@ -7,7 +8,10 @@ class AuthorityResolver:
     def resolve(
         self, item: dict, semantic_record: dict | None, parent_item: dict | None = None
     ) -> dict:
-        direct = item.get("authority_facts") or item.get("authority") or {}
+        projection = projection_for(item)
+        direct = projection.get("authority_facts") or item.get("authority_facts") or item.get("authority") or {}
+        if item.get("canonical_work_item") and not projection.get("collection_complete_for_authority"):
+            return {"state": "unresolved", "source": direct, "reason": "authority note collection is incomplete"}
         if direct.get("repository_convergence_authorized"):
             return {
                 "state": "direct",
