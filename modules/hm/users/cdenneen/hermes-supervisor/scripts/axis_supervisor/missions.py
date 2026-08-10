@@ -62,6 +62,10 @@ def _fingerprint(value: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def _summarize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     passed = 0
     denominator = 0
@@ -267,7 +271,14 @@ def _action_binding(action: dict[str, Any], graph: dict[str, Any], graduation: d
     records = {str(value.get("capability")): value for value in graduation.get("capabilities") or []}
     linked = {str(ref) for capability in capabilities for ref in (records.get(capability) or {}).get("linked_work_items") or []}
     refs = linked | {str(value) for value in (action.get("target"), action.get("source_ref")) if value}
-    edges = sorted(edge for edge in graph.get("edges") or [] if edge.get("from_ref") in refs or edge.get("to_ref") in refs)
+    edges = sorted(
+        (
+            edge
+            for edge in graph.get("edges") or []
+            if edge.get("from_ref") in refs or edge.get("to_ref") in refs
+        ),
+        key=_canonical_json,
+    )
     authority = next((node.get("authority") or {} for node in graph.get("nodes") or [] if node.get("ref") in refs), {})
     projection = [{"capability": name, "state": (records.get(name) or {}).get("graduation_state"), "invalidation": (records.get(name) or {}).get("invalidation_fingerprint")} for name in capabilities]
     return {

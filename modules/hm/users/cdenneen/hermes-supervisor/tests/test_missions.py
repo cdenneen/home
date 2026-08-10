@@ -666,3 +666,61 @@ def test_dependency_invalidation_is_exact_and_unrelated_edges_do_not_retire(tmp_
     )
     assert changed["retired_actions"][-1]["classification"] == "STALE"
     assert first["generated_actions"][0]["binding"]["dependency_fingerprint"] != changed["generated_actions"][0]["binding"]["dependency_fingerprint"]
+
+
+def test_dependency_binding_canonicalizes_edge_dicts_without_dict_comparison(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    current = graduation(
+        capability("Service", missing_gate="verification", linked_work_items=["axis#1"])
+    )
+    first = manager.reconcile(
+        {},
+        graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}])
+        | {
+            "edges": [
+                {
+                    "from_ref": "axis#1",
+                    "to_ref": "axis#3",
+                    "relationship": "is_blocked_by",
+                    "metadata": {"priority": 2, "source": "planning"},
+                },
+                {
+                    "from_ref": "axis#1",
+                    "to_ref": "axis#2",
+                    "relationship": "relates",
+                    "metadata": {"source": "planning", "priority": 1},
+                },
+            ]
+        },
+        current,
+    )
+    reordered = manager.reconcile(
+        {},
+        graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}])
+        | {
+            "edges": [
+                {
+                    "relationship": "relates",
+                    "to_ref": "axis#2",
+                    "from_ref": "axis#1",
+                    "metadata": {"priority": 1, "source": "planning"},
+                },
+                {
+                    "relationship": "is_blocked_by",
+                    "to_ref": "axis#3",
+                    "from_ref": "axis#1",
+                    "metadata": {"source": "planning", "priority": 2},
+                },
+            ]
+        },
+        current,
+    )
+
+    assert reordered["retired_actions"] == []
+    assert (
+        first["generated_actions"][0]["binding"]["dependency_fingerprint"]
+        == reordered["generated_actions"][0]["binding"]["dependency_fingerprint"]
+    )

@@ -56,6 +56,25 @@ def write_claim_assignment(root: Path, assignment_id: str, run_id: str) -> None:
     )
 
 
+def test_reconcile_launcher_uses_packaged_supervisor_interpreter():
+    module = (ROOT / "default.nix").read_text(encoding="utf-8")
+
+    assert (
+        'supervisorReconcileLauncher = pkgs.writeText '
+        '"axis-development-supervisor-reconcile.py"' in module
+    )
+    assert 'python = "${supervisorPython}/bin/python"' in module
+    assert 'axis-development-supervisor-reconcile-impl.py' in module
+    assert (
+        '"${supervisorReconcileLauncher}" '
+        '"$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"' in module
+    )
+    assert (
+        '"${./scripts/reconcile.py}" '
+        '"$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"' not in module
+    )
+
+
 def test_canonical_work_item_chooses_highest_complete_trusted_revision_only():
     from axis_supervisor.canonical_work_item import reconstruct_work_item
 
