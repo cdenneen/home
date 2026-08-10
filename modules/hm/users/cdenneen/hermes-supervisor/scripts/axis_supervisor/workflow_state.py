@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from .lifecycle import is_integrable
-from .models import validate_assignment
+from .models import validate_allowed_path, validate_assignment
 from .mutation import MutationGate, OperationClass, load_canonical_lease
 from .repository_ownership import (
     assignment_ownership,
@@ -152,6 +152,93 @@ def recover_integration_binding(
     return None, "no exact durable integration binding"
 
 
+def _actionable_supervisor_mr(merge_request: dict) -> bool:
+    return bool(
+        merge_request.get("state") == "opened"
+        and merge_request.get("target_branch") == "main"
+        and merge_request.get("approval_facts_available")
+        and (
+            merge_request.get("approved")
+            or merge_request.get("approval_state") == "approved"
+        )
+        and merge_request.get("pipeline_facts_available")
+        and str(merge_request.get("pipeline_status") or "").lower() == "success"
+        and str(merge_request.get("merge_status") or "").lower()
+        in {"mergeable", "can_be_merged"}
+        and not merge_request.get("draft")
+    )
+
+
+def _exact_owned_integration_facts(inventory: dict, merge_request: dict) -> dict | None:
+    """Return proven local custody for one current actionable Supervisor MR.
+
+    This deliberately requires more than the ``hermes/`` branch convention.  The
+    collector must observe the exact MR head in one Supervisor-owned branch and
+    one clean active worktree before an historical implementation can regain its
+    durable integration projection.
+    """
+    project = str(merge_request.get("project") or "")
+    branch_name = str(merge_request.get("source_branch") or "")
+    sha = str(merge_request.get("sha") or "")
+    iid = int(merge_request.get("iid") or 0)
+    if not project or not branch_name or not sha or not iid or not _actionable_supervisor_mr(
+        merge_request
+    ):
+        return None
+    local = ((inventory.get("repositories") or {}).get(project) or {}).get(
+        "local_facts"
+    ) or {}
+    branches = [
+        value
+        for value in local.get("remote_branches") or []
+        if isinstance(value, dict)
+        and value.get("name") == branch_name
+        and value.get("head") == sha
+        and value.get("owned_by_supervisor")
+    ]
+    if len(branches) != 1:
+        return None
+    branch = branches[0]
+    local_mr = branch.get("merge_request") or {}
+    worktree = str(branch.get("active_worktree") or "")
+    if (
+        not worktree
+        or int(local_mr.get("iid") or 0) != iid
+        or local_mr.get("sha") != sha
+        or local_mr.get("state") not in {None, "opened"}
+    ):
+        return None
+    worktrees = [
+        value
+        for value in local.get("worktrees") or []
+        if isinstance(value, dict)
+        and value.get("path") == worktree
+        and value.get("branch") == branch_name
+        and value.get("head") == sha
+        and not value.get("dirty")
+        and not value.get("integrated_into_default")
+    ]
+    changed_paths = branch.get("changed_paths") or []
+    if len(worktrees) != 1 or not changed_paths:
+        return None
+    try:
+        normalized_paths = [validate_allowed_path(str(path)) for path in changed_paths]
+    except ValueError:
+        return None
+    if len(normalized_paths) != len(set(normalized_paths)):
+        return None
+    return {
+        "project": project,
+        "branch": branch_name,
+        "sha": sha,
+        "mr_iid": iid,
+        "mr_url": merge_request.get("web_url"),
+        "worktree": worktree,
+        "changed_paths": normalized_paths,
+        "source_main_sha": local.get("default_remote_head"),
+    }
+
+
 class WorkflowState:
     def __init__(self, root: Path):
         self.root = root
@@ -239,6 +326,209 @@ class WorkflowState:
             HANDOFF_SCHEMA,
         )
         return handoff
+
+    def _adopted_assignment(self, facts: dict) -> dict:
+        assignment_id = f"integration-mr-{facts['mr_iid']}-{facts['sha'][:12]}"
+        assignment = {
+            "schema": "axis.external-development-supervisor.assignment",
+            "schema_version": "4.0.0",
+            "assignment_id": assignment_id,
+            "assignment_type": "code-implementation",
+            "result_state": "awaiting-integration",
+            "work_item_disposition": "requires-integration",
+            "lifecycle_state": "awaiting-integration",
+            "project": facts["project"],
+            "responsibility": "axis-runtime/product",
+            "work_item": f"{facts['project']}!{facts['mr_iid']}",
+            "planning_record": None,
+            "allowed_paths": facts["changed_paths"],
+            "required_tests": [],
+            "action_contract": None,
+            "mutation_grant_id": None,
+            "mutation_grant_uri": None,
+            "created_by_run": f"integration-recovery-{facts['mr_iid']}-{facts['sha'][:12]}",
+            "lease_id": None,
+            "lease_uri": None,
+            "source_item": {"repository_head": facts["source_main_sha"]},
+            # This is custody inherited from an already-published Supervisor
+            # branch, not a new implementation grant.  The normal integration
+            # mutation gate still performs fresh GitLab and lease checks.
+            "authority": {
+                "state": "inherited",
+                "source": {
+                    "kind": "exact-supervisor-owned-awaiting-integration",
+                    "branch": facts["branch"],
+                    "commit": facts["sha"],
+                    "mr_iid": facts["mr_iid"],
+                },
+                "reason": "exact current supervisor branch, worktree, and MR custody",
+            },
+            "governance_state": "Executable",
+            "integration_recovery": dict(facts),
+            "worker": {
+                "branch": facts["branch"],
+                "commit": facts["sha"],
+                "worktree": facts["worktree"],
+                "changed_paths": facts["changed_paths"],
+                "handoff": {
+                    "mr_iid": facts["mr_iid"],
+                    "mr_url": facts["mr_url"],
+                    "tests": [],
+                },
+            },
+        }
+        assignment["repository_ownership"] = assignment_ownership(
+            assignment,
+            context=f"integration-recovery:{assignment_id}",
+        )
+        return validate_assignment(assignment, self.root)
+
+    @staticmethod
+    def _matches_adopted_facts(assignment: dict, facts: dict) -> bool:
+        recovery = assignment.get("integration_recovery") or {}
+        worker = assignment.get("worker") or {}
+        handoff = worker.get("handoff") or {}
+        try:
+            ownership = assignment_ownership(
+                assignment,
+                context=f"integration-recovery-match:{assignment.get('assignment_id')}",
+            )
+        except Exception:
+            return False
+        return bool(
+            is_integrable(assignment)
+            and assignment.get("project") == facts["project"]
+            and assignment.get("work_item") == f"{facts['project']}!{facts['mr_iid']}"
+            and worker.get("branch") == facts["branch"]
+            and worker.get("commit") == facts["sha"]
+            and worker.get("worktree") == facts["worktree"]
+            and worker.get("changed_paths") == facts["changed_paths"]
+            and int(handoff.get("mr_iid") or 0) == facts["mr_iid"]
+            and recovery == facts
+            and ownership_evidence_matches(
+                assignment.get("repository_ownership"), ownership
+            )
+        )
+
+    def _existing_handoff_matches(self, assignment: dict, facts: dict) -> bool:
+        path = self.handoffs / f"{assignment['assignment_id']}.json"
+        if not path.exists():
+            return True
+        try:
+            handoff = read_record(path, HANDOFF_SCHEMA)
+            ownership = assignment_ownership(
+                assignment,
+                context=f"integration-recovery-handoff:{assignment['assignment_id']}",
+            )
+            return bool(
+                handoff.get("assignment_id") == assignment["assignment_id"]
+                and handoff.get("repository") == facts["project"]
+                and handoff.get("branch") == facts["branch"]
+                and handoff.get("commit") == facts["sha"]
+                and int(handoff.get("mr_iid") or 0) == facts["mr_iid"]
+                and handoff.get("state") == "ready-for-integration"
+                and handoff.get("allowed_paths") == facts["changed_paths"]
+                and handoff.get("changed_paths") == facts["changed_paths"]
+                and ownership_evidence_matches(
+                    handoff.get("repository_ownership"), ownership
+                )
+            )
+        except Exception:
+            return False
+
+    def project_owned_awaiting_integrations(
+        self,
+        inventory: dict,
+        *,
+        reviewer: str,
+        claim_lease: Callable[[dict], dict],
+    ) -> list[tuple[dict, dict]]:
+        """Persist exact current Supervisor MR custody through the normal handoff path.
+
+        This is intentionally a projection repair, not generic MR adoption.  It
+        considers only actionable MRs whose local branch/worktree/MR observations
+        are exact, and it refuses to overwrite a stale or conflicting durable
+        handoff.  Lease acquisition is delegated to the canonical controller.
+        """
+        projected = []
+        assignments = self.root / "assignments"
+        for merge_request in inventory.get("open_merge_requests") or []:
+            if not isinstance(merge_request, dict):
+                continue
+            facts = _exact_owned_integration_facts(inventory, merge_request)
+            if facts is None:
+                continue
+            proposed = self._adopted_assignment(facts)
+            path = assignments / f"{proposed['assignment_id']}.json"
+            try:
+                if path.exists():
+                    assignment = validate_assignment(
+                        json.loads(path.read_text(encoding="utf-8")), self.root
+                    )
+                    if not self._matches_adopted_facts(assignment, facts):
+                        continue
+                else:
+                    assignment = proposed
+                    self._authorize()
+                    write_record(
+                        path,
+                        assignment,
+                        "axis.external-development-supervisor.assignment",
+                    )
+                if not self._existing_handoff_matches(assignment, facts):
+                    continue
+                try:
+                    lease = load_canonical_lease(self.root, assignment)
+                except Exception:
+                    if assignment.get("lease_id") or assignment.get("lease_uri"):
+                        continue
+                    lease = claim_lease(assignment)
+                    if (
+                        lease.get("lease_id") != assignment["assignment_id"]
+                        or lease.get("assignment_id") != assignment["assignment_id"]
+                        or lease.get("owner_run_id") != assignment.get("created_by_run")
+                        or lease.get("read_only")
+                        or int(lease.get("expires_at_epoch") or 0) <= int(time.time())
+                        or f"repo:{facts['project']}" not in (lease.get("resources") or [])
+                    ):
+                        continue
+                    assignment["lease_id"] = lease["lease_id"]
+                    assignment["lease_uri"] = (
+                        self.root / "leases" / lease["lease_id"] / "lease.json"
+                    ).resolve().as_uri()
+                    self._authorize()
+                    write_record(
+                        path,
+                        assignment,
+                        "axis.external-development-supervisor.assignment",
+                    )
+                    lease = load_canonical_lease(self.root, assignment)
+                if (
+                    lease.get("read_only")
+                    or lease.get("owner_run_id") != assignment.get("created_by_run")
+                    or int(lease.get("expires_at_epoch") or 0) <= int(time.time())
+                    or f"repo:{facts['project']}" not in (lease.get("resources") or [])
+                ):
+                    continue
+                result = {
+                    "branch": facts["branch"],
+                    "commit": facts["sha"],
+                    "worktree": facts["worktree"],
+                    "changed_paths": facts["changed_paths"],
+                    "handoff": {
+                        "mr_iid": facts["mr_iid"],
+                        "mr_url": facts["mr_url"],
+                        "tests": [],
+                    },
+                }
+                handoff = self.persist_handoff(assignment, result)
+                self.enqueue(assignment, handoff, reviewer)
+                projected.append((assignment, lease))
+            except Exception:
+                # This path only repairs durable state.  Any interrupted or
+                # malformed candidate remains inspection-only for the next cycle.
+                continue
+        return projected
 
     def adapt_handoff(self, handoff: dict) -> dict:
         value = dict(handoff)

@@ -20,7 +20,12 @@ from axis_supervisor.semantic_escalation import (  # noqa: E402
     quarantine_failed_assignment,
 )
 from axis_supervisor.repository_ownership import assignment_ownership  # noqa: E402
-from axis_supervisor.schema_registry import write_record  # noqa: E402
+from axis_supervisor.schema_registry import read_record, write_record  # noqa: E402
+from axis_supervisor.workflow_state import (  # noqa: E402
+    HANDOFF_SCHEMA,
+    WorkflowState,
+    recover_integration_binding,
+)
 
 
 def _semantic_assignment(repository_head: str = "a" * 40) -> dict:
@@ -254,6 +259,54 @@ def _write_durable_integration_binding(
     return assignment
 
 
+def _write_enabled_control(root: Path):
+    write_record(
+        root / "control.json",
+        {
+            "schema": "axis.external-development-supervisor.control",
+            "schema_version": "1.0.0",
+            "mode": "enabled",
+            "kill_switch": False,
+            "allow_repository_mutation": True,
+            "allow_technical_revalidation": True,
+            "repository_allowlist": ["ghostspace/axis"],
+            "daily_worker_cycle_limit": 10,
+            "daily_model_call_limit": 10,
+            "tier_a_batch_size": 1,
+            "max_semantic_prompt_bytes": 10_000,
+            "mutation_grant_ttl_seconds": 900,
+            "mutation_grant_max_model_calls": 1,
+            "mutation_grant_max_retries": 0,
+            "mutation_grant_max_prompt_bytes": 10_000,
+            "mutation_grant_max_cost_usd": 1,
+            "product_owner_usernames": ["owner"],
+        },
+        "axis.external-development-supervisor.control",
+    )
+
+
+def _claim_durable_lease(root: Path, assignment: dict) -> dict:
+    lease = {
+        "schema": "axis.external-development-supervisor.lease",
+        "schema_version": "1.0.0",
+        "lease_id": assignment["assignment_id"],
+        "assignment_id": assignment["assignment_id"],
+        "owner_run_id": assignment["created_by_run"],
+        "fencing_token": "f" * 32,
+        "resources": [f"repo:{assignment['project']}"],
+        "read_only": False,
+        "acquired_at_epoch": 1_700_000_000,
+        "heartbeat_at_epoch": 1_700_000_000,
+        "expires_at_epoch": 4_000_000_000,
+    }
+    write_record(
+        root / "leases" / assignment["assignment_id"] / "lease.json",
+        lease,
+        "axis.external-development-supervisor.lease",
+    )
+    return lease
+
+
 def test_actionable_external_mrs_are_adopted_and_consumed_by_integrator(
     tmp_path: Path,
 ):
@@ -340,6 +393,107 @@ def test_durable_binding_recovers_a_missing_inventory_projection(tmp_path: Path)
     assert consumed["custody"]["assignment_id"] == "assignment-155"
     assert consumed["custody"]["binding_source"] == "durable-recovery"
     assert select_integrable_assignment([durable], consumed) == durable
+
+
+def test_exact_owned_mr_projects_its_handoff_and_canonical_lease(
+    tmp_path: Path,
+):
+    external = _actionable_mr(154) | {"source_branch": "macos-11-compat"}
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([external, owned], {155})
+    inventory["supervisor_assignments"] = []
+    inventory["active_leases"] = []
+    inventory["repositories"]["ghostspace/axis"]["local_facts"]["remote_branches"][
+        1
+    ]["changed_paths"] = ["src/axis/cli.py"]
+    _write_enabled_control(tmp_path)
+    workflow = WorkflowState(tmp_path)
+
+    projected = workflow.project_owned_awaiting_integrations(
+        inventory,
+        reviewer="owner",
+        claim_lease=lambda assignment: _claim_durable_lease(tmp_path, assignment),
+    )
+
+    assert len(projected) == 1
+    assignment, lease = projected[0]
+    assert assignment["worker"]["branch"] == owned["source_branch"]
+    assert assignment["worker"]["commit"] == owned["sha"]
+    assert assignment["lease_id"] == assignment["assignment_id"]
+    assert lease["read_only"] is False
+    handoff = read_record(
+        tmp_path / "implementation-handoffs" / f"{assignment['assignment_id']}.json",
+        HANDOFF_SCHEMA,
+    )
+    assert handoff["mr_iid"] == 155
+    assert handoff["branch"] == owned["source_branch"]
+    recovered, reason = recover_integration_binding(
+        tmp_path,
+        project="ghostspace/axis",
+        branch=owned["source_branch"],
+        sha=owned["sha"],
+        mr_iid=155,
+        worktree=assignment["worker"]["worktree"],
+    )
+    assert recovered == assignment
+    assert reason == "recovered exact durable integration binding"
+
+    adopted = reconcile(tmp_path, inventory)
+    by_iid = {item["mr_iid"]: item for item in adopted["items"]}
+    assert by_iid[155]["mutation_disposition"] == GATED_INTEGRATION
+    assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
+
+
+def test_projection_rejects_stale_handoff_and_never_claims_a_lease(tmp_path: Path):
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([owned], {155})
+    inventory["supervisor_assignments"] = []
+    inventory["active_leases"] = []
+    inventory["repositories"]["ghostspace/axis"]["local_facts"]["remote_branches"][
+        0
+    ]["changed_paths"] = ["src/axis/cli.py"]
+    _write_enabled_control(tmp_path)
+    workflow = WorkflowState(tmp_path)
+    facts = {
+        "project": "ghostspace/axis",
+        "branch": owned["source_branch"],
+        "sha": owned["sha"],
+        "mr_iid": 155,
+        "mr_url": owned["web_url"],
+        "worktree": "/supervisor/worktrees/assignment-155",
+        "changed_paths": ["src/axis/cli.py"],
+        "source_main_sha": None,
+    }
+    assignment = workflow._adopted_assignment(facts)
+    write_record(
+        tmp_path / "assignments" / f"{assignment['assignment_id']}.json",
+        assignment,
+        "axis.external-development-supervisor.assignment",
+    )
+    stale = workflow.persist_handoff(
+        assignment,
+        {
+            "branch": owned["source_branch"],
+            "commit": "stale-sha",
+            "changed_paths": ["src/axis/cli.py"],
+            "handoff": {"mr_iid": 155, "mr_url": owned["web_url"]},
+        },
+    )
+    assert stale["commit"] == "stale-sha"
+    claimed = []
+
+    projected = workflow.project_owned_awaiting_integrations(
+        inventory,
+        reviewer="owner",
+        claim_lease=lambda candidate: claimed.append(candidate) or {},
+    )
+
+    assert projected == []
+    assert claimed == []
+    assert not (tmp_path / "leases" / assignment["assignment_id"] / "lease.json").exists()
+    lane = reconcile(tmp_path, inventory)["items"][0]
+    assert lane["mutation_disposition"] == INSPECTION_ONLY
+    assert lane["custody"]["reason"] == "no exact durable integration binding"
 
 
 def test_durable_binding_recovery_rejects_wrong_branch_sha_and_ambiguity(

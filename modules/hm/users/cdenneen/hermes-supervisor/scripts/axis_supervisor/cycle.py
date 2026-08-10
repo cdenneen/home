@@ -993,6 +993,50 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     inventory = read_record(
         ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
     )
+    control = read_record(
+        ROOT / "control.json", "axis.external-development-supervisor.control"
+    )
+    workflow = WorkflowState(ROOT)
+
+    def claim_recovered_integration_lease(assignment: dict) -> dict:
+        output = subprocess.check_output(
+            [
+                sys.executable,
+                supervisorctl,
+                "claim",
+                assignment["assignment_id"],
+                "--run-id",
+                assignment["created_by_run"],
+                "--resource",
+                f"repo:{assignment['project']}",
+                "--ttl",
+                "3600",
+            ],
+            text=True,
+            timeout=120,
+        )
+        return validate_record(
+            json.loads(output), "axis.external-development-supervisor.lease"
+        )
+
+    projected_integrations = workflow.project_owned_awaiting_integrations(
+        inventory,
+        reviewer=str((control.get("product_owner_usernames") or ["unassigned"])[0]),
+        claim_lease=claim_recovered_integration_lease,
+    )
+    if projected_integrations:
+        assignment_ids = {
+            value.get("assignment_id")
+            for value in inventory.get("supervisor_assignments") or []
+        }
+        lease_ids = {
+            value.get("lease_id") for value in inventory.get("active_leases") or []
+        }
+        for assignment, lease in projected_integrations:
+            if assignment["assignment_id"] not in assignment_ids:
+                inventory.setdefault("supervisor_assignments", []).append(assignment)
+            if lease["lease_id"] not in lease_ids:
+                inventory.setdefault("active_leases", []).append(lease)
     lane = consume_next_merge_lane(
         ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
     )
