@@ -48,6 +48,8 @@ NOTE_PAGE_RETRIES = 2
 NOTE_MAX_PAGES = 100
 NOTE_STORAGE_LIMIT = 100
 NOTE_BODY_LIMIT = 12000
+_CLOSED_NOTE_TRACE_LIMIT = 500
+_CLOSED_NOTE_TRACE_FIELD_LIMIT = 512
 _CLOSED_NOTE_MARKERS = (
     "immutable planningrecord",
     "current-main regression finding",
@@ -270,6 +272,104 @@ def issue_ref(project: dict, issue: dict) -> str:
     return f"{project['path_with_namespace']}#{issue['iid']}"
 
 
+def _bounded_trace_value(value: object) -> str:
+    return str(value)[:_CLOSED_NOTE_TRACE_FIELD_LIMIT]
+
+
+def _closed_note_eligibility(
+    project: dict, issue: dict, active_mission_refs: set[str]
+) -> dict:
+    state = issue.get("state")
+    if state == "opened":
+        return {
+            "eligible": True,
+            "reason": "opened",
+            "ref": None,
+            "active_mission": False,
+            "marker_matches": [],
+        }
+    if state != "closed":
+        return {
+            "eligible": False,
+            "reason": "state-not-eligible",
+            "ref": None,
+            "active_mission": False,
+            "marker_matches": [],
+        }
+    ref = issue_ref(project, issue)
+    labels = issue.get("labels") or []
+    normalized_text = "\n".join(
+        [
+            str(issue.get("title") or ""),
+            str(issue.get("description") or ""),
+            *[str(label) for label in labels],
+        ]
+    ).lower()
+    marker_matches = [
+        marker for marker in _CLOSED_NOTE_MARKERS if marker in normalized_text
+    ]
+    active_mission = ref in active_mission_refs
+    if active_mission:
+        return {
+            "eligible": True,
+            "reason": "active-mission",
+            "ref": ref,
+            "active_mission": active_mission,
+            "marker_matches": marker_matches,
+        }
+    return {
+        "eligible": bool(marker_matches),
+        "reason": "structured-marker" if marker_matches else "no-structured-marker",
+        "ref": ref,
+        "active_mission": active_mission,
+        "marker_matches": marker_matches,
+    }
+
+
+def _write_closed_note_eligibility_trace(
+    project: dict, issue: dict, decision: dict
+) -> None:
+    """Persist a bounded closed-issue decision trace without duplicating descriptions."""
+    if issue.get("state") != "closed":
+        return
+    try:
+        path = (
+            ROOT
+            / "engineering-memory"
+            / "diagnostics"
+            / "closed-issue-note-eligibility.jsonl"
+        )
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        labels = issue.get("labels") or []
+        entry = {
+            "schema": "axis.supervisor.closed-issue-note-eligibility-trace.v1",
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "project": _bounded_trace_value(project.get("path_with_namespace") or ""),
+            "iid": issue.get("iid"),
+            "state": issue.get("state"),
+            "labels": [_bounded_trace_value(label) for label in labels[:50]],
+            "milestone": _bounded_trace_value(issue.get("milestone") or ""),
+            "title": _bounded_trace_value(issue.get("title") or ""),
+            "raw_description_type": type(issue.get("description")).__name__,
+            "normalized_text_marker_detection": decision["marker_matches"],
+            "predicate_inputs": {
+                "active_mission": decision["active_mission"],
+                "closed_note_markers": list(_CLOSED_NOTE_MARKERS),
+            },
+            "predicate_result": decision["eligible"],
+            "reason": decision["reason"],
+            "notes_invocation": {"collect_issue_notes_called": decision["eligible"]},
+        }
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        lines = [
+            *lines[-(_CLOSED_NOTE_TRACE_LIMIT - 1) :],
+            json.dumps(entry, sort_keys=True),
+        ]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def active_mission_issue_refs() -> set[str]:
     """Return exact issue references from an active, schema-valid mission only."""
     try:
@@ -296,20 +396,7 @@ def active_mission_issue_refs() -> set[str]:
 def should_collect_issue_notes(
     project: dict, issue: dict, active_mission_refs: set[str]
 ) -> bool:
-    if issue.get("state") == "opened":
-        return True
-    if issue.get("state") != "closed":
-        return False
-    if issue_ref(project, issue) in active_mission_refs:
-        return True
-    text = "\n".join(
-        [
-            str(issue.get("title") or ""),
-            str(issue.get("description") or ""),
-            *[str(label) for label in issue.get("labels") or []],
-        ]
-    ).lower()
-    return any(marker in text for marker in _CLOSED_NOTE_MARKERS)
+    return _closed_note_eligibility(project, issue, active_mission_refs)["eligible"]
 
 
 def collect_eligible_issue_notes(
@@ -319,14 +406,18 @@ def collect_eligible_issue_notes(
     issue: dict,
     active_mission_refs: set[str],
 ) -> dict:
-    if should_collect_issue_notes(project, issue, active_mission_refs):
-        return collect_issue_notes(request, project_id, int(issue["iid"]))
-    return {
-        "state": NOTES_EMPTY,
-        "notes": [],
-        "fetched_at": None,
-        "collector_revision": NOTE_COLLECTION_REVISION,
-    }
+    decision = _closed_note_eligibility(project, issue, active_mission_refs)
+    if decision["eligible"]:
+        snapshot = collect_issue_notes(request, project_id, int(issue["iid"]))
+    else:
+        snapshot = {
+            "state": NOTES_EMPTY,
+            "notes": [],
+            "fetched_at": None,
+            "collector_revision": NOTE_COLLECTION_REVISION,
+        }
+    _write_closed_note_eligibility_trace(project, issue, decision)
+    return snapshot
 
 
 def mr_mentions_issue(mr: dict, issue: dict) -> bool:

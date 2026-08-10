@@ -415,6 +415,48 @@ def test_closed_issue_note_collection_is_limited_to_structured_or_active_finding
     )
 
 
+def test_closed_issue_note_collection_writes_bounded_eligibility_trace(tmp_path, monkeypatch):
+    import json
+
+    import axis_supervisor.collector as collector
+
+    monkeypatch.setattr(collector, "ROOT", tmp_path)
+    project = {"path_with_namespace": "ghostspace/axis"}
+    issue = {
+        "iid": 29,
+        "state": "closed",
+        "title": "MCP regression",
+        "description": "Immutable PlanningRecord v2 governs this finding.",
+        "labels": ["regression"],
+        "milestone": "AX-M4",
+    }
+
+    snapshot = collector.collect_eligible_issue_notes(
+        lambda _path: [], project, "123", issue, set()
+    )
+
+    trace_path = (
+        tmp_path
+        / "engineering-memory"
+        / "diagnostics"
+        / "closed-issue-note-eligibility.jsonl"
+    )
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert snapshot["state"] == collector.NOTES_EMPTY
+    assert trace["project"] == "ghostspace/axis"
+    assert trace["iid"] == 29
+    assert trace["state"] == "closed"
+    assert trace["labels"] == ["regression"]
+    assert trace["milestone"] == "AX-M4"
+    assert trace["title"] == "MCP regression"
+    assert trace["raw_description_type"] == "str"
+    assert trace["normalized_text_marker_detection"] == ["immutable planningrecord"]
+    assert trace["predicate_inputs"]["active_mission"] is False
+    assert trace["predicate_result"] is True
+    assert trace["reason"] == "structured-marker"
+    assert trace["notes_invocation"]["collect_issue_notes_called"] is True
+
+
 def test_planning_scope_requires_trusted_immutable_author_id():
     from axis_supervisor.finding_ingestion import _planning_scope
 
