@@ -2051,6 +2051,85 @@ def test_product_heartbeat_is_compact_and_rate_limited(tmp_path: Path):
     assert "Assignment" not in rendered
 
 
+def test_legacy_slack_state_backfills_product_projection_bucket(tmp_path: Path):
+    from axis_supervisor.observability import record_product_heartbeat
+    from axis_supervisor.slack_projection import SlackProjection
+
+    timestamp = "2026-08-10T00:00:00+00:00"
+    legacy_state = {
+        "schema": "axis.external-development-supervisor.slack-state",
+        "schema_version": "1.1.0",
+        "delivery_stage": "Slack_message_verified",
+        "delivery_history": [{"stage": "Slack_message_verified", "at": timestamp}],
+        "last_attempt_at": timestamp,
+        "semantic_revision": "legacy",
+        "source_revision": {},
+        "record_schema": "axis.external-development-supervisor.roadmap-semantics",
+        "record_schema_version": "1.2.0",
+        "last_delivery_error": None,
+        "workspace_id": "T1",
+        "workspace_name": "Test",
+        "bot_user_id": "UBOT",
+        "authorized_user_id": "U1",
+        "channel": "D1",
+        "ts": "0.1",
+        "previous_ts": None,
+        "fingerprint": "dashboard-fingerprint",
+        "message_operation": "verified",
+        "last_verified_at": timestamp,
+        "last_successful_update_at": timestamp,
+        "last_successful_update_epoch": 1_786_281_600,
+        "updated_at_epoch": 1_786_281_600,
+        "last_api_response": {"ok": True, "channel": "D1", "ts": "0.1"},
+        "projection_timestamps": {
+            "dashboard": {"overview": "0.1"},
+            "assignment": {},
+            "incident": {},
+            "decision": {},
+        },
+        "projection_fingerprints": {
+            "dashboard": {"overview": "dashboard-fingerprint"},
+            "assignment": {},
+            "incident": {},
+            "decision": {},
+        },
+        "dashboard_fallback": None,
+    }
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(slack_user_id="U1")), encoding="utf-8"
+    )
+    (tmp_path / "slack-overview-state.json").write_text(
+        json.dumps(legacy_state), encoding="utf-8"
+    )
+    record_product_heartbeat(
+        tmp_path,
+        {
+            "primary_kpi": {"count": 2, "denominator": 18},
+            "production_confidence": 40.0,
+            "capabilities": [{"first_failing_gate": "validation"}],
+        },
+    )
+    projection = SlackProjection(tmp_path)
+    projection.env_file = lambda: {"SLACK_BOT_TOKEN": "redacted"}
+    messages = {}
+
+    def api(_token, method, payload):
+        if method == "chat.postMessage":
+            messages["1.1"] = {"ts": "1.1", "text": payload["text"]}
+            return {"ok": True, "channel": "D1", "ts": "1.1"}
+        if method == "conversations.history":
+            return {"ok": True, "messages": list(messages.values())}
+        raise AssertionError(method)
+
+    projection.api = api
+    projection.process_outbox("redacted", "D1")
+
+    persisted = json.loads((tmp_path / "slack-overview-state.json").read_text())
+    assert persisted["projection_timestamps"]["dashboard"]["overview"] == "0.1"
+    assert persisted["projection_timestamps"]["product"]["heartbeat"] == "1.1"
+    assert persisted["projection_fingerprints"]["product"]["heartbeat"]
+
+
 def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Path):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder

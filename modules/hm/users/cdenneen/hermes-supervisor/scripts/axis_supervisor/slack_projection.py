@@ -28,6 +28,15 @@ from .reporting import COMPOSITION, build_roadmap_semantics
 from .schema_registry import read_record, validate_record, write_record
 
 
+PROJECTION_BUCKETS = (
+    "dashboard",
+    "assignment",
+    "incident",
+    "decision",
+    "product",
+)
+
+
 class SlackProjection:
     def __init__(self, root: Path):
         self.root = root
@@ -315,14 +324,7 @@ class SlackProjection:
     def process_outbox(self, token: str, channel: str, state: dict | None = None) -> dict:
         outbox = self.load_outbox()
         state = state if state is not None else self.load_state()
-        state.setdefault(
-            "projection_timestamps",
-            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
-        )
-        state.setdefault(
-            "projection_fingerprints",
-            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
-        )
+        self.backfill_projection_buckets(state)
         now = int(time.time())
         suppressed = [
             item
@@ -428,6 +430,28 @@ class SlackProjection:
                 self.write_outbox(outbox)
                 raise
         return outbox
+
+    @staticmethod
+    def backfill_projection_buckets(state: dict) -> None:
+        """Migrate projection maps from persisted state schemas in place.
+
+        Projection categories are additive.  Existing state may predate a
+        category, so every reporter entry point must create its nested map
+        before reading or writing it.
+        """
+        for field in ("projection_timestamps", "projection_fingerprints"):
+            projection_map = state.get(field)
+            if projection_map is None:
+                projection_map = {}
+                state[field] = projection_map
+            if not isinstance(projection_map, dict):
+                raise ValueError(f"{field} must be an object")
+            for bucket in PROJECTION_BUCKETS:
+                value = projection_map.get(bucket)
+                if value is None:
+                    projection_map[bucket] = {}
+                elif not isinstance(value, dict):
+                    raise ValueError(f"{field}.{bucket} must be an object")
 
     def project_decisions(
         self, token: str, channel: str, graph: dict, state: dict
@@ -1175,22 +1199,11 @@ class SlackProjection:
             "last_successful_update_epoch": state.get("last_successful_update_epoch"),
             "updated_at_epoch": state.get("updated_at_epoch"),
             "last_api_response": state.get("last_api_response"),
-            "projection_timestamps": state.get("projection_timestamps")
-            or {
-                "dashboard": {},
-                "assignment": {},
-                "incident": {},
-                "decision": {},
-            },
-            "projection_fingerprints": state.get("projection_fingerprints")
-            or {
-                "dashboard": {},
-                "assignment": {},
-                "incident": {},
-                "decision": {},
-            },
+            "projection_timestamps": state.get("projection_timestamps"),
+            "projection_fingerprints": state.get("projection_fingerprints"),
             "dashboard_fallback": state.get("dashboard_fallback"),
         }
+        self.backfill_projection_buckets(state)
 
         def state_stage(stage: str) -> None:
             if stage not in DELIVERY_STAGES:
@@ -1375,28 +1388,11 @@ class SlackProjection:
                 "last_successful_update_epoch": value.get("last_successful_update_epoch"),
                 "updated_at_epoch": value.get("updated_at_epoch"),
                 "last_api_response": None,
-                "projection_timestamps": {
-                    "dashboard": {},
-                    "assignment": {},
-                    "incident": {},
-                    "decision": {},
-                },
-                "projection_fingerprints": {
-                    "dashboard": {},
-                    "assignment": {},
-                    "incident": {},
-                    "decision": {},
-                },
+                "projection_timestamps": {},
+                "projection_fingerprints": {},
                 "dashboard_fallback": None,
             }
-        value.setdefault(
-            "projection_timestamps",
-            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
-        )
-        value.setdefault(
-            "projection_fingerprints",
-            {"dashboard": {}, "assignment": {}, "incident": {}, "decision": {}},
-        )
+        self.backfill_projection_buckets(value)
         value.setdefault("dashboard_fallback", None)
         return validate_record(
             value,
