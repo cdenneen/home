@@ -52,6 +52,7 @@ _CLOSED_NOTE_TRACE_LIMIT = 500
 _CLOSED_NOTE_TRACE_FIELD_LIMIT = 512
 _CLOSED_NOTE_MARKERS = (
     "immutable planningrecord",
+    "planningrecord v2",
     "current-main regression finding",
     "finding amendment",
 )
