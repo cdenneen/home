@@ -318,8 +318,7 @@ class CanonicalSlackProjector:
         )
         self.jobs_path = jobs_path or (Path.home() / ".hermes" / "cron" / "jobs.json")
         self.command = command or os.environ.get(
-            "AXIS_WATCHDOG_CANONICAL_PROJECTOR",
-            "axis-development-watchdog-canonical-projector",
+            "AXIS_WATCHDOG_CANONICAL_PROJECTOR"
         )
         self.runner = runner or subprocess.run
         self.incident_projector = incident_projector or SlackProjector(supervisor_root)
@@ -338,19 +337,32 @@ class CanonicalSlackProjector:
         del report
         at_epoch = at_epoch or int(time.time())
         shadow = self.cutover.mode() == "shadow"
+        if not self.command:
+            error = (
+                "AXIS_WATCHDOG_CANONICAL_PROJECTOR must name a deployed command"
+            )
+            if not shadow:
+                self.cutover.record_writer(False, error)
+            raise RuntimeError(error)
         command = shlex.split(self.command) + (["--shadow"] if shadow else [])
-        result = self.runner(
-            command,
-            text=True,
-            capture_output=True,
-            timeout=300,
-            check=False,
-            env=os.environ
-            | {
-                "AXIS_SUPERVISOR_ROOT": str(self.supervisor_root),
-                "AXIS_SUPERVISOR_MUTATION_SOURCE": "watchdog-projector",
-            },
-        )
+        try:
+            result = self.runner(
+                command,
+                text=True,
+                capture_output=True,
+                timeout=300,
+                check=False,
+                env=os.environ
+                | {
+                    "AXIS_SUPERVISOR_ROOT": str(self.supervisor_root),
+                    "AXIS_SUPERVISOR_MUTATION_SOURCE": "watchdog-projector",
+                },
+            )
+        except OSError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if not shadow:
+                self.cutover.record_writer(False, error)
+            raise RuntimeError(f"canonical Slack projection could not start: {error}") from exc
         if result.returncode != 0:
             output = (result.stdout or "") + (result.stderr or "")
             if not shadow:
