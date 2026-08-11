@@ -149,6 +149,34 @@ def select_integrable_assignment(integrable: list[dict], lane: dict | None) -> d
     return integrable[0]
 
 
+def promotion_is_blocked_by_repository_convergence(capability_convergence: dict) -> bool:
+    """Return whether repository convergence is the current promotion prerequisite.
+
+    Deployment assignments can remain projected while the repository is not yet
+    converged.  Treat the projector's explicit promotion state as the source of
+    truth so the cycle cannot start that downstream work ahead of the cleanup
+    that makes promotion eligible.
+    """
+    promotion = capability_convergence.get("promotion_status") or {}
+    return bool(
+        promotion.get("blocked")
+        and not promotion.get("repository_converged")
+        and promotion.get("reason") == "repository convergence is incomplete"
+    )
+
+
+def select_repository_convergence_assignment(graph: dict) -> dict | None:
+    """Select the first executable convergence item from the current graph."""
+    return next(
+        (
+            item
+            for item in graph.get("executable_queue") or []
+            if item.get("assignment_type") == "repository-convergence"
+        ),
+        None,
+    )
+
+
 def save(path: Path, value: dict, gate: MutationGate) -> None:
     normalized = validate_assignment(value)
     value.clear()
@@ -1061,22 +1089,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         # the same current inventory so this cycle's lane consumer can observe
         # the exact durable assignment and lease it just materialized.
         reconcile_merge_lanes(ROOT, inventory)
-    lane = consume_next_merge_lane(
-        ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
-    )
-    if lane is not None:
-        record_event(
-            ROOT,
-            "merge_lane_consumed",
-            details={
-                "repository": lane["repository"],
-                "mr_iid": lane["mr_iid"],
-                "lane": lane["lane"],
-                "reason": lane["reason"],
-            },
-            source="cycle",
-            notify=False,
-        )
     mission = read_mission_record(ROOT / "active-mission.json")
     if (mission.get("termination_condition") or {}).get("should_terminate"):
         return {
@@ -1094,6 +1106,45 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     # GitLab gates; this is only a scheduling priority.
     dispatcher = Dispatcher(ROOT)
     active = dispatcher.active()
+    if (
+        promotion_is_blocked_by_repository_convergence(capability_convergence)
+        and not any(is_integrable(value) for value in active)
+    ):
+        convergence_item = select_repository_convergence_assignment(graph)
+        if convergence_item is None:
+            return {
+                "result": "repository-convergence-pending",
+                "reason": "promotion is blocked until repository convergence completes",
+                "queue_depth": graph.get("queue_depth", 0),
+            }
+        convergence_assignment = dispatcher.dispatch(graph, run_id, convergence_item)
+        if convergence_assignment is None:
+            return {
+                "result": "repository-convergence-pending",
+                "reason": "promotion-blocking repository convergence is not dispatchable",
+                "queue_ref": convergence_item.get("ref"),
+            }
+        gate = MutationGate(ROOT, source="cycle")
+        manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
+        return execute_new_assignment(
+            convergence_assignment, manager, supervisorctl, gate
+        )
+    lane = consume_next_merge_lane(
+        ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
+    )
+    if lane is not None:
+        record_event(
+            ROOT,
+            "merge_lane_consumed",
+            details={
+                "repository": lane["repository"],
+                "mr_iid": lane["mr_iid"],
+                "lane": lane["lane"],
+                "reason": lane["reason"],
+            },
+            source="cycle",
+            notify=False,
+        )
     deployment_plans = sorted(
         (
             value

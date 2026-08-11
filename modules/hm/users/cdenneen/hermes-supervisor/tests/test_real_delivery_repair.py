@@ -653,6 +653,103 @@ def test_live_cycle_prioritizes_active_governed_integration_over_deployment(
         cycle.run_next("run-157", "hermes-not-invoked", "supervisorctl-not-invoked")
 
 
+def test_live_cycle_executes_promotion_blocking_repository_convergence_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Repository cleanup preempts inspection-only lanes and deployment plans."""
+    from axis_supervisor import cycle
+
+    convergence_item = {
+        "ref": "local-convergence:ghostspace/axis:hermes/axis-158",
+        "assignment_type": "repository-convergence",
+        "project": "ghostspace/axis",
+    }
+    graph = {"queue_depth": 2, "executable_queue": [convergence_item]}
+    inventory = {
+        "supervisor_assignments": [],
+        "active_leases": [],
+        "open_merge_requests": [_actionable_mr(154)],
+    }
+    control = {"product_owner_usernames": ["owner"]}
+    capability_convergence = {
+        "promotion_status": {
+            "blocked": True,
+            "repository_converged": False,
+            "reason": "repository convergence is incomplete",
+        },
+        "deployment_assignments": [
+            {
+                "assignment_id": "deployment-ghost-d9ef991b",
+                "status": "deployment-required",
+                "ring": 0,
+            }
+        ],
+    }
+    selected_assignment = {"assignment_id": "repository-convergence-158"}
+    expected = {"result": "completed", "assignment": selected_assignment["assignment_id"]}
+
+    def cycle_record(_path: Path, schema: str) -> dict:
+        if schema == "axis.external-development-supervisor.inventory":
+            return inventory
+        if schema == "axis.external-development-supervisor.control":
+            return control
+        if schema == "axis.external-development-supervisor.capability-convergence":
+            return capability_convergence
+        raise AssertionError(f"unexpected cycle schema: {schema}")
+
+    class ConvergenceOnlyDispatcher:
+        def __init__(self, root: Path):
+            assert root == tmp_path
+
+        def active(self) -> list[dict]:
+            return []
+
+        def dispatch(self, current_graph: dict, run_id: str, item: dict) -> dict:
+            assert current_graph is graph
+            assert run_id == "run-convergence"
+            assert item is convergence_item
+            return selected_assignment
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "rebuild", lambda: graph)
+    monkeypatch.setattr(cycle, "read_record", cycle_record)
+    monkeypatch.setattr(
+        cycle.WorkflowState,
+        "project_owned_awaiting_integrations",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        cycle,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {}},
+    )
+    monkeypatch.setattr(cycle, "Dispatcher", ConvergenceOnlyDispatcher)
+    monkeypatch.setattr(
+        cycle,
+        "consume_next_merge_lane",
+        lambda *_args: pytest.fail("inspection-only MR 154 ran before convergence"),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "create_deployment_assignment",
+        lambda *_args: pytest.fail("deployment ran before repository convergence"),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "execute_new_assignment",
+        lambda assignment, _manager, supervisorctl, _gate: (
+            expected
+            if (assignment, supervisorctl) == (selected_assignment, "supervisorctl")
+            else pytest.fail("unexpected repository convergence execution")
+        ),
+    )
+
+    assert (
+        cycle.run_next("run-convergence", "hermes-not-invoked", "supervisorctl")
+        == expected
+    )
+
+
 def test_live_cycle_plans_deployment_without_active_governed_integration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -679,7 +776,14 @@ def test_live_cycle_plans_deployment_without_active_governed_integration(
         if schema == "axis.external-development-supervisor.control":
             return control
         if schema == "axis.external-development-supervisor.capability-convergence":
-            return {"deployment_assignments": [deployment_plan]}
+            return {
+                "promotion_status": {
+                    "blocked": False,
+                    "repository_converged": True,
+                    "reason": "promotion follows capability impact and ring order",
+                },
+                "deployment_assignments": [deployment_plan],
+            }
         raise AssertionError(f"unexpected cycle schema: {schema}")
 
     deployment_assignment = {"assignment_id": "deployment-ghost-f1cd6087"}
