@@ -1087,6 +1087,13 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         ROOT / "capability-convergence.json",
         "axis.external-development-supervisor.capability-convergence",
     )
+    # An already-active integration owns a bounded, leased handoff.  Check it
+    # before turning an independent runtime convergence plan into new work so a
+    # deployment cannot consume the cycle that should settle that handoff.
+    # The integration path below still performs its normal lease, custody, and
+    # GitLab gates; this is only a scheduling priority.
+    dispatcher = Dispatcher(ROOT)
+    active = dispatcher.active()
     deployment_plans = sorted(
         (
             value
@@ -1095,7 +1102,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         ),
         key=lambda value: int(value.get("ring") or 0),
     )
-    if deployment_plans:
+    if deployment_plans and not any(is_integrable(value) for value in active):
         plan = deployment_plans[0]
         existing = []
         prior_failures = []
@@ -1134,8 +1141,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         )
         if resumable is not None:
             return execute_deployment_assignment(ROOT, resumable, supervisorctl)
-    dispatcher = Dispatcher(ROOT)
-    active = dispatcher.active()
     gate = MutationGate(ROOT, source="cycle")
     manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
 

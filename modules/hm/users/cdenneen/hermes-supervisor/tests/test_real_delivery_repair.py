@@ -566,6 +566,165 @@ def test_live_cycle_projects_exact_owned_mr_with_canonical_lease_controller(
     assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
 
 
+def test_live_cycle_prioritizes_active_governed_integration_over_deployment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A custody-bound, leased handoff must run before a deployment plan."""
+    from axis_supervisor import cycle
+
+    owned = _actionable_mr(157) | {"source_branch": "hermes/axis-157"}
+    inventory = _custody_inventory([owned], {157})
+    active = _write_durable_integration_binding(
+        tmp_path,
+        assignment_id="integration-mr-157-20c9044891fd",
+        branch=owned["source_branch"],
+        sha=owned["sha"],
+        iid=157,
+        worktree="/supervisor/worktrees/integration-mr-157-20c9044891fd",
+    )
+    inventory["supervisor_assignments"] = [active]
+    inventory["active_leases"] = [
+        read_record(
+            tmp_path / "leases" / active["lease_id"] / "lease.json",
+            "axis.external-development-supervisor.lease",
+        )
+    ]
+    _write_enabled_control(tmp_path)
+    deployment_plan = {
+        "assignment_id": "deployment-ghost-f1cd6087",
+        "status": "deployment-required",
+        "ring": 0,
+    }
+
+    def cycle_record(path: Path, schema: str) -> dict:
+        if schema == "axis.external-development-supervisor.inventory":
+            return inventory
+        if schema == "axis.external-development-supervisor.control":
+            return read_record(tmp_path / "control.json", schema)
+        if schema == "axis.external-development-supervisor.capability-convergence":
+            return {"deployment_assignments": [deployment_plan]}
+        raise AssertionError(f"unexpected cycle record: {path} ({schema})")
+
+    class IntegrationPathReached(Exception):
+        pass
+
+    class IntegrationOnly:
+        def __init__(self, _glab: str):
+            pass
+
+        def inspect_mr(self, project: str, iid: int, **_kwargs) -> dict:
+            assert (project, iid) == ("ghostspace/axis", 157)
+            raise IntegrationPathReached
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setenv("AXIS_SUPERVISOR_ROOT", str(tmp_path))
+    monkeypatch.setattr(cycle, "rebuild", lambda: {"queue_depth": 0})
+    monkeypatch.setattr(cycle, "read_record", cycle_record)
+    monkeypatch.setattr(
+        cycle.WorkflowState,
+        "project_owned_awaiting_integrations",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        cycle,
+        "consume_next_merge_lane",
+        lambda *_args: {
+            "repository": "ghostspace/axis",
+            "mr_iid": 157,
+            "lane": INTEGRATION,
+            "reason": "bound active integration",
+            "mutation_disposition": GATED_INTEGRATION,
+            "custody": {"assignment_id": active["assignment_id"]},
+        },
+    )
+    monkeypatch.setattr(
+        cycle,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {}},
+    )
+    monkeypatch.setattr(cycle, "Integrator", IntegrationOnly)
+    monkeypatch.setattr(
+        cycle,
+        "create_deployment_assignment",
+        lambda *_args: pytest.fail("deployment bypassed the active integration"),
+    )
+
+    with pytest.raises(IntegrationPathReached):
+        cycle.run_next("run-157", "hermes-not-invoked", "supervisorctl-not-invoked")
+
+
+def test_live_cycle_plans_deployment_without_active_governed_integration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Deployment remains available when no active integration can take priority."""
+    from axis_supervisor import cycle
+
+    inventory = {
+        "supervisor_assignments": [],
+        "active_leases": [],
+        "open_merge_requests": [],
+    }
+    control = {
+        "product_owner_usernames": ["owner"],
+    }
+    deployment_plan = {
+        "assignment_id": "deployment-ghost-f1cd6087",
+        "status": "deployment-required",
+        "ring": 0,
+    }
+
+    def cycle_record(_path: Path, schema: str) -> dict:
+        if schema == "axis.external-development-supervisor.inventory":
+            return inventory
+        if schema == "axis.external-development-supervisor.control":
+            return control
+        if schema == "axis.external-development-supervisor.capability-convergence":
+            return {"deployment_assignments": [deployment_plan]}
+        raise AssertionError(f"unexpected cycle schema: {schema}")
+
+    deployment_assignment = {"assignment_id": "deployment-ghost-f1cd6087"}
+    expected = {"result": "deployment-started", "assignment": deployment_assignment["assignment_id"]}
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "rebuild", lambda: {"queue_depth": 0})
+    monkeypatch.setattr(cycle, "read_record", cycle_record)
+    monkeypatch.setattr(
+        cycle.WorkflowState,
+        "project_owned_awaiting_integrations",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(cycle, "consume_next_merge_lane", lambda *_args: None)
+    monkeypatch.setattr(
+        cycle,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {}},
+    )
+    monkeypatch.setattr(
+        cycle,
+        "create_deployment_assignment",
+        lambda root, plan, run_id: (
+            deployment_assignment
+            if (root, plan, run_id) == (tmp_path, deployment_plan, "run-deployment")
+            else pytest.fail("deployment plan received unexpected inputs")
+        ),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "execute_deployment_assignment",
+        lambda root, assignment, supervisorctl: (
+            expected
+            if (root, assignment, supervisorctl)
+            == (tmp_path, deployment_assignment, "supervisorctl")
+            else pytest.fail("deployment execution received unexpected inputs")
+        ),
+    )
+
+    assert (
+        cycle.run_next("run-deployment", "hermes-not-invoked", "supervisorctl")
+        == expected
+    )
+
+
 def test_projection_claim_failure_is_durable_and_does_not_create_a_ghost_assignment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
