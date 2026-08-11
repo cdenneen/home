@@ -566,6 +566,109 @@ def test_expected_wait_does_not_hide_executable_evidence_actions():
     assert reason is None
 
 
+def test_external_only_product_owner_validation_stream_is_expected_wait(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    mission.update(
+        {
+            "current_state": "active",
+            "external_blockers": [],
+            "missing_gates": [
+                {
+                    "capability": "CLI",
+                    "gate": "operator_acceptance",
+                    "state": "pending",
+                    "external_only": True,
+                },
+                {
+                    "capability": "Desktop",
+                    "gate": "operator_acceptance",
+                    "state": "pending",
+                    "external_only": True,
+                },
+            ],
+            "generated_actions": [
+                {
+                    "kind": "validate-capability-stream",
+                    "executable": True,
+                    "gate_owner": "product-owner",
+                    "expected_gates": [
+                        {
+                            "capability": "CLI",
+                            "gate": "operator_acceptance",
+                        },
+                        {
+                            "capability": "Desktop",
+                            "gate": "operator_acceptance",
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+    write(supervisor / "active-mission.json", mission)
+
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    assert Watchdog._expected_wait(
+        {"mode": "enabled", "kill_switch": False}, mission, {"nodes": []}
+    ) == (True, "mission is waiting on external-only acceptance")
+
+    watchdog.run()
+    state = json.loads((root / "state.json").read_text())
+    state["mission_progress_since_epoch"] = now - 7200
+    write(root / "state.json", state)
+    waiting = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now + 1,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+
+    assert "mission-progress-stuck" not in waiting["anomalies"]
+    state = json.loads((root / "state.json").read_text())
+    assert state["health"]["mission_progress"]["status"] == "waiting"
+
+
+def test_autonomous_validation_stream_prevents_expected_wait():
+    control = {"mode": "enabled", "kill_switch": False}
+    mission = {
+        "current_state": "active",
+        "missing_gates": [
+            {
+                "capability": "Web",
+                "gate": "verification",
+                "state": "pending",
+                "external_only": False,
+            }
+        ],
+        "generated_actions": [
+            {
+                "kind": "validate-capability-stream",
+                "executable": True,
+                "gate_owner": "technical-verification",
+                "expected_gates": [
+                    {"capability": "Web", "gate": "verification"}
+                ],
+            }
+        ],
+    }
+    expected, reason = Watchdog._expected_wait(control, mission, {"nodes": []})
+    assert expected is False
+    assert reason is None
+
+
 def test_preparation_only_invalid_dispatch_does_not_create_delivery_pressure(
     tmp_path: Path,
 ):

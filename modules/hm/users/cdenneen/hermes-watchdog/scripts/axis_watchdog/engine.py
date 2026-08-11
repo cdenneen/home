@@ -425,13 +425,44 @@ class Watchdog:
             and scope.get("required_tests")
         )
 
+    @staticmethod
+    def _external_only_validation_stream(
+        action: dict[str, Any], missing_gates: list[dict[str, Any]]
+    ) -> bool:
+        """Whether a validation stream can only advance external acceptance.
+
+        Validation streams are normally autonomous evidence work.  Product-owner
+        streams are different: when every expected gate is currently marked
+        ``external_only``, the system cannot make the next transition itself.
+        """
+        if (
+            action.get("kind") != "validate-capability-stream"
+            or action.get("gate_owner") != "product-owner"
+        ):
+            return False
+        expected_gates = action.get("expected_gates") or []
+        external_gates = {
+            (str(gate.get("capability") or ""), str(gate.get("gate") or ""))
+            for gate in missing_gates
+            if gate.get("external_only")
+        }
+        return bool(expected_gates) and all(
+            (str(gate.get("capability") or ""), str(gate.get("gate") or ""))
+            in external_gates
+            for gate in expected_gates
+        )
+
     @classmethod
-    def _runnable_expected_action(cls, action: dict[str, Any]) -> bool:
-        """Recognize work that should keep mission-progress monitoring active."""
+    def _runnable_expected_action(
+        cls, action: dict[str, Any], missing_gates: list[dict[str, Any]]
+    ) -> bool:
+        """Recognize autonomous work that should keep progress monitoring active."""
         if not action.get("executable"):
             return False
         if action.get("kind") == "dispatch-executable":
             return cls._dispatchable_governed_mutation_action(action)
+        if cls._external_only_validation_stream(action, missing_gates):
+            return False
         return action.get("kind") in {
             "collect-capability-evidence",
             "reconcile-active-assignment",
@@ -540,12 +571,17 @@ class Watchdog:
             return True, f"supervisor mode {mode} intentionally suppresses new execution"
         if mission.get("current_state") == "completed":
             return True, "mission is completed"
+        missing_gates = mission.get("missing_gates") or []
         runnable = any(
-            Watchdog._runnable_expected_action(action)
+            Watchdog._runnable_expected_action(action, missing_gates)
             for action in mission.get("generated_actions") or []
         )
         if mission.get("external_blockers") and not runnable:
             return True, "mission is waiting on explicit external authority"
+        if missing_gates and not runnable and all(
+            gate.get("external_only") for gate in missing_gates
+        ):
+            return True, "mission is waiting on external-only acceptance"
         nodes = graph.get("nodes") or []
         unfinished = [
             node
