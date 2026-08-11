@@ -1,5 +1,7 @@
 import base64
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -15,6 +17,64 @@ from .mutation import MutationGate, OperationClass
 from .observability import record_event
 from .repository_ownership import validate_repository_ownership
 from .schema_registry import read_record, write_record
+
+
+DEPLOYMENT_SOURCE_REMOTE = "git@github.com:cdenneen/home.git"
+GIT_ENV = os.environ | {"GIT_TERMINAL_PROMPT": "0"}
+
+
+def _git_output(source: Path, *args: str) -> str:
+    return subprocess.check_output(
+        ["git", *args], cwd=source, env=GIT_ENV, text=True, timeout=120
+    ).strip()
+
+
+def _verify_deployment_source(source: Path) -> None:
+    """Fail closed unless the supervisor-owned source is clean and current."""
+    if _git_output(source, "remote", "get-url", "origin") != DEPLOYMENT_SOURCE_REMOTE:
+        raise RuntimeError("canonical deployment source has an unexpected origin")
+    if _git_output(source, "status", "--porcelain", "--untracked-files=all"):
+        raise RuntimeError("canonical deployment source worktree is dirty")
+    _git_output(
+        source,
+        "fetch",
+        "--no-tags",
+        "origin",
+        "+refs/heads/main:refs/remotes/origin/main",
+    )
+    local_head = _git_output(source, "rev-parse", "HEAD")
+    remote_head = _git_output(source, "rev-parse", "origin/main")
+    if local_head != remote_head:
+        raise RuntimeError(
+            "canonical deployment source is not at the required pushed revision"
+        )
+
+
+def _deployment_source(root: Path) -> Path:
+    """Return the clean home-flake checkout owned by the supervisor state root."""
+    source = root / "deployment-source"
+    if source.exists():
+        if source.is_symlink() or not source.is_dir():
+            raise RuntimeError("canonical deployment source is not a directory")
+        _verify_deployment_source(source)
+        return source
+
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    staging = root / f".deployment-source-{uuid.uuid4().hex}"
+    try:
+        subprocess.run(
+            ["git", "clone", "--no-checkout", DEPLOYMENT_SOURCE_REMOTE, str(staging)],
+            check=True,
+            env=GIT_ENV,
+            timeout=300,
+        )
+        _git_output(staging, "checkout", "--detach", "origin/main")
+        _verify_deployment_source(staging)
+        staging.rename(source)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return source
 
 
 def create_deployment_assignment(root: Path, plan: dict, run_id: str) -> dict:
@@ -404,19 +464,7 @@ def execute_deployment_assignment(
         gate.require(decision, OperationClass.RECONCILIATION)
         write_record(path, assignment, "axis.external-development-supervisor.assignment")
         stage = "runtime-convergence"
-        home = Path("/home/cdenneen/src/workspace/nix/home")
-        if subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=home, text=True
-        ).strip():
-            raise RuntimeError("deployment source worktree is dirty")
-        local_head = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=home, text=True
-        ).strip()
-        remote_head = subprocess.check_output(
-            ["git", "rev-parse", "origin/main"], cwd=home, text=True
-        ).strip()
-        if local_head != remote_head:
-            raise RuntimeError("deployment source is not pushed to origin/main")
+        home = _deployment_source(root)
         matrix = json.loads((root / "capability-runtime-matrix.json").read_text())
         identity_path = matrix["runtimes"][target]["identity_path"]
         try:

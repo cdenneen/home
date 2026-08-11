@@ -1077,6 +1077,160 @@ def test_capability_convergence_deploys_only_affected_runtime(tmp_path: Path):
     assert converged["runtimes"][0]["status"] == "converged"
 
 
+def _deployment_source_remote(tmp_path: Path) -> tuple[Path, Path]:
+    source = tmp_path / "home-source"
+    remote = tmp_path / "home-remote.git"
+    source.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.test"], cwd=source, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=source, check=True
+    )
+    (source / "flake.nix").write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "add", "flake.nix"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "init", "--bare", "--initial-branch", "main", str(remote)], check=True
+    )
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=source, check=True)
+    subprocess.run(["git", "push", "-u", "origin", "main"], cwd=source, check=True)
+    return source, remote
+
+
+def test_deployment_uses_canonical_source_when_operator_checkout_is_dirty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import axis_supervisor.deployment as deployment_module
+    from axis_supervisor.repository_ownership import validate_repository_ownership
+    from axis_supervisor.schema_registry import write_record
+
+    _, remote = _deployment_source_remote(tmp_path)
+    operator_checkout = tmp_path / "operator-home"
+    operator_checkout.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=operator_checkout, check=True)
+    (operator_checkout / ".envrc").write_text("local-only\n", encoding="utf-8")
+    assert subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=operator_checkout, text=True
+    ).strip()
+
+    monkeypatch.setattr(deployment_module, "DEPLOYMENT_SOURCE_REMOTE", str(remote))
+    canonical_source = deployment_module._deployment_source(tmp_path)
+    assert canonical_source == tmp_path / "deployment-source"
+    assert canonical_source != operator_checkout
+
+    write_record(
+        tmp_path / "control.json",
+        control(),
+        "axis.external-development-supervisor.control",
+    )
+    (tmp_path / "assignments").mkdir()
+    identity_path = tmp_path / "identity.json"
+    (tmp_path / "capability-runtime-matrix.json").write_text(
+        json.dumps({"runtimes": {"ghost": {"identity_path": str(identity_path)}}}),
+        encoding="utf-8",
+    )
+    deployment = assignment(
+        tmp_path,
+        assignment_id="deployment-ghost-canonical-source",
+        assignment_type="capability-deployment",
+        project="ghostspace/axis-lab",
+        responsibility="deployment/realistic-validation",
+        repository_ownership=validate_repository_ownership(
+            "deployment/realistic-validation",
+            "ghostspace/axis-lab",
+            context="test-canonical-deployment-source",
+        ),
+        work_item="runtime:ghost@test-revision",
+        source_item={
+            "target_runtime": "ghost",
+            "expected_revision": "test-revision",
+            "affected_capabilities": ["Service"],
+        },
+        deployment_plan={},
+        lease_id=None,
+        lease_uri=None,
+        worker=None,
+        lifecycle_state="ready-implementation",
+    )
+    write_record(
+        tmp_path / "assignments" / "deployment-ghost-canonical-source.json",
+        deployment,
+        "axis.external-development-supervisor.assignment",
+    )
+
+    original_check_output = deployment_module.subprocess.check_output
+    original_run = deployment_module.subprocess.run
+
+    def check_output(command, *args, **kwargs):
+        if command[:3] == [sys.executable, "supervisorctl", "claim"]:
+            return json.dumps({"lease_id": "lease-1", "fencing_token": "a" * 32})
+        return original_check_output(command, *args, **kwargs)
+
+    command_sources = []
+
+    def command(source: Path, _target: str) -> list[str]:
+        command_sources.append(source)
+        return ["deploy-canonical-source"]
+
+    def run(command_value, **_kwargs):
+        if command_value[0] == "git":
+            return original_run(command_value, **_kwargs)
+        if command_value == ["deploy-canonical-source"]:
+            return subprocess.CompletedProcess(command_value, 0, "", "")
+        if command_value[:3] == [sys.executable, "supervisorctl", "release"]:
+            return subprocess.CompletedProcess(command_value, 0, "", "")
+        pytest.fail(f"unexpected subprocess.run: {command_value}")
+
+    identities = iter([{}, {"runtime_revision": "test-revision"}])
+    monkeypatch.setattr(deployment_module.subprocess, "check_output", check_output)
+    monkeypatch.setattr(deployment_module.subprocess, "run", run)
+    monkeypatch.setattr(deployment_module, "_command", command)
+    monkeypatch.setattr(deployment_module, "_identity", lambda *_args: next(identities))
+    monkeypatch.setattr(
+        deployment_module,
+        "_smoke",
+        lambda *_args: {"runtime": {"state": "ready"}},
+    )
+    monkeypatch.setattr(
+        deployment_module, "_write_verified_identity", lambda *_args: _args[2]
+    )
+
+    result = deployment_module.execute_deployment_assignment(
+        tmp_path, deployment, "supervisorctl"
+    )
+
+    assert result["result"] == "runtime-converged"
+    assert command_sources == [canonical_source]
+
+
+def test_canonical_deployment_source_fails_closed_when_dirty_or_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import axis_supervisor.deployment as deployment_module
+
+    source, remote = _deployment_source_remote(tmp_path)
+    monkeypatch.setattr(deployment_module, "DEPLOYMENT_SOURCE_REMOTE", str(remote))
+    canonical_source = deployment_module._deployment_source(tmp_path)
+
+    (canonical_source / "flake.nix").write_text("{ changed = true; }\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="canonical deployment source worktree is dirty"):
+        deployment_module._deployment_source(tmp_path)
+
+    subprocess.run(["git", "checkout", "--", "flake.nix"], cwd=canonical_source, check=True)
+    (source / "flake.nix").write_text("{ revision = 2; }\n", encoding="utf-8")
+    subprocess.run(["git", "add", "flake.nix"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-m", "advance main"], cwd=source, check=True)
+    subprocess.run(["git", "push", "origin", "main"], cwd=source, check=True)
+
+    with pytest.raises(
+        RuntimeError,
+        match="canonical deployment source is not at the required pushed revision",
+    ):
+        deployment_module._deployment_source(tmp_path)
+
+
 def test_deployment_claim_failure_is_terminal_and_classifies_optional_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
