@@ -1239,6 +1239,8 @@ def test_watchdog_module_injects_deployed_runtime_commands():
     assert '"${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog-impl.py"' in module
     assert '"${watchdogLauncher}" "$HOME/.hermes/scripts/axis-development-watchdog.py"' in module
     assert 'exec "$HOME/.hermes/scripts/axis-development-watchdog.py" "$@"' in module
+    assert "${config.home.profileDirectory}/bin/axis-development-supervisor-cronctl" not in module
+    assert '"$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" install' in module
     assert ".nix-profile/bin/axis-development-watchdog-cutover-reconcile" not in (
         ROOT / "scripts" / "axis_watchdog" / "cutover.py"
     ).read_text()

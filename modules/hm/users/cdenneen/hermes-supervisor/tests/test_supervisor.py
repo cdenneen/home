@@ -75,6 +75,34 @@ def test_reconcile_launcher_uses_packaged_supervisor_interpreter():
     )
 
 
+def test_reconciler_requires_preflight_staged_inventory(tmp_path: Path, monkeypatch):
+    reconcile = load_module("reconcile_staging", ROOT / "scripts" / "reconcile.py")
+    monkeypatch.setattr(reconcile, "ROOT", tmp_path)
+    monkeypatch.delenv("AXIS_SUPERVISOR_INVENTORY_PATH", raising=False)
+
+    try:
+        reconcile.require_staged_inventory()
+    except RuntimeError as exc:
+        assert "canonical inventory publication is cycle-owned" in str(exc)
+    else:
+        raise AssertionError("unstaged reconciliation was accepted")
+
+    monkeypatch.setenv(
+        "AXIS_SUPERVISOR_INVENTORY_PATH", str(tmp_path / "inventory.json")
+    )
+    try:
+        reconcile.require_staged_inventory()
+    except RuntimeError as exc:
+        assert "accepts only the preflight staged inventory" in str(exc)
+    else:
+        raise AssertionError("canonical inventory path was accepted")
+
+    monkeypatch.setenv(
+        "AXIS_SUPERVISOR_INVENTORY_PATH", str(tmp_path / "inventory.pending.json")
+    )
+    reconcile.require_staged_inventory()
+
+
 def test_canonical_work_item_chooses_highest_complete_trusted_revision_only():
     from axis_supervisor.canonical_work_item import reconstruct_work_item
 

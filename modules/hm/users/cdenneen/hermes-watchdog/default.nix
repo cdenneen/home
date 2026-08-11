@@ -53,7 +53,7 @@ let
   watchdogCutoverReconcile = pkgs.writeShellScriptBin "axis-development-watchdog-cutover-reconcile" ''
     set -euo pipefail
     export AXIS_SUPERVISOR_MUTATION_SOURCE=home-manager
-    exec ${config.home.profileDirectory}/bin/axis-development-supervisor-cronctl install --hermes ${agentPkgs.hermes}/bin/hermes
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" install --hermes ${agentPkgs.hermes}/bin/hermes
   '';
   watchdogSelfRepair = pkgs.writeShellScriptBin "axis-development-watchdog-self-repair" ''
     set -euo pipefail
