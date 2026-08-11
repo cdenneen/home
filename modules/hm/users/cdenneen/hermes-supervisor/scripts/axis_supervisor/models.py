@@ -55,6 +55,32 @@ def test_command_argv(command: str) -> list[str]:
     return argv
 
 
+def declared_test_commands(assignment: dict) -> list[str]:
+    """Return the exact local test commands a semantic worker may propose.
+
+    Semantic workers can inspect GitLab and repository evidence, but those
+    retrieval actions are not executable test contracts.  Only commands already
+    declared by the assignment's canonical scope may be repeated in a semantic
+    candidate.
+    """
+    source_item = assignment.get("source_item") or {}
+    authority_facts = source_item.get("authority_facts") or {}
+    sources = (
+        assignment.get("required_tests") or [],
+        (assignment.get("candidate") or {}).get("required_tests") or [],
+        authority_facts.get("approved_required_tests") or [],
+    )
+    commands = []
+    for source in sources:
+        for command in require_list(source, "declared required_tests"):
+            if not isinstance(command, str):
+                raise ValueError("declared test command must be a string")
+            test_command_argv(command)
+            if command not in commands:
+                commands.append(command)
+    return commands
+
+
 def validate_allowed_path(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("allowed path must be a non-empty string")
@@ -69,7 +95,9 @@ def validate_allowed_path(value: str) -> str:
     return normalized
 
 
-def validate_semantic_record(value: dict) -> dict:
+def validate_semantic_record(
+    value: dict, *, allowed_test_commands: list[str] | None = None
+) -> dict:
     if value.get("verification_result") is not None:
         value["verification_result"] = normalize_verification_result(
             value["verification_result"]
@@ -133,6 +161,14 @@ def validate_semantic_record(value: dict) -> dict:
                 raise ValueError("executable implementation requires required_tests")
         for command in require_list(candidate.get("required_tests") or [], "required_tests"):
             test_command_argv(command)
+            if (
+                allowed_test_commands is not None
+                and command not in allowed_test_commands
+            ):
+                raise ValueError(
+                    "semantic test command is not declared by the assignment: "
+                    f"{command}"
+                )
         if candidate.get("result") == "Executable":
             candidate["repository_ownership"] = resolve_repository_ownership(
                 [candidate.get("responsibility")],

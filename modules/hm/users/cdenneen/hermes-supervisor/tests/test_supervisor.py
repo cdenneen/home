@@ -2467,6 +2467,71 @@ def test_semantic_test_commands_reject_shell_control():
         pass
     else:
         raise AssertionError("shell control syntax was accepted")
+    try:
+        test_command_argv(
+            "GITLAB_HOST=gitlab.com glab api projects/84759775/issues/231"
+        )
+    except ValueError as exc:
+        assert "not allowlisted" in str(exc)
+    else:
+        raise AssertionError("GitLab evidence retrieval was accepted as a test command")
+
+
+def test_read_only_semantic_prompt_only_allows_declared_local_tests():
+    from axis_supervisor.prompt_factory import PromptFactory
+
+    prompt = PromptFactory().semantic_prompt(
+        {
+            "assignment_id": "assignment-governance-231",
+            "assignment_type": "read-only-analysis",
+            "target_ref": "ghostspace/axis-governance#231",
+            "project": "ghostspace/axis-governance",
+            "responsibility": "contracts/planning-records",
+            "required_tests": [],
+            "source_fingerprint": "source-231",
+            "evidence_fingerprint": "evidence-231",
+            "source_item": {},
+        }
+    )
+
+    assert "Exact declared local test commands (the complete allowed list):\n[]" in prompt
+    assert "If that list is empty, every candidate must use `\"required_tests\": []`" in prompt
+    assert "GitLab/API queries" in prompt
+    assert "never in `required_tests`" in prompt
+
+
+def test_semantic_record_only_accepts_assignment_declared_test_commands():
+    from axis_supervisor.models import validate_semantic_record
+
+    record = semantic_record(
+        "ghostspace/axis-governance#231",
+        [
+            {
+                "slice_id": "governance-audit",
+                "title": "Revalidate governance evidence",
+                "category": "audit",
+                "result": "Executable",
+                "rationale": "The declared flake check revalidates the governed state.",
+                "project": "ghostspace/axis-governance",
+                "allowed_paths": [],
+                "required_tests": ["nix flake check"],
+            }
+        ],
+    )
+    assert validate_semantic_record(
+        record, allowed_test_commands=["nix flake check"]
+    ) is record
+
+    invalid = json.loads(json.dumps(record))
+    invalid["candidate_slices"][0]["required_tests"] = [
+        "GITLAB_HOST=gitlab.com glab api projects/84759775/issues/231"
+    ]
+    try:
+        validate_semantic_record(invalid, allowed_test_commands=[])
+    except ValueError as exc:
+        assert "not allowlisted" in str(exc)
+    else:
+        raise AssertionError("undeclared GitLab evidence retrieval was accepted as a test")
 
 
 def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):

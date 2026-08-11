@@ -1,5 +1,6 @@
 import json
 
+from .models import declared_test_commands
 from .repository_ownership import assignment_ownership
 
 
@@ -10,6 +11,7 @@ class PromptFactory:
 
     def semantic_prompt(self, assignment: dict) -> str:
         ownership = self._ownership_boundary(assignment, "semantic-worker-prompt")
+        allowed_test_commands = declared_test_commands(assignment)
         source = assignment.get("source_item") or {}
         assignment_context = {
             key: value
@@ -35,6 +37,9 @@ Canonical evidence packet:
 
 Canonical repository ownership boundary:
 {json.dumps(ownership, indent=2)}
+
+Exact declared local test commands (the complete allowed list):
+{json.dumps(allowed_test_commands, indent=2)}
 
 Inspect canonical GitLab/repository evidence needed to evaluate bounded child work. Return this schema:
 {{
@@ -95,6 +100,7 @@ Inspect canonical GitLab/repository evidence needed to evaluate bounded child wo
 }}
 
 Candidate slices must be genuinely independent and governed. Every Executable candidate must declare exactly one responsibility and its mapped canonical project from the ownership boundary; never infer a mutation target from the source project. If none exists, return candidates considered as Waiting/Blocked with exact blocker chains. Never expose chain-of-thought.
+`required_tests` is only for local test commands that the supervisor may execute later. It is not an evidence-retrieval field. A candidate may contain only exact strings from the declared local test command list above; do not add arguments, environment assignments, or new commands. If that list is empty, every candidate must use `"required_tests": []`. GitLab/API queries, `glab`, `git`, `curl`, URLs, and evidence-inspection steps belong only in `evidence_inspected` as references and claims, never in `required_tests` or any other candidate command field. An Executable audit candidate may have an empty `required_tests` list when it is bounded to inspecting the supplied canonical evidence; do not invent a test command to make such an audit executable.
 For Tier A evidence-only revalidation, mark a check true only when the supplied canonical evidence proves it. `failed_checks` must list exactly every check that is false or null. Use `verified-complete` only when all nine checks are true, evidence is non-empty, failed_checks is empty, and failure_disposition is empty. Missing evidence is not failure of historical implementation: return `active-technical-revalidation` with exact failed checks, a non-empty failure_disposition, and an Executable audit/tests candidate containing bounded allowlisted required_tests for the Tier B action. Use `corrective-implementation-required` only when current evidence proves a requirement is no longer satisfied. Use `human-authority-required` only for reserved authority.
 When authority state is `needs-product-owner`, `decision_packet` must contain current_record, current_digest, decision_requested, recommendation, consequences, downstream_effects, unresolved_assumptions, and exact response_syntax. Revalidate later approvals/superseding decisions before requesting one.
 """.strip()
