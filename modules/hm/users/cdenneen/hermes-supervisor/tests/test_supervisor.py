@@ -2898,6 +2898,161 @@ def test_reconciliation_failure_suppresses_agent(tmp_path: Path):
     assert "inventory authentication failed" in events[-1]["details"]["diagnostic"]
 
 
+def test_localized_dependency_timeout_allows_usable_preflight(
+    tmp_path: Path, monkeypatch, capsys
+):
+    import preflight
+
+    root = tmp_path / "runtime"
+    root.mkdir()
+    control_path = root / "control.json"
+    control_value = control(minimum_free_disk_gib=0, daily_worker_cycle_limit=99)
+    control_path.write_text(
+        json.dumps(control_value),
+        encoding="utf-8",
+    )
+    inventory = {
+        "generation_id": "inventory-timeout",
+        "collection_status": {
+            "all_configured_repositories_inspected": True,
+            "dependency_queries": 12,
+            "dependency_query_failures": 1,
+            "retrieval_error_count": 1,
+            "stale_repository_count": 0,
+        },
+        "work_items": [
+            {
+                "ref": "ghostspace/axis#36",
+                "retrieval_errors": ["links: TimeoutExpired"],
+            }
+        ],
+        "supervisor_assignments": [],
+    }
+    execution_graph = {
+        "generation_id": "graph-timeout",
+        "inventory_generation_id": "inventory-timeout",
+        "executable_queue": [{"ref": "ghostspace/axis#37"}],
+        "queue_depth": 1,
+        "scheduler_state": {"selected_batch": []},
+    }
+    recorded_events = []
+    written_runs = []
+
+    monkeypatch.setattr(preflight, "ROOT", root)
+    monkeypatch.setattr(preflight, "CONTROL", control_path)
+    monkeypatch.setattr(preflight, "RUNS", root / "runs")
+    monkeypatch.setattr(preflight, "ASSIGNMENTS", root / "assignments")
+    monkeypatch.setattr(preflight, "INVENTORY_LOCK", root / "inventory.lock")
+    monkeypatch.setattr(
+        preflight, "INVENTORY_LOCK_OWNER", root / "inventory.lock" / "owner.json"
+    )
+    monkeypatch.setattr(preflight, "reconcile_prior_runs", lambda *_args: None)
+    monkeypatch.setattr(preflight, "load_control", lambda: control_value)
+    monkeypatch.setattr(
+        preflight,
+        "read_record",
+        lambda path, _schema: (
+            inventory if path.name == "inventory.json" else execution_graph
+        ),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {"should_terminate": False}},
+    )
+    monkeypatch.setattr(preflight, "has_runnable_action", lambda _mission: False)
+    monkeypatch.setattr(
+        preflight.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "record_event",
+        lambda _root, event_type, **kwargs: recorded_events.append(
+            {"event_type": event_type, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "write_record",
+        lambda _path, value, _schema: written_runs.append(value),
+    )
+
+    assert preflight.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["wakeAgent"] is True
+    assert inventory["work_items"][0]["retrieval_errors"] == [
+        "links: TimeoutExpired"
+    ]
+    degraded = next(
+        event
+        for event in recorded_events
+        if event["event_type"] == "preflight_degraded_retrieval"
+    )
+    assert degraded["details"]["affected_items"] == [
+        {"ref": "ghostspace/axis#36", "error": "links: TimeoutExpired"}
+    ]
+    assert written_runs[-1]["status"] == "started"
+
+
+def test_localized_dependency_timeout_gate_rejects_broad_or_unusable_data():
+    import preflight
+
+    inventory = {
+        "generation_id": "inventory-timeout",
+        "collection_status": {
+            "dependency_queries": 2,
+            "dependency_query_failures": 1,
+            "retrieval_error_count": 1,
+        },
+        "work_items": [
+            {
+                "ref": "ghostspace/axis#36",
+                "retrieval_errors": ["links: TimeoutExpired"],
+            }
+        ],
+    }
+    usable_graph = {
+        "inventory_generation_id": "inventory-timeout",
+        "executable_queue": [{"ref": "ghostspace/axis#37"}],
+    }
+
+    assert preflight.localized_dependency_link_timeout(inventory, usable_graph)
+    assert not preflight.localized_dependency_link_timeout(
+        inventory
+        | {
+            "collection_status": inventory["collection_status"]
+            | {"dependency_query_failures": 2, "retrieval_error_count": 2},
+            "work_items": inventory["work_items"]
+            + [
+                {
+                    "ref": "ghostspace/axis#38",
+                    "retrieval_errors": ["links: TimeoutExpired"],
+                }
+            ],
+        },
+        usable_graph,
+    )
+    assert not preflight.localized_dependency_link_timeout(
+        inventory
+        | {
+            "work_items": [
+                {
+                    "ref": "ghostspace/axis#36",
+                    "retrieval_errors": ["notes: TimeoutExpired"],
+                }
+            ]
+        },
+        usable_graph,
+    )
+    assert not preflight.localized_dependency_link_timeout(
+        inventory,
+        usable_graph | {"executable_queue": []},
+    )
+
+
 def test_recovery_failure_preserves_durable_child_diagnostic(tmp_path: Path):
     root = tmp_path / "runtime"
     root.mkdir()

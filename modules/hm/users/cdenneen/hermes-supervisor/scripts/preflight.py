@@ -111,6 +111,51 @@ def skip(
     return 0
 
 
+def localized_dependency_link_timeout(
+    inventory: dict, execution_graph: dict
+) -> list[dict]:
+    """Return the one safe-to-isolate dependency-links timeout, if present.
+
+    A links timeout makes only that item's dependency facts unknown; it does not
+    invalidate repository discovery or independently executable graph nodes.
+    Keep this exception deliberately narrow so an authentication failure, a
+    notes failure, multiple links failures, or an unusable graph remains
+    fail-closed.
+    """
+    collection = inventory.get("collection_status") or {}
+    timed_out_items = []
+    retrieval_errors = 0
+    for item in inventory.get("work_items") or []:
+        errors = item.get("retrieval_errors") or []
+        retrieval_errors += len(errors)
+        for error in errors:
+            if error != "links: TimeoutExpired":
+                return []
+            timed_out_items.append(
+                {"ref": str(item.get("ref") or "unknown"), "error": error}
+            )
+
+    try:
+        dependency_queries = int(collection.get("dependency_queries", 0))
+        dependency_failures = int(collection.get("dependency_query_failures", 1))
+        reported_errors = int(collection.get("retrieval_error_count", 1))
+    except (TypeError, ValueError):
+        return []
+    if (
+        len(timed_out_items) != 1
+        or retrieval_errors != 1
+        or reported_errors != 1
+        or dependency_failures != 1
+        or dependency_queries <= dependency_failures
+    ):
+        return []
+    if execution_graph.get("inventory_generation_id") != inventory.get("generation_id"):
+        return []
+    if not execution_graph.get("executable_queue"):
+        return []
+    return timed_out_items
+
+
 def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
     job_id = str(control.get("cron_job_id") or "").strip()
     output_dir = Path.home() / ".hermes" / "cron" / "output" / job_id
@@ -320,12 +365,30 @@ def main() -> int:
     collection = inventory.get("collection_status") or {}
     if not collection.get("all_configured_repositories_inspected"):
         return skip(run_id, mode, "configured repository discovery is incomplete")
-    if int(collection.get("retrieval_error_count", 1)) != 0:
+    isolated_timeouts = localized_dependency_link_timeout(inventory, execution_graph)
+    if int(collection.get("retrieval_error_count", 1)) != 0 and not isolated_timeouts:
         return skip(run_id, mode, "source retrieval is incomplete")
     if int(collection.get("stale_repository_count", 1)) != 0:
         return skip(run_id, mode, "local repository refs are stale relative to origin")
-    if int(collection.get("dependency_query_failures", 1)) != 0:
+    if int(collection.get("dependency_query_failures", 1)) != 0 and not isolated_timeouts:
         return skip(run_id, mode, "dependency retrieval is incomplete")
+    if isolated_timeouts:
+        record_event(
+            ROOT,
+            "preflight_degraded_retrieval",
+            details={
+                "run_id": run_id,
+                "mode": mode,
+                "inventory_generation_id": inventory.get("generation_id"),
+                "dependency_queries": collection.get("dependency_queries"),
+                "dependency_query_failures": collection.get(
+                    "dependency_query_failures"
+                ),
+                "affected_items": isolated_timeouts,
+            },
+            source="preflight",
+            notify=False,
+        )
     active_assignments = [
         item
         for item in (inventory.get("supervisor_assignments") or [])
