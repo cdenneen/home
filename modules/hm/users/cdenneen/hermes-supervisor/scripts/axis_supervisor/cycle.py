@@ -1199,22 +1199,6 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         return execute_new_assignment(
             convergence_assignment, manager, supervisorctl, gate
         )
-    lane = consume_next_merge_lane(
-        ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
-    )
-    if lane is not None:
-        record_event(
-            ROOT,
-            "merge_lane_consumed",
-            details={
-                "repository": lane["repository"],
-                "mr_iid": lane["mr_iid"],
-                "lane": lane["lane"],
-                "reason": lane["reason"],
-            },
-            source="cycle",
-            notify=False,
-        )
     deployment_plans = sorted(
         (
             value
@@ -1262,6 +1246,26 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         )
         if resumable is not None:
             return execute_deployment_assignment(ROOT, resumable, supervisorctl)
+    # A non-owned merge request remains inspection-only.  Defer that lower
+    # authority observation until after an eligible runtime deployment has
+    # claimed the cycle, while retaining the lane before active-integration
+    # selection below.
+    lane = consume_next_merge_lane(
+        ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
+    )
+    if lane is not None:
+        record_event(
+            ROOT,
+            "merge_lane_consumed",
+            details={
+                "repository": lane["repository"],
+                "mr_iid": lane["mr_iid"],
+                "lane": lane["lane"],
+                "reason": lane["reason"],
+            },
+            source="cycle",
+            notify=False,
+        )
     gate = MutationGate(ROOT, source="cycle")
     manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
 

@@ -753,13 +753,21 @@ def test_live_cycle_executes_promotion_blocking_repository_convergence_first(
 def test_live_cycle_plans_deployment_without_active_governed_integration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """Deployment remains available when no active integration can take priority."""
+    """An eligible deployment preempts external inspection and analysis backlog."""
     from axis_supervisor import cycle
 
+    analysis_item = {
+        "ref": "semantic-decomposition:ghostspace/axis#104",
+        "target_ref": "ghostspace/axis#104",
+        "assignment_type": "read-only-analysis",
+        "project": "ghostspace/axis",
+    }
     inventory = {
         "supervisor_assignments": [],
         "active_leases": [],
-        "open_merge_requests": [],
+        "open_merge_requests": [
+            _actionable_mr(154) | {"source_branch": "macos-11-compat"}
+        ],
     }
     control = {
         "product_owner_usernames": ["owner"],
@@ -790,14 +798,24 @@ def test_live_cycle_plans_deployment_without_active_governed_integration(
     expected = {"result": "deployment-started", "assignment": deployment_assignment["assignment_id"]}
 
     monkeypatch.setattr(cycle, "ROOT", tmp_path)
-    monkeypatch.setattr(cycle, "rebuild", lambda: {"queue_depth": 0})
+    monkeypatch.setattr(
+        cycle,
+        "rebuild",
+        lambda: {"queue_depth": 1, "executable_queue": [analysis_item]},
+    )
     monkeypatch.setattr(cycle, "read_record", cycle_record)
     monkeypatch.setattr(
         cycle.WorkflowState,
         "project_owned_awaiting_integrations",
         lambda *_args, **_kwargs: [],
     )
-    monkeypatch.setattr(cycle, "consume_next_merge_lane", lambda *_args: None)
+    monkeypatch.setattr(
+        cycle,
+        "consume_next_merge_lane",
+        lambda *_args: pytest.fail(
+            "inspection-only external MR 154 ran before eligible deployment"
+        ),
+    )
     monkeypatch.setattr(
         cycle,
         "read_mission_record",
@@ -825,6 +843,94 @@ def test_live_cycle_plans_deployment_without_active_governed_integration(
 
     assert (
         cycle.run_next("run-deployment", "hermes-not-invoked", "supervisorctl")
+        == expected
+    )
+
+
+def test_live_cycle_dispatches_analysis_after_deployment_and_integration_clear(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Read-only analysis remains eligible when no stronger work is projected."""
+    from axis_supervisor import cycle
+
+    analysis_item = {
+        "ref": "semantic-decomposition:ghostspace/axis#104",
+        "target_ref": "ghostspace/axis#104",
+        "assignment_type": "read-only-analysis",
+        "project": "ghostspace/axis",
+    }
+    graph = {"queue_depth": 1, "executable_queue": [analysis_item]}
+    inventory = {
+        "supervisor_assignments": [],
+        "active_leases": [],
+        "open_merge_requests": [],
+    }
+    control = {"product_owner_usernames": ["owner"]}
+    selected_assignment = {
+        "assignment_id": "assignment-analysis-104",
+        "assignment_type": "read-only-analysis",
+        "work_item_disposition": "analyzed-only",
+    }
+    expected = {"result": "analysis-completed", "assignment": "assignment-analysis-104"}
+
+    def cycle_record(_path: Path, schema: str) -> dict:
+        if schema == "axis.external-development-supervisor.inventory":
+            return inventory
+        if schema == "axis.external-development-supervisor.control":
+            return control
+        if schema == "axis.external-development-supervisor.capability-convergence":
+            return {
+                "promotion_status": {
+                    "blocked": False,
+                    "repository_converged": True,
+                    "reason": "promotion follows capability impact and ring order",
+                },
+                "deployment_assignments": [],
+            }
+        if schema == "axis.external-development-supervisor.executable-frontier":
+            return {"selected": [analysis_item["ref"]]}
+        raise AssertionError(f"unexpected cycle schema: {schema}")
+
+    class AnalysisOnlyDispatcher:
+        def __init__(self, root: Path):
+            assert root == tmp_path
+
+        def active(self) -> list[dict]:
+            return []
+
+        def dispatch(self, current_graph: dict, run_id: str, item: dict) -> dict:
+            assert (current_graph, run_id, item) == (graph, "run-analysis", analysis_item)
+            return selected_assignment
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "rebuild", lambda: graph)
+    monkeypatch.setattr(cycle, "read_record", cycle_record)
+    monkeypatch.setattr(
+        cycle.WorkflowState,
+        "project_owned_awaiting_integrations",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        cycle,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {}},
+    )
+    monkeypatch.setattr(cycle, "Dispatcher", AnalysisOnlyDispatcher)
+    monkeypatch.setattr(cycle, "consume_next_merge_lane", lambda *_args: None)
+    monkeypatch.setattr(cycle, "MutationGate", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(cycle, "HermesWorkerManager", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        cycle,
+        "execute_new_assignment",
+        lambda assignment, _manager, supervisorctl, _gate: (
+            expected
+            if (assignment, supervisorctl) == (selected_assignment, "supervisorctl")
+            else pytest.fail("unexpected analysis execution")
+        ),
+    )
+
+    assert (
+        cycle.run_next("run-analysis", "hermes-not-invoked", "supervisorctl")
         == expected
     )
 
