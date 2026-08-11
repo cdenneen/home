@@ -6,12 +6,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from axis_supervisor.accounting import AccountingLedger
+from axis_supervisor import progress_coherence
 from axis_supervisor.assignment_grants import (
     bind_mr as bind_assignment_grant_mr,
 )
@@ -32,6 +34,7 @@ from axis_supervisor.deployment import (
 )
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
+from axis_supervisor.frontier import ExecutableFrontier
 from axis_supervisor.integrator import Integrator
 from axis_supervisor.merge_lanes import consume_next as consume_next_merge_lane
 from axis_supervisor.merge_lanes import GATED_INTEGRATION
@@ -648,9 +651,76 @@ def recover_pending_decisions_safely() -> tuple[list[str], dict | None]:
         return [], None
 
 
-def rebuild(*, reconcile_decisions: bool = True) -> dict:
+def publish_source_generation(
+    inventory: dict[str, Any],
+    graph: dict[str, Any],
+    graduation: dict[str, Any],
+    mission: dict[str, Any],
+    active_assignments: list[dict[str, Any]],
+) -> None:
+    """Publish a fully-derived inventory snapshot under the reconciliation lock."""
+    coherence = progress_coherence(inventory, graph, graduation, mission)
+    if not coherence["trusted"]:
+        raise ValueError(
+            "refusing to publish incoherent source generations: "
+            + ", ".join(coherence["failures"])
+        )
+    records = (
+        (
+            ROOT / "execution-graph.json",
+            graph,
+            "axis.external-development-supervisor.execution-graph",
+        ),
+        (
+            ROOT / "capability-graduation.json",
+            graduation,
+            "axis.external-development-supervisor.capability-graduation",
+        ),
+        (
+            ROOT / "active-mission.json",
+            mission,
+            "axis.external-development-supervisor.active-mission",
+        ),
+        (
+            ROOT / "inventory.json",
+            inventory,
+            "axis.external-development-supervisor.inventory",
+        ),
+    )
+    previous = [
+        (path, read_record(path, schema), schema)
+        for path, _value, schema in records
+        if path.exists()
+    ]
+    previous_paths = {path for path, _value, _schema in previous}
+    gate = MutationGate(ROOT, source="cycle")
+    decision = gate.decide(OperationClass.RECONCILIATION)
+    gate.require(decision, OperationClass.RECONCILIATION)
+    try:
+        for path, value, schema in records:
+            write_record(path, value, schema)
+        ExecutableFrontier(ROOT).build(
+            graph.get("executable_queue") or [],
+            active_assignments,
+            graph.get("generation_id"),
+        )
+    except Exception:
+        for path, value, schema in previous:
+            write_record(path, value, schema)
+        for path, _value, _schema in records:
+            if path not in previous_paths:
+                path.unlink(missing_ok=True)
+        raise
+
+
+def rebuild(
+    *,
+    reconcile_decisions: bool = True,
+    inventory_path: Path | None = None,
+) -> dict:
     inventory = read_record(
-        ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
+        inventory_path or ROOT / "inventory.json",
+        "axis.external-development-supervisor.inventory",
     )
     control = read_record(
         ROOT / "control.json", "axis.external-development-supervisor.control"
@@ -682,6 +752,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
                 ROOT, "cycle"
             ).throughput_metrics(now - 30 * 86_400, now),
         },
+        persist=False,
     )
     RoadmapQualityProjector(ROOT).build(inventory, graph)
     repository_convergence = RepositoryConvergenceProjector(ROOT).build(inventory)
@@ -689,7 +760,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
         repository_convergence
     )
     graduation = CapabilityGraduationProjector(ROOT).build(
-        inventory, graph, capability_convergence
+        inventory, graph, capability_convergence, persist=False
     )
     reconcile_merge_lanes(ROOT, inventory)
     assignment_by_id = {
@@ -744,18 +815,43 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
                     ROOT, "cycle"
                 ).throughput_metrics(now - 30 * 86_400, now),
             },
+            persist=False,
         )
         RoadmapQualityProjector(ROOT).build(inventory, graph)
     graduation = CapabilityGraduationProjector(ROOT).build(
-        inventory, graph, capability_convergence
+        inventory, graph, capability_convergence, persist=False
     )
-    ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
+    mission = ActiveMissionState(ROOT).reconcile(
+        inventory, graph, graduation, persist=False
+    )
+    publish_source_generation(inventory, graph, graduation, mission, active)
     record_product_heartbeat(ROOT, graduation)
     if reconcile_decisions:
         completed, recovered_graph = recover_pending_decisions_safely()
         if completed and recovered_graph is not None:
             graph = recovered_graph
     return graph
+
+
+def settle_run(
+    run_id: str, result: dict[str, Any], *, status: str = "completed"
+) -> None:
+    """Durably settle a run after its bounded cycle has a deterministic result."""
+    path = ROOT / "runs" / f"{run_id}.json"
+    if not path.exists():
+        return
+    record = read_record(path, "axis.external-development-supervisor.run")
+    if record.get("status") not in {"started", "reconciled"}:
+        return
+    record["status"] = status
+    record["completion_output"] = json.dumps(result, sort_keys=True, default=str)[
+        :4096
+    ]
+    record["reconciled_at_epoch"] = int(time.time())
+    gate = MutationGate(ROOT, source="cycle")
+    decision = gate.decide(OperationClass.RECONCILIATION)
+    gate.require(decision, OperationClass.RECONCILIATION)
+    write_record(path, record, "axis.external-development-supervisor.run")
 
 
 def execute_new_assignment(
@@ -2022,6 +2118,7 @@ def run_canary(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("rebuild", "run-next", "run-canary"))
+    parser.add_argument("--inventory-path", type=Path)
     parser.add_argument("--run-id")
     parser.add_argument("--assignment-id")
     parser.add_argument("--hermes", default="hermes")
@@ -2033,18 +2130,27 @@ def main() -> int:
     )
     args = parser.parse_args()
     if args.command == "rebuild":
-        print(json.dumps(rebuild(), sort_keys=True))
+        print(json.dumps(rebuild(inventory_path=args.inventory_path), sort_keys=True))
         return 0
     if args.command in {"run-next", "run-canary"} and not args.run_id:
         parser.error("run-next requires --run-id")
-    if args.command == "run-canary":
-        if not args.assignment_id:
-            parser.error("run-canary requires --assignment-id")
-        result = run_canary(
-            args.assignment_id, args.run_id, args.hermes, args.supervisorctl
+    try:
+        if args.command == "run-canary":
+            if not args.assignment_id:
+                parser.error("run-canary requires --assignment-id")
+            result = run_canary(
+                args.assignment_id, args.run_id, args.hermes, args.supervisorctl
+            )
+        else:
+            result = run_next(args.run_id, args.hermes, args.supervisorctl)
+    except Exception as exc:
+        settle_run(
+            args.run_id,
+            {"error": f"{type(exc).__name__}: {exc}"},
+            status="abandoned",
         )
-    else:
-        result = run_next(args.run_id, args.hermes, args.supervisorctl)
+        raise
+    settle_run(args.run_id, result)
     record_event(
         ROOT,
         "cycle_completed",

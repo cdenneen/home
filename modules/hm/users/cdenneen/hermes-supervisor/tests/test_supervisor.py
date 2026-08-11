@@ -3007,6 +3007,21 @@ def test_localized_dependency_timeout_allows_usable_preflight(
         "queue_depth": 1,
         "scheduler_state": {"selected_batch": []},
     }
+    graduation = {
+        "projection_digest": "sha256:graduation-timeout",
+        "source_convergence_digest": "sha256:convergence-timeout",
+        "source_inventory_generation_id": "inventory-timeout",
+        "source_graph_generation_id": "graph-timeout",
+    }
+    mission = {
+        "source_generations": {
+            "inventory": "inventory-timeout",
+            "graph": "graph-timeout",
+            "graduation": "sha256:graduation-timeout",
+            "convergence": "sha256:convergence-timeout",
+        },
+        "termination_condition": {"should_terminate": False},
+    }
     recorded_events = []
     written_runs = []
 
@@ -3023,14 +3038,16 @@ def test_localized_dependency_timeout_allows_usable_preflight(
     monkeypatch.setattr(
         preflight,
         "read_record",
-        lambda path, _schema: (
-            inventory if path.name == "inventory.json" else execution_graph
-        ),
+        lambda path, _schema: inventory
+        if path.name == "inventory.json"
+        else execution_graph
+        if path.name == "execution-graph.json"
+        else graduation,
     )
     monkeypatch.setattr(
         preflight,
         "read_mission_record",
-        lambda _path: {"termination_condition": {"should_terminate": False}},
+        lambda _path: mission,
     )
     monkeypatch.setattr(preflight, "has_runnable_action", lambda _mission: False)
     monkeypatch.setattr(
@@ -3066,7 +3083,207 @@ def test_localized_dependency_timeout_allows_usable_preflight(
     assert degraded["details"]["affected_items"] == [
         {"ref": "ghostspace/axis#36", "error": "links: TimeoutExpired"}
     ]
-    assert written_runs[-1]["status"] == "started"
+    assert written_runs[-1]["status"] == "reconciled"
+
+
+def test_source_generation_publication_requires_one_coherent_snapshot(
+    tmp_path: Path, monkeypatch
+):
+    import axis_supervisor.cycle as cycle
+
+    class Gate:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def decide(self, *_args, **_kwargs):
+            return None
+
+        def require(self, *_args, **_kwargs):
+            pass
+
+    writes = []
+    inventory = {"generation_id": "inventory-next"}
+    graph = {"generation_id": "graph-next", "inventory_generation_id": "inventory-next"}
+    graduation = {
+        "projection_digest": "sha256:graduation-next",
+        "source_convergence_digest": "sha256:convergence-next",
+        "source_inventory_generation_id": "inventory-next",
+        "source_graph_generation_id": "graph-next",
+    }
+    mission = {
+        "source_generations": {
+            "inventory": "inventory-next",
+            "graph": "graph-next",
+            "graduation": "sha256:graduation-next",
+            "convergence": "sha256:convergence-next",
+        }
+    }
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "MutationGate", Gate)
+    monkeypatch.setattr(
+        cycle,
+        "write_record",
+        lambda path, value, schema: writes.append((path.name, value, schema)),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "ExecutableFrontier",
+        lambda _root: type("Frontier", (), {"build": lambda *_args: {}})(),
+    )
+
+    cycle.publish_source_generation(inventory, graph, graduation, mission, [])
+
+    assert [name for name, _value, _schema in writes] == [
+        "execution-graph.json",
+        "capability-graduation.json",
+        "active-mission.json",
+        "inventory.json",
+    ]
+
+    writes.clear()
+    mission["source_generations"]["inventory"] = "inventory-stale"
+    try:
+        cycle.publish_source_generation(inventory, graph, graduation, mission, [])
+    except ValueError as exc:
+        assert "mission_inventory" in str(exc)
+    else:
+        raise AssertionError("incoherent source generations were published")
+    assert writes == []
+
+
+def test_cycle_settles_reconciled_run_after_a_bounded_result(
+    tmp_path: Path, monkeypatch
+):
+    import axis_supervisor.cycle as cycle
+    from axis_supervisor.schema_registry import read_record, write_record
+
+    class Gate:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def decide(self, *_args, **_kwargs):
+            return None
+
+        def require(self, *_args, **_kwargs):
+            pass
+
+    run_path = tmp_path / "runs" / "run-1.json"
+    write_record(
+        run_path,
+        {
+            "schema": "axis.external-development-supervisor.run",
+            "schema_version": "1.0.0",
+            "run_id": "run-1",
+            "status": "reconciled",
+            "host": "test-host",
+            "started_at_epoch": 1,
+            "mode": "enabled",
+            "allow_repository_mutation": False,
+            "inventory_generation_id": "inventory-next",
+            "model_calls_remaining": 1,
+            "reconciled_at_epoch": 1,
+        },
+        "axis.external-development-supervisor.run",
+    )
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "MutationGate", Gate)
+
+    cycle.settle_run("run-1", {"result": "no-assignment"})
+
+    settled = read_record(run_path, "axis.external-development-supervisor.run")
+    assert settled["status"] == "completed"
+    assert "no-assignment" in settled["completion_output"]
+
+
+def test_preflight_migrates_started_run_after_reconciliation_event(
+    tmp_path: Path, monkeypatch
+):
+    import preflight
+    from axis_supervisor.schema_registry import read_record, write_record
+
+    class Gate:
+        def decide(self, *_args, **_kwargs):
+            return None
+
+        def require(self, *_args, **_kwargs):
+            pass
+
+    runs = tmp_path / "runs"
+    run_path = runs / "run-legacy.json"
+    write_record(
+        run_path,
+        {
+            "schema": "axis.external-development-supervisor.run",
+            "schema_version": "1.0.0",
+            "run_id": "run-legacy",
+            "status": "started",
+            "host": "test-host",
+            "started_at_epoch": 1,
+            "mode": "enabled",
+            "allow_repository_mutation": False,
+            "inventory_generation_id": "inventory-current",
+            "model_calls_remaining": 1,
+        },
+        "axis.external-development-supervisor.run",
+    )
+    (tmp_path / "operational-events.jsonl").write_text(
+        json.dumps(
+            {
+                "event_type": "reconciliation_completed",
+                "details": {"run_id": "run-legacy"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "ROOT", tmp_path)
+    monkeypatch.setattr(preflight, "RUNS", runs)
+
+    preflight.reconcile_prior_runs({}, 100, Gate())
+
+    assert read_record(run_path, "axis.external-development-supervisor.run")[
+        "status"
+    ] == "reconciled"
+
+
+def test_canonical_slack_projection_accepts_coherently_published_sources(
+    tmp_path: Path, monkeypatch, capsys
+):
+    projection = load_module("canonical_slack_projection", ROOT / "scripts" / "slack_projection.py")
+    inventory = {"generation_id": "inventory-current"}
+    graph = {"generation_id": "graph-current", "inventory_generation_id": "inventory-current"}
+    graduation = {
+        "projection_digest": "sha256:graduation-current",
+        "source_convergence_digest": "sha256:convergence-current",
+        "source_inventory_generation_id": "inventory-current",
+        "source_graph_generation_id": "graph-current",
+    }
+    mission = {
+        "source_generations": {
+            "inventory": "inventory-current",
+            "graph": "graph-current",
+            "graduation": "sha256:graduation-current",
+            "convergence": "sha256:convergence-current",
+        }
+    }
+    monkeypatch.setattr(projection, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        projection,
+        "read_record",
+        lambda path, _schema: inventory if path.name == "inventory.json" else graph if path.name == "execution-graph.json" else {},
+    )
+    monkeypatch.setattr(projection, "read_capability_graduation", lambda _path: graduation)
+    monkeypatch.setattr(projection, "read_mission_record", lambda _path: mission)
+    monkeypatch.setattr(
+        projection,
+        "SlackProjection",
+        lambda _root: type("Projection", (), {"update": lambda *_args: {"updated": True}})(),
+    )
+    monkeypatch.setattr(sys, "argv", ["slack_projection.py"])
+
+    assert projection.main() == 0
+    assert json.loads(capsys.readouterr().out) == {"updated": True}
 
 
 def test_isolated_dependency_link_timeout_gate_requires_complete_noncanonical_accounting():

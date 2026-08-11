@@ -635,7 +635,14 @@ class CapabilityGraduationProjector:
             for path in candidate.get("allowed_paths") or []
         ]
 
-    def build(self, inventory: dict, graph: dict, convergence: dict) -> dict:
+    def build(
+        self,
+        inventory: dict,
+        graph: dict,
+        convergence: dict,
+        *,
+        persist: bool = True,
+    ) -> dict:
         matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
         applicability_model_revision = str(
             matrix.get("applicability_model_revision") or "legacy-boolean-v1"
@@ -1180,7 +1187,8 @@ class CapabilityGraduationProjector:
             "operator_confidence": operator_confidence,
             "production_confidence": production_confidence,
         }
-        decision = self.gate.decide(OperationClass.RECONCILIATION)
-        self.gate.require(decision, OperationClass.RECONCILIATION)
-        write_record(self.path, projection, SCHEMA)
+        if persist:
+            decision = self.gate.decide(OperationClass.RECONCILIATION)
+            self.gate.require(decision, OperationClass.RECONCILIATION)
+            write_record(self.path, projection, SCHEMA)
         return projection

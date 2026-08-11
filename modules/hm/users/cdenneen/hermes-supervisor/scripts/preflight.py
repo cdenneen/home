@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from axis_supervisor import progress_coherence
 from axis_supervisor.accounting import AccountingLedger
 from axis_supervisor.lifecycle import is_terminal
 from axis_supervisor.mutation import MutationGate, OperationClass
@@ -212,6 +213,22 @@ def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
     job_id = str(control.get("cron_job_id") or "").strip()
     output_dir = Path.home() / ".hermes" / "cron" / "output" / job_id
     outputs = list(output_dir.glob("*.md")) if job_id else []
+    reconciled_runs = set()
+    events_path = ROOT / "operational-events.jsonl"
+    try:
+        event_lines = events_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        event_lines = []
+    for line in event_lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("event_type") != "reconciliation_completed":
+            continue
+        run_id = str((event.get("details") or {}).get("run_id") or "")
+        if run_id:
+            reconciled_runs.add(run_id)
 
     for run_path in RUNS.glob("*.json"):
         try:
@@ -236,7 +253,7 @@ def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
                 "inventory_generation_id": record.get("inventory_generation_id"),
                 "model_calls_remaining": int(record.get("model_calls_remaining") or 0),
             }
-        if record.get("status") != "started":
+        if record.get("status") not in {"started", "reconciled"}:
             continue
 
         run_id = str(record.get("run_id") or "")
@@ -252,6 +269,9 @@ def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
         if matched is not None:
             record["status"] = "completed"
             record["completion_output"] = str(matched)
+            record["reconciled_at_epoch"] = now
+        elif run_id in reconciled_runs:
+            record["status"] = "reconciled"
             record["reconciled_at_epoch"] = now
         elif now - int(record.get("started_at_epoch", now)) > 1800:
             record["status"] = "abandoned"
@@ -336,6 +356,8 @@ def main() -> int:
         stale_lock = ROOT / f"inventory.lock.stale.{now}"
         INVENTORY_LOCK.rename(stale_lock)
     try:
+        staged_inventory = ROOT / "inventory.pending.json"
+        staged_inventory.unlink(missing_ok=True)
         gate.require(
             gate.decide(OperationClass.RECONCILIATION),
             OperationClass.RECONCILIATION,
@@ -362,14 +384,22 @@ def main() -> int:
             text=True,
             capture_output=True,
             timeout=240,
+            env=os.environ | {"AXIS_SUPERVISOR_INVENTORY_PATH": str(staged_inventory)},
         )
         subprocess.run(
-            [sys.executable, str(CYCLE), "rebuild"],
+            [
+                sys.executable,
+                str(CYCLE),
+                "rebuild",
+                "--inventory-path",
+                str(staged_inventory),
+            ],
             check=True,
             text=True,
             capture_output=True,
             timeout=60,
         )
+        staged_inventory.unlink(missing_ok=True)
     except Exception as exc:
         diagnostic = child_diagnostic(exc)
         return skip(
@@ -393,7 +423,19 @@ def main() -> int:
         ROOT / "execution-graph.json",
         "axis.external-development-supervisor.execution-graph",
     )
+    graduation = read_record(
+        ROOT / "capability-graduation.json",
+        "axis.external-development-supervisor.capability-graduation",
+    )
     active_mission = read_mission_record(ROOT / "active-mission.json")
+    coherence = progress_coherence(
+        inventory, execution_graph, graduation, active_mission
+    )
+    if not coherence["trusted"]:
+        raise RuntimeError(
+            "reconciliation published incoherent source generations: "
+            + ", ".join(coherence["failures"])
+        )
     record_event(
         ROOT,
         "reconciliation_completed",
@@ -494,13 +536,14 @@ def main() -> int:
         "schema": "axis.external-development-supervisor.run",
         "schema_version": "1.0.0",
         "run_id": run_id,
-        "status": "started",
+        "status": "reconciled",
         "host": socket.gethostname(),
         "started_at_epoch": now,
         "mode": control.get("mode"),
         "allow_repository_mutation": bool(control.get("allow_repository_mutation")),
         "inventory_generation_id": inventory.get("generation_id"),
         "model_calls_remaining": max(0, model_limit - calls_today),
+        "reconciled_at_epoch": int(time.time()),
     }
     run_path = RUNS / f"{run_id}.json"
     gate.require(

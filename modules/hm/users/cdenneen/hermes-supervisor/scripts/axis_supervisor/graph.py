@@ -665,7 +665,13 @@ class ExecutionGraphBuilder:
         self.authority = AuthorityResolver()
         self.gate = MutationGate(root, source="graph")
 
-    def build(self, inventory: dict, scheduler_context: dict | None = None) -> dict:
+    def build(
+        self,
+        inventory: dict,
+        scheduler_context: dict | None = None,
+        *,
+        persist: bool = True,
+    ) -> dict:
         control = read_record(
             self.root / "control.json",
             "axis.external-development-supervisor.control",
@@ -1145,6 +1151,9 @@ class ExecutionGraphBuilder:
             "queue_zero_proof": proof_conditions,
             "governed_queue_zero_proven": governed_zero,
         }
-        write_execution_graph(self.root / "execution-graph.json", graph, self.gate)
-        ExecutableFrontier(self.root).build(queue, assignments, graph["generation_id"])
+        if persist:
+            write_execution_graph(self.root / "execution-graph.json", graph, self.gate)
+            ExecutableFrontier(self.root).build(
+                queue, assignments, graph["generation_id"]
+            )
         return graph

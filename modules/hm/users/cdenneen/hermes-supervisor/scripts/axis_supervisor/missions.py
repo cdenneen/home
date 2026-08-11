@@ -1183,6 +1183,8 @@ class ActiveMissionState:
         inventory: dict[str, Any],
         graph: dict[str, Any],
         graduation: dict[str, Any],
+        *,
+        persist: bool = True,
     ) -> dict[str, Any]:
         previous = self._previous()
         assignments = self._assignments(inventory)
@@ -1340,9 +1342,10 @@ class ActiveMissionState:
             },
             "observations": observations,
         }
-        decision = self.gate.decide(OperationClass.RECONCILIATION)
-        self.gate.require(decision, OperationClass.RECONCILIATION)
-        write_record(self.path, projection, SCHEMA)
+        if persist:
+            decision = self.gate.decide(OperationClass.RECONCILIATION)
+            self.gate.require(decision, OperationClass.RECONCILIATION)
+            write_record(self.path, projection, SCHEMA)
         return projection
 
     def observe(self, response: Any, *, source: str) -> dict[str, Any]:

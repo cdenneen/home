@@ -4,6 +4,9 @@ import json
 import os
 from pathlib import Path
 
+from axis_supervisor import progress_coherence
+from axis_supervisor.capability_graduation import read_capability_graduation
+from axis_supervisor.missions import read_mission_record
 from axis_supervisor.schema_registry import read_record
 from axis_supervisor.slack_projection import SlackProjection
 
@@ -31,6 +34,14 @@ def main() -> int:
     )
     if graph.get("inventory_generation_id") != inventory.get("generation_id"):
         raise ValueError("execution graph does not match inventory generation")
+    graduation = read_capability_graduation(ROOT / "capability-graduation.json")
+    mission = read_mission_record(ROOT / "active-mission.json")
+    coherence = progress_coherence(inventory, graph, graduation, mission)
+    if not coherence["trusted"]:
+        raise ValueError(
+            "supervisor progress generations are incoherent: "
+            + ", ".join(coherence["failures"])
+        )
     control = read_record(
         ROOT / "control.json", "axis.external-development-supervisor.control"
     )

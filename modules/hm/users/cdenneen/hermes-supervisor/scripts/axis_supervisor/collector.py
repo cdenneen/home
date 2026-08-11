@@ -33,7 +33,9 @@ ROOT = Path(
     )
 )
 CONTROL = ROOT / "control.json"
-INVENTORY = ROOT / "inventory.json"
+INVENTORY = Path(
+    os.environ.get("AXIS_SUPERVISOR_INVENTORY_PATH", ROOT / "inventory.json")
+)
 WORKSPACE = Path(
     os.environ.get(
         "AXIS_SUPERVISOR_WORKSPACE", "/home/cdenneen/src/workspace/personal/work"

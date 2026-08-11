@@ -19,7 +19,13 @@
     "schema_version": { "const": "1.0.0" },
     "run_id": { "type": "string", "minLength": 1 },
     "status": {
-      "enum": ["started", "completed", "abandoned", "preflight-test"]
+      "enum": [
+        "started",
+        "reconciled",
+        "completed",
+        "abandoned",
+        "preflight-test"
+      ]
     },
     "host": { "type": "string", "minLength": 1 },
     "started_at_epoch": { "type": "integer", "minimum": 1 },
