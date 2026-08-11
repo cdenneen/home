@@ -291,6 +291,74 @@ def converge_repository(
     branch = str(facts.get("branch") or "")
     removed_worktree = False
     removed_branch = False
+    root_fast_forwarded = False
+    worktree_metadata_pruned = False
+    if scope == "root":
+        expected_root = Path(str(facts.get("path") or "")).resolve()
+        if expected_root != repo.resolve():
+            raise RuntimeError("convergence root does not match the canonical repository")
+        default_branch = str(facts.get("default_branch") or "main")
+        current_branch = subprocess.check_output(
+            ["git", "branch", "--show-current"], cwd=repo, text=True
+        ).strip()
+        if current_branch != default_branch:
+            raise RuntimeError("convergence root is not on the default branch")
+        if subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=repo, text=True
+        ).strip():
+            raise RuntimeError("convergence root has uncommitted changes")
+        gate.require(
+            decision,
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment["project"],
+        )
+        subprocess.run(
+            ["git", "fetch", "--prune", "origin"], cwd=repo, check=True, timeout=120
+        )
+        default_remote = f"origin/{default_branch}"
+        root_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+        ).strip()
+        remote_head = subprocess.check_output(
+            ["git", "rev-parse", default_remote], cwd=repo, text=True
+        ).strip()
+        fast_forward_safe = (
+            subprocess.run(
+                ["git", "merge-base", "--is-ancestor", "HEAD", default_remote],
+                cwd=repo,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode
+            == 0
+        )
+        if not fast_forward_safe:
+            raise RuntimeError("convergence root cannot fast-forward to origin default")
+        if root_head != remote_head:
+            gate.require(
+                decision,
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment["project"],
+            )
+            subprocess.run(
+                ["git", "merge", "--ff-only", default_remote],
+                cwd=repo,
+                check=True,
+                timeout=120,
+            )
+            root_fast_forwarded = True
+        gate.require(
+            decision,
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment["project"],
+        )
+        subprocess.run(
+            ["git", "worktree", "prune"], cwd=repo, check=True, timeout=120
+        )
+        worktree_metadata_pruned = True
     if scope == "worktree":
         worktree = Path(str(facts.get("path") or "")).resolve()
         if not worktree.is_relative_to((ROOT / "worktrees").resolve()):
@@ -307,7 +375,7 @@ def converge_repository(
             check=False,
         )
         removed_worktree = completed.returncode == 0 or not worktree.exists()
-    if branch and branch != "detached":
+    if scope in {"worktree", "branch"} and branch and branch != "detached":
         control = read_record(
             ROOT / "control.json", "axis.external-development-supervisor.control"
         )
@@ -333,6 +401,8 @@ def converge_repository(
         "branch": branch or None,
         "worktree_removed": removed_worktree,
         "branch_removed": removed_branch,
+        "root_fast_forwarded": root_fast_forwarded,
+        "worktree_metadata_pruned": worktree_metadata_pruned,
     }
 
 

@@ -237,7 +237,7 @@ def assignment_is_satisfied(
         repository = assignment.get("project")
         branch = facts.get("branch")
         path = facts.get("path")
-        if scope not in {"branch", "worktree"}:
+        if scope not in {"root", "branch", "worktree"}:
             return False
         if any(
             value.get("ref") == source.get("ref")

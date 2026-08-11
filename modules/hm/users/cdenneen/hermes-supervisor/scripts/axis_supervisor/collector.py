@@ -552,6 +552,22 @@ def local_repository_state(project: dict, merge_requests: list[dict] | None = No
         state["head"] = run([GIT, "rev-parse", "HEAD"], path).strip()
         state["branch"] = run([GIT, "branch", "--show-current"], path).strip()
         state["dirty"] = bool(run([GIT, "status", "--porcelain"], path).strip())
+        default_branch = str(project.get("default_branch") or "main")
+        state["root_is_default_branch"] = state["branch"] == default_branch
+        state["root_fast_forward_safe"] = (
+            subprocess.run(
+                [GIT, "merge-base", "--is-ancestor", "HEAD", default_remote],
+                cwd=str(path),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        )
+        state["root_needs_fast_forward"] = bool(
+            state["root_is_default_branch"]
+            and state["head"] != state["default_remote_head"]
+        )
         worktree_raw = run([GIT, "worktree", "list", "--porcelain"], path)
         worktrees = []
         for block in (
@@ -591,6 +607,7 @@ def local_repository_state(project: dict, merge_requests: list[dict] | None = No
                     "dirty": dirty,
                     "integrated_into_default": integrated,
                     "is_root": worktree_path.resolve() == path.resolve(),
+                    "prunable": "prunable" in fields,
                 }
             )
         state["worktrees"] = worktrees
@@ -1147,7 +1164,17 @@ def main() -> int:
             "main@personal",
             "master@personal",
         }
-        if local.get("dirty") or not root_is_default:
+        prunable_worktrees = [
+            entry
+            for entry in local.get("worktrees") or []
+            if not entry.get("is_root") and entry.get("prunable")
+        ]
+        if (
+            local.get("dirty")
+            or not root_is_default
+            or local.get("root_needs_fast_forward")
+            or prunable_worktrees
+        ):
             related_open_mr = any(
                 mr["project"] == project_ref
                 and mr.get("source_branch") in root_branch
@@ -1167,6 +1194,19 @@ def main() -> int:
                     "supervisor_owned": supervisor_owned_branch(root_branch),
                     "under_owned_worktree_root": False,
                     "remote_fresh": bool(local.get("remote_fresh")),
+                    "root_is_default_branch": bool(
+                        local.get("root_is_default_branch")
+                    ),
+                    "root_fast_forward_safe": bool(
+                        local.get("root_fast_forward_safe")
+                    ),
+                    "root_needs_fast_forward": bool(
+                        local.get("root_needs_fast_forward")
+                    ),
+                    "default_branch": repository.get("default_branch") or "main",
+                    "prunable_worktree_paths": [
+                        entry.get("path") for entry in prunable_worktrees
+                    ],
                 },
             )
 
