@@ -753,7 +753,7 @@ def test_live_cycle_executes_promotion_blocking_repository_convergence_first(
 def test_live_cycle_plans_deployment_without_active_governed_integration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """An eligible deployment preempts external inspection and analysis backlog."""
+    """A failed terminal deployment is retried ahead of inspection and analysis."""
     from axis_supervisor import cycle
 
     analysis_item = {
@@ -777,6 +777,31 @@ def test_live_cycle_plans_deployment_without_active_governed_integration(
         "status": "deployment-required",
         "ring": 0,
     }
+    prior_failure = {
+        "schema": "axis.external-development-supervisor.assignment",
+        "schema_version": "4.0.0",
+        "assignment_id": "deployment-ghost-previous-failure",
+        "assignment_type": "capability-deployment",
+        "result_state": "deployment-failed",
+        "work_item_disposition": "requires-runtime-convergence",
+        "lifecycle_state": "deployment-failed",
+        "project": "ghostspace/axis-lab",
+        "responsibility": "deployment/realistic-validation",
+        "repository_ownership": {"status": "validated"},
+        "work_item": "runtime:ghost@test-revision",
+        "planning_record": None,
+        "allowed_paths": [],
+        "required_tests": [],
+        "action_contract": None,
+        "mutation_grant_id": None,
+        "mutation_grant_uri": None,
+        "source_fingerprint": deployment_plan["assignment_id"],
+    }
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "deployment-ghost-previous-failure.json").write_text(
+        json.dumps(prior_failure) + "\n", encoding="utf-8"
+    )
 
     def cycle_record(_path: Path, schema: str) -> dict:
         if schema == "axis.external-development-supervisor.inventory":

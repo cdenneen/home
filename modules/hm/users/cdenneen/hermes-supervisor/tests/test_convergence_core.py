@@ -1163,7 +1163,7 @@ def test_deployment_claim_failure_is_terminal_and_classifies_optional_runtime(
     assert event["details"]["optional_runtime"] == "mbair"
 
 
-def test_run_next_does_not_recreate_terminal_failed_deployment_plan(
+def test_run_next_retries_terminal_failed_deployment_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     from axis_supervisor import cycle
@@ -1204,11 +1204,21 @@ def test_run_next_does_not_recreate_terminal_failed_deployment_plan(
         json.dumps(failed_assignment), encoding="utf-8"
     )
 
-    class DeploymentGateReached(Exception):
+    class DeploymentRetryReached(Exception):
         pass
 
-    def stop_after_deployment_gate(_root: Path):
-        raise DeploymentGateReached
+    class NoActiveAssignments:
+        def __init__(self, root: Path):
+            assert root == tmp_path
+
+        def active(self) -> list[dict]:
+            return []
+
+    def stop_after_deployment_retry(
+        root: Path, selected_plan: dict, run_id: str
+    ) -> dict:
+        assert (root, selected_plan, run_id) == (tmp_path, plan, "run-2")
+        raise DeploymentRetryReached
 
     monkeypatch.setattr(cycle, "ROOT", tmp_path)
     monkeypatch.setattr(cycle, "rebuild", lambda: {})
@@ -1220,14 +1230,14 @@ def test_run_next_does_not_recreate_terminal_failed_deployment_plan(
         "read_record",
         lambda _path, _schema: {"deployment_assignments": [plan]},
     )
-    monkeypatch.setattr(cycle, "Dispatcher", stop_after_deployment_gate)
+    monkeypatch.setattr(cycle, "Dispatcher", NoActiveAssignments)
     monkeypatch.setattr(
         cycle,
         "create_deployment_assignment",
-        lambda *_args: pytest.fail("unchanged failed deployment plan was recreated"),
+        stop_after_deployment_retry,
     )
 
-    with pytest.raises(DeploymentGateReached):
+    with pytest.raises(DeploymentRetryReached):
         cycle.run_next("run-2", "hermes", "supervisorctl")
 
 
