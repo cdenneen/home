@@ -27,6 +27,8 @@ from axis_supervisor.workflow_state import (  # noqa: E402
     HANDOFF_SCHEMA,
     WorkflowState,
     is_mr_driven_integration_projection,
+    post_main_cleanup_disposition,
+    post_merge_cleanup_is_complete,
     recover_integration_binding,
 )
 
@@ -447,6 +449,56 @@ def test_exact_owned_mr_projects_its_handoff_and_canonical_lease(
     assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
 
 
+def test_parallel_projection_resource_conflicts_remain_durable(tmp_path: Path):
+    owned = [
+        _actionable_mr(iid) | {"source_branch": f"hermes/axis-{iid}"}
+        for iid in (155, 157, 158)
+    ]
+    inventory = _custody_inventory(owned, {155, 157, 158})
+    for branch in inventory["repositories"]["ghostspace/axis"]["local_facts"][
+        "remote_branches"
+    ]:
+        branch["changed_paths"] = ["src/axis/cli.py"]
+    _write_enabled_control(tmp_path)
+    workflow = WorkflowState(tmp_path)
+    claimed_assignment_id: str | None = None
+
+    def claim_one_repository_lease(assignment: dict) -> dict:
+        nonlocal claimed_assignment_id
+        if claimed_assignment_id is not None:
+            raise RuntimeError(
+                "repo-resource conflict: repo:ghostspace/axis is leased by "
+                f"{claimed_assignment_id}"
+            )
+        claimed_assignment_id = assignment["assignment_id"]
+        return _claim_durable_lease(tmp_path, assignment)
+
+    projected = workflow.project_owned_awaiting_integrations(
+        inventory,
+        reviewer="owner",
+        claim_lease=claim_one_repository_lease,
+    )
+
+    assert [assignment["assignment_id"] for assignment, _ in projected] == [
+        "integration-mr-155-sha-155"
+    ]
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
+    ]
+    conflicts = [
+        event
+        for event in events
+        if event["event_type"] == "integration_projection_failed"
+    ]
+    assert [event["details"]["mr_iid"] for event in conflicts] == [157, 158]
+    assert all(
+        event["details"]["failure_stage"] == "claim-canonical-lease"
+        and "repo-resource conflict" in event["details"]["error"]
+        for event in conflicts
+    )
+
+
 def test_live_cycle_projects_exact_owned_mr_with_canonical_lease_controller(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -611,6 +663,62 @@ def test_projected_mr_assignment_skips_issue_closure_after_verification(
         )
         is False
     )
+
+
+def test_projected_merge_accepts_retained_local_branch_cleanup(
+    tmp_path: Path,
+):
+    """Mirror the live !155 post-main facts without concealing the branch."""
+    from axis_supervisor.verification import completion_receipt
+
+    assignment = WorkflowState(tmp_path)._adopted_assignment(
+        {
+            "project": "ghostspace/axis",
+            "branch": "hermes/axm4-desktop-ui",
+            "sha": "sha-155",
+            "mr_iid": 155,
+            "mr_url": "https://gitlab.example/ghostspace/axis/-/merge_requests/155",
+            "worktree": "/supervisor/worktrees/assignment-155",
+            "changed_paths": ["src/axis/cli.py"],
+            "source_main_sha": "main-sha",
+        }
+    )
+    cleanup = {
+        "worktree_removed": True,
+        "local_branch_deleted": False,
+        "remote_source_branch_absent": True,
+        "lease_removed": True,
+    }
+
+    assert (
+        post_main_cleanup_disposition(assignment, cleanup)
+        == "mr-projection-local-branch-retained"
+    )
+    assert post_merge_cleanup_is_complete(assignment, cleanup)
+    receipt = completion_receipt(
+        assignment,
+        {
+            "mr": {
+                "state": "merged",
+                "merge_commit_sha": "merge-155",
+                "web_url": "https://gitlab.example/ghostspace/axis/-/merge_requests/155",
+            },
+            "pipeline": {"status": "success"},
+        },
+        [],
+        cleanup,
+        fresh_cycle_recognition=False,
+    )
+    assert receipt["checks"]["cleanup_rechecked"] is True
+
+    incomplete = cleanup | {"remote_source_branch_absent": False}
+    assert post_main_cleanup_disposition(assignment, incomplete) is None
+    assert not post_merge_cleanup_is_complete(assignment, incomplete)
+
+    ordinary_assignment = dict(assignment)
+    ordinary_assignment.pop("integration_recovery")
+    assert post_main_cleanup_disposition(ordinary_assignment, cleanup) is None
+    assert not post_merge_cleanup_is_complete(ordinary_assignment, cleanup)
 
 
 def test_missing_issue_ref_still_fails_closed_without_projection(tmp_path: Path):

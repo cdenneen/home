@@ -76,6 +76,8 @@ from axis_supervisor.workflow_state import (
     WorkflowState,
     classify_main_advance,
     is_mr_driven_integration_projection,
+    post_main_cleanup_disposition,
+    post_merge_cleanup_is_complete,
 )
 
 ROOT = Path(
@@ -1612,14 +1614,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     ).returncode
                     != 0
                 )
-            if not all(
-                cleanup[key]
-                for key in (
-                    "worktree_removed",
-                    "local_branch_deleted",
-                    "remote_source_branch_absent",
-                )
-            ):
+            cleanup_disposition = post_main_cleanup_disposition(assignment, cleanup)
+            if cleanup_disposition is None:
                 verification_error = (
                     "repository convergence incomplete after post-main verification: "
                     + json.dumps(cleanup, sort_keys=True)
@@ -1637,6 +1633,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     details={
                         "tests": test_results,
                         "cleanup": cleanup,
+                        "cleanup_disposition": cleanup_disposition,
                         "mr_url": inspection["mr"].get("web_url"),
                         "expected_next_phase": "issue closure and lease release",
                     },
@@ -1677,6 +1674,15 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if cleanup["lease_removed"]:
                 assignment["lease_id"] = None
                 assignment["lease_uri"] = None
+            assignment["cleanup"] = cleanup
+            assignment["cleanup_disposition"] = cleanup_disposition
+            if not verification_error and not post_merge_cleanup_is_complete(
+                assignment, cleanup
+            ):
+                verification_error = (
+                    "repository convergence incomplete after post-main verification: "
+                    + json.dumps(cleanup, sort_keys=True)
+                )
             if verification_error:
                 set_lifecycle(assignment, "blocked")
                 assignment["result_state"] = "blocked"

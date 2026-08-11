@@ -277,6 +277,38 @@ def is_mr_driven_integration_projection(assignment: dict) -> bool:
         return False
 
 
+def post_main_cleanup_disposition(assignment: dict, cleanup: dict) -> str | None:
+    """Classify the observed repository cleanup after a merged MR.
+
+    Exact MR-driven projections inherit a pre-existing local checkout.  Once
+    its worktree and remote source branch are gone, retaining the local branch
+    is not an outstanding external resource.  The retained branch remains
+    observable in the raw cleanup facts; this narrow exception is deliberately
+    unavailable to ordinary issue-driven assignments.
+    """
+    if not (
+        cleanup.get("worktree_removed") is True
+        and cleanup.get("remote_source_branch_absent") is True
+    ):
+        return None
+    if cleanup.get("local_branch_deleted") is True:
+        return "all-owned-branches-removed"
+    if (
+        cleanup.get("local_branch_deleted") is False
+        and is_mr_driven_integration_projection(assignment)
+    ):
+        return "mr-projection-local-branch-retained"
+    return None
+
+
+def post_merge_cleanup_is_complete(assignment: dict, cleanup: dict) -> bool:
+    """Require a settled repository plus release of the canonical lease."""
+    return bool(
+        post_main_cleanup_disposition(assignment, cleanup)
+        and cleanup.get("lease_removed") is True
+    )
+
+
 class WorkflowState:
     def __init__(self, root: Path):
         self.root = root
