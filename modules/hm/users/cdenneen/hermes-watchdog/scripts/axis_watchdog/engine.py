@@ -395,15 +395,61 @@ class Watchdog:
         }
 
     @staticmethod
-    def _executable_work_exists(graph: dict[str, Any], mission: dict[str, Any]) -> bool:
-        if graph.get("executable_queue"):
-            return True
-        if any(
-            node.get("classification") == "Executable" for node in graph.get("nodes") or []
-        ):
-            return True
+    def _dispatchable_governed_mutation_action(action: dict[str, Any]) -> bool:
+        """Return whether an action can require a governed product transition.
+
+        ``executable`` also covers bounded evidence and validation work.  Delivery
+        freshness is about repository mutation, so it must only consider the more
+        specific dispatch contract published by Supervisor.
+        """
+        authority_state = str(
+            action.get("authority_state")
+            or (action.get("authority") or {}).get("state")
+            or ""
+        )
+        scope = action.get("assignment_scope") or {}
+        return bool(
+            action.get("kind") == "dispatch-executable"
+            and action.get("executable")
+            and action.get("dispatch_class") == "DISPATCHABLE"
+            and authority_state != "preparation-only"
+            and action.get("source_ref")
+            and action.get("expected_effect")
+            and action.get("expected_gates")
+            and action.get("worker_path") == "implementation"
+            and action.get("handoff_path") == "implementation-handoff"
+            and action.get("review_path") == "independent-review"
+            and scope.get("target_ref") == action.get("target")
+            and scope.get("project")
+            and scope.get("allowed_paths")
+            and scope.get("required_tests")
+        )
+
+    @classmethod
+    def _runnable_expected_action(cls, action: dict[str, Any]) -> bool:
+        """Recognize work that should keep mission-progress monitoring active."""
+        if not action.get("executable"):
+            return False
+        if action.get("kind") == "dispatch-executable":
+            return cls._dispatchable_governed_mutation_action(action)
+        return action.get("kind") in {
+            "collect-capability-evidence",
+            "reconcile-active-assignment",
+            "reconcile-missing-evidence",
+            "validate-capability-stream",
+        }
+
+    @classmethod
+    def _executable_work_exists(cls, graph: dict[str, Any], mission: dict[str, Any]) -> bool:
+        """Whether governed repository mutation work is actually dispatchable.
+
+        Graph nodes and queue entries alone can represent preparation-only or
+        no-op revalidation.  The current mission action is the bounded dispatch
+        contract and is therefore the authoritative source for delivery pressure.
+        """
+        del graph
         return any(
-            action.get("executable")
+            cls._dispatchable_governed_mutation_action(action)
             for action in mission.get("generated_actions") or []
         )
 
@@ -495,7 +541,7 @@ class Watchdog:
         if mission.get("current_state") == "completed":
             return True, "mission is completed"
         runnable = any(
-            action.get("executable")
+            Watchdog._runnable_expected_action(action)
             for action in mission.get("generated_actions") or []
         )
         if mission.get("external_blockers") and not runnable:

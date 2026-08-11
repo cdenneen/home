@@ -106,6 +106,7 @@
               "SUPERSEDED"
             ]
           },
+          "authority_state": { "type": ["string", "null"] },
           "assignment_scope": {
             "type": "object",
             "required": [

@@ -149,7 +149,20 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
                     "kind": "dispatch-executable",
                     "executable": True,
                     "target": "ghostspace/axis#1",
+                    "source_ref": "slice:ghostspace/axis#1",
+                    "dispatch_class": "DISPATCHABLE",
                     "engineering_purpose": "advance one verified gate",
+                    "assignment_scope": {
+                        "target_ref": "ghostspace/axis#1",
+                        "project": "ghostspace/axis",
+                        "allowed_paths": ["src/service.py"],
+                        "required_tests": ["pytest"],
+                    },
+                    "worker_path": "implementation",
+                    "handoff_path": "implementation-handoff",
+                    "review_path": "independent-review",
+                    "expected_effect": "advance the expected gate",
+                    "expected_gates": [{"capability": "Web", "gate": "verification"}],
                 }
             ],
             "active_assignments": [],
@@ -551,6 +564,74 @@ def test_expected_wait_does_not_hide_executable_evidence_actions():
     expected, reason = Watchdog._expected_wait(control, mission, {"nodes": []})
     assert expected is False
     assert reason is None
+
+
+def test_preparation_only_invalid_dispatch_does_not_create_delivery_pressure(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    mission["current_state"] = "blocked-external"
+    mission["external_blockers"] = [{"ref": "external"}]
+    mission["generated_actions"] = [
+        {
+            "kind": "dispatch-executable",
+            "executable": True,
+            "target": "ghostspace/axis#7",
+            "source_ref": "technical-revalidation:ghostspace/axis#7:tests",
+            "dispatch_class": "INVALID",
+            "authority_state": "preparation-only",
+        }
+    ]
+    write(supervisor / "active-mission.json", mission)
+
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    assert watchdog._executable_work_exists({}, mission) is False
+    assert Watchdog._expected_wait(
+        {"mode": "enabled", "kill_switch": False}, mission, {"nodes": []}
+    ) == (True, "mission is waiting on explicit external authority")
+    result = watchdog.run()
+
+    assert "real-product-delivery-stale" not in result["anomalies"]
+    state = json.loads((root / "state.json").read_text())
+    assert state["health"]["delivery_effectiveness"]["status"] == "healthy"
+
+
+def test_dispatchable_governed_work_keeps_delivery_pressure(tmp_path: Path):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    write(
+        supervisor / "operational-events.jsonl",
+        {
+            "event_type": "mr_merged",
+            "repository": "ghostspace/axis",
+            "created_at_epoch": now - 3601,
+            "created_at": iso(now - 3601),
+            "details": {"mr_iid": 1},
+        },
+    )
+
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    assert watchdog._executable_work_exists({}, mission) is True
+    result = watchdog.run()
+
+    assert "real-product-delivery-stale" in result["anomalies"]
 
 
 def test_outbox_health_covers_missing_corrupt_pending_failed_and_permanent(

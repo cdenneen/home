@@ -196,6 +196,38 @@ def test_unbound_generated_action_does_not_claim_dispatchable_work(tmp_path: Pat
     assert has_runnable_action(mission) is False
 
 
+def test_preparation_only_dispatch_action_is_not_runnable_governed_mutation(
+    tmp_path: Path,
+):
+    from axis_supervisor.missions import ActiveMissionState, has_runnable_action
+
+    write_control(tmp_path)
+    item = {
+        "ref": "technical-revalidation:ghostspace/axis#7:tests",
+        "target_ref": "ghostspace/axis#7",
+        "kind": "technical-revalidation",
+        "assignment_type": "no-op-verification",
+        "project": "ghostspace/axis",
+        "authority": {"state": "preparation-only"},
+        "candidate": {"allowed_paths": [], "required_tests": ["pytest"]},
+        "affected_capabilities": ["Service"],
+    }
+    mission = ActiveMissionState(tmp_path).reconcile(
+        {},
+        graph(queue=[item]),
+        graduation(capability("Service", missing_gate="verification")),
+    )
+
+    action = next(
+        action
+        for action in mission["generated_actions"]
+        if action["kind"] == "dispatch-executable"
+    )
+    assert action["dispatch_class"] == "INVALID"
+    assert action["authority_state"] == "preparation-only"
+    assert has_runnable_action(mission) is False
+
+
 def test_external_blocked_stream_does_not_stop_compatible_work(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 

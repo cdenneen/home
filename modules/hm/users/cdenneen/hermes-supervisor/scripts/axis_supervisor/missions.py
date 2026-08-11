@@ -45,6 +45,49 @@ GATE_ORDER = (
     "operator_acceptance",
     "program_risk",
 )
+MUTATING_ASSIGNMENT_TYPES = {
+    "governance-document-mutation",
+    "code-implementation",
+    "ci-integration-repair",
+}
+
+
+def _authority_state(value: dict[str, Any]) -> str:
+    """Return the authority state published by a graph entry or mission action."""
+    return str(
+        value.get("authority_state")
+        or (value.get("authority") or {}).get("state")
+        or ""
+    )
+
+
+def dispatch_class_for(entry: dict[str, Any], expected_gates: list[dict[str, Any]]) -> str:
+    """Classify whether an executable-queue entry may dispatch a product mutation.
+
+    Technical revalidation can be executable read-only work, but preparation-only
+    authority never authorizes a governed repository mutation.
+    """
+    candidate = entry.get("candidate") or {}
+    if (
+        entry.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
+        and _authority_state(entry) != "preparation-only"
+        and entry.get("project")
+        and candidate.get("allowed_paths")
+        and candidate.get("required_tests")
+        and expected_gates
+    ):
+        return "DISPATCHABLE"
+    return "INVALID"
+
+
+def is_dispatchable_governed_mutation(action: dict[str, Any]) -> bool:
+    """Whether an action can truthfully require a governed product transition."""
+    return bool(
+        action.get("kind") == "dispatch-executable"
+        and action.get("executable")
+        and action.get("dispatch_class") == "DISPATCHABLE"
+        and _authority_state(action) != "preparation-only"
+    )
 
 
 def utc_now() -> str:
@@ -233,12 +276,17 @@ def _external_node(node: dict[str, Any]) -> bool:
 def has_runnable_action(mission: dict[str, Any]) -> bool:
     return any(
         (
-            action.get("kind") == "dispatch-executable"
+            is_dispatchable_governed_mutation(action)
             and bool(action.get("source_ref"))
         )
         or (
             action.get("kind") == "reconcile-active-assignment"
             and bool(action.get("assignment_id"))
+        )
+        or (
+            action.get("kind")
+            in {"collect-capability-evidence", "validate-capability-stream"}
+            and bool(action.get("executable"))
         )
         for action in mission.get("generated_actions") or []
     )
@@ -928,20 +976,8 @@ class ActiveMissionState:
                     "attempt_limit": 1,
                     "source_ref": str(entry.get("ref") or target),
                     "assignment_id": None,
-                    "dispatch_class": (
-                        "DISPATCHABLE"
-                        if entry.get("assignment_type")
-                        in {
-                            "governance-document-mutation",
-                            "code-implementation",
-                            "ci-integration-repair",
-                        }
-                        and entry.get("project")
-                        and (entry.get("candidate") or {}).get("allowed_paths")
-                        and (entry.get("candidate") or {}).get("required_tests")
-                        and expected_gates
-                        else "INVALID"
-                    ),
+                    "dispatch_class": dispatch_class_for(entry, expected_gates),
+                    "authority_state": _authority_state(entry) or None,
                     "assignment_scope": {
                         "target_ref": target,
                         "project": entry.get("project"),
