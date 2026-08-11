@@ -1009,22 +1009,30 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     workflow = WorkflowState(ROOT)
 
     def claim_recovered_integration_lease(assignment: dict) -> dict:
-        output = subprocess.check_output(
-            [
-                sys.executable,
-                supervisorctl,
-                "claim",
-                assignment["assignment_id"],
-                "--run-id",
-                assignment["created_by_run"],
-                "--resource",
-                f"repo:{assignment['project']}",
-                "--ttl",
-                "3600",
-            ],
-            text=True,
-            timeout=120,
-        )
+        command = [
+            sys.executable,
+            supervisorctl,
+            "claim",
+            assignment["assignment_id"],
+            "--run-id",
+            assignment["created_by_run"],
+            "--resource",
+            f"repo:{assignment['project']}",
+            "--ttl",
+            "3600",
+        ]
+        try:
+            output = subprocess.check_output(command, text=True, timeout=120)
+        except subprocess.CalledProcessError as exc:
+            detail = str(exc.output or exc.stderr or "").strip()
+            try:
+                detail = str(json.loads(detail).get("error") or detail)
+            except json.JSONDecodeError:
+                pass
+            raise RuntimeError(
+                "canonical integration lease claim failed: "
+                f"{detail or f'exit status {exc.returncode}'}"
+            ) from exc
         return validate_record(
             json.loads(output), "axis.external-development-supervisor.lease"
         )
@@ -1047,6 +1055,10 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 inventory.setdefault("supervisor_assignments", []).append(assignment)
             if lease["lease_id"] not in lease_ids:
                 inventory.setdefault("active_leases", []).append(lease)
+        # The initial rebuild precedes projection.  Reconcile once more against
+        # the same current inventory so this cycle's lane consumer can observe
+        # the exact durable assignment and lease it just materialized.
+        reconcile_merge_lanes(ROOT, inventory)
     lane = consume_next_merge_lane(
         ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
     )

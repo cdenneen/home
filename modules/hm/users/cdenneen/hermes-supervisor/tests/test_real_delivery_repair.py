@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -443,6 +445,137 @@ def test_exact_owned_mr_projects_its_handoff_and_canonical_lease(
     by_iid = {item["mr_iid"]: item for item in adopted["items"]}
     assert by_iid[155]["mutation_disposition"] == GATED_INTEGRATION
     assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
+
+
+def test_live_cycle_projects_exact_owned_mr_with_canonical_lease_controller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The cycle must activate the same projection proven in isolation.
+
+    Stop after lane reconciliation so the test exercises live-cycle projection
+    and the real claim controller without attempting a GitLab mutation.
+    """
+    from axis_supervisor import cycle
+
+    external = _actionable_mr(154) | {"source_branch": "macos-154-compat"}
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([external, owned], {155})
+    inventory["supervisor_assignments"] = []
+    inventory["active_leases"] = []
+    inventory["repositories"]["ghostspace/axis"]["local_facts"]["remote_branches"][
+        1
+    ]["changed_paths"] = ["src/axis/cli.py"]
+    _write_enabled_control(tmp_path)
+
+    def cycle_record(path: Path, schema: str) -> dict:
+        if schema == "axis.external-development-supervisor.inventory":
+            return inventory
+        if schema == "axis.external-development-supervisor.control":
+            return read_record(tmp_path / "control.json", schema)
+        raise AssertionError(f"unexpected cycle record: {path} ({schema})")
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setenv("AXIS_SUPERVISOR_ROOT", str(tmp_path))
+    monkeypatch.setattr(cycle, "rebuild", lambda: {"queue_depth": 0})
+    monkeypatch.setattr(cycle, "read_record", cycle_record)
+    monkeypatch.setattr(cycle, "consume_next_merge_lane", lambda *_args: None)
+    monkeypatch.setattr(
+        cycle,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {"should_terminate": True}},
+    )
+
+    result = cycle.run_next(
+        "run-live-projection",
+        "hermes-not-invoked",
+        str(ROOT / "scripts" / "supervisorctl.py"),
+    )
+
+    assert result["result"] == "mission-terminated"
+    assignment_id = "integration-mr-155-sha-155"
+    assignment = read_record(
+        tmp_path / "assignments" / f"{assignment_id}.json",
+        "axis.external-development-supervisor.assignment",
+    )
+    lease = read_record(
+        tmp_path / "leases" / assignment_id / "lease.json",
+        "axis.external-development-supervisor.lease",
+    )
+    handoff = read_record(
+        tmp_path / "implementation-handoffs" / f"{assignment_id}.json",
+        HANDOFF_SCHEMA,
+    )
+    assert assignment["lease_id"] == assignment_id
+    assert lease["assignment_id"] == assignment_id
+    assert handoff["mr_iid"] == 155
+    lanes = json.loads((tmp_path / "merge-lanes.json").read_text(encoding="utf-8"))
+    by_iid = {item["mr_iid"]: item for item in lanes["items"]}
+    assert by_iid[155]["mutation_disposition"] == GATED_INTEGRATION
+    assert by_iid[154]["mutation_disposition"] == INSPECTION_ONLY
+
+
+def test_projection_claim_failure_is_durable_and_does_not_create_a_ghost_assignment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from axis_supervisor import cycle
+
+    owned = _actionable_mr(155) | {"source_branch": "hermes/axm4-desktop-ui"}
+    inventory = _custody_inventory([owned], {155})
+    inventory["supervisor_assignments"] = []
+    inventory["active_leases"] = []
+    inventory["repositories"]["ghostspace/axis"]["local_facts"]["remote_branches"][
+        0
+    ]["changed_paths"] = ["src/axis/cli.py"]
+    _write_enabled_control(tmp_path)
+    control = read_record(
+        tmp_path / "control.json", "axis.external-development-supervisor.control"
+    ) | {"max_active_assignments": 0}
+    write_record(
+        tmp_path / "control.json",
+        control,
+        "axis.external-development-supervisor.control",
+    )
+
+    def cycle_record(path: Path, schema: str) -> dict:
+        if schema == "axis.external-development-supervisor.inventory":
+            return inventory
+        if schema == "axis.external-development-supervisor.control":
+            return read_record(tmp_path / "control.json", schema)
+        raise AssertionError(f"unexpected cycle record: {path} ({schema})")
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setenv("AXIS_SUPERVISOR_ROOT", str(tmp_path))
+    monkeypatch.setattr(cycle, "rebuild", lambda: {"queue_depth": 0})
+    monkeypatch.setattr(cycle, "read_record", cycle_record)
+    monkeypatch.setattr(cycle, "consume_next_merge_lane", lambda *_args: None)
+    monkeypatch.setattr(
+        cycle,
+        "read_mission_record",
+        lambda _path: {"termination_condition": {"should_terminate": True}},
+    )
+
+    result = cycle.run_next(
+        "run-live-projection-limit",
+        "hermes-not-invoked",
+        str(ROOT / "scripts" / "supervisorctl.py"),
+    )
+
+    assert result["result"] == "mission-terminated"
+    assignment_id = "integration-mr-155-sha-155"
+    assert not (tmp_path / "assignments" / f"{assignment_id}.json").exists()
+    assert not (tmp_path / "implementation-handoffs" / f"{assignment_id}.json").exists()
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
+    ]
+    diagnostic = next(
+        event for event in events if event["event_type"] == "integration_projection_failed"
+    )
+    assert diagnostic["assignment_id"] == assignment_id
+    assert diagnostic["details"]["failure_stage"] == "claim-canonical-lease"
+    assert "active/recovery assignment limit reached: 0/0" in diagnostic["details"][
+        "error"
+    ]
 
 
 def test_projected_mr_assignment_skips_issue_closure_after_verification(

@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from .lifecycle import is_integrable
 from .models import validate_allowed_path, validate_assignment
 from .mutation import MutationGate, OperationClass, load_canonical_lease
+from .observability import record_event
 from .repository_ownership import (
     assignment_ownership,
     ownership_denial,
@@ -473,6 +474,51 @@ class WorkflowState:
         except Exception:
             return False
 
+    def _record_projection_failure(
+        self,
+        assignment: dict,
+        facts: dict,
+        *,
+        stage: str,
+        error: BaseException | str,
+    ) -> None:
+        """Persist why exact MR custody could not become a writable binding.
+
+        The projection is deliberately fail-closed: an exact local observation
+        alone never authorizes integration.  It must not, however, turn a lease
+        controller limit or malformed durable record into an invisible return to
+        inspection-only lanes.  Operational events are the durable diagnostic
+        surface already consumed by the dashboard and runbook tooling.
+        """
+        error_text = (
+            f"{type(error).__name__}: {error}"
+            if isinstance(error, BaseException)
+            else error
+        )
+        record_event(
+            self.root,
+            "integration_projection_failed",
+            assignment=assignment,
+            details={
+                "disposition": "inspection-only",
+                "failure_stage": stage,
+                "failure_classification": (
+                    type(error).__name__
+                    if isinstance(error, BaseException)
+                    else "projection-precondition"
+                ),
+                "error": error_text,
+                "project": facts["project"],
+                "mr_iid": facts["mr_iid"],
+                "branch": facts["branch"],
+                "commit": facts["sha"],
+                "worktree": facts["worktree"],
+                "retryable": True,
+            },
+            source="workflow-state",
+            notify=True,
+        )
+
     def project_owned_awaiting_integrations(
         self,
         inventory: dict,
@@ -489,37 +535,78 @@ class WorkflowState:
         """
         projected = []
         assignments = self.root / "assignments"
-        for merge_request in inventory.get("open_merge_requests") or []:
-            if not isinstance(merge_request, dict):
-                continue
+        merge_requests = sorted(
+            (
+                value
+                for value in inventory.get("open_merge_requests") or []
+                if isinstance(value, dict)
+            ),
+            key=lambda value: (str(value.get("project") or ""), int(value.get("iid") or 0)),
+        )
+        for merge_request in merge_requests:
             facts = _exact_owned_integration_facts(inventory, merge_request)
             if facts is None:
                 continue
-            proposed = self._adopted_assignment(facts)
-            path = assignments / f"{proposed['assignment_id']}.json"
+            assignment_id = f"integration-mr-{facts['mr_iid']}-{facts['sha'][:12]}"
+            path = assignments / f"{assignment_id}.json"
+            assignment = {
+                "assignment_id": assignment_id,
+                "project": facts["project"],
+                "work_item": f"{facts['project']}!{facts['mr_iid']}",
+                "lifecycle_state": "awaiting-integration",
+            }
+            created_assignment = False
+            stage = "construct-adopted-assignment"
             try:
+                proposed = self._adopted_assignment(facts)
+                assignment = proposed
+                stage = "validate-existing-assignment"
                 if path.exists():
                     assignment = validate_assignment(
                         json.loads(path.read_text(encoding="utf-8")), self.root
                     )
                     if not self._matches_adopted_facts(assignment, facts):
+                        self._record_projection_failure(
+                            assignment,
+                            facts,
+                            stage=stage,
+                            error="existing assignment does not match current exact custody",
+                        )
                         continue
                 else:
                     assignment = proposed
+                    stage = "persist-assignment"
                     self._authorize()
                     write_record(
                         path,
                         assignment,
                         "axis.external-development-supervisor.assignment",
                     )
+                    created_assignment = True
+                stage = "validate-existing-handoff"
                 if not self._existing_handoff_matches(assignment, facts):
+                    self._record_projection_failure(
+                        assignment,
+                        facts,
+                        stage=stage,
+                        error="existing handoff does not match current exact custody",
+                    )
                     continue
+                stage = "load-canonical-lease"
                 try:
                     lease = load_canonical_lease(self.root, assignment)
-                except Exception:
+                except Exception as lease_error:
                     if assignment.get("lease_id") or assignment.get("lease_uri"):
+                        self._record_projection_failure(
+                            assignment,
+                            facts,
+                            stage=stage,
+                            error=lease_error,
+                        )
                         continue
+                    stage = "claim-canonical-lease"
                     lease = claim_lease(assignment)
+                    stage = "validate-claimed-lease"
                     if (
                         lease.get("lease_id") != assignment["assignment_id"]
                         or lease.get("assignment_id") != assignment["assignment_id"]
@@ -528,6 +615,12 @@ class WorkflowState:
                         or int(lease.get("expires_at_epoch") or 0) <= int(time.time())
                         or f"repo:{facts['project']}" not in (lease.get("resources") or [])
                     ):
+                        self._record_projection_failure(
+                            assignment,
+                            facts,
+                            stage=stage,
+                            error="canonical lease claim did not return an exact writable lease",
+                        )
                         continue
                     assignment["lease_id"] = lease["lease_id"]
                     assignment["lease_uri"] = (
@@ -539,13 +632,21 @@ class WorkflowState:
                         assignment,
                         "axis.external-development-supervisor.assignment",
                     )
+                    stage = "reload-canonical-lease"
                     lease = load_canonical_lease(self.root, assignment)
+                stage = "validate-canonical-lease"
                 if (
                     lease.get("read_only")
                     or lease.get("owner_run_id") != assignment.get("created_by_run")
                     or int(lease.get("expires_at_epoch") or 0) <= int(time.time())
                     or f"repo:{facts['project']}" not in (lease.get("resources") or [])
                 ):
+                    self._record_projection_failure(
+                        assignment,
+                        facts,
+                        stage=stage,
+                        error="canonical lease does not authorize this exact projection",
+                    )
                     continue
                 result = {
                     "branch": facts["branch"],
@@ -558,12 +659,25 @@ class WorkflowState:
                         "tests": [],
                     },
                 }
+                stage = "persist-handoff"
                 handoff = self.persist_handoff(assignment, result)
+                stage = "enqueue-integration"
                 self.enqueue(assignment, handoff, reviewer)
                 projected.append((assignment, lease))
-            except Exception:
-                # This path only repairs durable state.  Any interrupted or
-                # malformed candidate remains inspection-only for the next cycle.
+            except Exception as exc:
+                # Do not let a failed claim occupy dispatcher capacity.  The
+                # controller requires an assignment record, so a candidate must
+                # be written before claiming; when that first claim fails, roll
+                # back only the record created by this attempt and retain the
+                # durable incident for the next deterministic retry.
+                if created_assignment and not assignment.get("lease_id"):
+                    path.unlink(missing_ok=True)
+                self._record_projection_failure(
+                    assignment,
+                    facts,
+                    stage=stage,
+                    error=exc,
+                )
                 continue
         return projected
 
