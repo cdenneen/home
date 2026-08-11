@@ -668,11 +668,28 @@ class Watchdog:
             ],
             key=lambda value: str(value["milestone"]),
         )
+        frontier_progress = sorted(
+            [
+                {
+                    "action_id": item.get("action_id"),
+                    "assignment_id": item.get("assignment_id"),
+                    "suppression_fingerprint": item.get("suppression_fingerprint"),
+                }
+                for item in mission.get("action_effectiveness") or []
+                if item.get("classification") == "frontier-progress"
+            ],
+            key=lambda value: (
+                str(value["suppression_fingerprint"]),
+                str(value["action_id"]),
+                str(value["assignment_id"]),
+            ),
+        )
         snapshot = {
             "primary_kpi": graduation.get("primary_kpi") or {},
             "capabilities": capabilities,
             "missing_gates": missing_gates,
             "milestones": milestones,
+            "frontier_progress": frontier_progress,
         }
         return _digest(snapshot), snapshot
 

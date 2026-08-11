@@ -251,6 +251,24 @@ def _snapshot_delta(pre: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _meaningful_frontier_progress(assignment: dict[str, Any]) -> bool:
+    """Whether bounded read-only work truthfully clarified the next frontier.
+
+    A semantic analysis or no-op verification can establish that the current
+    work item requires implementation.  That does not pass the gate it was
+    asked to inspect, but it is still an evidence-backed convergence outcome.
+    Keep an explicit false available for future producers while treating
+    existing completed assignments as compatible with the retrospective
+    roadmap-convergence signal.
+    """
+    return (
+        assignment.get("result_state")
+        in {"analysis-completed", "no-op-verification-completed"}
+        and assignment.get("work_item_disposition") == "requires-implementation"
+        and assignment.get("roadmap_convergence_improved") is not False
+    )
+
+
 def _assignment_summary(value: dict[str, Any]) -> dict[str, Any]:
     summary = {
         "assignment_id": str(value.get("assignment_id") or "unknown"),
@@ -774,9 +792,10 @@ class ActiveMissionState:
                 for value in observed_gates
             )
             model_revised = normalized_delta["applicability_revision_changed"]
+            frontier_progress = _meaningful_frontier_progress(assignment)
             zero_effect_cycles = (
                 0
-                if changed or model_revised
+                if changed or model_revised or frontier_progress
                 else 1
                 if old.get("observed_fingerprint") != current_fingerprint
                 else int(old.get("zero_effect_cycles") or 0) + 1
@@ -786,6 +805,8 @@ class ActiveMissionState:
                 if changed
                 else "applicability-revised"
                 if model_revised
+                else "frontier-progress"
+                if frontier_progress
                 else "state-model-defect"
                 if zero_effect_cycles >= 3
                 else "zero-effect"
@@ -799,6 +820,7 @@ class ActiveMissionState:
                 "expected_gates": expected_gates,
                 "observed_gates": observed_gates,
                 "observed_delta": changed,
+                "frontier_progress": frontier_progress,
                 "pre_snapshot": pre_snapshot,
                 "post_snapshot": post_snapshot,
                 "normalized_delta": normalized_delta,
@@ -807,7 +829,7 @@ class ActiveMissionState:
                 "evaluated_at": utc_now(),
             }
             evaluations.append(evaluation)
-            if not changed and not model_revised:
+            if not changed and not model_revised and not frontier_progress:
                 suppressed.add(suppression_fingerprint)
             if classification == "state-model-defect" and old.get(
                 "classification"
@@ -823,7 +845,10 @@ class ActiveMissionState:
                         ),
                     }
                 )
-        effective = sum(value["classification"] == "effective" for value in evaluations)
+        effective = sum(
+            value["classification"] in {"effective", "frontier-progress"}
+            for value in evaluations
+        )
         zero_effect = sum(
             value["classification"] in {"zero-effect", "state-model-defect"}
             for value in evaluations

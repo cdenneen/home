@@ -265,6 +265,7 @@
             }
           },
           "observed_delta": { "type": "boolean" },
+          "frontier_progress": { "type": "boolean" },
           "pre_snapshot": { "type": "object" },
           "post_snapshot": { "type": "object" },
           "normalized_delta": { "type": "object" },
@@ -272,6 +273,7 @@
           "classification": {
             "enum": [
               "effective",
+              "frontier-progress",
               "applicability-revised",
               "zero-effect",
               "state-model-defect"

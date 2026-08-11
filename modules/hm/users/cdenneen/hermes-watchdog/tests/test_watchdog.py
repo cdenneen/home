@@ -512,6 +512,37 @@ def test_product_progress_fingerprint_ignores_assignment_activity(tmp_path: Path
     assert debt_transition != gate_transition
 
 
+def test_product_progress_fingerprint_tracks_frontier_clarification(tmp_path: Path):
+    _root, supervisor, _jobs = setup_runtime(tmp_path)
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    graduation = json.loads((supervisor / "capability-graduation.json").read_text())
+    original, _snapshot = Watchdog._mission_progress(mission, graduation)
+
+    mission["action_effectiveness"] = [
+        {
+            "assignment_id": "assignment-1786428838-b333a88a",
+            "action_id": "mission-action-frontier",
+            "suppression_fingerprint": "sha256:" + "c" * 64,
+            "classification": "frontier-progress",
+            "evaluated_at": "2026-08-11T00:00:00+00:00",
+        }
+    ]
+    clarified, snapshot = Watchdog._mission_progress(mission, graduation)
+
+    assert clarified != original
+    assert snapshot["frontier_progress"] == [
+        {
+            "action_id": "mission-action-frontier",
+            "assignment_id": "assignment-1786428838-b333a88a",
+            "suppression_fingerprint": "sha256:" + "c" * 64,
+        }
+    ]
+
+    mission["action_effectiveness"][0]["evaluated_at"] = "2026-08-11T01:00:00+00:00"
+    unchanged, _snapshot = Watchdog._mission_progress(mission, graduation)
+    assert unchanged == clarified
+
+
 def test_watchdog_rejects_stale_mission_progress_after_graph_refresh(tmp_path: Path):
     now = 1_800_000_000
     root, supervisor, jobs = setup_runtime(tmp_path, now)

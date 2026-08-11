@@ -452,6 +452,74 @@ def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(
     assert effective["action_effectiveness"][0]["classification"] == "effective"
 
 
+@pytest.mark.parametrize(
+    ("assignment_type", "result_state"),
+    [
+        ("read-only-analysis", "analysis-completed"),
+        ("no-op-verification", "no-op-verification-completed"),
+    ],
+)
+def test_requires_implementation_is_meaningful_frontier_progress(
+    tmp_path: Path, assignment_type: str, result_state: str
+):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    current_graduation = graduation(
+        capability("Service", missing_gate="verification")
+    )
+    action = manager.reconcile({}, graph(), current_graduation)[
+        "generated_actions"
+    ][0]
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "frontier-progress.json").write_text(
+        json.dumps(
+            {
+                "assignment_id": "frontier-progress",
+                "assignment_type": assignment_type,
+                "project": "ghostspace/axis",
+                "work_item": "ghostspace/axis#7",
+                "lifecycle_state": "completed",
+                "result_state": result_state,
+                "work_item_disposition": "requires-implementation",
+                "roadmap_convergence_improved": True,
+                "action_contract": {
+                    key: action[key]
+                    for key in (
+                        "action_id",
+                        "expected_gates",
+                        "expected_capabilities",
+                        "evidence_model_fingerprint",
+                        "suppression_fingerprint",
+                    )
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mission = manager.reconcile({}, graph(), current_graduation)
+    evaluation = mission["action_effectiveness"][0]
+
+    assert evaluation["observed_delta"] is False
+    assert evaluation["frontier_progress"] is True
+    assert evaluation["zero_effect_cycles"] == 0
+    assert evaluation["classification"] == "frontier-progress"
+    assert mission["effectiveness_metrics"] == {
+        "assignments_evaluated": 1,
+        "effective_assignments": 1,
+        "zero_effect_assignments": 0,
+        "suppressed_fingerprints": 0,
+        "state_model_defects": 0,
+        "applicability_revisions": 0,
+        "gates_reduced": 0,
+        "confidence_delta": 0.0,
+        "effectiveness_percent": 100.0,
+    }
+
+
 def test_action_48_backfill_records_partial_effect_without_suppression(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 
