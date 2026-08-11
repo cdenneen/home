@@ -28,6 +28,25 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+      - name: Configure private AXIS flake access
+        env:
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          umask 077
+          cat > "$HOME/.netrc" <<EOF
+          machine gitlab.com
+            login gitlab+deploy-token-15084811
+            password $GITLAB_AXIS_READ_TOKEN
+          EOF
+          unset GITLAB_AXIS_READ_TOKEN
+          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
+            exit 1
+          }
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
@@ -44,6 +63,25 @@ jobs:
         with:
           extra-conf: |
             experimental-features = nix-command flakes
+      - name: Configure private AXIS flake access
+        env:
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          umask 077
+          cat > "$HOME/.netrc" <<EOF
+          machine gitlab.com
+            login gitlab+deploy-token-15084811
+            password $GITLAB_AXIS_READ_TOKEN
+          EOF
+          unset GITLAB_AXIS_READ_TOKEN
+          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
+            exit 1
+          }
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
