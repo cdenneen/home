@@ -280,6 +280,82 @@ def test_collector_emits_actionable_root_convergence_for_behind_main(
     assert classify_source_item(root)["classification"] == "Executable"
 
 
+def test_collector_bounds_and_reports_dependency_link_timeouts(
+    tmp_path: Path, monkeypatch
+):
+    from axis_supervisor import collector
+
+    captured = {}
+    calls = []
+
+    def fake_glab(path: str, **kwargs):
+        calls.append((path, kwargs))
+        if path.startswith("groups/"):
+            return [
+                {
+                    "id": 1,
+                    "path": "axis",
+                    "path_with_namespace": "ghostspace/axis",
+                    "default_branch": "main",
+                    "web_url": "https://example.test/ghostspace/axis",
+                }
+            ]
+        if "/issues?" in path:
+            return [
+                {
+                    "iid": 79,
+                    "title": "Bounded dependency retrieval",
+                    "state": "opened",
+                    "labels": [],
+                    "description": "",
+                    "web_url": "https://example.test/ghostspace/axis/-/issues/79",
+                }
+            ]
+        if path.endswith("/links"):
+            raise subprocess.TimeoutExpired(["glab", "api"], kwargs["timeout"])
+        return []
+
+    monkeypatch.setattr(
+        collector,
+        "load_control",
+        lambda: {
+            "mode": "enabled",
+            "allow_repository_mutation": True,
+            "repository_allowlist": ["ghostspace/axis"],
+            "owned_branch_prefixes": ["hermes/"],
+            "owned_worktree_root": str(tmp_path / "worktrees"),
+        },
+    )
+    monkeypatch.setattr(collector, "active_mission_issue_refs", lambda: set())
+    monkeypatch.setattr(collector, "glab", fake_glab)
+    monkeypatch.setattr(
+        collector,
+        "local_repository_state",
+        lambda *_args: {"present": False, "remote_fresh": True},
+    )
+    monkeypatch.setattr(
+        collector,
+        "write_inventory",
+        lambda _path, value: captured.setdefault("value", value),
+    )
+
+    assert collector.main() == 0
+
+    inventory = captured["value"]
+    assert inventory["work_items"][0]["retrieval_errors"] == [
+        "links: TimeoutExpired"
+    ]
+    assert inventory["collection_status"]["dependency_link_timeouts"] == [
+        {
+            "ref": "ghostspace/axis#79",
+            "error": "links: TimeoutExpired",
+            "timeout_seconds": collector.DEPENDENCY_LINK_TIMEOUT_SECONDS,
+        }
+    ]
+    link_call = next(kwargs for path, kwargs in calls if path.endswith("/links"))
+    assert link_call["timeout"] == collector.DEPENDENCY_LINK_TIMEOUT_SECONDS
+
+
 def test_global_queue_zero_proof_is_graph_owned(tmp_path: Path):
     configure(tmp_path)
     blocked = source_item("ghostspace/axis#1", labels=["blocked"])

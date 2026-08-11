@@ -52,6 +52,7 @@ NOTE_STORAGE_LIMIT = 100
 NOTE_BODY_LIMIT = 12000
 _CLOSED_NOTE_TRACE_LIMIT = 500
 _CLOSED_NOTE_TRACE_FIELD_LIMIT = 512
+DEPENDENCY_LINK_TIMEOUT_SECONDS = 20
 _CLOSED_NOTE_MARKERS = (
     "immutable planningrecord",
     "planningrecord v2",
@@ -893,6 +894,7 @@ def main() -> int:
     milestones = []
     dependency_queries = 0
     dependency_query_failures = 0
+    dependency_link_timeouts = []
 
     for project in projects:
         project_id = project["id"]
@@ -983,11 +985,23 @@ def main() -> int:
             if issue.get("state") == "opened":
                 try:
                     dependency_queries += 1
-                    links = glab(f"projects/{encoded}/issues/{issue['iid']}/links")
+                    links = glab(
+                        f"projects/{encoded}/issues/{issue['iid']}/links",
+                        timeout=DEPENDENCY_LINK_TIMEOUT_SECONDS,
+                    )
                 except Exception as exc:
                     links = []
                     dependency_query_failures += 1
-                    retrieval_errors.append(f"links: {type(exc).__name__}")
+                    error = f"links: {type(exc).__name__}"
+                    retrieval_errors.append(error)
+                    if isinstance(exc, subprocess.TimeoutExpired):
+                        dependency_link_timeouts.append(
+                            {
+                                "ref": ref,
+                                "error": error,
+                                "timeout_seconds": DEPENDENCY_LINK_TIMEOUT_SECONDS,
+                            }
+                        )
                 for link in links if isinstance(links, list) else []:
                     target = str(
                         link.get("references", {}).get("full") or link.get("web_url")
@@ -1396,6 +1410,7 @@ def main() -> int:
             ),
             "dependency_queries": dependency_queries,
             "dependency_query_failures": dependency_query_failures,
+            "dependency_link_timeouts": dependency_link_timeouts,
             "retrieval_error_count": retrieval_error_count,
             "stale_repository_count": stale_repository_count,
             "state_record_errors": state_record_errors,

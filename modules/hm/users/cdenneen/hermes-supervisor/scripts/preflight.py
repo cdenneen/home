@@ -111,16 +111,16 @@ def skip(
     return 0
 
 
-def localized_dependency_link_timeout(
+def isolated_dependency_link_timeouts(
     inventory: dict, execution_graph: dict
 ) -> list[dict]:
-    """Return the one safe-to-isolate dependency-links timeout, if present.
+    """Return fully-accounted, non-executable dependency-links timeouts.
 
-    A links timeout makes only that item's dependency facts unknown; it does not
-    invalidate repository discovery or independently executable graph nodes.
-    Keep this exception deliberately narrow so an authentication failure, a
-    notes failure, multiple links failures, or an unusable graph remains
-    fail-closed.
+    Dependency-link collection enriches an item with its blocking edges.  A
+    bounded timeout leaves that item Unknown, but does not invalidate canonical
+    repository discovery or other executable items.  All other retrieval
+    errors, incomplete accounting, a fully failed dependency sweep, or a graph
+    that would execute an affected item remain fail-closed.
     """
     collection = inventory.get("collection_status") or {}
     timed_out_items = []
@@ -142,16 +142,68 @@ def localized_dependency_link_timeout(
     except (TypeError, ValueError):
         return []
     if (
-        len(timed_out_items) != 1
-        or retrieval_errors != 1
-        or reported_errors != 1
-        or dependency_failures != 1
+        not timed_out_items
+        or retrieval_errors != len(timed_out_items)
+        or reported_errors != len(timed_out_items)
+        or dependency_failures != len(timed_out_items)
         or dependency_queries <= dependency_failures
+    ):
+        return []
+    reported_timeouts = collection.get("dependency_link_timeouts")
+    if not isinstance(reported_timeouts, list):
+        return []
+    normalized_timeouts = []
+    for timeout in reported_timeouts:
+        if not isinstance(timeout, dict):
+            return []
+        try:
+            timeout_seconds = int(timeout.get("timeout_seconds") or 0)
+        except (TypeError, ValueError):
+            return []
+        normalized_timeouts.append(
+            {
+                "ref": str(timeout.get("ref") or ""),
+                "error": str(timeout.get("error") or ""),
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+    expected_timeouts = [
+        {
+            "ref": item["ref"],
+            "error": item["error"],
+            "timeout_seconds": timeout["timeout_seconds"],
+        }
+        for item in timed_out_items
+        for timeout in normalized_timeouts
+        if timeout["ref"] == item["ref"] and timeout["error"] == item["error"]
+    ]
+    if (
+        len(expected_timeouts) != len(timed_out_items)
+        or any(item["timeout_seconds"] <= 0 for item in expected_timeouts)
+        or sorted(expected_timeouts, key=lambda item: item["ref"])
+        != sorted(normalized_timeouts, key=lambda item: item["ref"])
     ):
         return []
     if execution_graph.get("inventory_generation_id") != inventory.get("generation_id"):
         return []
-    if not execution_graph.get("executable_queue"):
+    executable_queue = execution_graph.get("executable_queue") or []
+    if not executable_queue:
+        return []
+    affected_refs = {item["ref"] for item in timed_out_items}
+    queued_refs = {
+        str(entry.get("target_ref") or entry.get("ref") or "")
+        for entry in executable_queue
+        if isinstance(entry, dict)
+    }
+    selected_batch = (execution_graph.get("scheduler_state") or {}).get(
+        "selected_batch"
+    ) or []
+    queued_refs.update(
+        str(entry.get("target_ref") or entry.get("ref") or "")
+        for entry in selected_batch
+        if isinstance(entry, dict)
+    )
+    if affected_refs.intersection(queued_refs):
         return []
     return timed_out_items
 
@@ -365,7 +417,7 @@ def main() -> int:
     collection = inventory.get("collection_status") or {}
     if not collection.get("all_configured_repositories_inspected"):
         return skip(run_id, mode, "configured repository discovery is incomplete")
-    isolated_timeouts = localized_dependency_link_timeout(inventory, execution_graph)
+    isolated_timeouts = isolated_dependency_link_timeouts(inventory, execution_graph)
     if int(collection.get("retrieval_error_count", 1)) != 0 and not isolated_timeouts:
         return skip(run_id, mode, "source retrieval is incomplete")
     if int(collection.get("stale_repository_count", 1)) != 0:
@@ -383,6 +435,10 @@ def main() -> int:
                 "dependency_queries": collection.get("dependency_queries"),
                 "dependency_query_failures": collection.get(
                     "dependency_query_failures"
+                ),
+                "retrieval_error_count": collection.get("retrieval_error_count"),
+                "dependency_link_timeouts": collection.get(
+                    "dependency_link_timeouts"
                 ),
                 "affected_items": isolated_timeouts,
             },

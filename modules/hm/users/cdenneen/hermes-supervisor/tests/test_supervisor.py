@@ -2917,6 +2917,13 @@ def test_localized_dependency_timeout_allows_usable_preflight(
             "all_configured_repositories_inspected": True,
             "dependency_queries": 12,
             "dependency_query_failures": 1,
+            "dependency_link_timeouts": [
+                {
+                    "ref": "ghostspace/axis#36",
+                    "error": "links: TimeoutExpired",
+                    "timeout_seconds": 20,
+                }
+            ],
             "retrieval_error_count": 1,
             "stale_repository_count": 0,
         },
@@ -2997,7 +3004,7 @@ def test_localized_dependency_timeout_allows_usable_preflight(
     assert written_runs[-1]["status"] == "started"
 
 
-def test_localized_dependency_timeout_gate_rejects_broad_or_unusable_data():
+def test_isolated_dependency_link_timeout_gate_requires_complete_noncanonical_accounting():
     import preflight
 
     inventory = {
@@ -3005,6 +3012,13 @@ def test_localized_dependency_timeout_gate_rejects_broad_or_unusable_data():
         "collection_status": {
             "dependency_queries": 2,
             "dependency_query_failures": 1,
+            "dependency_link_timeouts": [
+                {
+                    "ref": "ghostspace/axis#36",
+                    "error": "links: TimeoutExpired",
+                    "timeout_seconds": 20,
+                }
+            ],
             "retrieval_error_count": 1,
         },
         "work_items": [
@@ -3019,23 +3033,43 @@ def test_localized_dependency_timeout_gate_rejects_broad_or_unusable_data():
         "executable_queue": [{"ref": "ghostspace/axis#37"}],
     }
 
-    assert preflight.localized_dependency_link_timeout(inventory, usable_graph)
-    assert not preflight.localized_dependency_link_timeout(
-        inventory
+    assert preflight.isolated_dependency_link_timeouts(inventory, usable_graph)
+    multiple_link_timeouts = inventory | {
+        "collection_status": inventory["collection_status"]
         | {
-            "collection_status": inventory["collection_status"]
-            | {"dependency_query_failures": 2, "retrieval_error_count": 2},
-            "work_items": inventory["work_items"]
-            + [
+            "dependency_queries": 3,
+            "dependency_query_failures": 2,
+            "dependency_link_timeouts": [
+                *inventory["collection_status"]["dependency_link_timeouts"],
                 {
                     "ref": "ghostspace/axis#38",
-                    "retrieval_errors": ["links: TimeoutExpired"],
-                }
+                    "error": "links: TimeoutExpired",
+                    "timeout_seconds": 20,
+                },
             ],
+            "retrieval_error_count": 2,
         },
-        usable_graph,
+        "work_items": inventory["work_items"]
+        + [
+            {
+                "ref": "ghostspace/axis#38",
+                "retrieval_errors": ["links: TimeoutExpired"],
+            }
+        ],
+    }
+    assert preflight.isolated_dependency_link_timeouts(
+        multiple_link_timeouts, usable_graph
     )
-    assert not preflight.localized_dependency_link_timeout(
+    assert not preflight.isolated_dependency_link_timeouts(
+        multiple_link_timeouts,
+        usable_graph
+        | {
+            "executable_queue": [
+                {"target_ref": "ghostspace/axis#38"}
+            ]
+        },
+    )
+    assert not preflight.isolated_dependency_link_timeouts(
         inventory
         | {
             "work_items": [
@@ -3047,7 +3081,7 @@ def test_localized_dependency_timeout_gate_rejects_broad_or_unusable_data():
         },
         usable_graph,
     )
-    assert not preflight.localized_dependency_link_timeout(
+    assert not preflight.isolated_dependency_link_timeouts(
         inventory,
         usable_graph | {"executable_queue": []},
     )
