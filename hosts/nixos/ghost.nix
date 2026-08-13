@@ -456,6 +456,13 @@ in
     mode = "0440";
     restartUnits = [ "axis-api-auth-proxy.service" ];
   };
+  sops.secrets."alpha0/audit-key" = {
+    sopsFile = ../../secrets/alpha0.yaml;
+    key = "alpha0_audit_key";
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
   sops.secrets.cdenneen_ed25519_2024 = {
     owner = "cdenneen";
     group = "users";
