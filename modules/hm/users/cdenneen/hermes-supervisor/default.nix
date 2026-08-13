@@ -81,6 +81,7 @@ let
 in
 {
   options.profiles.hermesGateway.enable = lib.mkEnableOption "managed Hermes messaging gateway";
+  options.profiles.hermesGateway.restartOnActivation = lib.mkEnableOption "restart the primary Hermes gateway during Home Manager activation";
   options.profiles.hermesSupervisor.enable = lib.mkEnableOption "temporary Hermes Development Supervisor";
 
   config = lib.mkIf (gatewayEnabled || supervisorEnabled) {
@@ -299,7 +300,7 @@ in
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         hermes_config="$HOME/.hermes/config.yaml"
         if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
-          config_tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.hermes/config.yaml.XXXXXX")"
+          config_tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-gateway-config.XXXXXX)"
           ${pkgs.yq-go}/bin/yq '
             .agent.restart_drain_timeout = 120
             | .agent.reasoning_overrides."gpt-5.4" = "medium"
@@ -311,7 +312,10 @@ in
               | .plugins.enabled = ((.plugins.enabled // []) | map(select(. != "axis-supervisor-commands")))
             ''}
           ' "$hermes_config" > "$config_tmp"
-          ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$hermes_config"
+          if ! ${pkgs.diffutils}/bin/cmp -s "$config_tmp" "$hermes_config" \
+            || [ "$(${pkgs.coreutils}/bin/stat -c %a "$hermes_config")" != 600 ]; then
+            ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$hermes_config"
+          fi
           ${pkgs.coreutils}/bin/rm -f "$config_tmp"
         fi
       ''
@@ -323,19 +327,21 @@ in
       ''
     );
 
-    home.activation.hermesSupervisorGatewayRestart = lib.mkIf gatewayEnabled (
-      lib.hm.dag.entryAfter
+    home.activation.hermesSupervisorGatewayRestart =
+      lib.mkIf (gatewayEnabled && config.profiles.hermesGateway.restartOnActivation)
         (
-          [
-            "reloadSystemd"
-            "hermesSupervisorGatewayConfig"
-          ]
-          ++ lib.optional supervisorEnabled "hermesSupervisorState"
-          ++ lib.optional (!supervisorEnabled) "hermesSupervisorPluginCleanup"
-        )
-        ''
-          $DRY_RUN_CMD ${pkgs.systemd}/bin/systemctl --user try-restart hermes-gateway.service
-        ''
-    );
+          lib.hm.dag.entryAfter
+            (
+              [
+                "reloadSystemd"
+                "hermesSupervisorGatewayConfig"
+              ]
+              ++ lib.optional supervisorEnabled "hermesSupervisorState"
+              ++ lib.optional (!supervisorEnabled) "hermesSupervisorPluginCleanup"
+            )
+            ''
+              $DRY_RUN_CMD ${pkgs.systemd}/bin/systemctl --user try-restart hermes-gateway.service
+            ''
+        );
   };
 }
