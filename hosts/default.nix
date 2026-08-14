@@ -34,7 +34,10 @@ let
     {
       name = "nyx";
       system = "aarch64-linux";
-      modules = [ ./nixos/nyx.nix ];
+      modules = [
+        ./nixos/nyx.nix
+        ./nixos/nyx-alpha0-node.nix
+      ];
       homeModules = [ ./nixos/nyx-home.nix ];
       tags = [ "ec2" ];
     }

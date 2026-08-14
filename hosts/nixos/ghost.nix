@@ -6,6 +6,10 @@
   ...
 }:
 let
+  alpha0SecretsFile = ../../secrets/alpha0.yaml;
+  hasAlpha0NodeIdentity = lib.hasInfix "alpha0_node_nyx_identity:" (
+    builtins.readFile alpha0SecretsFile
+  );
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
   ghostCloudflareCredFile = "/var/lib/cloudflared/ghost.json";
   axisWebPackage = axis.packages.${pkgs.system}.axis-web;
@@ -281,6 +285,13 @@ in
     pkgs.pnpm
   ];
 
+  environment.etc."ssh/alpha0-node-nyx-known-hosts" = {
+    mode = "0444";
+    text = ''
+      nyx,nyx.tail0e55.ts.net,100.80.58.4 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3PCrjUkoqJkZ1Ibi+s702ub7zrqvh44pxVFii5C/FG
+    '';
+  };
+
   services = {
     axis = {
       enable = true;
@@ -457,8 +468,15 @@ in
     restartUnits = [ "axis-api-auth-proxy.service" ];
   };
   sops.secrets."alpha0/audit-key" = {
-    sopsFile = ../../secrets/alpha0.yaml;
+    sopsFile = alpha0SecretsFile;
     key = "alpha0_audit_key";
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets."alpha0/node-nyx-identity" = lib.mkIf hasAlpha0NodeIdentity {
+    sopsFile = alpha0SecretsFile;
+    key = "alpha0_node_nyx_identity";
     owner = "cdenneen";
     group = "users";
     mode = "0400";
