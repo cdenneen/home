@@ -10,6 +10,9 @@ let
   hasAlpha0NodeIdentity = lib.hasInfix "alpha0_node_nyx_identity:" (
     builtins.readFile alpha0SecretsFile
   );
+  hasAlpha0GitlabRelayIdentity = lib.hasInfix "alpha0_gitlab_nyx_relay_identity:" (
+    builtins.readFile alpha0SecretsFile
+  );
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
   ghostCloudflareCredFile = "/var/lib/cloudflared/ghost.json";
   axisWebPackage = axis.packages.${pkgs.system}.axis-web;
@@ -477,6 +480,13 @@ in
   sops.secrets."alpha0/node-nyx-identity" = lib.mkIf hasAlpha0NodeIdentity {
     sopsFile = alpha0SecretsFile;
     key = "alpha0_node_nyx_identity";
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.secrets."alpha0/gitlab-nyx-relay-identity" = lib.mkIf hasAlpha0GitlabRelayIdentity {
+    sopsFile = alpha0SecretsFile;
+    key = "alpha0_gitlab_nyx_relay_identity";
     owner = "cdenneen";
     group = "users";
     mode = "0400";

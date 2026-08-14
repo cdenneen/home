@@ -37,6 +37,7 @@ let
       modules = [
         ./nixos/nyx.nix
         ./nixos/nyx-alpha0-node.nix
+        ./nixos/nyx-alpha0-gitlab-relay.nix
       ];
       homeModules = [ ./nixos/nyx-home.nix ];
       tags = [ "ec2" ];

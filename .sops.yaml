@@ -21,6 +21,12 @@ creation_rules:
           - *server_nyx
           - *server_ghost
           - *server_macbookpronix
+  - path_regex: secrets/alpha0\.yaml$
+    key_groups:
+      - age:
+          - *personal_current
+          - *server_vnjtecmbcd
+          - *server_ghost
   - path_regex: secrets/.*\.ya?ml$
     key_groups:
       - age:
