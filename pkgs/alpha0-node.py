@@ -313,6 +313,25 @@ def run_worker(config: dict[str, Any], package: dict[str, Any], spool: Path, wor
     stderr_path.touch(mode=0o600)
     artifacts = spool / "artifacts"
     artifacts.mkdir(mode=0o700)
+    if package["worker"]["adapter"] == "inspect":
+        head = run_git("-C", str(worktree), "rev-parse", "HEAD")
+        status = run_git(
+            "-C", str(worktree), "status", "--porcelain=v1", "--untracked-files=all"
+        )
+        clean = not status
+        matches = head == package["repository"]["base_sha"]
+        observation = {
+            "schema": "alpha0.node-worker-observation.v1",
+            "head_sha": head,
+            "clean": clean,
+            "summary": (
+                "exact detached base inspected; worktree clean"
+                if clean and matches
+                else "repository observation did not match the requested clean base"
+            ),
+        }
+        atomic_write(stdout_path, canonical(observation))
+        return (0 if clean and matches else 1), observation
     runtime_home = spool / "home"
     runtime_tmp = spool / "tmp"
     runtime_home.mkdir(mode=0o700)
