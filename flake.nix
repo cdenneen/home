@@ -397,6 +397,24 @@
                     check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
                     touch "$out"
                   '';
+            }
+            // optionalAttrs pkgs.stdenv.isLinux {
+              hermes-alpha0-gateway =
+                let
+                  hermes = inputs.hermes-src.packages.${system}.messaging;
+                  sessionRoutingShim = pkgs.writeTextDir "sitecustomize.py" (
+                    builtins.readFile ./modules/hm/users/cdenneen/hermes-alpha0-gateway/sitecustomize.py
+                  );
+                in
+                pkgs.runCommand "hermes-alpha0-gateway-check" { } ''
+                  cp -R ${./modules/hm/users/cdenneen/hermes-alpha0-gateway} source
+                  chmod -R u+w source
+                  cd source
+                  export PYTHONPATH=${sessionRoutingShim}:$PWD
+                  ${hermes.hermesVenv}/bin/python3 check_profile_session_key.py
+                  ${hermes.hermesVenv}/bin/python3 -m unittest -v test_profile_clarify_bypass.py
+                  touch "$out"
+                '';
             };
         };
     };

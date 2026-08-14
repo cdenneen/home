@@ -15,6 +15,10 @@ let
   profileSecrets = "/run/secrets/rendered/alpha0-hermes-profile-alpha0.env";
   defaultSecretsCommand = "/run/current-system/sw/bin/cat ${defaultSecrets}";
   profileSecretsCommand = "/run/current-system/sw/bin/cat ${profileSecrets}";
+  sessionRoutingShim = pkgs.writeTextDir "sitecustomize.py" (
+    builtins.readFile ./hermes-alpha0-gateway/sitecustomize.py
+  );
+  sessionRoutingCheck = ./hermes-alpha0-gateway/check_profile_session_key.py;
   servicePath = lib.makeBinPath [
     pkgs.bash
     pkgs.coreutils
@@ -75,6 +79,10 @@ let
       .secrets.command.enabled == true and
       .secrets.command.command == "${profileSecretsCommand}"
     ' "${profileConfig}" >/dev/null || fail "alpha0 profile controls do not match"
+
+    PYTHONPATH=${sessionRoutingShim} \
+      ${agentPkgs.hermes.hermesVenv}/bin/python3 ${sessionRoutingCheck} \
+      || fail "multiplexed Slack clarification routing is unavailable"
   '';
 in
 {
@@ -142,6 +150,7 @@ in
             PATH=${servicePath} \
             XDG_RUNTIME_DIR=%t \
             HERMES_HOME=${hermesHome} \
+            PYTHONPATH=${sessionRoutingShim} \
             API_SERVER_HOST=127.0.0.1 \
             API_SERVER_PORT=8643 \
             ${agentPkgs.hermes}/bin/hermes gateway run --external-supervisor
