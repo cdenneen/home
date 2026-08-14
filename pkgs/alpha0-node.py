@@ -309,6 +309,8 @@ def run_worker(config: dict[str, Any], package: dict[str, Any], spool: Path, wor
     budgets = package["budgets"]
     stdout_path = spool / "worker.stdout"
     stderr_path = spool / "worker.stderr"
+    stdout_path.touch(mode=0o600)
+    stderr_path.touch(mode=0o600)
     artifacts = spool / "artifacts"
     artifacts.mkdir(mode=0o700)
     runtime_home = spool / "home"

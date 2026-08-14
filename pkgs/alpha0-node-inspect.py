@@ -6,19 +6,27 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import time
 from pathlib import Path
 
 GIT = "@git@"
 
 
 def git(repository: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [GIT, "-c", "core.hooksPath=/dev/null", "-C", str(repository), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    for attempt in range(3):
+        try:
+            return subprocess.run(
+                [GIT, "-c", "core.hooksPath=/dev/null", "-C", str(repository), *args],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except BlockingIOError:
+            if attempt == 2:
+                raise
+            time.sleep(0.1 * (attempt + 1))
+    raise AssertionError("bounded Git spawn retry exhausted")
 
 
 def main() -> int:
