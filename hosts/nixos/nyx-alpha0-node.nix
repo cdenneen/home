@@ -1,4 +1,5 @@
 {
+  config,
   lib,
   pkgs,
   ...
@@ -48,13 +49,35 @@ in
     text = builtins.toJSON {
       node_id = "nyx";
       inherit repositories;
-      capabilities = [ "git.ap.org" ];
+      capabilities = [
+        "git.ap.org"
+        "plan.read-only"
+      ];
       max_concurrent = 2;
       state_dir = stateDir;
       workers.inspect = [ "${alpha0Node}/bin/alpha0-node-inspect" ];
+      workers.codex-plan = [ "${alpha0Node}/bin/alpha0-node-codex-plan" ];
+      worker_context_refs.inspect = [
+        "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:f478a342be7bbff67fa6f9d0e2b060c3dd8884fe5c58eeefaab04df119c8cf76"
+        "repo://alpha0/skills/project-sdlc/SKILL.md#sha256:ff724c5d06b38dc002a8eccd46155198d39e001dc4ddd8b72346eb396aa20d23"
+      ];
+      worker_context_refs.codex-plan = [
+        "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:f478a342be7bbff67fa6f9d0e2b060c3dd8884fe5c58eeefaab04df119c8cf76"
+        "repo://alpha0/skills/project-sdlc/SKILL.md#sha256:ff724c5d06b38dc002a8eccd46155198d39e001dc4ddd8b72346eb396aa20d23"
+      ];
+      worker_secret_files.inspect = { };
+      worker_secret_files.codex-plan.OPENAI_API_KEY =
+        config.sops.secrets."alpha0-node/openai-api-key".path;
       # Add only dedicated node-local profile names after their roles are reviewed.
       aws_profiles = [ ];
     };
+  };
+
+  sops.secrets."alpha0-node/openai-api-key" = {
+    key = "openai_api_key";
+    owner = "alpha0-node";
+    group = "alpha0-node";
+    mode = "0400";
   };
 
   fileSystems = lib.mapAttrs' (

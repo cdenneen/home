@@ -29,6 +29,8 @@ MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 GIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+REFERENCE = re.compile(r"^[a-z][a-z0-9+.-]{1,31}://\S+$")
+RESERVED_CLOSURE_IDS = frozenset({"worker-learning", "memory-closure"})
 
 
 class NodeError(Exception):
@@ -136,6 +138,8 @@ def load_config(path: Path) -> dict[str, Any]:
             "capabilities",
             "repositories",
             "workers",
+            "worker_context_refs",
+            "worker_secret_files",
             "aws_profiles",
         },
         "config",
@@ -162,6 +166,33 @@ def load_config(path: Path) -> dict[str, Any]:
         values = sequence(argv, "worker argv", 16)
         if not values or any(not isinstance(item, str) or not item or not Path(item).is_absolute() for item in values):
             raise NodeError("invalid_config", "worker argv must contain only fixed absolute paths")
+    worker_context_refs = mapping(config["worker_context_refs"], "config.worker_context_refs")
+    if set(worker_context_refs) != set(workers):
+        raise NodeError("invalid_config", "worker context map must exactly match worker adapters")
+    for name, raw_refs in worker_context_refs.items():
+        identifier(name, "worker context map key")
+        refs = sequence(raw_refs, "worker context refs", 16)
+        if not refs or len(refs) != len(set(refs)):
+            raise NodeError("invalid_config", "worker context refs must be non-empty and unique")
+        for ref in refs:
+            if (
+                not isinstance(ref, str)
+                or len(ref) > 1024
+                or not ref.startswith("repo://")
+                or "#sha256:" not in ref
+            ):
+                raise NodeError("invalid_config", "worker context ref is not exact and digest-bound")
+    worker_secret_files = mapping(config["worker_secret_files"], "config.worker_secret_files")
+    if set(worker_secret_files) != set(workers):
+        raise NodeError("invalid_config", "worker secret map must exactly match worker adapters")
+    for name, raw_secrets in worker_secret_files.items():
+        identifier(name, "worker secret map key")
+        secrets = mapping(raw_secrets, "worker secret files")
+        for environment_name, raw_path in secrets.items():
+            if environment_name not in {"OPENAI_API_KEY"}:
+                raise NodeError("invalid_config", "worker secret environment name is unsupported")
+            if not isinstance(raw_path, str) or not Path(raw_path).is_absolute():
+                raise NodeError("invalid_config", "worker secret paths must be absolute")
     profiles = sequence(config["aws_profiles"], "config.aws_profiles", 32)
     if len(profiles) != len(set(profiles)):
         raise NodeError("invalid_config", "AWS profile names must be unique")
@@ -220,11 +251,27 @@ def validate_package(package: dict[str, Any], config: dict[str, Any]) -> tuple[s
     if not isinstance(base_sha, str) or not GIT_SHA.fullmatch(base_sha):
         raise NodeError("invalid_request", "repository.base_sha is not an exact Git object")
 
+    project = mapping(package["project"], "project")
+    exact_keys(project, {"id", "source_ref"}, "project")
+    identifier(project["id"], "project.id")
+    if (
+        not isinstance(project["source_ref"], str)
+        or len(project["source_ref"]) > 1024
+        or not REFERENCE.fullmatch(project["source_ref"])
+        or project["source_ref"].startswith("file://")
+    ):
+        raise NodeError("invalid_request", "project.source_ref must be a stable authority URI")
+
     worker = mapping(package["worker"], "worker")
     exact_keys(worker, {"adapter"}, "worker")
     adapter = identifier(worker["adapter"], "worker.adapter")
     if adapter not in config["workers"]:
         raise NodeError("worker_denied", "worker adapter is not in the exact node map")
+    context_refs = sequence(package["context_refs"], "context_refs", 32)
+    if any(not isinstance(ref, str) or not ref or len(ref) > 1024 for ref in context_refs):
+        raise NodeError("invalid_request", "context refs must be bounded strings")
+    if not set(config["worker_context_refs"][adapter]).issubset(context_refs):
+        raise NodeError("context_denied", "work package omits an exact worker context")
 
     authority = mapping(package["authority"], "authority")
     exact_keys(authority, {"external_mutations"}, "authority")
@@ -268,6 +315,8 @@ def validate_package(package: dict[str, Any], config: dict[str, Any]) -> tuple[s
                 raise NodeError("invalid_request", "criteria require an independent verifier")
     if len(evidence_ids) > 128:
         raise NodeError("invalid_request", "work package declares too many evidence artifacts")
+    if evidence_ids.intersection(RESERVED_CLOSURE_IDS):
+        raise NodeError("invalid_request", "evidence IDs collide with mandatory worker closures")
     if len(canonical(package)) > MAX_REQUEST_BYTES:
         raise NodeError("request_too_large", "work package exceeds 256 KiB")
     return package_id, repository_id, adapter
@@ -350,6 +399,18 @@ def run_worker(config: dict[str, Any], package: dict[str, Any], spool: Path, wor
         "TMPDIR": str(runtime_tmp),
         "ALPHA0_NODE_ID": config["node_id"],
     }
+    for name, raw_path in config["worker_secret_files"][package["worker"]["adapter"]].items():
+        try:
+            secret = Path(raw_path).read_bytes()
+        except OSError as exc:
+            raise NodeError("worker_unavailable", "worker runtime secret is unavailable") from exc
+        secret = secret.rstrip(b"\r\n")
+        if not secret or len(secret) > 16 * 1024 or b"\x00" in secret:
+            raise NodeError("worker_unavailable", "worker runtime secret is invalid")
+        try:
+            environment[name] = secret.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise NodeError("worker_unavailable", "worker runtime secret is invalid") from exc
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         try:
             completed = subprocess.run(
@@ -402,20 +463,34 @@ def build_result(package: dict[str, Any], package_digest: str, spool: Path, exit
     worker_evidence: list[str] = []
     for evidence_id in evidence_ids:
         independent = evidence_id in criterion_evidence
-        content = canonical(
-            {
-                "schema": "alpha0.node-evidence.v1",
-                "evidence_id": evidence_id,
-                "package_id": package["package_id"],
-                "package_digest": package_digest,
-                "repository_id": package["repository"]["id"],
-                "expected_head_sha": expected_head,
-                "observed_head_sha": observed_head,
-                "worktree_clean": observation.get("clean") is True,
-                "worker_exit_code": exit_code,
-                "verified": verified,
-            }
-        )
+        worker_path = spool / "artifacts" / f"{evidence_id}.json"
+        worker_supplied = not independent and worker_path.is_file()
+        worker_value: dict[str, Any] = {}
+        if worker_supplied:
+            content = worker_path.read_bytes()
+            if not content or len(content) > package["budgets"]["max_artifact_bytes"]:
+                raise NodeError("worker_failed", "worker artifact exceeds its bound")
+            try:
+                worker_value = mapping(json.loads(content), "worker artifact")
+            except (UnicodeDecodeError, json.JSONDecodeError, NodeError) as exc:
+                raise NodeError("worker_failed", "worker artifact is not bounded JSON") from exc
+            if canonical(worker_value) != content:
+                raise NodeError("worker_failed", "worker artifact is not canonical JSON")
+        else:
+            content = canonical(
+                {
+                    "schema": "alpha0.node-evidence.v1",
+                    "evidence_id": evidence_id,
+                    "package_id": package["package_id"],
+                    "package_digest": package_digest,
+                    "repository_id": package["repository"]["id"],
+                    "expected_head_sha": expected_head,
+                    "observed_head_sha": observed_head,
+                    "worktree_clean": observation.get("clean") is True,
+                    "worker_exit_code": exit_code,
+                    "verified": verified,
+                }
+            )
         artifact_path = spool / "artifacts" / f"{evidence_id}.json"
         atomic_write(artifact_path, content)
         producer = "node_verifier" if independent else "worker"
@@ -424,13 +499,97 @@ def build_result(package: dict[str, Any], package_digest: str, spool: Path, exit
         artifact_rows.append(
             {
                 "id": evidence_id,
-                "kind": "verification" if independent else "report",
+                "kind": (
+                    "verification"
+                    if independent
+                    else (
+                        "implementation_plan"
+                        if worker_supplied
+                        and worker_value.get("schema") == "alpha0.worker-plan.v1"
+                        else "report"
+                    )
+                ),
                 "ref": f"alpha0-node://{node_id}/{package['package_id']}/artifacts/{evidence_id}",
                 "digest": f"sha256:{hashlib.sha256(content).hexdigest()}",
                 "size_bytes": len(content),
                 "producer": producer,
             }
         )
+    captured_at = datetime.now(timezone.utc).isoformat()
+    learning = {
+        "schema": "alpha0.worker-learning.v1",
+        "package_id": package["package_id"],
+        "package_digest": package_digest,
+        "execution_id": package["execution"]["id"],
+        "node_id": node_id,
+        "worker_adapter": package["worker"]["adapter"],
+        "candidates": [],
+    }
+    learning_content = canonical(learning)
+    atomic_write(spool / "artifacts" / "worker-learning.json", learning_content)
+    artifact_rows.append(
+        {
+            "id": "worker-learning",
+            "kind": "learning_candidates",
+            "ref": f"alpha0-node://{node_id}/{package['package_id']}/artifacts/worker-learning",
+            "digest": f"sha256:{hashlib.sha256(learning_content).hexdigest()}",
+            "size_bytes": len(learning_content),
+            "producer": "worker",
+        }
+    )
+    verifier_artifact = next(
+        row for row in artifact_rows if row["id"] in criterion_evidence
+    )
+    memory = {
+        "schema": "alpha0.memory-closure.v1",
+        "source": {
+            "actor_id": package["worker"]["adapter"],
+            "kind": "worker",
+            "ref": f"alpha0-node://{node_id}/{package['package_id']}",
+        },
+        "project_id": package["project"]["id"],
+        "captured_at": captured_at,
+        "records": [
+            {
+                "id": "worker-outcome",
+                "kind": "episode",
+                "subject": "Bounded worker outcome",
+                "summary": observation.get("summary", "bounded node observation"),
+                "source_ref": verifier_artifact["ref"],
+                "authority_ref": package["project"]["source_ref"],
+                "observed_at": captured_at,
+                "valid_until": None,
+                "evidence_refs": [verifier_artifact["ref"]],
+                "details": {
+                    "event": "outcome" if verified else "failure",
+                    "outcome": "succeeded" if verified else "failed",
+                    "repository": {
+                        "id": package["repository"]["id"],
+                        "base_ref": package["repository"]["base_ref"],
+                        "base_sha": expected_head,
+                        "head_sha": observed_head or expected_head,
+                        "workspace_ref": (
+                            f"git-worktree://{package['repository']['id']}/"
+                            f"{package['package_id']}"
+                        ),
+                    },
+                    "artifact_refs": [verifier_artifact["ref"]],
+                },
+            }
+        ],
+    }
+    memory_content = canonical(memory)
+    atomic_write(spool / "artifacts" / "memory-closure.json", memory_content)
+    artifact_rows.append(
+        {
+            "id": "memory-closure",
+            "kind": "memory_closure",
+            "ref": f"alpha0-node://{node_id}/{package['package_id']}/artifacts/memory-closure",
+            "digest": f"sha256:{hashlib.sha256(memory_content).hexdigest()}",
+            "size_bytes": len(memory_content),
+            "producer": "worker",
+        }
+    )
     return {
         "schema": RESULT_SCHEMA,
         "package_id": package["package_id"],

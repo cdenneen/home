@@ -24,6 +24,8 @@ def run(*args: str, input_value: dict[str, object] | None = None) -> subprocess.
 
 def request(runner: str, config: Path, value: dict[str, object]) -> dict[str, object]:
     result = run(runner, "--config", str(config), input_value=value)
+    if not result.stdout:
+        raise AssertionError(result.stderr or "alpha0-node returned no response")
     response = json.loads(result.stdout)
     response["_exit_code"] = result.returncode
     return response
@@ -54,6 +56,15 @@ def main() -> None:
                     "capabilities": ["git.ap.org"],
                     "repositories": {"eks-platform-governance": str(cache)},
                     "workers": {"inspect": [inspector]},
+                    "worker_context_refs": {
+                        "inspect": [
+                            "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:"
+                            + "a" * 64,
+                            "repo://alpha0/skills/project-sdlc/SKILL.md#sha256:"
+                            + "b" * 64,
+                        ]
+                    },
+                    "worker_secret_files": {"inspect": {}},
                     "aws_profiles": [],
                 }
             ),
@@ -78,7 +89,10 @@ def main() -> None:
             },
             "worker": {"adapter": "inspect"},
             "goal": "Inspect the exact governance base without mutation.",
-            "context_refs": [],
+            "context_refs": [
+                "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:" + "a" * 64,
+                "repo://alpha0/skills/project-sdlc/SKILL.md#sha256:" + "b" * 64,
+            ],
             "deliverables": [
                 {
                     "id": "governance-report",
@@ -107,6 +121,9 @@ def main() -> None:
         execute = {"schema": "alpha0.node-request.v1", "operation": "execute", "package": package}
         first = request(runner, config, execute)
         assert first["status"] == "completed" and first["result"]["reported_status"] == "success"
+        assert {row["kind"] for row in first["result"]["artifacts"]}.issuperset(
+            {"learning_candidates", "memory_closure"}
+        )
         replay = request(runner, config, execute)
         assert replay["status"] == "replayed" and replay["result_digest"] == first["result_digest"]
         fetch = request(
@@ -123,6 +140,20 @@ def main() -> None:
         assert fetch["status"] == "completed"
         content = base64.b64decode(fetch["content_base64"])
         assert fetch["artifact"]["digest"] == f"sha256:{hashlib.sha256(content).hexdigest()}"
+        memory_fetch = request(
+            runner,
+            config,
+            {
+                "schema": "alpha0.node-request.v1",
+                "operation": "fetch",
+                "package_id": package["package_id"],
+                "package_digest": first["package_digest"],
+                "artifact_id": "memory-closure",
+            },
+        )
+        memory = json.loads(base64.b64decode(memory_fetch["content_base64"]))
+        assert memory["source"]["ref"] == f"alpha0-node://nyx/{package['package_id']}"
+        assert memory["records"][0]["details"]["repository"]["base_sha"] == base_sha
         acknowledgement = {
             "schema": "alpha0.node-request.v1",
             "operation": "ack",
@@ -149,6 +180,11 @@ def main() -> None:
         capability_denied["package"]["package_id"] = "wp-nix-capability-denied-001"
         capability_denied["package"]["route"]["required_capabilities"] = ["aws.direct-connect"]
         assert request(runner, config, capability_denied)["error"] == "capability_denied"
+
+        context_denied = deepcopy(execute)
+        context_denied["package"]["package_id"] = "wp-nix-context-denied-001"
+        context_denied["package"]["context_refs"] = []
+        assert request(runner, config, context_denied)["error"] == "context_denied"
 
         slot_handles = []
         for index in range(2):
