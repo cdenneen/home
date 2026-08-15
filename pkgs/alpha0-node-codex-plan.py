@@ -296,7 +296,23 @@ def main(argv: list[str] | None = None) -> int:
             output_path = temporary_path / "plan.json"
             codex_home = temporary_path / "home"
             codex_home.mkdir(mode=0o700)
+            codex_environment = {
+                **os.environ,
+                "CODEX_HOME": str(codex_home),
+                "HOME": str(codex_home),
+            }
             schema_path.write_bytes(canonical(output_schema()))
+            login = subprocess.run(
+                [CODEX, "login", "--with-api-key"],
+                check=False,
+                env=codex_environment,
+                input=os.environ["OPENAI_API_KEY"].encode(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            if login.returncode:
+                raise ValueError("Codex plan worker authentication failed")
             completed = subprocess.run(
                 [
                     CODEX,
@@ -316,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
                     "-",
                 ],
                 check=False,
-                env={**os.environ, "CODEX_HOME": str(codex_home), "HOME": str(codex_home)},
+                env=codex_environment,
                 input=canonical(prompt),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,

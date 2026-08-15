@@ -132,6 +132,10 @@ def main() -> None:
                 if git_attempts == 1:
                     raise BlockingIOError(11, "resource temporarily unavailable")
                 return real_run(argv, **kwargs)
+            if argv[1:] == ["login", "--with-api-key"]:
+                assert kwargs["input"] == b"test-only-not-real"
+                assert kwargs["env"]["HOME"] == kwargs["env"]["CODEX_HOME"]
+                return type("Completed", (), {"returncode": 0})()
             assert "--sandbox" in argv and argv[argv.index("--sandbox") + 1] == "read-only"
             assert "--ephemeral" not in argv and "--ignore-user-config" not in argv
             assert kwargs["env"]["HOME"] == kwargs["env"]["CODEX_HOME"]
