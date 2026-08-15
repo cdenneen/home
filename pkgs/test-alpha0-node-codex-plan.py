@@ -88,8 +88,9 @@ def main() -> None:
         schema = module.output_schema()
         assert schema["properties"]["schema"]["type"] == "string"
         assert (
-            schema["properties"]["acceptance_criteria"]["items"]["properties"]
-            ["independent_verifier"]["type"]
+            schema["properties"]["acceptance_criteria"]["items"]["properties"][
+                "independent_verifier"
+            ]["type"]
             == "boolean"
         )
         plan = {
@@ -99,10 +100,17 @@ def main() -> None:
             "project": package["project"],
             "repository": package["repository"],
             "goal": package["goal"],
-            "scope": {"included": ["Inspect one failure path"], "excluded": ["Any mutation"]},
+            "scope": {
+                "included": ["Inspect one failure path"],
+                "excluded": ["Any mutation"],
+            },
             "dependencies": [],
             "deliverables": [
-                {"id": "repair", "description": "A reviewable repair", "evidence_ids": ["diff"]}
+                {
+                    "id": "repair",
+                    "description": "A reviewable repair",
+                    "evidence_ids": ["diff"],
+                }
             ],
             "acceptance_criteria": [
                 {
@@ -113,7 +121,12 @@ def main() -> None:
                 }
             ],
             "required_artifacts": [
-                {"id": "diff", "kind": "diff", "description": "Exact diff", "producer": "worker"},
+                {
+                    "id": "diff",
+                    "kind": "diff",
+                    "description": "Exact diff",
+                    "producer": "worker",
+                },
                 {
                     "id": "runtime-proof",
                     "kind": "verification",
@@ -126,7 +139,7 @@ def main() -> None:
             "rollback": ["Revert the exact implementation commit."],
             "budgets": {"max_attempts": 2, "timeout_seconds": 1800},
             "unknowns": ["The root cause remains to be independently verified."],
-            "evidence_refs": package["context_refs"],
+            "evidence_refs": ["worker-observed repository evidence"],
         }
 
         real_run = module.subprocess.run
@@ -143,7 +156,9 @@ def main() -> None:
                 assert kwargs["input"] == b"test-only-not-real"
                 assert kwargs["env"]["HOME"] == kwargs["env"]["CODEX_HOME"]
                 return type("Completed", (), {"returncode": 0})()
-            assert "--sandbox" in argv and argv[argv.index("--sandbox") + 1] == "read-only"
+            assert (
+                "--sandbox" in argv and argv[argv.index("--sandbox") + 1] == "read-only"
+            )
             assert "--ephemeral" not in argv and "--ignore-user-config" not in argv
             assert kwargs["env"]["HOME"] == kwargs["env"]["CODEX_HOME"]
             assert kwargs["env"]["HOME"] != os.environ.get("HOME")
@@ -156,7 +171,9 @@ def main() -> None:
 
         with (
             mock.patch.object(module.subprocess, "run", side_effect=fake_run),
-            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-only-not-real"}, clear=True),
+            mock.patch.dict(
+                os.environ, {"OPENAI_API_KEY": "test-only-not-real"}, clear=True
+            ),
         ):
             assert (
                 module.main(
@@ -171,7 +188,12 @@ def main() -> None:
                 )
                 == 0
             )
-        assert json.loads((artifacts / "worker-plan.json").read_text()) == plan
+        written_plan = json.loads((artifacts / "worker-plan.json").read_text())
+        assert written_plan["evidence_refs"] == [
+            "worker-observed repository evidence",
+            *package["context_refs"],
+        ]
+        module.validate_plan(written_plan, package)
 
 
 if __name__ == "__main__":

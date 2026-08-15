@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import errno
-import hashlib
 import json
 import os
 import re
@@ -161,7 +160,12 @@ def output_schema() -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["id", "outcome", "evidence_ids", "independent_verifier"],
+                    "required": [
+                        "id",
+                        "outcome",
+                        "evidence_ids",
+                        "independent_verifier",
+                    ],
                     "properties": {
                         "id": {"type": "string", "pattern": IDENTIFIER.pattern},
                         "outcome": text,
@@ -207,7 +211,11 @@ def output_schema() -> dict[str, Any]:
                 "required": ["max_attempts", "timeout_seconds"],
                 "properties": {
                     "max_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
-                    "timeout_seconds": {"type": "integer", "minimum": 60, "maximum": 14400},
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 14400,
+                    },
                 },
             },
             "unknowns": {**bounded_texts, "minItems": 0},
@@ -231,6 +239,13 @@ def validate_plan(plan: dict[str, Any], package: dict[str, Any]) -> None:
         raise ValueError("plan repository is not package bound")
     if plan.get("goal") != package.get("goal"):
         raise ValueError("plan goal is not package bound")
+    evidence_refs = plan.get("evidence_refs")
+    if (
+        not isinstance(evidence_refs, list)
+        or len(evidence_refs) > 32
+        or not set(package.get("context_refs", [])).issubset(evidence_refs)
+    ):
+        raise ValueError("plan omits exact package evidence")
     if SECRET.search(canonical(plan).decode("utf-8")):
         raise ValueError("plan contains secret material")
 
@@ -344,6 +359,14 @@ def main(argv: list[str] | None = None) -> int:
             if completed.returncode:
                 raise ValueError("Codex plan worker failed")
             plan = read_json(output_path, MAX_PLAN_BYTES)
+        returned_refs = plan.get("evidence_refs")
+        if not isinstance(returned_refs, list) or not all(
+            isinstance(ref, str) for ref in returned_refs
+        ):
+            raise ValueError("plan evidence references are malformed")
+        plan["evidence_refs"] = list(
+            dict.fromkeys([*returned_refs, *package["context_refs"]])
+        )
         validate_plan(plan, package)
         (args.artifacts / f"{worker_evidence[0]}.json").write_bytes(canonical(plan))
         observation = {
