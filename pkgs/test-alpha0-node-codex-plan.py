@@ -180,6 +180,9 @@ def main() -> None:
             assert any(
                 "never the planning report itself" in rule for rule in prompt["rules"]
             )
+            assert any(
+                "short capability identifier" in rule for rule in prompt["rules"]
+            )
             output = Path(argv[argv.index("--output-last-message") + 1])
             output.write_bytes(module.canonical(plan))
             return type("Completed", (), {"returncode": 0})()
