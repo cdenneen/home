@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -199,6 +200,46 @@ def main() -> None:
             *package["context_refs"],
         ]
         module.validate_plan(written_plan, package)
+
+        failed_artifacts = root / "failed-artifacts"
+
+        def failed_run(argv, **kwargs):
+            if argv[0] == module.GIT:
+                return real_run(argv, **kwargs)
+            if argv[1:] == ["login", "--with-api-key"]:
+                return type("Completed", (), {"returncode": 0})()
+            output = Path(argv[argv.index("--output-last-message") + 1])
+            output.write_text("not-json", encoding="utf-8")
+            return type(
+                "Completed",
+                (),
+                {"returncode": 2, "stderr": b"invalid schema"},
+            )()
+
+        error = io.StringIO()
+        with (
+            mock.patch.object(module.subprocess, "run", side_effect=failed_run),
+            mock.patch.dict(
+                os.environ, {"OPENAI_API_KEY": "test-only-not-real"}, clear=True
+            ),
+            mock.patch.object(module.sys, "stderr", error),
+        ):
+            assert (
+                module.main(
+                    [
+                        "--package",
+                        str(package_path),
+                        "--repository",
+                        str(repository),
+                        "--artifacts",
+                        str(failed_artifacts),
+                    ]
+                )
+                == 2
+            )
+        assert "schema_or_output" in error.getvalue()
+        assert "output_invalid_json" in error.getvalue()
+        assert "invalid schema" not in error.getvalue()
 
 
 if __name__ == "__main__":
