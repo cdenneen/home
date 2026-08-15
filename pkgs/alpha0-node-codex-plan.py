@@ -112,9 +112,9 @@ def output_schema() -> dict[str, Any]:
             "evidence_refs",
         ],
         "properties": {
-            "schema": {"const": "alpha0.worker-plan.v1"},
+            "schema": {"type": "string", "const": "alpha0.worker-plan.v1"},
             "plan_id": {"type": "string", "pattern": IDENTIFIER.pattern},
-            "planner_actor_id": {"const": "codex-plan"},
+            "planner_actor_id": {"type": "string", "const": "codex-plan"},
             "project": {
                 "type": "object",
                 "additionalProperties": False,
@@ -166,7 +166,7 @@ def output_schema() -> dict[str, Any]:
                         "id": {"type": "string", "pattern": IDENTIFIER.pattern},
                         "outcome": text,
                         "evidence_ids": evidence_ids,
-                        "independent_verifier": {"const": True},
+                        "independent_verifier": {"type": "boolean", "const": True},
                     },
                 },
             },
@@ -182,7 +182,10 @@ def output_schema() -> dict[str, Any]:
                         "id": {"type": "string", "pattern": IDENTIFIER.pattern},
                         "kind": text,
                         "description": text,
-                        "producer": {"enum": ["worker", "node_verifier", "source_authority"]},
+                        "producer": {
+                            "type": "string",
+                            "enum": ["worker", "node_verifier", "source_authority"],
+                        },
                     },
                 },
             },

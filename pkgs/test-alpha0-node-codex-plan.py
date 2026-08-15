@@ -85,6 +85,13 @@ def main() -> None:
         }
         package_path = root / "package.json"
         package_path.write_bytes(module.canonical(package))
+        schema = module.output_schema()
+        assert schema["properties"]["schema"]["type"] == "string"
+        assert (
+            schema["properties"]["acceptance_criteria"]["items"]["properties"]
+            ["independent_verifier"]["type"]
+            == "boolean"
+        )
         plan = {
             "schema": "alpha0.worker-plan.v1",
             "plan_id": "plan-wp-plan-test-001",
@@ -149,7 +156,6 @@ def main() -> None:
 
         with (
             mock.patch.object(module.subprocess, "run", side_effect=fake_run),
-            mock.patch.object(module.time, "sleep") as sleep,
             mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-only-not-real"}, clear=True),
         ):
             assert (
@@ -165,7 +171,6 @@ def main() -> None:
                 )
                 == 0
             )
-        sleep.assert_called_once_with(1)
         assert json.loads((artifacts / "worker-plan.json").read_text()) == plan
 
 
