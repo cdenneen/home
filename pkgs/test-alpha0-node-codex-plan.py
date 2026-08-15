@@ -88,7 +88,7 @@ def main() -> None:
         plan = {
             "schema": "alpha0.worker-plan.v1",
             "plan_id": "plan-wp-plan-test-001",
-            "planner_actor_id": "nyx-codex-plan",
+            "planner_actor_id": "codex-plan",
             "project": package["project"],
             "repository": package["repository"],
             "goal": package["goal"],

@@ -209,7 +209,7 @@ def validate_plan(plan: dict[str, Any], package: dict[str, Any]) -> None:
         raise ValueError("plan has unsupported or missing fields")
     if plan.get("schema") != "alpha0.worker-plan.v1":
         raise ValueError("plan schema is unsupported")
-    if plan.get("planner_actor_id") != "nyx-codex-plan":
+    if plan.get("planner_actor_id") != "codex-plan":
         raise ValueError("plan actor is not the dedicated adapter")
     if plan.get("plan_id") != f"plan-{package['package_id']}":
         raise ValueError("plan identity is not package bound")
@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Echo the exact package goal, project, repository, plan_id, and planner_actor_id values supplied below.",
             ],
             "plan_id": f"plan-{package['package_id']}",
-            "planner_actor_id": "nyx-codex-plan",
+            "planner_actor_id": "codex-plan",
             "project": package["project"],
             "repository": package["repository"],
             "goal": package["goal"],

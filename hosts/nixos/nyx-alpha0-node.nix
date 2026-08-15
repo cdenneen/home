@@ -8,7 +8,9 @@ let
   alpha0Node = pkgs.callPackage ../../pkgs/alpha0-node.nix { };
   stateDir = "/var/lib/alpha0-node";
   repositorySources = {
+    cluster-bootstrap = "/home/cdenneen/src/cache/git.ap.org_gitops_infra_eks-platform_cluster-bootstrap.git";
     eks-platform-governance = "/home/cdenneen/src/cache/git.ap.org_gitops_infra_eks-platform_eks-platform-governance.git";
+    fleet-v2 = "/home/cdenneen/src/cache/git.ap.org_gitops_infra_eks-platform_fleet-v2.git";
     gitlab-governance = "/home/cdenneen/src/cache/git.ap.org_gitops_infra_gitlab_gitlab-governance.git";
   };
   repositories = lib.mapAttrs (name: _: "${stateDir}/repositories/${name}") repositorySources;
@@ -101,8 +103,9 @@ in
     "d ${stateDir}/locks 0700 alpha0-node alpha0-node -"
     "d ${stateDir}/packages 0700 alpha0-node alpha0-node -"
     "d ${stateDir}/repositories 0700 alpha0-node alpha0-node -"
-    "d ${stateDir}/repositories/eks-platform-governance 0550 alpha0-node alpha0-node -"
-    "d ${stateDir}/repositories/gitlab-governance 0550 alpha0-node alpha0-node -"
     "d ${stateDir}/slots 0700 alpha0-node alpha0-node -"
-  ];
+  ]
+  ++ lib.mapAttrsToList (
+    name: _: "d ${repositories.${name}} 0550 alpha0-node alpha0-node -"
+  ) repositorySources;
 }
