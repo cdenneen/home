@@ -171,6 +171,9 @@ def main() -> None:
             assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
             prompt = json.loads(kwargs["input"])
             assert prompt["repository"]["base_sha"] == head
+            assert any(
+                "never the planning report itself" in rule for rule in prompt["rules"]
+            )
             output = Path(argv[argv.index("--output-last-message") + 1])
             output.write_bytes(module.canonical(plan))
             return type("Completed", (), {"returncode": 0})()
