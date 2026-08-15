@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -11,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -53,13 +55,20 @@ def read_json(path: Path, maximum: int) -> dict[str, Any]:
 
 
 def git(repository: Path, *args: str) -> str:
-    result = subprocess.run(
-        [GIT, "-c", "core.hooksPath=/dev/null", "-C", str(repository), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                [GIT, "-c", "core.hooksPath=/dev/null", "-C", str(repository), *args],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            break
+        except OSError as exc:
+            if exc.errno not in {errno.EAGAIN, errno.EINTR} or attempt == 2:
+                raise
+            time.sleep(attempt + 1)
     if result.returncode:
         raise ValueError("repository verification failed")
     return result.stdout.strip()
@@ -105,7 +114,7 @@ def output_schema() -> dict[str, Any]:
         "properties": {
             "schema": {"const": "alpha0.worker-plan.v1"},
             "plan_id": {"type": "string", "pattern": IDENTIFIER.pattern},
-            "planner_actor_id": {"const": "nyx-codex-plan"},
+            "planner_actor_id": {"const": "codex-plan"},
             "project": {
                 "type": "object",
                 "additionalProperties": False,

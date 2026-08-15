@@ -123,9 +123,14 @@ def main() -> None:
         }
 
         real_run = module.subprocess.run
+        git_attempts = 0
 
         def fake_run(argv, **kwargs):
+            nonlocal git_attempts
             if argv[0] == module.GIT:
+                git_attempts += 1
+                if git_attempts == 1:
+                    raise BlockingIOError(11, "resource temporarily unavailable")
                 return real_run(argv, **kwargs)
             assert "--sandbox" in argv and argv[argv.index("--sandbox") + 1] == "read-only"
             assert "--ephemeral" in argv and "--ignore-user-config" in argv
@@ -138,6 +143,7 @@ def main() -> None:
 
         with (
             mock.patch.object(module.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(module.time, "sleep") as sleep,
             mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-only-not-real"}, clear=True),
         ):
             assert (
@@ -153,6 +159,7 @@ def main() -> None:
                 )
                 == 0
             )
+        sleep.assert_called_once_with(1)
         assert json.loads((artifacts / "worker-plan.json").read_text()) == plan
 
 
