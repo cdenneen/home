@@ -24,6 +24,11 @@ def main() -> None:
 
     wrapper, git = sys.argv[1:]
     module = load(wrapper)
+    assert module.codex_failure(b"unexpected status 429") == (
+        "rate_limited:"
+        + module.hashlib.sha256(b"unexpected status 429").hexdigest()[:16]
+    )
+    assert module.codex_failure(b"unclassified failure").startswith("unknown:")
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         repository = root / "repository"

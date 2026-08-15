@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,36 @@ def canonical(value: Any) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode()
+
+
+def codex_failure(stderr: bytes) -> str:
+    text = stderr.decode("utf-8", errors="replace").lower()
+    categories = (
+        ("rate_limited", ("rate limit", "status 429", "too many requests")),
+        ("authentication", ("not logged in", "unauthorized", "status 401")),
+        (
+            "schema_or_output",
+            ("invalid schema", "output schema", "response_format", "invalid json"),
+        ),
+        (
+            "context_limit",
+            ("context window", "maximum context", "too many tokens"),
+        ),
+        (
+            "transport",
+            ("stream disconnected", "connection", "network", "timed out"),
+        ),
+        ("usage_limit", ("usage limit", "quota", "insufficient_quota")),
+    )
+    category = next(
+        (
+            name
+            for name, patterns in categories
+            if any(item in text for item in patterns)
+        ),
+        "unknown",
+    )
+    return f"{category}:{hashlib.sha256(stderr).hexdigest()[:16]}"
 
 
 def read_json(path: Path, maximum: int) -> dict[str, Any]:
@@ -357,7 +388,9 @@ def main(argv: list[str] | None = None) -> int:
                 timeout=package["budgets"]["timeout_seconds"],
             )
             if completed.returncode:
-                raise ValueError("Codex plan worker failed")
+                raise ValueError(
+                    f"Codex plan worker failed ({codex_failure(completed.stderr)})"
+                )
             plan = read_json(output_path, MAX_PLAN_BYTES)
         returned_refs = plan.get("evidence_refs")
         if not isinstance(returned_refs, list) or not all(
