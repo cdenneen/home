@@ -231,7 +231,18 @@ def output_schema() -> dict[str, Any]:
                     "type": "object",
                     "additionalProperties": False,
                     "required": ["capability", "target_ref"],
-                    "properties": {"capability": text, "target_ref": text},
+                    "properties": {
+                        "capability": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                        },
+                        "target_ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1024,
+                        },
+                    },
                 },
             },
             "risks": bounded_texts,

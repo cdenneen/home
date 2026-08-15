@@ -99,6 +99,12 @@ def main() -> None:
             ]["type"]
             == "boolean"
         )
+        assert (
+            schema["properties"]["external_mutations"]["items"]["properties"][
+                "capability"
+            ]["maxLength"]
+            == 128
+        )
         plan = {
             "schema": "alpha0.worker-plan.v1",
             "plan_id": "plan-wp-plan-test-001",
