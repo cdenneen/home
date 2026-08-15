@@ -133,7 +133,9 @@ def main() -> None:
                     raise BlockingIOError(11, "resource temporarily unavailable")
                 return real_run(argv, **kwargs)
             assert "--sandbox" in argv and argv[argv.index("--sandbox") + 1] == "read-only"
-            assert "--ephemeral" in argv and "--ignore-user-config" in argv
+            assert "--ephemeral" not in argv and "--ignore-user-config" not in argv
+            assert kwargs["env"]["HOME"] == kwargs["env"]["CODEX_HOME"]
+            assert kwargs["env"]["HOME"] != os.environ.get("HOME")
             assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
             prompt = json.loads(kwargs["input"])
             assert prompt["repository"]["base_sha"] == head

@@ -294,13 +294,13 @@ def main(argv: list[str] | None = None) -> int:
             temporary_path = Path(temporary)
             schema_path = temporary_path / "schema.json"
             output_path = temporary_path / "plan.json"
+            codex_home = temporary_path / "home"
+            codex_home.mkdir(mode=0o700)
             schema_path.write_bytes(canonical(output_schema()))
             completed = subprocess.run(
                 [
                     CODEX,
                     "exec",
-                    "--ignore-user-config",
-                    "--ephemeral",
                     "--sandbox",
                     "read-only",
                     "--color",
@@ -316,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                     "-",
                 ],
                 check=False,
+                env={**os.environ, "CODEX_HOME": str(codex_home), "HOME": str(codex_home)},
                 input=canonical(prompt),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
