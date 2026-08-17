@@ -104,17 +104,15 @@ let
           # unrelated flaky Hypothesis statistics test that fails on
           # aarch64 - we only consume anthropic at runtime, its tests never
           # run in this build either way.
-          patchedAnthropic = pruneDeps (
-            pyPkgs.anthropic.overridePythonAttrs (_old: {
-              version = "0.122.0";
-              src = unstablePkgs.fetchFromGitHub {
-                owner = "anthropics";
-                repo = "anthropic-sdk-python";
-                rev = "v0.122.0";
-                sha256 = "1f5bl3mb30r1xh8zzjrbk7sqgkjdkkhbasljy9pgd7drm4a4795g";
-              };
-            })
-          ) [ "docstring-parser" ];
+          patchedAnthropic = pruneDeps (pyPkgs.anthropic.overridePythonAttrs (_old: {
+            version = "0.122.0";
+            src = unstablePkgs.fetchFromGitHub {
+              owner = "anthropics";
+              repo = "anthropic-sdk-python";
+              rev = "v0.122.0";
+              sha256 = "1f5bl3mb30r1xh8zzjrbk7sqgkjdkkhbasljy9pgd7drm4a4795g";
+            };
+          })) [ "docstring-parser" ];
 
           # boto3/botocore: needed by hermes's own Bedrock provider for AWS
           # credential resolution (separate from anthropic's optional

@@ -70,6 +70,7 @@ in
       worker_secret_files.inspect = { };
       worker_secret_files.codex-plan.OPENAI_API_KEY =
         config.sops.secrets."alpha0-node/openai-api-key".path;
+      aws_cli = "${pkgs.awscli2}/bin/aws";
       # Add only dedicated node-local profile names after their roles are reviewed.
       aws_profiles = [ ];
     };
@@ -100,6 +101,7 @@ in
 
   systemd.tmpfiles.rules = [
     "d ${stateDir} 0700 alpha0-node alpha0-node -"
+    "d ${stateDir}/auth 0700 alpha0-node alpha0-node -"
     "d ${stateDir}/locks 0700 alpha0-node alpha0-node -"
     "d ${stateDir}/packages 0700 alpha0-node alpha0-node -"
     "d ${stateDir}/repositories 0700 alpha0-node alpha0-node -"
