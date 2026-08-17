@@ -98,6 +98,15 @@ in
 
     home.packages = [ agentPkgs.hermes ];
 
+    home.activation.hermesAlpha0GatewayLegacyCleanup = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
+      drop_in="$HOME/.config/systemd/user/hermes-alpha0-gateway.service.d/override.conf"
+      if [ -f "$drop_in" ]; then
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/mv -f "$drop_in" "$drop_in.pre-home-manager"
+      fi
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rmdir --ignore-fail-on-non-empty \
+        "$HOME/.config/systemd/user/hermes-alpha0-gateway.service.d" 2>/dev/null || true
+    '';
+
     home.activation.hermesAlpha0GatewayConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       root_config="${rootConfig}"
       profile_config="${profileConfig}"

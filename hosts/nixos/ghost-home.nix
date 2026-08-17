@@ -44,6 +44,7 @@
   };
 
   profiles.hermesAlpha0Gateway.enable = true;
+  profiles.hermesAxisControlGateway.enable = true;
   profiles.hermesGateway.enable = true;
   profiles.hermesSupervisor.enable = true;
 }

@@ -18,6 +18,7 @@ in
   imports = [
     ./cdenneen/default.nix
     ./cdenneen/hermes-alpha0-gateway.nix
+    ./cdenneen/hermes-axis-control-gateway.nix
     ./cdenneen/hermes-supervisor/default.nix
     ./cdenneen/hermes-watchdog/default.nix
   ];
