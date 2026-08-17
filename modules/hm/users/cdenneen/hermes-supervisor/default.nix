@@ -23,6 +23,40 @@ let
   gatewayEnabled = config.profiles.hermesGateway.enable && packageAvailable;
   secondaryGatewayEnabled = config.profiles.hermesGatewaySecondary.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
+  anyGatewayEnabled = gatewayEnabled || secondaryGatewayEnabled;
+  # Mitigates a known upstream Hermes bug (NousResearch/hermes-agent#78068,
+  # #80471): certain exceptions mid-turn (a gateway restart, a bad path, a
+  # transient upstream-provider error - confirmed 2026-08-17 with a Bedrock
+  # internalServerException) corrupt nemo_relay's scope stack; end_turn's own
+  # cleanup then throws a second, unhandled RuntimeError and the session is
+  # stranded with no timeout, retry, or surfaced error. Track those issues
+  # for an upstream fix; this is the local workaround until one lands.
+  hermesStuckCronWatchdog = pkgs.writeShellScript "hermes-stuck-cron-watchdog" ''
+    set -euo pipefail
+    threshold_min="''${HERMES_WATCHDOG_THRESHOLD_MIN:-10}"
+    now=$(date +%s)
+
+    check_instance() {
+      local hermes_home="$1" service="$2"
+      HERMES_HOME="$hermes_home" ${agentPkgs.hermes}/bin/hermes cron runs --limit 50 2>/dev/null \
+        | awk '$2=="running"{print}' \
+        | while read -r _id _status _job _src ts; do
+            started=$(date -d "$ts" +%s 2>/dev/null || echo 0)
+            [ "$started" -eq 0 ] && continue
+            age_min=$(( (now - started) / 60 ))
+            if [ "$age_min" -ge "$threshold_min" ]; then
+              echo "$(date -Is) stuck cron run in $hermes_home (age ''${age_min}m) - restarting $service"
+              ${pkgs.systemd}/bin/systemctl --user restart "$service"
+              break
+            fi
+          done
+    }
+
+    check_instance "$HOME/.hermes" "hermes-gateway.service"
+    ${lib.optionalString secondaryGatewayEnabled ''
+      check_instance "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}" "hermes-gateway-secondary.service"
+    ''}
+  '';
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-supervisor";
   sourceRevision =
     if self ? rev then
@@ -219,7 +253,27 @@ in
           Install.WantedBy = [ "default.target" ];
         };
       })
+      (lib.mkIf anyGatewayEnabled {
+        hermes-stuck-cron-watchdog = {
+          Unit.Description = "Restart a Hermes gateway instance if a cron run has been stuck (workaround for NousResearch/hermes-agent#78068, #80471)";
+          Service = {
+            Type = "oneshot";
+            ExecStart = "${hermesStuckCronWatchdog}";
+          };
+        };
+      })
     ];
+
+    systemd.user.timers = lib.mkIf anyGatewayEnabled {
+      hermes-stuck-cron-watchdog = {
+        Unit.Description = "Periodic check for stuck Hermes cron runs";
+        Timer = {
+          OnStartupSec = "2m";
+          OnUnitActiveSec = "5m";
+        };
+        Install.WantedBy = [ "timers.target" ];
+      };
+    };
 
     home.activation.hermesSupervisorLegacyCleanup = lib.mkIf gatewayEnabled (
       lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
