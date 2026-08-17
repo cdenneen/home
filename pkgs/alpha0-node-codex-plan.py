@@ -382,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     CODEX,
                     "exec",
+                    "--skip-git-repo-check",
                     "--sandbox",
                     "read-only",
                     "--color",
