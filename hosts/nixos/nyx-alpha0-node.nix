@@ -60,11 +60,11 @@ in
       workers.inspect = [ "${alpha0Node}/bin/alpha0-node-inspect" ];
       workers.codex-plan = [ "${alpha0Node}/bin/alpha0-node-codex-plan" ];
       worker_context_refs.inspect = [
-        "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:f478a342be7bbff67fa6f9d0e2b060c3dd8884fe5c58eeefaab04df119c8cf76"
+        "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:eb56e2626694a949e30af09879eae94536f113f881e3ee71ee0c5c918b519fc8"
         "repo://alpha0/skills/project-sdlc/SKILL.md#sha256:ff724c5d06b38dc002a8eccd46155198d39e001dc4ddd8b72346eb396aa20d23"
       ];
       worker_context_refs.codex-plan = [
-        "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:f478a342be7bbff67fa6f9d0e2b060c3dd8884fe5c58eeefaab04df119c8cf76"
+        "repo://alpha0/skills/agent-tool-usage/SKILL.md#sha256:eb56e2626694a949e30af09879eae94536f113f881e3ee71ee0c5c918b519fc8"
         "repo://alpha0/skills/project-sdlc/SKILL.md#sha256:ff724c5d06b38dc002a8eccd46155198d39e001dc4ddd8b72346eb396aa20d23"
       ];
       worker_secret_files.inspect = { };
