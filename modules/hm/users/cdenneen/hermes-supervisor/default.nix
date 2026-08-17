@@ -21,6 +21,7 @@ let
       'import hermes_cli.commands as commands; assert commands.should_bypass_active_session is commands.is_gateway_known_command'
   '';
   gatewayEnabled = config.profiles.hermesGateway.enable && packageAvailable;
+  secondaryGatewayEnabled = config.profiles.hermesGatewaySecondary.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-supervisor";
   sourceRevision =
@@ -82,11 +83,40 @@ in
 {
   options.profiles.hermesGateway.enable = lib.mkEnableOption "managed Hermes messaging gateway";
   options.profiles.hermesGateway.restartOnActivation = lib.mkEnableOption "restart the primary Hermes gateway during Home Manager activation";
+  options.profiles.hermesGateway.workingDirectory = lib.mkOption {
+    type = lib.types.str;
+    default = "%h/.hermes";
+    description = ''
+      cwd the primary gateway process runs from. Hermes auto-injects
+      AGENTS.md/SOUL.md/CLAUDE.md/.cursorrules found here into every chat
+      session's system prompt (see agent/agent_init.py's skip_context_files
+      handling) - point this at a project worktree to give Slack/chat
+      sessions the same ambient project context cron's --workdir gives.
+      Independent of HERMES_HOME (profile state - kanban/skills/sessions);
+      changing this does not move or affect profile data.
+    '';
+  };
+
+  options.profiles.hermesGatewaySecondary.enable = lib.mkEnableOption ''
+    a second, independently-profiled Hermes gateway instance - for running a
+    separate Slack app / project against its own Hermes profile (own
+    config.yaml, .env, skills, kanban board) without it sharing or polluting
+    the primary instance's state
+  '';
+  options.profiles.hermesGatewaySecondary.profileName = lib.mkOption {
+    type = lib.types.str;
+    description = "Hermes CLI profile name. HERMES_HOME resolves to %h/.hermes/profiles/<profileName> (see hermes profile create).";
+  };
+  options.profiles.hermesGatewaySecondary.workingDirectory = lib.mkOption {
+    type = lib.types.str;
+    description = "cwd this instance runs from - see profiles.hermesGateway.workingDirectory for what this controls.";
+  };
+
   options.profiles.hermesSupervisor.enable = lib.mkEnableOption "temporary Hermes Development Supervisor";
 
-  config = lib.mkIf (gatewayEnabled || supervisorEnabled) {
+  config = lib.mkIf (gatewayEnabled || secondaryGatewayEnabled || supervisorEnabled) {
     home.packages =
-      lib.optionals gatewayEnabled [ agentPkgs.hermes ]
+      lib.optionals (gatewayEnabled || secondaryGatewayEnabled) [ agentPkgs.hermes ]
       ++ lib.optionals supervisorEnabled [
         pkgs.bubblewrap
         supervisorCanaryCtl
@@ -131,9 +161,37 @@ in
             Type = "simple";
             ExecStartPre = hermesGatewayBypassCheck;
             ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
-            WorkingDirectory = "%h/.hermes";
+            WorkingDirectory = config.profiles.hermesGateway.workingDirectory;
             Environment = [
               "HERMES_HOME=%h/.hermes"
+              "PYTHONPATH=${hermesGatewaySitecustomize}"
+            ];
+            Restart = "on-failure";
+            RestartSec = 5;
+            TimeoutStopSec = 180;
+            KillMode = "mixed";
+            RestartPreventExitStatus = 78;
+          };
+          Install.WantedBy = [ "default.target" ];
+        };
+      })
+      (lib.mkIf secondaryGatewayEnabled {
+        hermes-gateway-secondary = {
+          Unit = {
+            Description = "Hermes Agent Gateway (secondary instance, profile: ${config.profiles.hermesGatewaySecondary.profileName}) - Messaging Platform Integration";
+            After = [
+              "network-online.target"
+              "hermes-gateway.service"
+            ];
+            Wants = [ "network-online.target" ];
+          };
+          Service = {
+            Type = "simple";
+            ExecStartPre = hermesGatewayBypassCheck;
+            ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
+            WorkingDirectory = config.profiles.hermesGatewaySecondary.workingDirectory;
+            Environment = [
+              "HERMES_HOME=%h/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}"
               "PYTHONPATH=${hermesGatewaySitecustomize}"
             ];
             Restart = "on-failure";
