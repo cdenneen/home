@@ -34,7 +34,30 @@ let
   hermesStuckCronWatchdog = pkgs.writeShellScript "hermes-stuck-cron-watchdog" ''
     set -euo pipefail
     threshold_min="''${HERMES_WATCHDOG_THRESHOLD_MIN:-10}"
+    grace_min="''${HERMES_WATCHDOG_GRACE_MIN:-3}"
     now=$(${pkgs.coreutils}/bin/date +%s)
+
+    # A restart here kills every session on the gateway, not just the stuck
+    # one - including a live conversation someone is actively watching.
+    # Confirmed 2026-08-17: restarted mid-conversation while a human was
+    # actively answering a clarify prompt in a different session on the
+    # same instance. Refuse to restart if ANY session on this instance has
+    # had activity within grace_min - that's real evidence the process is
+    # responsive, not hung, even if one unrelated run is stuck/orphaned.
+    gateway_has_recent_activity() {
+      local hermes_home="$1"
+      local rows
+      rows=$(HERMES_HOME="$hermes_home" ${agentPkgs.hermes}/bin/hermes sessions list --limit 20 2>/dev/null || true)
+      if echo "$rows" | ${pkgs.gnugrep}/bin/grep -qE '\bjust now\b'; then
+        return 0
+      fi
+      if echo "$rows" | ${pkgs.gnugrep}/bin/grep -qE '[0-9]+s ago'; then
+        return 0
+      fi
+      local m
+      m=$(echo "$rows" | ${pkgs.gnugrep}/bin/grep -oE '[0-9]+m ago' | ${pkgs.gnugrep}/bin/grep -oE '[0-9]+' | ${pkgs.coreutils}/bin/sort -n | ${pkgs.coreutils}/bin/head -1)
+      [ -n "$m" ] && [ "$m" -lt "$grace_min" ]
+    }
 
     check_instance() {
       local hermes_home="$1" service="$2"
@@ -45,8 +68,12 @@ let
             [ "$started" -eq 0 ] && continue
             age_min=$(( (now - started) / 60 ))
             if [ "$age_min" -ge "$threshold_min" ]; then
-              echo "$(${pkgs.coreutils}/bin/date -Is) stuck cron run in $hermes_home (age ''${age_min}m) - restarting $service"
-              ${pkgs.systemd}/bin/systemctl --user restart "$service"
+              if gateway_has_recent_activity "$hermes_home"; then
+                echo "$(${pkgs.coreutils}/bin/date -Is) stuck cron run in $hermes_home (age ''${age_min}m) but another session there is active within ''${grace_min}m - not restarting $service"
+              else
+                echo "$(${pkgs.coreutils}/bin/date -Is) stuck cron run in $hermes_home (age ''${age_min}m), no recent activity anywhere on this instance - restarting $service"
+                ${pkgs.systemd}/bin/systemctl --user restart "$service"
+              fi
               break
             fi
           done
