@@ -801,7 +801,7 @@ def worker_limits(max_output: int) -> None:
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_FSIZE, (max_output, max_output))
     resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
-    resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+    resource.setrlimit(resource.RLIMIT_NPROC, (256, 256))
 
 
 def load_auth_request(
