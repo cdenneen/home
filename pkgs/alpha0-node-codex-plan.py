@@ -378,33 +378,39 @@ def main(argv: list[str] | None = None) -> int:
             )
             if login.returncode:
                 raise ValueError("Codex plan worker authentication failed")
-            completed = subprocess.run(
-                [
-                    CODEX,
-                    "exec",
-                    "--skip-git-repo-check",
-                    "--sandbox",
-                    "read-only",
-                    "--color",
-                    "never",
-                    "--model",
-                    MODEL,
-                    "--output-schema",
-                    str(schema_path),
-                    "--output-last-message",
-                    str(output_path),
-                    "--cd",
-                    str(args.repository),
-                    "-",
-                ],
-                check=False,
-                env=codex_environment,
-                input=canonical(prompt),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                timeout=package["budgets"]["timeout_seconds"],
-            )
-            if completed.returncode:
+            prompt_bytes = canonical(prompt)
+            failure = ""
+            for attempt in range(2):
+                if output_path.exists():
+                    output_path.unlink()
+                completed = subprocess.run(
+                    [
+                        CODEX,
+                        "exec",
+                        "--skip-git-repo-check",
+                        "--sandbox",
+                        "read-only",
+                        "--color",
+                        "never",
+                        "--model",
+                        MODEL,
+                        "--output-schema",
+                        str(schema_path),
+                        "--output-last-message",
+                        str(output_path),
+                        "--cd",
+                        str(args.repository),
+                        "-",
+                    ],
+                    check=False,
+                    env=codex_environment,
+                    input=prompt_bytes,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    timeout=package["budgets"]["timeout_seconds"],
+                )
+                if not completed.returncode:
+                    break
                 try:
                     failed_plan = read_json(output_path, MAX_PLAN_BYTES)
                 except FileNotFoundError:
@@ -418,9 +424,10 @@ def main(argv: list[str] | None = None) -> int:
                         output_state = "local_contract_rejected"
                     else:
                         output_state = "local_contract_valid"
-                raise ValueError(
-                    f"Codex plan worker failed ({codex_failure(completed.stderr)}; {output_state})"
-                )
+                failure = f"{codex_failure(completed.stderr)}; {output_state}"
+                if attempt or not failure.startswith("transport:"):
+                    raise ValueError(f"Codex plan worker failed ({failure})")
+                time.sleep(2)
             plan = read_json(output_path, MAX_PLAN_BYTES)
         returned_refs = plan.get("evidence_refs")
         if not isinstance(returned_refs, list) or not all(
