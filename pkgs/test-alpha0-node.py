@@ -244,7 +244,7 @@ args = parser.parse_args()
 package = json.loads(args.package.read_text())
 if os.environ.get("ALPHA0_AUTH_RESUMED") != "1":
     value = {{
-        "profile": "sso-apss",
+        "profile": "alpha0-apss-read",
         "reason": "qualified_sso_expiry",
         "schema": "alpha0.aws-sso-request.v1",
     }}
@@ -316,7 +316,7 @@ raise SystemExit(2)
         )
         auth_config_value["worker_secret_files"]["auth-test"] = {}
         auth_config_value["aws_cli"] = str(fake_aws)
-        auth_config_value["aws_profiles"] = ["sso-apss"]
+        auth_config_value["aws_profiles"] = ["alpha0-apss-read"]
         auth_config = root / "auth-config.json"
         auth_config.write_text(json.dumps(auth_config_value), encoding="utf-8")
 
@@ -412,11 +412,11 @@ raise SystemExit(2)
         assert verified["status"] == "authentication_verified"
         assert verified["auth_event"] == {
             "schema": "alpha0.aws-sso-device-event.v1",
-            "profile": "sso-apss",
+            "profile": "alpha0-apss-read",
             "sensitive": False,
             "status": "authenticated",
         }
-        assert verified["preflight"]["profile"] == "sso-apss"
+        assert verified["preflight"]["profile"] == "alpha0-apss-read"
         resumed = request(runner, auth_config, {**auth_bound, "operation": "resume"})
         assert resumed["status"] == "completed"
         assert resumed["result"]["reported_status"] == "success"
@@ -436,7 +436,7 @@ raise SystemExit(2)
         assert joined_resumed["status"] == "completed"
         assert joined_resumed["result"]["reported_status"] == "success"
         assert (state / "fake-login-count").read_text() == "1"
-        session_path = state / "auth" / "sso-apss.json"
+        session_path = state / "auth" / "alpha0-apss-read.json"
         expired_session = json.loads(session_path.read_text())
         expired_session["expires_at"] = "2000-01-01T00:00:00+00:00"
         session_path.write_text(
