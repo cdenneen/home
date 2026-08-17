@@ -34,18 +34,18 @@ let
   hermesStuckCronWatchdog = pkgs.writeShellScript "hermes-stuck-cron-watchdog" ''
     set -euo pipefail
     threshold_min="''${HERMES_WATCHDOG_THRESHOLD_MIN:-10}"
-    now=$(date +%s)
+    now=$(${pkgs.coreutils}/bin/date +%s)
 
     check_instance() {
       local hermes_home="$1" service="$2"
       HERMES_HOME="$hermes_home" ${agentPkgs.hermes}/bin/hermes cron runs --limit 50 2>/dev/null \
-        | awk '$2=="running"{print}' \
+        | ${pkgs.gawk}/bin/awk '$2=="running"{print}' \
         | while read -r _id _status _job _src ts; do
-            started=$(date -d "$ts" +%s 2>/dev/null || echo 0)
+            started=$(${pkgs.coreutils}/bin/date -d "$ts" +%s 2>/dev/null || echo 0)
             [ "$started" -eq 0 ] && continue
             age_min=$(( (now - started) / 60 ))
             if [ "$age_min" -ge "$threshold_min" ]; then
-              echo "$(date -Is) stuck cron run in $hermes_home (age ''${age_min}m) - restarting $service"
+              echo "$(${pkgs.coreutils}/bin/date -Is) stuck cron run in $hermes_home (age ''${age_min}m) - restarting $service"
               ${pkgs.systemd}/bin/systemctl --user restart "$service"
               break
             fi
