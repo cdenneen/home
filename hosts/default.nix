@@ -163,6 +163,12 @@ let
       tags = [ "qemu-guest" ];
     }
     {
+      name = "savage";
+      system = "x86_64-linux";
+      modules = [ ./nixos/savage.nix ];
+      tags = [ ];
+    }
+    {
       name = "utm";
       system = "aarch64-linux";
       modules = [ ./nixos/utm.nix ];
