@@ -61,6 +61,16 @@
       # GTK/KDE/Hyprland modules (already gated on profiles.gui.enable),
       # this one isn't behind any profile flag, so force it off directly.
       services.syncthing.enable = lib.mkForce false;
+      # programs.opencode (its own home-manager module, not something in
+      # this repo) defaults its own enable to true regardless of
+      # profiles.aiTools -- same pattern as catppuccin.starship above. This
+      # is what pulled opencode-node_modules into the closure even with
+      # aiTools off. hosts/nixos/wsl-home.nix and
+      # hosts/nixos/MacBook-Pro-NixOS-home.nix already force this off for
+      # the same reason -- matching that existing precedent rather than
+      # inventing a new pattern. Keeps pi/hermes/codex, which the user
+      # wants, and only cuts opencode specifically.
+      programs.opencode.enable = lib.mkForce false;
     };
 
     # Storage is capped at 30GB (Always Free max) -- ghost had 200GB, so its
