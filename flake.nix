@@ -48,6 +48,11 @@
       url = "git+https://gitlab.com/ghostspace/axis.git";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    axis-control = {
+      url = "git+ssh://git@github.com/ghostspace-com/axis-control?ref=main";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
     nix-darwin = {
@@ -399,25 +404,48 @@
                   '';
             }
             // optionalAttrs pkgs.stdenv.isLinux {
+              axis-control-package = inputs.axis-control.checks.${system}.package;
+              axis-control-home-module = inputs.axis-control.checks.${system}.home-module;
               hermes-gateway-roles =
                 let
-                  userSystemd = configurations.homeConfigurations."cdenneen@ghost".config.systemd.user;
+                  ghost = configurations.homeConfigurations."cdenneen@ghost".config;
+                  userSystemd = ghost.systemd.user;
                   services = userSystemd.services;
+                  timers = userSystemd.timers;
                   primary = services.hermes-gateway.Service;
-                  axisControl = services.hermes-axis-control-gateway.Service;
                   alpha0 = services.hermes-alpha0-gateway.Service;
+                  axisControlPackage = ghost.services.axis-control-observer.package;
+                  axisControlWatchdog = services.axis-control-watchdog;
+                  watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
+                  profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
-                  axisControlCommand = builtins.concatStringsSep "\n" axisControl.ExecStart;
                   alpha0Command = builtins.concatStringsSep "\n" alpha0.ExecStart;
                 in
+                assert inputs.axis-control.rev == "ba7e03ecce879be7047263b827d4a4dba8fd8527";
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
                 assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
                 assert !(lib.hasInfix "--profile" primaryCommand);
-                assert axisControl.WorkingDirectory == "/home/cdenneen/src/workspace/work/axis-control";
-                assert builtins.elem "HERMES_HOME=/home/cdenneen/src/workspace/work/axis-control/.hermes"
-                  axisControl.Environment;
-                assert lib.hasInfix "--profile axis-control gateway run" axisControlCommand;
+                assert ghost.profiles.hermesAxisControlGateway.enable == false;
+                assert ghost.profiles.hermesSupervisor.enable == false;
+                assert ghost.services.axis-control-observer.enable;
+                assert !(services ? hermes-axis-control-gateway);
+                assert !(lib.hasInfix "/src/workspace/work/axis-control" (builtins.toJSON services));
+                assert !(ghost.home.activation ? hermesAxisControlGatewayLegacyCleanup);
+                assert !(services ? hermes-supervisor-cron);
+                assert !(ghost.home.activation ? hermesSupervisorState);
+                assert !(ghost.home.file ? ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt");
+                assert
+                  axisControlWatchdog.Service.ExecStart == [
+                    "${axisControlPackage}/bin/axis-control watchdog --hermes-home /home/cdenneen/.hermes --profile axis-control"
+                  ];
+                assert !(axisControlWatchdog ? Install);
+                assert lib.hasPrefix "/nix/store/" watchdogCommand;
+                assert lib.hasInfix "/nix/store/" profileWrapperActivation;
+                assert !(lib.hasInfix "/src/workspace/work/axis-control" profileWrapperActivation);
+                assert !(services ? axis-control-observe);
+                assert !(timers ? axis-control-observe);
+                assert !(timers ? axis-control-watchdog);
                 assert alpha0.WorkingDirectory == "/home/cdenneen/.local/share/alpha0/hermes";
                 assert lib.hasInfix "HERMES_HOME=/home/cdenneen/.local/share/alpha0/hermes" alpha0Command;
                 assert lib.hasInfix "gateway run --external-supervisor" alpha0Command;

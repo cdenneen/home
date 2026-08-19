@@ -1,5 +1,16 @@
 # Deployment Guide
 
+> **Decommissioned authority:** this recovered local supervisor source remains
+> only as forensic/decommissioning evidence. Ghost now consumes the canonical,
+> lock-pinned `ghostspace-com/axis-control` Home Manager module and package.
+> The consumer change deploys only dormant files and a report-only watchdog; it
+> does not install or enable Hermes cron, restart a gateway, or activate Home
+> Manager. Roll back by building the previous home-flake generation/commit; any
+> activation or scheduler graduation remains a separate reviewed operation.
+
+The procedure below is retained as historical recovery evidence and is not the
+current Ghost deployment procedure.
+
 1. Merge the home-flake change and verify CI.
 2. Run `home-manager build --flake .#cdenneen@ghost`.
 3. Pause existing supervisor cron jobs and snapshot Hermes state.

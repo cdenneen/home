@@ -86,6 +86,30 @@
         "url": "https://gitlab.com/ghostspace/axis.git"
       }
     },
+    "axis-control": {
+      "inputs": {
+        "home-manager": [
+          "home-manager"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787177243,
+        "narHash": "sha256-gRJx9oidGQBXenI2kKjd4KjtyuJuJ8GwZqUtUxnD6f8=",
+        "ref": "main",
+        "rev": "ba7e03ecce879be7047263b827d4a4dba8fd8527",
+        "revCount": 29,
+        "type": "git",
+        "url": "ssh://git@github.com/ghostspace-com/axis-control"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "ssh://git@github.com/ghostspace-com/axis-control"
+      }
+    },
     "brew-src": {
       "flake": false,
       "locked": {
@@ -1309,6 +1333,7 @@
         "apple-silicon-support": "apple-silicon-support",
         "arion": "arion",
         "axis": "axis",
+        "axis-control": "axis-control",
         "catppuccin": "catppuccin",
         "claude-src": "claude-src",
         "codex-src": "codex-src",
