@@ -6,6 +6,13 @@
     # Deliberately skip profiles.defaults -- that pulls in catppuccin,
     # starship, atuin, zoxide, eza, fzf, direnv, etc. Free-tier VMs are RAM-
     # and disk-constrained; this is the bare minimum instead.
+
+    # profiles.aiTools defaults to true UNCONDITIONALLY (mkDefault true
+    # outside any profiles.defaults gate) and installs claude-code/codex/
+    # hermes/opencode/pi -- a huge closure (GTK4, Qt6, pipewire, LSPs,
+    # browser automation for computer-use). This host doesn't run any of
+    # them; axis/herdr are separate systemd services with their own binaries.
+    profiles.aiTools.enable = lib.mkForce false;
     home-manager.users.${config.userPresets.cdenneen.name} = {
       home.stateVersion = homeStateVersion;
       programs.home-manager.enable = true;
