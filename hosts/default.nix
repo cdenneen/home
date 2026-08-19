@@ -169,6 +169,12 @@ let
       tags = [ ];
     }
     {
+      name = "flash";
+      system = "x86_64-linux";
+      modules = [ ./nixos/flash.nix ];
+      tags = [ ];
+    }
+    {
       name = "utm";
       system = "aarch64-linux";
       modules = [ ./nixos/utm.nix ];
