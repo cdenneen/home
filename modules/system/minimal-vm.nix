@@ -6,46 +6,49 @@
     # Deliberately skip profiles.defaults -- that pulls in catppuccin,
     # starship, atuin, zoxide, eza, fzf, direnv, etc. Free-tier VMs are RAM-
     # and disk-constrained; this is the bare minimum instead.
-
-    # profiles.aiTools defaults to true UNCONDITIONALLY (mkDefault true
-    # outside any profiles.defaults gate) and installs claude-code/codex/
-    # hermes/opencode/pi -- a huge closure (GTK4, Qt6, pipewire, LSPs,
-    # browser automation for computer-use). This host doesn't run any of
-    # them; axis/herdr are separate systemd services with their own binaries.
     profiles.aiTools.enable = lib.mkForce false;
 
-    # NOTE (found the hard way): self.homeModules.default (flake.nix ~209)
-    # is `./modules/hm`, which unconditionally imports ./users and
-    # ./programs as a sharedModule applied to WHATEVER key exists under
-    # home-manager.users.cdenneen -- regardless of profiles.defaults,
-    # profiles.aiTools, or profiles.hmIntegrated. That tree is the user's
-    # real personal dotfiles (syncthing, rtk, opencode-serve, atuin/fzf/
-    # zoxide/direnv/starship, all set unconditionally true). There is no
-    # clean way to opt the "cdenneen" home-manager user out of that tree
-    # from a per-host module -- modules/system/users/cdenneen.nix's
-    # `home-manager.users.cdenneen = lib.mkIf hmIntegrated.enable {...}`
-    # still registers the "cdenneen" key even when hmIntegrated is false,
-    # and sharedModules decorate any key that exists regardless. Accepting
-    # that baseline weight here rather than fighting the architecture;
-    # verify actual closure size against the 30GB disk once built, and only
-    # do targeted mkForce overrides (as done for catppuccin/starship below)
-    # if it's genuinely too big.
+    # ARCHITECTURE CONSTRAINT (confirmed the hard way, twice): sharedModules
+    # (catppuccin, nix-index-database, nur, sops, and self.homeModules.default
+    # = ./modules/hm) decorate ANY key present in home-manager.users,
+    # completely independent of profiles.hmIntegrated/defaults/aiTools.
+    # self.homeModules.default unconditionally imports ./modules/hm/users
+    # (-> cdenneen/default.nix: programs.nix, files.nix, session.nix,
+    # hyprland.nix, etc. -- syncthing, rtk, codex/opencode configs, GTK/KDE)
+    # and ./modules/hm/programs (bat/tmux/editors/terminals/zellij/...) --
+    # the user's full personal environment, all set unconditionally.
+    #
+    # Tried to make the "cdenneen" key not exist at all when opting out:
+    # `a.b.c = mkIf cond val` still structurally registers the "c" key
+    # during module merging regardless of cond's runtime value (attribute
+    # NAMES are eager in the module system; only VALUES are lazy under
+    # mkIf). Tried `lib.optionalAttrs config.profiles.hmIntegrated.enable
+    # {...}` in modules/system/users/cdenneen.nix instead, since
+    # optionalAttrs is a plain function and should skip evaluating the key
+    # entirely when false -- but referencing `config.*` inside optionalAttrs
+    # breaks the module system's fixpoint (infinite recursion); mkIf exists
+    # specifically because it's the only construct that can safely depend on
+    # `config` without that recursion. So there is no way, in this flake's
+    # current architecture, to keep the "cdenneen" home-manager key from
+    # existing -- and once it exists, sharedModules apply regardless.
+    #
+    # Accepting that baseline weight rather than fighting the architecture
+    # further. What IS still under this host's control: aiTools (above) and
+    # catppuccin/starship (below, since those specifically caused a real
+    # IFD-driven build failure, not just closure size). Verify actual disk
+    # usage against the 30GB cap once built; if it's genuinely too tight,
+    # the fix is a bigger persistent disk (small $, still ~$0 in spirit) or
+    # editing modules/hm directly, not more per-host profile flags.
     home-manager.users.${config.userPresets.cdenneen.name} = {
       home.stateVersion = homeStateVersion;
       programs.home-manager.enable = true;
       programs.zsh.enable = true;
       programs.neovim.enable = true;
-      # catppuccin-nix defaults each per-app integration independently
-      # upstream -- setting the top-level catppuccin.enable off does NOT
-      # cascade to these. catppuccin.starship is what triggered the
-      # IFD-driven signature/build failure; bat/fzf/tmux are just bloat.
       catppuccin.enable = lib.mkForce false;
       catppuccin.starship.enable = lib.mkForce false;
       catppuccin.bat.enable = lib.mkForce false;
       catppuccin.fzf.enable = lib.mkForce false;
       catppuccin.tmux.enable = lib.mkForce false;
-      # Shared catppuccin module defaults this on via mkDefault regardless;
-      # plain zsh prompt is enough here.
       programs.starship.enable = lib.mkForce false;
     };
 
