@@ -14,9 +14,12 @@
     # completely independent of profiles.hmIntegrated/defaults/aiTools.
     # self.homeModules.default unconditionally imports ./modules/hm/users
     # (-> cdenneen/default.nix: programs.nix, files.nix, session.nix,
-    # hyprland.nix, etc. -- syncthing, rtk, codex/opencode configs, GTK/KDE)
-    # and ./modules/hm/programs (bat/tmux/editors/terminals/zellij/...) --
-    # the user's full personal environment, all set unconditionally.
+    # hyprland.nix, etc. -- syncthing, rtk, codex/opencode configs) and
+    # ./modules/hm/programs (bat/tmux/editors/terminals/zellij/...) -- the
+    # user's full personal environment, all set unconditionally. (GTK/KDE/
+    # Hyprland specifically are NOT part of this -- gtk.nix, kde.nix, and
+    # hyprland.nix are already gated on profiles.gui.enable, which defaults
+    # false and nothing here sets true, so no GUI ever gets pulled in.)
     #
     # Tried to make the "cdenneen" key not exist at all when opting out:
     # `a.b.c = mkIf cond val` still structurally registers the "c" key
@@ -50,6 +53,14 @@
       catppuccin.fzf.enable = lib.mkForce false;
       catppuccin.tmux.enable = lib.mkForce false;
       programs.starship.enable = lib.mkForce false;
+      # cdenneen/programs.nix sets `services.syncthing.tray.enable =
+      # pkgs.stdenv.isLinux;` unconditionally -- that pulls in syncthingtray
+      # (a Qt6 GUI tray icon: qtbase/qtdeclarative/qtsvg/qttools/qtwayland),
+      # a genuinely heavy, genuinely unnecessary dependency on a headless VM
+      # with no desktop to sync files with in the first place. Unlike the
+      # GTK/KDE/Hyprland modules (already gated on profiles.gui.enable),
+      # this one isn't behind any profile flag, so force it off directly.
+      services.syncthing.enable = lib.mkForce false;
     };
 
     # Storage is capped at 30GB (Always Free max) -- ghost had 200GB, so its
