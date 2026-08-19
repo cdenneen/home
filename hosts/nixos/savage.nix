@@ -3,7 +3,9 @@
   boot = {
     loader.grub = {
       enable = true;
-      device = "/dev/sda";
+      # device intentionally omitted: disko wires boot.loader.grub.devices
+      # itself from the bios_grub partition; setting it here too produces
+      # duplicate entries in mirroredBoots.
       efiSupport = false;
     };
     loader.systemd-boot.enable = false;
@@ -47,8 +49,17 @@
     firewall.allowedUDPPorts = [ ];
   };
 
-  profiles.defaults.enable = true;
+  profiles.minimalVm.enable = true;
   system.stateVersion = lib.mkForce "26.05";
+
+  # modules/system/default.nix declares this secret gated on
+  # profiles.defaults.enable, but its consuming activation script isn't
+  # gated the same way -- minimalVm skips profiles.defaults, so declare it
+  # here directly.
+  sops.secrets.github-token = {
+    owner = "cdenneen";
+    mode = "0400";
+  };
 
   users.users.cdenneen.openssh.authorizedKeys.keyFiles = [
     ../../pub/ssh/cdenneen_ed25519_2024.pub
