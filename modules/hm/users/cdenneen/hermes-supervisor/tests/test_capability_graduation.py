@@ -257,6 +257,30 @@ def test_v4_projection_migrates_confidence_dimensions_before_validation(
     assert capability["product_subdimensions"]["CLI"]["applicable"] is True
 
 
+def test_partial_v5_projection_gets_deterministic_calibration_migration(
+    tmp_path: Path,
+):
+    from axis_supervisor.capability_graduation import read_capability_graduation
+
+    fixture = ROOT / "tests" / "fixtures" / "capability-graduation-v4.json"
+    path = tmp_path / "capability-graduation.json"
+    path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    partial_v5 = read_capability_graduation(path)
+    partial_v5.pop("calibration_reconciliation")
+    path.write_text(json.dumps(partial_v5), encoding="utf-8")
+
+    migrated = read_capability_graduation(path)
+
+    assert migrated["schema_version"] == "5.0.0"
+    assert migrated["calibration_reconciliation"] == {
+        "required": False,
+        "state": "complete",
+        "previous_revision": None,
+        "current_revision": migrated["applicability_model_revision"],
+        "evidence": "legacy v5 projection migrated; next reconciliation recomputes canonical evidence",
+    }
+
+
 def test_gate_applicability_has_no_implicit_defaults(tmp_path: Path):
     from axis_supervisor.capability_graduation import CapabilityGraduationProjector
 

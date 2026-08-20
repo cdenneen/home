@@ -9,7 +9,7 @@ from .mutation import MutationGate, OperationClass
 from .schema_registry import validate_record, write_record
 
 SCHEMA = "axis.external-development-supervisor.active-mission"
-SCHEMA_VERSION = "4.0.0"
+SCHEMA_VERSION = "5.0.0"
 DESIRED_END_STATE = "all-capabilities-graduated"
 MAX_ACTIONS = 8
 MAX_OBSERVATIONS = 100
@@ -45,6 +45,49 @@ GATE_ORDER = (
     "operator_acceptance",
     "program_risk",
 )
+MUTATING_ASSIGNMENT_TYPES = {
+    "governance-document-mutation",
+    "code-implementation",
+    "ci-integration-repair",
+}
+
+
+def _authority_state(value: dict[str, Any]) -> str:
+    """Return the authority state published by a graph entry or mission action."""
+    return str(
+        value.get("authority_state")
+        or (value.get("authority") or {}).get("state")
+        or ""
+    )
+
+
+def dispatch_class_for(entry: dict[str, Any], expected_gates: list[dict[str, Any]]) -> str:
+    """Classify whether an executable-queue entry may dispatch a product mutation.
+
+    Technical revalidation can be executable read-only work, but preparation-only
+    authority never authorizes a governed repository mutation.
+    """
+    candidate = entry.get("candidate") or {}
+    if (
+        entry.get("assignment_type") in MUTATING_ASSIGNMENT_TYPES
+        and _authority_state(entry) != "preparation-only"
+        and entry.get("project")
+        and candidate.get("allowed_paths")
+        and candidate.get("required_tests")
+        and expected_gates
+    ):
+        return "DISPATCHABLE"
+    return "INVALID"
+
+
+def is_dispatchable_governed_mutation(action: dict[str, Any]) -> bool:
+    """Whether an action can truthfully require a governed product transition."""
+    return bool(
+        action.get("kind") == "dispatch-executable"
+        and action.get("executable")
+        and action.get("dispatch_class") == "DISPATCHABLE"
+        and _authority_state(action) != "preparation-only"
+    )
 
 
 def utc_now() -> str:
@@ -60,6 +103,10 @@ def _fingerprint(value: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def _summarize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -204,6 +251,24 @@ def _snapshot_delta(pre: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _meaningful_frontier_progress(assignment: dict[str, Any]) -> bool:
+    """Whether bounded read-only work truthfully clarified the next frontier.
+
+    A semantic analysis or no-op verification can establish that the current
+    work item requires implementation.  That does not pass the gate it was
+    asked to inspect, but it is still an evidence-backed convergence outcome.
+    Keep an explicit false available for future producers while treating
+    existing completed assignments as compatible with the retrospective
+    roadmap-convergence signal.
+    """
+    return (
+        assignment.get("result_state")
+        in {"analysis-completed", "no-op-verification-completed"}
+        and assignment.get("work_item_disposition") == "requires-implementation"
+        and assignment.get("roadmap_convergence_improved") is not False
+    )
+
+
 def _assignment_summary(value: dict[str, Any]) -> dict[str, Any]:
     summary = {
         "assignment_id": str(value.get("assignment_id") or "unknown"),
@@ -229,12 +294,17 @@ def _external_node(node: dict[str, Any]) -> bool:
 def has_runnable_action(mission: dict[str, Any]) -> bool:
     return any(
         (
-            action.get("kind") == "dispatch-executable"
+            is_dispatchable_governed_mutation(action)
             and bool(action.get("source_ref"))
         )
         or (
             action.get("kind") == "reconcile-active-assignment"
             and bool(action.get("assignment_id"))
+        )
+        or (
+            action.get("kind")
+            in {"collect-capability-evidence", "validate-capability-stream"}
+            and bool(action.get("executable"))
         )
         for action in mission.get("generated_actions") or []
     )
@@ -267,7 +337,14 @@ def _action_binding(action: dict[str, Any], graph: dict[str, Any], graduation: d
     records = {str(value.get("capability")): value for value in graduation.get("capabilities") or []}
     linked = {str(ref) for capability in capabilities for ref in (records.get(capability) or {}).get("linked_work_items") or []}
     refs = linked | {str(value) for value in (action.get("target"), action.get("source_ref")) if value}
-    edges = sorted(edge for edge in graph.get("edges") or [] if edge.get("from_ref") in refs or edge.get("to_ref") in refs)
+    edges = sorted(
+        (
+            edge
+            for edge in graph.get("edges") or []
+            if edge.get("from_ref") in refs or edge.get("to_ref") in refs
+        ),
+        key=_canonical_json,
+    )
     authority = next((node.get("authority") or {} for node in graph.get("nodes") or [] if node.get("ref") in refs), {})
     projection = [{"capability": name, "state": (records.get(name) or {}).get("graduation_state"), "invalidation": (records.get(name) or {}).get("invalidation_fingerprint")} for name in capabilities]
     return {
@@ -340,7 +417,7 @@ def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
             _backfill_action_context(action)
             for action in migrated.get("generated_actions") or []
         ]
-    if version == "3.0.0":
+    if version in {"3.0.0", "4.0.0"}:
         migrated["schema_version"] = SCHEMA_VERSION
         migrated["generated_actions"] = [
             _backfill_action_context(action)
@@ -385,6 +462,15 @@ def adapt_mission_record(value: dict[str, Any]) -> dict[str, Any]:
         ]
     migrated.setdefault("retired_actions", [])
     migrated.setdefault("invalidation_map", {})
+    migrated.setdefault(
+        "source_generations",
+        {
+            "inventory": None,
+            "graph": None,
+            "graduation": None,
+            "convergence": None,
+        },
+    )
     return migrated
 
 
@@ -706,9 +792,10 @@ class ActiveMissionState:
                 for value in observed_gates
             )
             model_revised = normalized_delta["applicability_revision_changed"]
+            frontier_progress = _meaningful_frontier_progress(assignment)
             zero_effect_cycles = (
                 0
-                if changed or model_revised
+                if changed or model_revised or frontier_progress
                 else 1
                 if old.get("observed_fingerprint") != current_fingerprint
                 else int(old.get("zero_effect_cycles") or 0) + 1
@@ -718,6 +805,8 @@ class ActiveMissionState:
                 if changed
                 else "applicability-revised"
                 if model_revised
+                else "frontier-progress"
+                if frontier_progress
                 else "state-model-defect"
                 if zero_effect_cycles >= 3
                 else "zero-effect"
@@ -731,6 +820,7 @@ class ActiveMissionState:
                 "expected_gates": expected_gates,
                 "observed_gates": observed_gates,
                 "observed_delta": changed,
+                "frontier_progress": frontier_progress,
                 "pre_snapshot": pre_snapshot,
                 "post_snapshot": post_snapshot,
                 "normalized_delta": normalized_delta,
@@ -739,7 +829,7 @@ class ActiveMissionState:
                 "evaluated_at": utc_now(),
             }
             evaluations.append(evaluation)
-            if not changed and not model_revised:
+            if not changed and not model_revised and not frontier_progress:
                 suppressed.add(suppression_fingerprint)
             if classification == "state-model-defect" and old.get(
                 "classification"
@@ -755,7 +845,10 @@ class ActiveMissionState:
                         ),
                     }
                 )
-        effective = sum(value["classification"] == "effective" for value in evaluations)
+        effective = sum(
+            value["classification"] in {"effective", "frontier-progress"}
+            for value in evaluations
+        )
         zero_effect = sum(
             value["classification"] in {"zero-effect", "state-model-defect"}
             for value in evaluations
@@ -908,20 +1001,8 @@ class ActiveMissionState:
                     "attempt_limit": 1,
                     "source_ref": str(entry.get("ref") or target),
                     "assignment_id": None,
-                    "dispatch_class": (
-                        "DISPATCHABLE"
-                        if entry.get("assignment_type")
-                        in {
-                            "governance-document-mutation",
-                            "code-implementation",
-                            "ci-integration-repair",
-                        }
-                        and entry.get("project")
-                        and (entry.get("candidate") or {}).get("allowed_paths")
-                        and (entry.get("candidate") or {}).get("required_tests")
-                        and expected_gates
-                        else "INVALID"
-                    ),
+                    "dispatch_class": dispatch_class_for(entry, expected_gates),
+                    "authority_state": _authority_state(entry) or None,
                     "assignment_scope": {
                         "target_ref": target,
                         "project": entry.get("project"),
@@ -1102,6 +1183,8 @@ class ActiveMissionState:
         inventory: dict[str, Any],
         graph: dict[str, Any],
         graduation: dict[str, Any],
+        *,
+        persist: bool = True,
     ) -> dict[str, Any]:
         previous = self._previous()
         assignments = self._assignments(inventory)
@@ -1245,6 +1328,12 @@ class ActiveMissionState:
                 "completed_assignment_count": len(completed),
                 "suppressed_action_count": len(suppressed),
             },
+            "source_generations": {
+                "inventory": inventory.get("generation_id"),
+                "graph": graph.get("generation_id"),
+                "graduation": graduation.get("projection_digest"),
+                "convergence": graduation.get("source_convergence_digest"),
+            },
             "termination_condition": {
                 "desired_state_achieved": desired_achieved,
                 "every_remaining_path_external_only": external_only,
@@ -1253,9 +1342,10 @@ class ActiveMissionState:
             },
             "observations": observations,
         }
-        decision = self.gate.decide(OperationClass.RECONCILIATION)
-        self.gate.require(decision, OperationClass.RECONCILIATION)
-        write_record(self.path, projection, SCHEMA)
+        if persist:
+            decision = self.gate.decide(OperationClass.RECONCILIATION)
+            self.gate.require(decision, OperationClass.RECONCILIATION)
+            write_record(self.path, projection, SCHEMA)
         return projection
 
     def observe(self, response: Any, *, source: str) -> dict[str, Any]:

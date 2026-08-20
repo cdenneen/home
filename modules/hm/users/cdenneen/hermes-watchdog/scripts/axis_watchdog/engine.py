@@ -34,6 +34,15 @@ PROGRESS_EVENTS = {
     "post_main_verified",
     "capability_deployment_verified",
 }
+REAL_PRODUCT_EVENTS = {
+    "implementation_completed",
+    "mr_created",
+    "mr_updated",
+    "mr_merged",
+    "post_main_verified",
+    "capability_deployment_verified",
+    "validation_completed",
+}
 TERMINAL_ASSIGNMENT_STATES = {
     "completed",
     "waiting",
@@ -50,6 +59,45 @@ def _digest(value: object) -> str:
     ).hexdigest()
 
 
+def _progress_coherence(
+    inventory: dict[str, Any],
+    graph: dict[str, Any],
+    graduation: dict[str, Any],
+    mission: dict[str, Any],
+) -> dict[str, Any]:
+    """Independently validate the Supervisor's published progress snapshot."""
+    inventory_generation = inventory.get("generation_id")
+    graph_generation = graph.get("generation_id")
+    graduation_digest = graduation.get("projection_digest")
+    convergence_digest = graduation.get("source_convergence_digest")
+    mission_sources = mission.get("source_generations") or {}
+    checks = {
+        "graph_inventory": (graph.get("inventory_generation_id"), inventory_generation),
+        "graduation_inventory": (
+            graduation.get("source_inventory_generation_id"),
+            inventory_generation,
+        ),
+        "graduation_graph": (graduation.get("source_graph_generation_id"), graph_generation),
+        "mission_inventory": (mission_sources.get("inventory"), inventory_generation),
+        "mission_graph": (mission_sources.get("graph"), graph_generation),
+        "mission_graduation": (mission_sources.get("graduation"), graduation_digest),
+        "mission_convergence": (mission_sources.get("convergence"), convergence_digest),
+    }
+    failures = [
+        name
+        for name, (actual, expected) in checks.items()
+        if actual is None or expected is None or actual != expected
+    ]
+    return {
+        "trusted": not failures,
+        "failures": failures,
+        "checks": {
+            name: {"actual": actual, "expected": expected}
+            for name, (actual, expected) in checks.items()
+        },
+    }
+
+
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -64,6 +112,33 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         if isinstance(value, dict):
             values.append(value)
     return values
+
+
+def _event_project(event: dict[str, Any]) -> str:
+    details = event.get("details") or {}
+    return str(
+        event.get("project")
+        or event.get("repository")
+        or details.get("repository")
+        or details.get("project")
+        or ""
+    )
+
+
+def _is_real_product_event(event: dict[str, Any], repositories: set[str]) -> bool:
+    """Reject worker, Slack, and other internal activity as delivery evidence."""
+    event_type = str(event.get("event_type") or "")
+    if event_type not in REAL_PRODUCT_EVENTS:
+        return False
+    if repositories and _event_project(event) not in repositories:
+        return False
+    if event_type == "implementation_completed":
+        # A changed worktree without a durable commit remains internal custody.
+        return bool((event.get("details") or {}).get("commit"))
+    if event_type in {"mr_created", "mr_updated", "mr_merged"}:
+        details = event.get("details") or {}
+        return bool(details.get("mr_iid") or details.get("mr_url"))
+    return True
 
 
 class Watchdog:
@@ -264,6 +339,194 @@ class Watchdog:
             metrics["status"] = "degraded"
         return metrics, anomalies
 
+    def _real_delivery(
+        self, inventory: dict[str, Any], state: dict[str, Any], now: int
+    ) -> dict[str, Any]:
+        repositories = set(inventory.get("repository_allowlist") or [])
+        if not repositories:
+            repositories = set((inventory.get("repositories") or {}).keys())
+        events = _read_jsonl(self.supervisor_root / "operational-events.jsonl")
+        real_events = [
+            event
+            for event in events
+            if _is_real_product_event(event, repositories)
+            and int(event.get("created_at_epoch") or 0) <= now
+        ]
+        for merge_request in inventory.get("open_merge_requests") or []:
+            updated_epoch = parse_timestamp(merge_request.get("updated_at"))
+            if (
+                updated_epoch is not None
+                and updated_epoch <= now
+                and _event_project(merge_request) in repositories
+            ):
+                real_events.append(
+                    {
+                        "event_type": "mr_updated",
+                        "created_at": merge_request.get("updated_at"),
+                        "created_at_epoch": updated_epoch,
+                        "repository": merge_request.get("project"),
+                        "details": {
+                            "mr_iid": merge_request.get("iid"),
+                            "mr_url": merge_request.get("web_url"),
+                            "sha": merge_request.get("sha"),
+                        },
+                    }
+                )
+        latest = max(real_events, key=lambda event: int(event.get("created_at_epoch") or 0), default=None)
+        latest_epoch = int((latest or {}).get("created_at_epoch") or 0)
+        prior_epoch = int(state.get("last_real_product_transition_epoch") or 0)
+        prior_transition = state.get("last_real_product_transition")
+        prior_type = state.get("last_real_product_transition_type")
+        if prior_epoch > latest_epoch:
+            latest_epoch = prior_epoch
+            latest = None
+        threshold = int(self._control()["delivery_freshness_seconds"])
+        return {
+            "last_real_product_transition": (latest or {}).get("created_at")
+            or prior_transition,
+            "last_real_product_transition_epoch": latest_epoch or None,
+            "last_real_product_transition_type": (latest or {}).get("event_type")
+            or prior_type,
+            "time_since_real_product_transition_seconds": max(0, now - latest_epoch)
+            if latest_epoch
+            else threshold + 1,
+            "threshold_seconds": threshold,
+            "event_count": len(real_events),
+        }
+
+    @staticmethod
+    def _dispatchable_governed_mutation_action(action: dict[str, Any]) -> bool:
+        """Return whether an action can require a governed product transition.
+
+        ``executable`` also covers bounded evidence and validation work.  Delivery
+        freshness is about repository mutation, so it must only consider the more
+        specific dispatch contract published by Supervisor.
+        """
+        authority_state = str(
+            action.get("authority_state")
+            or (action.get("authority") or {}).get("state")
+            or ""
+        )
+        scope = action.get("assignment_scope") or {}
+        return bool(
+            action.get("kind") == "dispatch-executable"
+            and action.get("executable")
+            and action.get("dispatch_class") == "DISPATCHABLE"
+            and authority_state != "preparation-only"
+            and action.get("source_ref")
+            and action.get("expected_effect")
+            and action.get("expected_gates")
+            and action.get("worker_path") == "implementation"
+            and action.get("handoff_path") == "implementation-handoff"
+            and action.get("review_path") == "independent-review"
+            and scope.get("target_ref") == action.get("target")
+            and scope.get("project")
+            and scope.get("allowed_paths")
+            and scope.get("required_tests")
+        )
+
+    @staticmethod
+    def _external_only_validation_stream(
+        action: dict[str, Any], missing_gates: list[dict[str, Any]]
+    ) -> bool:
+        """Whether a validation stream can only advance external acceptance.
+
+        Validation streams are normally autonomous evidence work.  Product-owner
+        streams are different: when every expected gate is currently marked
+        ``external_only``, the system cannot make the next transition itself.
+        """
+        if (
+            action.get("kind") != "validate-capability-stream"
+            or action.get("gate_owner") != "product-owner"
+        ):
+            return False
+        expected_gates = action.get("expected_gates") or []
+        external_gates = {
+            (str(gate.get("capability") or ""), str(gate.get("gate") or ""))
+            for gate in missing_gates
+            if gate.get("external_only")
+        }
+        return bool(expected_gates) and all(
+            (str(gate.get("capability") or ""), str(gate.get("gate") or ""))
+            in external_gates
+            for gate in expected_gates
+        )
+
+    @classmethod
+    def _runnable_expected_action(
+        cls, action: dict[str, Any], missing_gates: list[dict[str, Any]]
+    ) -> bool:
+        """Recognize autonomous work that should keep progress monitoring active."""
+        if not action.get("executable"):
+            return False
+        if action.get("kind") == "dispatch-executable":
+            return cls._dispatchable_governed_mutation_action(action)
+        if cls._external_only_validation_stream(action, missing_gates):
+            return False
+        return action.get("kind") in {
+            "collect-capability-evidence",
+            "reconcile-active-assignment",
+            "reconcile-missing-evidence",
+            "validate-capability-stream",
+        }
+
+    @classmethod
+    def _executable_work_exists(cls, graph: dict[str, Any], mission: dict[str, Any]) -> bool:
+        """Whether governed repository mutation work is actually dispatchable.
+
+        Graph nodes and queue entries alone can represent preparation-only or
+        no-op revalidation.  The current mission action is the bounded dispatch
+        contract and is therefore the authoritative source for delivery pressure.
+        """
+        del graph
+        return any(
+            cls._dispatchable_governed_mutation_action(action)
+            for action in mission.get("generated_actions") or []
+        )
+
+    def _stale_approved_merge_requests(
+        self, inventory: dict[str, Any], now: int, threshold: int
+    ) -> list[dict[str, Any]]:
+        try:
+            merge_lanes = json.loads(
+                (self.supervisor_root / "merge-lanes.json").read_text(
+                    encoding="utf-8"
+                )
+            ).get("items") or []
+        except (OSError, json.JSONDecodeError, AttributeError):
+            merge_lanes = []
+        owned_lanes = {
+            f"{lane.get('repository')}!{lane.get('mr_iid')}"
+            for lane in merge_lanes
+            if isinstance(lane, dict)
+            and lane.get("owner")
+            and lane.get("lane") not in {"EXTERNAL_WAIT", "PRODUCT_OWNER_DECISION"}
+        }
+        stale = []
+        for merge_request in inventory.get("open_merge_requests") or []:
+            mergeable = str(merge_request.get("merge_status") or "").lower() in {
+                "mergeable",
+                "can_be_merged",
+            }
+            approved = bool(
+                merge_request.get("approved")
+                or merge_request.get("approved_by")
+                or merge_request.get("approval_state") == "approved"
+            )
+            owner = merge_request.get("merge_owner") or merge_request.get("assignees")
+            updated_epoch = parse_timestamp(merge_request.get("updated_at"))
+            if (
+                mergeable
+                and approved
+                and not owner
+                and f"{merge_request.get('project')}!{merge_request.get('iid')}"
+                not in owned_lanes
+                and updated_epoch is not None
+                and now - updated_epoch > threshold
+            ):
+                stale.append(merge_request)
+        return stale
+
     @staticmethod
     def _job(jobs: list[dict[str, Any]], name: str) -> dict[str, Any]:
         matches = [job for job in jobs if job.get("name") == name]
@@ -308,12 +571,17 @@ class Watchdog:
             return True, f"supervisor mode {mode} intentionally suppresses new execution"
         if mission.get("current_state") == "completed":
             return True, "mission is completed"
+        missing_gates = mission.get("missing_gates") or []
         runnable = any(
-            action.get("executable")
+            Watchdog._runnable_expected_action(action, missing_gates)
             for action in mission.get("generated_actions") or []
         )
         if mission.get("external_blockers") and not runnable:
             return True, "mission is waiting on explicit external authority"
+        if missing_gates and not runnable and all(
+            gate.get("external_only") for gate in missing_gates
+        ):
+            return True, "mission is waiting on external-only acceptance"
         nodes = graph.get("nodes") or []
         unfinished = [
             node
@@ -400,11 +668,28 @@ class Watchdog:
             ],
             key=lambda value: str(value["milestone"]),
         )
+        frontier_progress = sorted(
+            [
+                {
+                    "action_id": item.get("action_id"),
+                    "assignment_id": item.get("assignment_id"),
+                    "suppression_fingerprint": item.get("suppression_fingerprint"),
+                }
+                for item in mission.get("action_effectiveness") or []
+                if item.get("classification") == "frontier-progress"
+            ],
+            key=lambda value: (
+                str(value["suppression_fingerprint"]),
+                str(value["action_id"]),
+                str(value["assignment_id"]),
+            ),
+        )
         snapshot = {
             "primary_kpi": graduation.get("primary_kpi") or {},
             "capabilities": capabilities,
             "missing_gates": missing_gates,
             "milestones": milestones,
+            "frontier_progress": frontier_progress,
         }
         return _digest(snapshot), snapshot
 
@@ -612,34 +897,91 @@ class Watchdog:
                 )
             )
 
-        fingerprint, progress_snapshot = self._mission_progress(
-            mission, records["capability-graduation"]
-        )
-        previous_fingerprint = str(state.get("mission_progress_fingerprint") or "")
-        progress_since = int(state.get("mission_progress_since_epoch") or now)
-        if fingerprint != previous_fingerprint:
-            progress_since = now
-        threshold = self._historical_threshold(control)
-        expected_wait, wait_reason = self._expected_wait(
-            supervisor_control, mission, records["execution-graph"]
-        )
-        stuck_age = now - progress_since
+        real_delivery = self._real_delivery(records["inventory"], state, now)
+        executable_work = self._executable_work_exists(records["execution-graph"], mission)
         if (
-            previous_fingerprint
-            and fingerprint == previous_fingerprint
-            and stuck_age > threshold
-            and not expected_wait
-            and mission.get("current_state") != "completed"
+            executable_work
+            and real_delivery["time_since_real_product_transition_seconds"]
+            > real_delivery["threshold_seconds"]
         ):
             anomalies.append(
                 self._anomaly(
-                    "mission-progress-stuck",
+                    "real-product-delivery-stale",
+                    "delivery_effectiveness",
+                    "no governed-repository product transition for "
+                    f"{real_delivery['time_since_real_product_transition_seconds']}s while executable work exists",
+                    5,
+                )
+            )
+        stale_merge_requests = self._stale_approved_merge_requests(
+            records["inventory"], now, int(control["delivery_freshness_seconds"])
+        )
+        if stale_merge_requests:
+            refs = ", ".join(
+                f"{value.get('project')}!{value.get('iid')}"
+                for value in stale_merge_requests[:4]
+            )
+            anomalies.append(
+                self._anomaly(
+                    "stale-approved-merge-lane",
+                    "delivery_effectiveness",
+                    "approved mergeable merge request(s) lack a merge-lane owner: " + refs,
+                    2,
+                )
+            )
+
+        coherence = _progress_coherence(
+            records["inventory"],
+            records["execution-graph"],
+            records["capability-graduation"],
+            mission,
+        )
+        previous_fingerprint = str(state.get("mission_progress_fingerprint") or "")
+        progress_since = int(state.get("mission_progress_since_epoch") or now)
+        threshold = self._historical_threshold(control)
+        if not coherence["trusted"]:
+            fingerprint = "untrusted:" + _digest(coherence)
+            progress_snapshot = {"coherence": coherence}
+            progress_since = now
+            expected_wait = False
+            wait_reason = "source generations are incoherent"
+            anomalies.append(
+                self._anomaly(
+                    "supervisor-state-incoherent",
                     "mission_progress",
-                    f"mission progress fingerprint has not changed for {stuck_age}s; historical threshold is {threshold}s",
+                    "supervisor state generations disagree: "
+                    + ", ".join(coherence["failures"]),
                     4,
                     repair=True,
                 )
             )
+        else:
+            fingerprint, progress_snapshot = self._mission_progress(
+                mission, records["capability-graduation"]
+            )
+            if fingerprint != previous_fingerprint:
+                progress_since = now
+            expected_wait, wait_reason = self._expected_wait(
+                supervisor_control, mission, records["execution-graph"]
+            )
+            stuck_age = now - progress_since
+            if (
+                previous_fingerprint
+                and fingerprint == previous_fingerprint
+                and stuck_age > threshold
+                and not expected_wait
+                and mission.get("current_state") != "completed"
+            ):
+                anomalies.append(
+                    self._anomaly(
+                        "mission-progress-stuck",
+                        "mission_progress",
+                        f"mission progress fingerprint has not changed for {stuck_age}s; historical threshold is {threshold}s",
+                        4,
+                        repair=True,
+                    )
+                )
+        stuck_age = now - progress_since
         dimensions["mission_progress"] = {
             "status": "waiting" if expected_wait else "degraded" if any(a["dimension"] == "mission_progress" for a in anomalies) else "healthy",
             "evidence": [
@@ -648,6 +990,16 @@ class Watchdog:
                 wait_reason or "no expected wait",
             ],
         }
+        dimensions["delivery_effectiveness"]["evidence"] = [
+            "last real product transition "
+            + (
+                str(real_delivery["last_real_product_transition"])
+                if real_delivery["last_real_product_transition"]
+                else "not observed"
+            ),
+            f"time since real product transition "
+            f"{real_delivery['time_since_real_product_transition_seconds']}s",
+        ]
         for dimension in dimensions:
             relevant = [a for a in anomalies if a["dimension"] == dimension]
             if relevant and dimensions[dimension]["status"] == "healthy":
@@ -684,6 +1036,19 @@ class Watchdog:
                 "stuck_threshold_seconds": threshold,
                 "expected_wait": expected_wait,
                 "expected_wait_reason": wait_reason,
+                "coherence": coherence,
+            },
+            "real_delivery": {
+                **real_delivery,
+                "executable_work_exists": executable_work,
+                "stale_approved_merge_requests": [
+                    {
+                        "project": value.get("project"),
+                        "iid": value.get("iid"),
+                        "web_url": value.get("web_url"),
+                    }
+                    for value in stale_merge_requests
+                ],
             },
             "outbox": outbox_health,
             "cutover": cutover,
@@ -1124,10 +1489,13 @@ class Watchdog:
             if isinstance((node.get("semantic_record") or {}).get("decision_packet"), dict)
         ] or ["• No Product Owner decision is pending"]
         events = _read_jsonl(Path(evidence.get("supervisor_root") or ".") / "operational-events.jsonl")
+        repositories = set(records["inventory"].get("repository_allowlist") or [])
+        if not repositories:
+            repositories = set((records["inventory"].get("repositories") or {}).keys())
         recent = [
             f"• {event.get('event_type', 'activity').replace('_', ' ').title()} — `{event.get('work_item') or 'AXIS'}`"
             for event in events
-            if event.get("event_type") in PROGRESS_EVENTS
+            if _is_real_product_event(event, repositories)
         ][-4:] or ["• No material product progress in the current evidence window"]
         open_incidents = [value for value in incidents.values() if value.get("status") != "resolved"]
         health_lines = [
@@ -1298,6 +1666,15 @@ class Watchdog:
             "health": dimensions,
             "mission_progress_fingerprint": mission["progress_fingerprint"],
             "mission_progress_since_epoch": mission["progress_since_epoch"],
+            "last_real_product_transition": evidence["real_delivery"][
+                "last_real_product_transition"
+            ],
+            "last_real_product_transition_epoch": evidence["real_delivery"][
+                "last_real_product_transition_epoch"
+            ],
+            "time_since_real_product_transition_seconds": evidence["real_delivery"][
+                "time_since_real_product_transition_seconds"
+            ],
             "slack_cutover_generation": evidence["cutover"].get("generation"),
             "incidents": incidents,
             "diagnostic_calls": state.get("diagnostic_calls") or [],

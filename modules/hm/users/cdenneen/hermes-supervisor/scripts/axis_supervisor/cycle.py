@@ -6,12 +6,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from axis_supervisor.accounting import AccountingLedger
+from axis_supervisor import progress_coherence
 from axis_supervisor.assignment_grants import (
     bind_mr as bind_assignment_grant_mr,
 )
@@ -32,7 +34,11 @@ from axis_supervisor.deployment import (
 )
 from axis_supervisor.dispatcher import Dispatcher
 from axis_supervisor.graph import ExecutionGraphBuilder
+from axis_supervisor.frontier import ExecutableFrontier
 from axis_supervisor.integrator import Integrator
+from axis_supervisor.merge_lanes import consume_next as consume_next_merge_lane
+from axis_supervisor.merge_lanes import GATED_INTEGRATION
+from axis_supervisor.merge_lanes import reconcile as reconcile_merge_lanes
 from axis_supervisor.lifecycle import (
     is_completed,
     is_integrable,
@@ -66,9 +72,16 @@ from axis_supervisor.schema_registry import (
     validate_record,
     write_record,
 )
+from axis_supervisor.semantic_escalation import quarantine_failed_assignment
 from axis_supervisor.verification import completion_receipt
 from axis_supervisor.workers import HermesWorkerManager, run_isolated_test
-from axis_supervisor.workflow_state import WorkflowState, classify_main_advance
+from axis_supervisor.workflow_state import (
+    WorkflowState,
+    classify_main_advance,
+    is_mr_driven_integration_projection,
+    post_main_cleanup_disposition,
+    post_merge_cleanup_is_complete,
+)
 
 ROOT = Path(
     os.environ.get(
@@ -115,6 +128,56 @@ def write_lease_claim_diagnostic(diagnostic: dict) -> Path:
             encoding="utf-8",
         )
         return ledger
+
+
+def select_integrable_assignment(integrable: list[dict], lane: dict | None) -> dict:
+    """Prefer the exact active assignment selected by a custody-bound lane.
+
+    The lane never gives the cycle merge authority.  It only selects an already
+    active assignment whose normal lease, mutation-grant, and GitLab gates will
+    be evaluated below.
+    """
+    if lane and lane.get("mutation_disposition") == GATED_INTEGRATION:
+        assignment_id = (lane.get("custody") or {}).get("assignment_id")
+        bound = next(
+            (
+                value
+                for value in integrable
+                if value.get("assignment_id") == assignment_id
+            ),
+            None,
+        )
+        if bound is not None:
+            return bound
+    return integrable[0]
+
+
+def promotion_is_blocked_by_repository_convergence(capability_convergence: dict) -> bool:
+    """Return whether repository convergence is the current promotion prerequisite.
+
+    Deployment assignments can remain projected while the repository is not yet
+    converged.  Treat the projector's explicit promotion state as the source of
+    truth so the cycle cannot start that downstream work ahead of the cleanup
+    that makes promotion eligible.
+    """
+    promotion = capability_convergence.get("promotion_status") or {}
+    return bool(
+        promotion.get("blocked")
+        and not promotion.get("repository_converged")
+        and promotion.get("reason") == "repository convergence is incomplete"
+    )
+
+
+def select_repository_convergence_assignment(graph: dict) -> dict | None:
+    """Select the first executable convergence item from the current graph."""
+    return next(
+        (
+            item
+            for item in graph.get("executable_queue") or []
+            if item.get("assignment_type") == "repository-convergence"
+        ),
+        None,
+    )
 
 
 def save(path: Path, value: dict, gate: MutationGate) -> None:
@@ -231,6 +294,74 @@ def converge_repository(
     branch = str(facts.get("branch") or "")
     removed_worktree = False
     removed_branch = False
+    root_fast_forwarded = False
+    worktree_metadata_pruned = False
+    if scope == "root":
+        expected_root = Path(str(facts.get("path") or "")).resolve()
+        if expected_root != repo.resolve():
+            raise RuntimeError("convergence root does not match the canonical repository")
+        default_branch = str(facts.get("default_branch") or "main")
+        current_branch = subprocess.check_output(
+            ["git", "branch", "--show-current"], cwd=repo, text=True
+        ).strip()
+        if current_branch != default_branch:
+            raise RuntimeError("convergence root is not on the default branch")
+        if subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=repo, text=True
+        ).strip():
+            raise RuntimeError("convergence root has uncommitted changes")
+        gate.require(
+            decision,
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment["project"],
+        )
+        subprocess.run(
+            ["git", "fetch", "--prune", "origin"], cwd=repo, check=True, timeout=120
+        )
+        default_remote = f"origin/{default_branch}"
+        root_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+        ).strip()
+        remote_head = subprocess.check_output(
+            ["git", "rev-parse", default_remote], cwd=repo, text=True
+        ).strip()
+        fast_forward_safe = (
+            subprocess.run(
+                ["git", "merge-base", "--is-ancestor", "HEAD", default_remote],
+                cwd=repo,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode
+            == 0
+        )
+        if not fast_forward_safe:
+            raise RuntimeError("convergence root cannot fast-forward to origin default")
+        if root_head != remote_head:
+            gate.require(
+                decision,
+                OperationClass.REPOSITORY,
+                assignment=assignment,
+                repository=assignment["project"],
+            )
+            subprocess.run(
+                ["git", "merge", "--ff-only", default_remote],
+                cwd=repo,
+                check=True,
+                timeout=120,
+            )
+            root_fast_forwarded = True
+        gate.require(
+            decision,
+            OperationClass.REPOSITORY,
+            assignment=assignment,
+            repository=assignment["project"],
+        )
+        subprocess.run(
+            ["git", "worktree", "prune"], cwd=repo, check=True, timeout=120
+        )
+        worktree_metadata_pruned = True
     if scope == "worktree":
         worktree = Path(str(facts.get("path") or "")).resolve()
         if not worktree.is_relative_to((ROOT / "worktrees").resolve()):
@@ -247,7 +378,7 @@ def converge_repository(
             check=False,
         )
         removed_worktree = completed.returncode == 0 or not worktree.exists()
-    if branch and branch != "detached":
+    if scope in {"worktree", "branch"} and branch and branch != "detached":
         control = read_record(
             ROOT / "control.json", "axis.external-development-supervisor.control"
         )
@@ -273,6 +404,8 @@ def converge_repository(
         "branch": branch or None,
         "worktree_removed": removed_worktree,
         "branch_removed": removed_branch,
+        "root_fast_forwarded": root_fast_forwarded,
+        "worktree_metadata_pruned": worktree_metadata_pruned,
     }
 
 
@@ -283,9 +416,14 @@ def close_work_item(
     close_decision: GateDecision,
     evidence_decision: GateDecision,
     evidence: list[str],
-) -> None:
+) -> bool:
     target = str(assignment.get("work_item") or "")
     if "#" not in target:
+        if is_mr_driven_integration_projection(assignment):
+            # The inherited projection has no separate controlling issue to
+            # close: its MR was the integration work item and is already
+            # merged.  This is not a verification failure.
+            return False
         raise RuntimeError("integrated assignment has no GitLab work item ref")
     project, iid = target.rsplit("#", 1)
     encoded = quote(project, safe="")
@@ -380,6 +518,7 @@ def close_work_item(
         text=True,
         timeout=120,
     )
+    return True
 
 
 def release_failed_assignment(
@@ -387,7 +526,7 @@ def release_failed_assignment(
     path: Path,
     supervisorctl: str,
     gate: MutationGate,
-) -> None:
+) -> dict | None:
     reconciliation = gate.decide(
         OperationClass.RECONCILIATION,
         assignment=assignment,
@@ -461,6 +600,20 @@ def release_failed_assignment(
         else "analyzed-only"
     )
     save(path, assignment, gate)
+    quarantine = quarantine_failed_assignment(ROOT, assignment)
+    if quarantine is not None:
+        record_event(
+            ROOT,
+            "semantic_escalation_quarantined",
+            assignment=assignment,
+            details={
+                "disposition": "pending-human-escalation",
+                "authority_invariant": quarantine["authority_invariant"],
+                "corrective_action": "await changed authority evidence or human escalation",
+            },
+            source="cycle",
+        )
+    return quarantine
 
 
 def recover_pending_decisions() -> tuple[list[str], dict | None]:
@@ -498,9 +651,76 @@ def recover_pending_decisions_safely() -> tuple[list[str], dict | None]:
         return [], None
 
 
-def rebuild(*, reconcile_decisions: bool = True) -> dict:
+def publish_source_generation(
+    inventory: dict[str, Any],
+    graph: dict[str, Any],
+    graduation: dict[str, Any],
+    mission: dict[str, Any],
+    active_assignments: list[dict[str, Any]],
+) -> None:
+    """Publish a fully-derived inventory snapshot under the reconciliation lock."""
+    coherence = progress_coherence(inventory, graph, graduation, mission)
+    if not coherence["trusted"]:
+        raise ValueError(
+            "refusing to publish incoherent source generations: "
+            + ", ".join(coherence["failures"])
+        )
+    records = (
+        (
+            ROOT / "execution-graph.json",
+            graph,
+            "axis.external-development-supervisor.execution-graph",
+        ),
+        (
+            ROOT / "capability-graduation.json",
+            graduation,
+            "axis.external-development-supervisor.capability-graduation",
+        ),
+        (
+            ROOT / "active-mission.json",
+            mission,
+            "axis.external-development-supervisor.active-mission",
+        ),
+        (
+            ROOT / "inventory.json",
+            inventory,
+            "axis.external-development-supervisor.inventory",
+        ),
+    )
+    previous = [
+        (path, read_record(path, schema), schema)
+        for path, _value, schema in records
+        if path.exists()
+    ]
+    previous_paths = {path for path, _value, _schema in previous}
+    gate = MutationGate(ROOT, source="cycle")
+    decision = gate.decide(OperationClass.RECONCILIATION)
+    gate.require(decision, OperationClass.RECONCILIATION)
+    try:
+        for path, value, schema in records:
+            write_record(path, value, schema)
+        ExecutableFrontier(ROOT).build(
+            graph.get("executable_queue") or [],
+            active_assignments,
+            graph.get("generation_id"),
+        )
+    except Exception:
+        for path, value, schema in previous:
+            write_record(path, value, schema)
+        for path, _value, _schema in records:
+            if path not in previous_paths:
+                path.unlink(missing_ok=True)
+        raise
+
+
+def rebuild(
+    *,
+    reconcile_decisions: bool = True,
+    inventory_path: Path | None = None,
+) -> dict:
     inventory = read_record(
-        ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
+        inventory_path or ROOT / "inventory.json",
+        "axis.external-development-supervisor.inventory",
     )
     control = read_record(
         ROOT / "control.json", "axis.external-development-supervisor.control"
@@ -532,6 +752,7 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
                 ROOT, "cycle"
             ).throughput_metrics(now - 30 * 86_400, now),
         },
+        persist=False,
     )
     RoadmapQualityProjector(ROOT).build(inventory, graph)
     repository_convergence = RepositoryConvergenceProjector(ROOT).build(inventory)
@@ -539,8 +760,9 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
         repository_convergence
     )
     graduation = CapabilityGraduationProjector(ROOT).build(
-        inventory, graph, capability_convergence
+        inventory, graph, capability_convergence, persist=False
     )
+    reconcile_merge_lanes(ROOT, inventory)
     assignment_by_id = {
         value.get("assignment_id"): value
         for value in inventory.get("supervisor_assignments") or []
@@ -593,18 +815,43 @@ def rebuild(*, reconcile_decisions: bool = True) -> dict:
                     ROOT, "cycle"
                 ).throughput_metrics(now - 30 * 86_400, now),
             },
+            persist=False,
         )
         RoadmapQualityProjector(ROOT).build(inventory, graph)
     graduation = CapabilityGraduationProjector(ROOT).build(
-        inventory, graph, capability_convergence
+        inventory, graph, capability_convergence, persist=False
     )
-    ActiveMissionState(ROOT).reconcile(inventory, graph, graduation)
+    mission = ActiveMissionState(ROOT).reconcile(
+        inventory, graph, graduation, persist=False
+    )
+    publish_source_generation(inventory, graph, graduation, mission, active)
     record_product_heartbeat(ROOT, graduation)
     if reconcile_decisions:
         completed, recovered_graph = recover_pending_decisions_safely()
         if completed and recovered_graph is not None:
             graph = recovered_graph
     return graph
+
+
+def settle_run(
+    run_id: str, result: dict[str, Any], *, status: str = "completed"
+) -> None:
+    """Durably settle a run after its bounded cycle has a deterministic result."""
+    path = ROOT / "runs" / f"{run_id}.json"
+    if not path.exists():
+        return
+    record = read_record(path, "axis.external-development-supervisor.run")
+    if record.get("status") not in {"started", "reconciled"}:
+        return
+    record["status"] = status
+    record["completion_output"] = json.dumps(result, sort_keys=True, default=str)[
+        :4096
+    ]
+    record["reconciled_at_epoch"] = int(time.time())
+    gate = MutationGate(ROOT, source="cycle")
+    decision = gate.decide(OperationClass.RECONCILIATION)
+    gate.require(decision, OperationClass.RECONCILIATION)
+    write_record(path, record, "axis.external-development-supervisor.run")
 
 
 def execute_new_assignment(
@@ -917,7 +1164,7 @@ def execute_new_assignment(
         }
     except Exception as exc:
         assignment["error"] = f"{type(exc).__name__}: {exc}"
-        release_failed_assignment(assignment, path, supervisorctl, gate)
+        quarantine = release_failed_assignment(assignment, path, supervisorctl, gate)
         record_event(
             ROOT,
             "assignment_disposition",
@@ -935,11 +1182,79 @@ def execute_new_assignment(
             expire_grant(ROOT, "failed")
         if assignment.get("mutation_grant_id"):
             finish_assignment_grant(ROOT, assignment, "failed")
+        if quarantine is not None:
+            # The failure has already been durably quarantined and its lease
+            # released.  Return control to the scheduler so capacity is refilled
+            # in this same cycle rather than turning the retry into a sink.
+            rebuild()
+            return {
+                "result": "semantic-escalation-quarantined",
+                "assignment": assignment["assignment_id"],
+            }
         raise
 
 
 def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
     graph = rebuild()
+    inventory = read_record(
+        ROOT / "inventory.json", "axis.external-development-supervisor.inventory"
+    )
+    control = read_record(
+        ROOT / "control.json", "axis.external-development-supervisor.control"
+    )
+    workflow = WorkflowState(ROOT)
+
+    def claim_recovered_integration_lease(assignment: dict) -> dict:
+        command = [
+            sys.executable,
+            supervisorctl,
+            "claim",
+            assignment["assignment_id"],
+            "--run-id",
+            assignment["created_by_run"],
+            "--resource",
+            f"repo:{assignment['project']}",
+            "--ttl",
+            "3600",
+        ]
+        try:
+            output = subprocess.check_output(command, text=True, timeout=120)
+        except subprocess.CalledProcessError as exc:
+            detail = str(exc.output or exc.stderr or "").strip()
+            try:
+                detail = str(json.loads(detail).get("error") or detail)
+            except json.JSONDecodeError:
+                pass
+            raise RuntimeError(
+                "canonical integration lease claim failed: "
+                f"{detail or f'exit status {exc.returncode}'}"
+            ) from exc
+        return validate_record(
+            json.loads(output), "axis.external-development-supervisor.lease"
+        )
+
+    projected_integrations = workflow.project_owned_awaiting_integrations(
+        inventory,
+        reviewer=str((control.get("product_owner_usernames") or ["unassigned"])[0]),
+        claim_lease=claim_recovered_integration_lease,
+    )
+    if projected_integrations:
+        assignment_ids = {
+            value.get("assignment_id")
+            for value in inventory.get("supervisor_assignments") or []
+        }
+        lease_ids = {
+            value.get("lease_id") for value in inventory.get("active_leases") or []
+        }
+        for assignment, lease in projected_integrations:
+            if assignment["assignment_id"] not in assignment_ids:
+                inventory.setdefault("supervisor_assignments", []).append(assignment)
+            if lease["lease_id"] not in lease_ids:
+                inventory.setdefault("active_leases", []).append(lease)
+        # The initial rebuild precedes projection.  Reconcile once more against
+        # the same current inventory so this cycle's lane consumer can observe
+        # the exact durable assignment and lease it just materialized.
+        reconcile_merge_lanes(ROOT, inventory)
     mission = read_mission_record(ROOT / "active-mission.json")
     if (mission.get("termination_condition") or {}).get("should_terminate"):
         return {
@@ -950,6 +1265,36 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         ROOT / "capability-convergence.json",
         "axis.external-development-supervisor.capability-convergence",
     )
+    # An already-active integration owns a bounded, leased handoff.  Check it
+    # before turning an independent runtime convergence plan into new work so a
+    # deployment cannot consume the cycle that should settle that handoff.
+    # The integration path below still performs its normal lease, custody, and
+    # GitLab gates; this is only a scheduling priority.
+    dispatcher = Dispatcher(ROOT)
+    active = dispatcher.active()
+    if (
+        promotion_is_blocked_by_repository_convergence(capability_convergence)
+        and not any(is_integrable(value) for value in active)
+    ):
+        convergence_item = select_repository_convergence_assignment(graph)
+        if convergence_item is None:
+            return {
+                "result": "repository-convergence-pending",
+                "reason": "promotion is blocked until repository convergence completes",
+                "queue_depth": graph.get("queue_depth", 0),
+            }
+        convergence_assignment = dispatcher.dispatch(graph, run_id, convergence_item)
+        if convergence_assignment is None:
+            return {
+                "result": "repository-convergence-pending",
+                "reason": "promotion-blocking repository convergence is not dispatchable",
+                "queue_ref": convergence_item.get("ref"),
+            }
+        gate = MutationGate(ROOT, source="cycle")
+        manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
+        return execute_new_assignment(
+            convergence_assignment, manager, supervisorctl, gate
+        )
     deployment_plans = sorted(
         (
             value
@@ -958,7 +1303,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         ),
         key=lambda value: int(value.get("ring") or 0),
     )
-    if deployment_plans:
+    if deployment_plans and not any(is_integrable(value) for value in active):
         plan = deployment_plans[0]
         existing = []
         for assignment_path in (ROOT / "assignments").glob("*.json"):
@@ -968,10 +1313,14 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if (
                 value.get("assignment_type") == "capability-deployment"
                 and value.get("source_fingerprint") == plan["assignment_id"]
-                and not is_terminal(value)
             ):
-                existing.append(value)
+                if not is_terminal(value):
+                    existing.append(value)
         if not existing:
+            # A terminal deployment failure owns neither an active lease nor a
+            # worker.  The projected runtime convergence requirement remains
+            # authoritative, so retry it through a fresh assignment rather
+            # than falling through to lower-priority lane or analysis work.
             deployment_assignment = create_deployment_assignment(ROOT, plan, run_id)
             return execute_deployment_assignment(
                 ROOT, deployment_assignment, supervisorctl
@@ -993,8 +1342,26 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
         )
         if resumable is not None:
             return execute_deployment_assignment(ROOT, resumable, supervisorctl)
-    dispatcher = Dispatcher(ROOT)
-    active = dispatcher.active()
+    # A non-owned merge request remains inspection-only.  Defer that lower
+    # authority observation until after an eligible runtime deployment has
+    # claimed the cycle, while retaining the lane before active-integration
+    # selection below.
+    lane = consume_next_merge_lane(
+        ROOT, inventory, Integrator("/etc/profiles/per-user/cdenneen/bin/glab")
+    )
+    if lane is not None:
+        record_event(
+            ROOT,
+            "merge_lane_consumed",
+            details={
+                "repository": lane["repository"],
+                "mr_iid": lane["mr_iid"],
+                "lane": lane["lane"],
+                "reason": lane["reason"],
+            },
+            source="cycle",
+            notify=False,
+        )
     gate = MutationGate(ROOT, source="cycle")
     manager = HermesWorkerManager(ROOT, hermes, supervisorctl, gate)
 
@@ -1030,6 +1397,22 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
 
     def execute_with_continuation(assignment: dict) -> dict:
         first = execute_new_assignment(assignment, manager, supervisorctl, gate)
+        if first.get("result") == "semantic-escalation-quarantined":
+            # The failed read-only task released its lease.  Rebuild the frontier
+            # with the durable authority invariant excluded, then spend the freed
+            # capacity on the next compatible governed item immediately.
+            continuation_graph = rebuild()
+            next_assignment = dispatch_first_available(continuation_graph)
+            if next_assignment is None:
+                return first
+            second = execute_new_assignment(
+                next_assignment, manager, supervisorctl, gate
+            )
+            return {
+                "result": "semantic-quarantine-capacity-refilled",
+                "quarantined": first,
+                "replacement": second,
+            }
         if (
             assignment.get("assignment_type")
             not in {"read-only-analysis", "no-op-verification"}
@@ -1081,7 +1464,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 "assignments": [value["assignment_id"] for value in active],
                 "lifecycle_states": [value.get("lifecycle_state") for value in active],
             }
-        assignment = validate_assignment(integrable[0])
+        assignment = validate_assignment(select_integrable_assignment(integrable, lane))
         path = ROOT / "assignments" / f"{assignment['assignment_id']}.json"
         if not is_integrable(assignment):
             return {
@@ -1457,14 +1840,8 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     ).returncode
                     != 0
                 )
-            if not all(
-                cleanup[key]
-                for key in (
-                    "worktree_removed",
-                    "local_branch_deleted",
-                    "remote_source_branch_absent",
-                )
-            ):
+            cleanup_disposition = post_main_cleanup_disposition(assignment, cleanup)
+            if cleanup_disposition is None:
                 verification_error = (
                     "repository convergence incomplete after post-main verification: "
                     + json.dumps(cleanup, sort_keys=True)
@@ -1482,6 +1859,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                     details={
                         "tests": test_results,
                         "cleanup": cleanup,
+                        "cleanup_disposition": cleanup_disposition,
                         "mr_url": inspection["mr"].get("web_url"),
                         "expected_next_phase": "issue closure and lease release",
                     },
@@ -1489,7 +1867,7 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                 )
             if not verification_error:
                 try:
-                    close_work_item(
+                    work_item_closed = close_work_item(
                         assignment,
                         "/etc/profiles/per-user/cdenneen/bin/glab",
                         gate,
@@ -1501,6 +1879,9 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
                                 (inspection.get("pipeline") or {}).get("web_url") or ""
                             ),
                         ],
+                    )
+                    integration["work_item_closure"] = (
+                        "closed" if work_item_closed else "not-applicable-mr-driven"
                     )
                 except Exception as exc:
                     verification_error = f"{type(exc).__name__}: {exc}"
@@ -1519,6 +1900,15 @@ def run_next(run_id: str, hermes: str, supervisorctl: str) -> dict:
             if cleanup["lease_removed"]:
                 assignment["lease_id"] = None
                 assignment["lease_uri"] = None
+            assignment["cleanup"] = cleanup
+            assignment["cleanup_disposition"] = cleanup_disposition
+            if not verification_error and not post_merge_cleanup_is_complete(
+                assignment, cleanup
+            ):
+                verification_error = (
+                    "repository convergence incomplete after post-main verification: "
+                    + json.dumps(cleanup, sort_keys=True)
+                )
             if verification_error:
                 set_lifecycle(assignment, "blocked")
                 assignment["result_state"] = "blocked"
@@ -1728,6 +2118,7 @@ def run_canary(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("rebuild", "run-next", "run-canary"))
+    parser.add_argument("--inventory-path", type=Path)
     parser.add_argument("--run-id")
     parser.add_argument("--assignment-id")
     parser.add_argument("--hermes", default="hermes")
@@ -1739,18 +2130,27 @@ def main() -> int:
     )
     args = parser.parse_args()
     if args.command == "rebuild":
-        print(json.dumps(rebuild(), sort_keys=True))
+        print(json.dumps(rebuild(inventory_path=args.inventory_path), sort_keys=True))
         return 0
     if args.command in {"run-next", "run-canary"} and not args.run_id:
         parser.error("run-next requires --run-id")
-    if args.command == "run-canary":
-        if not args.assignment_id:
-            parser.error("run-canary requires --assignment-id")
-        result = run_canary(
-            args.assignment_id, args.run_id, args.hermes, args.supervisorctl
+    try:
+        if args.command == "run-canary":
+            if not args.assignment_id:
+                parser.error("run-canary requires --assignment-id")
+            result = run_canary(
+                args.assignment_id, args.run_id, args.hermes, args.supervisorctl
+            )
+        else:
+            result = run_next(args.run_id, args.hermes, args.supervisorctl)
+    except Exception as exc:
+        settle_run(
+            args.run_id,
+            {"error": f"{type(exc).__name__}: {exc}"},
+            status="abandoned",
         )
-    else:
-        result = run_next(args.run_id, args.hermes, args.supervisorctl)
+        raise
+    settle_run(args.run_id, result)
     record_event(
         ROOT,
         "cycle_completed",

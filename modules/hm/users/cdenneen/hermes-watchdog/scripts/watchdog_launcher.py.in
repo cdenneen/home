@@ -1,0 +1,14 @@
+#!@watchdogPython@/bin/python
+import os
+import sys
+
+os.environ["AXIS_WATCHDOG_CANONICAL_PROJECTOR"] = (
+    "@watchdogCanonicalProjector@/bin/axis-development-watchdog-canonical-projector"
+)
+os.environ["AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND"] = (
+    "@watchdogCutoverReconcile@/bin/axis-development-watchdog-cutover-reconcile"
+)
+
+python = "@watchdogPython@/bin/python"
+script = os.path.expanduser("~/.hermes/scripts/axis-development-watchdog-impl.py")
+os.execv(python, [python, script, *sys.argv[1:]])

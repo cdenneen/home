@@ -145,6 +145,10 @@ def completion_receipt(
     *,
     fresh_cycle_recognition: bool,
 ) -> dict[str, Any]:
+    # Keep this import local: workflow_state validates assignments through this
+    # module, while this receipt needs its narrow MR-projection cleanup policy.
+    from .workflow_state import post_merge_cleanup_is_complete
+
     worker = assignment.get("worker") or {}
     handoff = worker.get("handoff") or {}
     planning = assignment.get("planning_record") or {}
@@ -186,7 +190,7 @@ def completion_receipt(
             merge_request.get("state") == "merged"
             and merge_request.get("merge_commit_sha")
         ),
-        "cleanup_rechecked": all(cleanup.values()) and len(cleanup) == 4,
+        "cleanup_rechecked": post_merge_cleanup_is_complete(assignment, cleanup),
         "fresh_cycle_recognition": fresh_cycle_recognition,
     }
     return verification_result(

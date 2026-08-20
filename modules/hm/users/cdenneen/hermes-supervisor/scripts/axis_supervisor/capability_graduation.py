@@ -237,7 +237,7 @@ def assignment_is_satisfied(
         repository = assignment.get("project")
         branch = facts.get("branch")
         path = facts.get("path")
-        if scope not in {"branch", "worktree"}:
+        if scope not in {"root", "branch", "worktree"}:
             return False
         if any(
             value.get("ref") == source.get("ref")
@@ -364,7 +364,25 @@ def _product_subdimensions(
 
 def adapt_capability_graduation(value: dict) -> dict:
     migrated = json.loads(json.dumps(value))
-    if migrated.get("schema_version") != "4.0.0":
+    version = migrated.get("schema_version")
+    if version == SCHEMA_VERSION:
+        # v5 records written before calibration reconciliation became mandatory
+        # are a supported persisted history, not an unknown schema revision.
+        migrated.setdefault(
+            "calibration_reconciliation",
+            {
+                "required": False,
+                "state": "complete",
+                "previous_revision": None,
+                "current_revision": str(
+                    migrated.get("applicability_model_revision")
+                    or "legacy-boolean-v1"
+                ),
+                "evidence": "legacy v5 projection migrated; next reconciliation recomputes canonical evidence",
+            },
+        )
+        return migrated
+    if version != "4.0.0":
         return migrated
     migrated["schema_version"] = SCHEMA_VERSION
     for capability in migrated.get("capabilities") or []:
@@ -617,7 +635,14 @@ class CapabilityGraduationProjector:
             for path in candidate.get("allowed_paths") or []
         ]
 
-    def build(self, inventory: dict, graph: dict, convergence: dict) -> dict:
+    def build(
+        self,
+        inventory: dict,
+        graph: dict,
+        convergence: dict,
+        *,
+        persist: bool = True,
+    ) -> dict:
         matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
         applicability_model_revision = str(
             matrix.get("applicability_model_revision") or "legacy-boolean-v1"
@@ -1162,7 +1187,8 @@ class CapabilityGraduationProjector:
             "operator_confidence": operator_confidence,
             "production_confidence": production_confidence,
         }
-        decision = self.gate.decide(OperationClass.RECONCILIATION)
-        self.gate.require(decision, OperationClass.RECONCILIATION)
-        write_record(self.path, projection, SCHEMA)
+        if persist:
+            decision = self.gate.decide(OperationClass.RECONCILIATION)
+            self.gate.require(decision, OperationClass.RECONCILIATION)
+            write_record(self.path, projection, SCHEMA)
         return projection

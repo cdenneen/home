@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -7,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from axis_supervisor.collector import write_inventory  # noqa: E402
+from axis_supervisor.classifier import classify_source_item  # noqa: E402
 from axis_supervisor.graph import ExecutionGraphBuilder  # noqa: E402
 from axis_supervisor.schema_registry import validate_record  # noqa: E402
 
@@ -215,6 +217,145 @@ def test_safe_repository_convergence_can_be_executable(tmp_path: Path):
     assert graph["executable_queue"][0]["kind"] == "repository-convergence"
 
 
+def test_collector_emits_actionable_root_convergence_for_behind_main(
+    tmp_path: Path, monkeypatch
+):
+    from axis_supervisor import collector
+
+    local_facts = {
+        "path": "/workspace/axis",
+        "present": True,
+        "branch": "main",
+        "head": "a" * 40,
+        "default_remote_head": "b" * 40,
+        "dirty": False,
+        "remote_fresh": True,
+        "root_is_default_branch": True,
+        "root_fast_forward_safe": True,
+        "root_needs_fast_forward": True,
+        "worktrees": [],
+        "local_branches": [{"name": "main", "head": "a" * 40}],
+        "remote_branches": [],
+    }
+    captured = {}
+
+    def fake_glab(path: str, **_kwargs):
+        if path.startswith("groups/"):
+            return [
+                {
+                    "id": 1,
+                    "path": "axis",
+                    "path_with_namespace": "ghostspace/axis",
+                    "default_branch": "main",
+                    "web_url": "https://example.test/ghostspace/axis",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr(
+        collector,
+        "load_control",
+        lambda: {
+            "mode": "enabled",
+            "allow_repository_mutation": True,
+            "repository_allowlist": ["ghostspace/axis"],
+            "owned_branch_prefixes": ["hermes/"],
+            "owned_worktree_root": str(tmp_path / "worktrees"),
+        },
+    )
+    monkeypatch.setattr(collector, "active_mission_issue_refs", lambda: set())
+    monkeypatch.setattr(collector, "glab", fake_glab)
+    monkeypatch.setattr(collector, "local_repository_state", lambda *_args: local_facts)
+    monkeypatch.setattr(
+        collector, "write_inventory", lambda _path, value: captured.setdefault("value", value)
+    )
+
+    assert collector.main() == 0
+    root = next(
+        item
+        for item in captured["value"]["work_items"]
+        if item["ref"] == "local-convergence:ghostspace/axis:root"
+    )
+    assert root["convergence_facts"]["root_needs_fast_forward"] is True
+    assert classify_source_item(root)["classification"] == "Executable"
+
+
+def test_collector_bounds_and_reports_dependency_link_timeouts(
+    tmp_path: Path, monkeypatch
+):
+    from axis_supervisor import collector
+
+    captured = {}
+    calls = []
+
+    def fake_glab(path: str, **kwargs):
+        calls.append((path, kwargs))
+        if path.startswith("groups/"):
+            return [
+                {
+                    "id": 1,
+                    "path": "axis",
+                    "path_with_namespace": "ghostspace/axis",
+                    "default_branch": "main",
+                    "web_url": "https://example.test/ghostspace/axis",
+                }
+            ]
+        if "/issues?" in path:
+            return [
+                {
+                    "iid": 79,
+                    "title": "Bounded dependency retrieval",
+                    "state": "opened",
+                    "labels": [],
+                    "description": "",
+                    "web_url": "https://example.test/ghostspace/axis/-/issues/79",
+                }
+            ]
+        if path.endswith("/links"):
+            raise subprocess.TimeoutExpired(["glab", "api"], kwargs["timeout"])
+        return []
+
+    monkeypatch.setattr(
+        collector,
+        "load_control",
+        lambda: {
+            "mode": "enabled",
+            "allow_repository_mutation": True,
+            "repository_allowlist": ["ghostspace/axis"],
+            "owned_branch_prefixes": ["hermes/"],
+            "owned_worktree_root": str(tmp_path / "worktrees"),
+        },
+    )
+    monkeypatch.setattr(collector, "active_mission_issue_refs", lambda: set())
+    monkeypatch.setattr(collector, "glab", fake_glab)
+    monkeypatch.setattr(
+        collector,
+        "local_repository_state",
+        lambda *_args: {"present": False, "remote_fresh": True},
+    )
+    monkeypatch.setattr(
+        collector,
+        "write_inventory",
+        lambda _path, value: captured.setdefault("value", value),
+    )
+
+    assert collector.main() == 0
+
+    inventory = captured["value"]
+    assert inventory["work_items"][0]["retrieval_errors"] == [
+        "links: TimeoutExpired"
+    ]
+    assert inventory["collection_status"]["dependency_link_timeouts"] == [
+        {
+            "ref": "ghostspace/axis#79",
+            "error": "links: TimeoutExpired",
+            "timeout_seconds": collector.DEPENDENCY_LINK_TIMEOUT_SECONDS,
+        }
+    ]
+    link_call = next(kwargs for path, kwargs in calls if path.endswith("/links"))
+    assert link_call["timeout"] == collector.DEPENDENCY_LINK_TIMEOUT_SECONDS
+
+
 def test_global_queue_zero_proof_is_graph_owned(tmp_path: Path):
     configure(tmp_path)
     blocked = source_item("ghostspace/axis#1", labels=["blocked"])
@@ -302,3 +443,110 @@ def test_repository_convergence_has_a_deterministic_branch_executor(tmp_path: Pa
         ["git", "branch", "--format=%(refname:short)"], cwd=repo, text=True
     ).splitlines()
     assert "hermes/done" not in branches
+
+
+def test_root_convergence_fast_forwards_and_prunes_stale_worktree_metadata(
+    tmp_path: Path, monkeypatch
+):
+    from axis_supervisor import collector, cycle
+    from axis_supervisor.repository_convergence import RepositoryConvergenceProjector
+
+    remote = tmp_path / "remote.git"
+    seed = tmp_path / "seed"
+    repo = tmp_path / "axis"
+    peer = tmp_path / "peer"
+    stale_worktree = tmp_path / "stale-worktree"
+    subprocess.run(["git", "init", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "init", "-b", "main", str(seed)], check=True)
+    for checkout in (seed,):
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=checkout, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.invalid"],
+            cwd=checkout,
+            check=True,
+        )
+    (seed / "README").write_text("initial\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README"], cwd=seed, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=seed, check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=seed, check=True)
+    subprocess.run(["git", "push", "-u", "origin", "main"], cwd=seed, check=True)
+    subprocess.run(
+        ["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=remote, check=True
+    )
+    subprocess.run(["git", "clone", str(remote), str(repo)], check=True)
+    subprocess.run(["git", "clone", str(remote), str(peer)], check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=peer, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=peer, check=True
+    )
+    (peer / "README").write_text("updated\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "-am", "advance main"], cwd=peer, check=True)
+    subprocess.run(["git", "push"], cwd=peer, check=True)
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "hermes/stale", str(stale_worktree)],
+        cwd=repo,
+        check=True,
+    )
+    shutil.rmtree(stale_worktree)
+
+    monkeypatch.setattr(collector, "WORKSPACE", tmp_path)
+    project = {"path": "axis", "default_branch": "main"}
+    before = collector.local_repository_state(project)
+    assert before["root_needs_fast_forward"] is True
+    assert any(worktree["prunable"] for worktree in before["worktrees"])
+
+    configure(tmp_path)
+    projection = RepositoryConvergenceProjector(tmp_path).build(
+        {
+            "generation_id": "before",
+            "repositories": {
+                "ghostspace/axis": {"default_branch": "main", "local_facts": before}
+            },
+            "supervisor_assignments": [],
+            "active_leases": [],
+        }
+    )
+    assert projection["status"] == "amber"
+    assert projection["counts"]["orphan_worktrees"] == 1
+
+    class Gate:
+        def require(self, *_args, **_kwargs):
+            return None
+
+    result = cycle.converge_repository(
+        {
+            "assignment_id": "root-convergence",
+            "project": "ghostspace/axis",
+            "source_item": {
+                "convergence_facts": {
+                    "scope": "root",
+                    "path": str(repo),
+                    "branch": "main",
+                    "default_branch": "main",
+                }
+            },
+        },
+        repo,
+        Gate(),
+        object(),
+    )
+    assert result["root_fast_forwarded"] is True
+    assert result["worktree_metadata_pruned"] is True
+    assert "prunable" not in subprocess.check_output(
+        ["git", "worktree", "list", "--porcelain"], cwd=repo, text=True
+    )
+
+    after = collector.local_repository_state(project)
+    assert after["head"] == after["default_remote_head"]
+    assert not any(worktree["prunable"] for worktree in after["worktrees"])
+    projection = RepositoryConvergenceProjector(tmp_path).build(
+        {
+            "generation_id": "after",
+            "repositories": {
+                "ghostspace/axis": {"default_branch": "main", "local_facts": after}
+            },
+            "supervisor_assignments": [],
+            "active_leases": [],
+        }
+    )
+    assert projection["status"] == "green"

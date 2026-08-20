@@ -20,9 +20,12 @@ let
       self.dirtyRev
     else
       "unknown";
+  watchdogLauncher = pkgs.replaceVars ./scripts/watchdog_launcher.py.in {
+    inherit watchdogPython watchdogCanonicalProjector watchdogCutoverReconcile;
+  };
   watchdog = pkgs.writeShellScriptBin "axis-development-watchdog" ''
     set -euo pipefail
-    exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog.py" "$@"
+    exec "$HOME/.hermes/scripts/axis-development-watchdog.py" "$@"
   '';
   watchdogCronCtl = pkgs.writeShellScriptBin "axis-development-watchdog-cronctl" ''
     set -euo pipefail
@@ -30,6 +33,7 @@ let
   '';
   watchdogCutoverCtl = pkgs.writeShellScriptBin "axis-development-watchdog-cutoverctl" ''
     set -euo pipefail
+    export AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND=${watchdogCutoverReconcile}/bin/axis-development-watchdog-cutover-reconcile
     exec ${watchdogPython}/bin/python "$HOME/.hermes/scripts/axis-development-watchdog-cutoverctl.py" "$@"
   '';
   watchdogMonitor = pkgs.writeShellScriptBin "axis-development-watchdog-monitor" ''
@@ -49,7 +53,7 @@ let
   watchdogCutoverReconcile = pkgs.writeShellScriptBin "axis-development-watchdog-cutover-reconcile" ''
     set -euo pipefail
     export AXIS_SUPERVISOR_MUTATION_SOURCE=home-manager
-    exec ${config.home.profileDirectory}/bin/axis-development-supervisor-cronctl install --hermes ${agentPkgs.hermes}/bin/hermes
+    exec ${supervisorPython}/bin/python "$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" install --hermes ${agentPkgs.hermes}/bin/hermes
   '';
   watchdogSelfRepair = pkgs.writeShellScriptBin "axis-development-watchdog-self-repair" ''
     set -euo pipefail
@@ -174,7 +178,9 @@ in
           "${runtimeRoot}" \
           "${runtimeRoot}/recovery-transactions"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
-          "${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog.py"
+          "${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog-impl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${watchdogLauncher}" "$HOME/.hermes/scripts/axis-development-watchdog.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${./scripts/cronctl.py}" "$HOME/.hermes/scripts/axis-development-watchdog-cronctl.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \

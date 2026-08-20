@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import types
@@ -127,6 +128,7 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
         supervisor / "execution-graph.json",
         {
             "generation_id": "graph-1",
+            "inventory_generation_id": "inventory-1",
             "nodes": [
                 {
                     "ref": "ghostspace/axis#1",
@@ -147,7 +149,20 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
                     "kind": "dispatch-executable",
                     "executable": True,
                     "target": "ghostspace/axis#1",
+                    "source_ref": "slice:ghostspace/axis#1",
+                    "dispatch_class": "DISPATCHABLE",
                     "engineering_purpose": "advance one verified gate",
+                    "assignment_scope": {
+                        "target_ref": "ghostspace/axis#1",
+                        "project": "ghostspace/axis",
+                        "allowed_paths": ["src/service.py"],
+                        "required_tests": ["pytest"],
+                    },
+                    "worker_path": "implementation",
+                    "handoff_path": "implementation-handoff",
+                    "review_path": "independent-review",
+                    "expected_effect": "advance the expected gate",
+                    "expected_gates": [{"capability": "Web", "gate": "verification"}],
                 }
             ],
             "active_assignments": [],
@@ -162,6 +177,12 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
                 }
             ],
             "graduation_progress": {"graduated": 1, "total": 2},
+            "source_generations": {
+                "inventory": "inventory-1",
+                "graph": "graph-1",
+                "graduation": "sha256:" + "a" * 64,
+                "convergence": "sha256:" + "b" * 64,
+            },
             "effectiveness_metrics": {
                 "assignments_evaluated": 2,
                 "state_model_defects": 0,
@@ -172,6 +193,10 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
     write(
         supervisor / "capability-graduation.json",
         {
+            "projection_digest": "sha256:" + "a" * 64,
+            "source_inventory_generation_id": "inventory-1",
+            "source_graph_generation_id": "graph-1",
+            "source_convergence_digest": "sha256:" + "b" * 64,
             "primary_kpi": {"count": 1, "denominator": 2, "percent": 50},
             "capabilities": [
                 {
@@ -232,6 +257,16 @@ def setup_runtime(tmp_path: Path, now: int = 1_800_000_000):
         },
     )
     write(
+        supervisor / "operational-events.jsonl",
+        {
+            "event_type": "mr_merged",
+            "repository": "ghostspace/axis",
+            "created_at_epoch": now,
+            "created_at": iso(now),
+            "details": {"mr_iid": 1},
+        },
+    )
+    write(
         jobs_path,
         {
             "jobs": [
@@ -273,6 +308,63 @@ def supervisor_digest(root: Path) -> str:
             digest.update(str(path.relative_to(root)).encode())
             digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def test_real_delivery_excludes_slack_and_retry_churn(tmp_path: Path):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    events = supervisor / "operational-events.jsonl"
+    events.write_text(
+        json.dumps(
+            {
+                "event_type": "assignment_retry",
+                "repository": "ghostspace/axis",
+                "created_at_epoch": now,
+                "created_at": iso(now),
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "event_type": "implementation_completed",
+                "repository": "ghostspace/axis",
+                "created_at_epoch": now,
+                "created_at": iso(now),
+                "details": {"commit": None},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    inventory = {"repository_allowlist": ["ghostspace/axis"]}
+    stale = watchdog._real_delivery(inventory, {}, now)
+    assert stale["last_real_product_transition"] is None
+    assert stale["time_since_real_product_transition_seconds"] > stale["threshold_seconds"]
+
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "event_type": "mr_merged",
+                    "repository": "ghostspace/axis",
+                    "created_at_epoch": now,
+                    "created_at": iso(now),
+                    "details": {"mr_iid": 154},
+                }
+            )
+            + "\n"
+        )
+    current = watchdog._real_delivery(inventory, {}, now)
+    assert current["last_real_product_transition_type"] == "mr_merged"
+    assert current["time_since_real_product_transition_seconds"] == 0
 
 
 def test_independence_both_directions_and_read_only_supervisor(tmp_path: Path):
@@ -420,6 +512,74 @@ def test_product_progress_fingerprint_ignores_assignment_activity(tmp_path: Path
     assert debt_transition != gate_transition
 
 
+def test_product_progress_fingerprint_tracks_frontier_clarification(tmp_path: Path):
+    _root, supervisor, _jobs = setup_runtime(tmp_path)
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    graduation = json.loads((supervisor / "capability-graduation.json").read_text())
+    original, _snapshot = Watchdog._mission_progress(mission, graduation)
+
+    mission["action_effectiveness"] = [
+        {
+            "assignment_id": "assignment-1786428838-b333a88a",
+            "action_id": "mission-action-frontier",
+            "suppression_fingerprint": "sha256:" + "c" * 64,
+            "classification": "frontier-progress",
+            "evaluated_at": "2026-08-11T00:00:00+00:00",
+        }
+    ]
+    clarified, snapshot = Watchdog._mission_progress(mission, graduation)
+
+    assert clarified != original
+    assert snapshot["frontier_progress"] == [
+        {
+            "action_id": "mission-action-frontier",
+            "assignment_id": "assignment-1786428838-b333a88a",
+            "suppression_fingerprint": "sha256:" + "c" * 64,
+        }
+    ]
+
+    mission["action_effectiveness"][0]["evaluated_at"] = "2026-08-11T01:00:00+00:00"
+    unchanged, _snapshot = Watchdog._mission_progress(mission, graduation)
+    assert unchanged == clarified
+
+
+def test_watchdog_rejects_stale_mission_progress_after_graph_refresh(tmp_path: Path):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    inventory = json.loads((supervisor / "inventory.json").read_text())
+    graph = json.loads((supervisor / "execution-graph.json").read_text())
+    graduation = json.loads((supervisor / "capability-graduation.json").read_text())
+    inventory["generation_id"] = "inventory-2"
+    graph.update({"generation_id": "graph-2", "inventory_generation_id": "inventory-2"})
+    graduation.update(
+        {
+            "source_inventory_generation_id": "inventory-2",
+            "source_graph_generation_id": "graph-2",
+            "projection_digest": "sha256:" + "c" * 64,
+        }
+    )
+    write(supervisor / "inventory.json", inventory)
+    write(supervisor / "execution-graph.json", graph)
+    write(supervisor / "capability-graduation.json", graduation)
+
+    result = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+
+    assert "supervisor-state-incoherent" in result["anomalies"]
+    assert "mission-progress-stuck" not in result["anomalies"]
+    state = json.loads((root / "state.json").read_text())
+    assert state["health"]["mission_progress"]["status"] == "degraded"
+    observation = json.loads((root / "observations.jsonl").read_text().splitlines()[-1])
+    assert observation["mission"]["coherence"]["trusted"] is False
+    assert "mission_inventory" in observation["mission"]["coherence"]["failures"]
+
+
 def test_expected_wait_does_not_hide_executable_evidence_actions():
     control = {"mode": "enabled", "kill_switch": False}
     mission = {
@@ -435,6 +595,177 @@ def test_expected_wait_does_not_hide_executable_evidence_actions():
     expected, reason = Watchdog._expected_wait(control, mission, {"nodes": []})
     assert expected is False
     assert reason is None
+
+
+def test_external_only_product_owner_validation_stream_is_expected_wait(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    mission.update(
+        {
+            "current_state": "active",
+            "external_blockers": [],
+            "missing_gates": [
+                {
+                    "capability": "CLI",
+                    "gate": "operator_acceptance",
+                    "state": "pending",
+                    "external_only": True,
+                },
+                {
+                    "capability": "Desktop",
+                    "gate": "operator_acceptance",
+                    "state": "pending",
+                    "external_only": True,
+                },
+            ],
+            "generated_actions": [
+                {
+                    "kind": "validate-capability-stream",
+                    "executable": True,
+                    "gate_owner": "product-owner",
+                    "expected_gates": [
+                        {
+                            "capability": "CLI",
+                            "gate": "operator_acceptance",
+                        },
+                        {
+                            "capability": "Desktop",
+                            "gate": "operator_acceptance",
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+    write(supervisor / "active-mission.json", mission)
+
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    assert Watchdog._expected_wait(
+        {"mode": "enabled", "kill_switch": False}, mission, {"nodes": []}
+    ) == (True, "mission is waiting on external-only acceptance")
+
+    watchdog.run()
+    state = json.loads((root / "state.json").read_text())
+    state["mission_progress_since_epoch"] = now - 7200
+    write(root / "state.json", state)
+    waiting = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now + 1,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    ).run()
+
+    assert "mission-progress-stuck" not in waiting["anomalies"]
+    state = json.loads((root / "state.json").read_text())
+    assert state["health"]["mission_progress"]["status"] == "waiting"
+
+
+def test_autonomous_validation_stream_prevents_expected_wait():
+    control = {"mode": "enabled", "kill_switch": False}
+    mission = {
+        "current_state": "active",
+        "missing_gates": [
+            {
+                "capability": "Web",
+                "gate": "verification",
+                "state": "pending",
+                "external_only": False,
+            }
+        ],
+        "generated_actions": [
+            {
+                "kind": "validate-capability-stream",
+                "executable": True,
+                "gate_owner": "technical-verification",
+                "expected_gates": [
+                    {"capability": "Web", "gate": "verification"}
+                ],
+            }
+        ],
+    }
+    expected, reason = Watchdog._expected_wait(control, mission, {"nodes": []})
+    assert expected is False
+    assert reason is None
+
+
+def test_preparation_only_invalid_dispatch_does_not_create_delivery_pressure(
+    tmp_path: Path,
+):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    mission["current_state"] = "blocked-external"
+    mission["external_blockers"] = [{"ref": "external"}]
+    mission["generated_actions"] = [
+        {
+            "kind": "dispatch-executable",
+            "executable": True,
+            "target": "ghostspace/axis#7",
+            "source_ref": "technical-revalidation:ghostspace/axis#7:tests",
+            "dispatch_class": "INVALID",
+            "authority_state": "preparation-only",
+        }
+    ]
+    write(supervisor / "active-mission.json", mission)
+
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    assert watchdog._executable_work_exists({}, mission) is False
+    assert Watchdog._expected_wait(
+        {"mode": "enabled", "kill_switch": False}, mission, {"nodes": []}
+    ) == (True, "mission is waiting on explicit external authority")
+    result = watchdog.run()
+
+    assert "real-product-delivery-stale" not in result["anomalies"]
+    state = json.loads((root / "state.json").read_text())
+    assert state["health"]["delivery_effectiveness"]["status"] == "healthy"
+
+
+def test_dispatchable_governed_work_keeps_delivery_pressure(tmp_path: Path):
+    now = 1_800_000_000
+    root, supervisor, jobs = setup_runtime(tmp_path, now)
+    write(
+        supervisor / "operational-events.jsonl",
+        {
+            "event_type": "mr_merged",
+            "repository": "ghostspace/axis",
+            "created_at_epoch": now - 3601,
+            "created_at": iso(now - 3601),
+            "details": {"mr_iid": 1},
+        },
+    )
+
+    mission = json.loads((supervisor / "active-mission.json").read_text())
+    watchdog = Watchdog(
+        root,
+        supervisor,
+        jobs,
+        clock=lambda: now,
+        projector=FakeProjector(),
+        diagnostic=FakeDiagnostic(),
+    )
+    assert watchdog._executable_work_exists({}, mission) is True
+    result = watchdog.run()
+
+    assert "real-product-delivery-stale" in result["anomalies"]
 
 
 def test_outbox_health_covers_missing_corrupt_pending_failed_and_permanent(
@@ -837,6 +1168,132 @@ def test_slack_cutover_advances_a_through_e_and_rolls_back(tmp_path: Path):
         "A",
     ]
     assert reconciles == [["reconcile-cutover"]] * 5
+
+
+def test_cutover_failed_reconcile_keeps_committed_generation_and_error(tmp_path: Path):
+    jobs = tmp_path / "jobs.json"
+    write(jobs, {"jobs": []})
+    observed = []
+
+    def runner(command, **kwargs):
+        observed.append((command, kwargs["env"].get("AXIS_SUPERVISOR_CUTOVER_GENERATION")))
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="cannot apply")
+
+    coordinator = CutoverCoordinator(
+        tmp_path,
+        jobs,
+        clock=lambda: 1_800_000_000,
+        reconcile_command="reconcile-cutover",
+        runner=runner,
+    )
+    value = coordinator.load()
+    with pytest.raises(RuntimeError, match="cannot apply"):
+        coordinator._transition(value, "B", "shadow-and-reporter-observed")
+    persisted = coordinator.load()
+    assert persisted["generation"] == "A"
+    assert "shadow-and-reporter-observed reconcile failed" in persisted["last_error"]
+    assert persisted["history"][-1]["event"] == "transition-reconcile-failed"
+    assert observed == [(["reconcile-cutover"], "B")]
+
+
+def test_projector_spawn_failure_rolls_writer_cutover_back(tmp_path: Path):
+    jobs = tmp_path / "jobs.json"
+    write(jobs, {"jobs": [{"name": "axis-development-supervisor-report"}]})
+
+    def reconcile_runner(command, **_kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    cutover = CutoverCoordinator(
+        tmp_path / "watchdog",
+        jobs,
+        clock=lambda: 1_800_000_000,
+        reconcile_command="reconcile-cutover",
+        runner=reconcile_runner,
+    )
+    cutover.load()
+    cutover.record_shadow("fp", "fp")
+    cutover.record_shadow("fp", "fp")
+    assert cutover.load()["generation"] == "C"
+
+    def missing_projector(_command, **_kwargs):
+        raise FileNotFoundError("canonical projector missing")
+
+    projector = CanonicalSlackProjector(
+        tmp_path / "supervisor",
+        command="/nix/store/canonical-projector",
+        runner=missing_projector,
+        cutover=cutover,
+    )
+    with pytest.raises(RuntimeError, match="could not start"):
+        projector.project({}, [], 1_800_000_000)
+    persisted = cutover.load()
+    assert persisted["generation"] == "A"
+    assert "FileNotFoundError" in persisted["last_error"]
+
+
+def test_watchdog_module_injects_deployed_runtime_commands():
+    module = (ROOT / "default.nix").read_text()
+    assert "watchdogLauncher = pkgs.replaceVars ./scripts/watchdog_launcher.py.in {" in module
+    assert "substituteAll" not in module
+    assert "inherit watchdogPython watchdogCanonicalProjector watchdogCutoverReconcile;" in module
+    assert '"${./scripts/watchdog.py}" "$HOME/.hermes/scripts/axis-development-watchdog-impl.py"' in module
+    assert '"${watchdogLauncher}" "$HOME/.hermes/scripts/axis-development-watchdog.py"' in module
+    assert 'exec "$HOME/.hermes/scripts/axis-development-watchdog.py" "$@"' in module
+    assert "${config.home.profileDirectory}/bin/axis-development-supervisor-cronctl" not in module
+    assert '"$HOME/.hermes/scripts/axis-development-supervisor-cronctl.py" install' in module
+    assert ".nix-profile/bin/axis-development-watchdog-cutover-reconcile" not in (
+        ROOT / "scripts" / "axis_watchdog" / "cutover.py"
+    ).read_text()
+    assert '"axis-development-watchdog-canonical-projector"' not in (
+        ROOT / "scripts" / "axis_watchdog" / "projection.py"
+    ).read_text()
+
+
+def test_installed_cron_entrypoint_injects_deployed_runtime_commands(
+    tmp_path: Path,
+):
+    """The Hermes --no-agent script path gets the same pinned commands as systemd."""
+    fake_home = tmp_path / "home"
+    script_dir = fake_home / ".hermes" / "scripts"
+    script_dir.mkdir(parents=True)
+    runtime_python = tmp_path / "runtime" / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.symlink_to(sys.executable)
+    canonical_projector = "/nix/store/canonical-projector"
+    cutover_reconcile = "/nix/store/cutover-reconcile"
+    launcher = (ROOT / "scripts" / "watchdog_launcher.py.in").read_text()
+    launcher = launcher.replace("@watchdogPython@", str(runtime_python.parent.parent))
+    launcher = launcher.replace("@watchdogCanonicalProjector@", canonical_projector)
+    launcher = launcher.replace("@watchdogCutoverReconcile@", cutover_reconcile)
+    cron_entrypoint = script_dir / "axis-development-watchdog.py"
+    cron_entrypoint.write_text(launcher, encoding="utf-8")
+    cron_entrypoint.chmod(0o700)
+    (script_dir / "axis-development-watchdog-impl.py").write_text(
+        "import json, os\n"
+        "print(json.dumps({\n"
+        "    'projector': os.environ['AXIS_WATCHDOG_CANONICAL_PROJECTOR'],\n"
+        "    'cutover': os.environ['AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND'],\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+    environment = os.environ | {
+        "HOME": str(fake_home),
+        "AXIS_WATCHDOG_CANONICAL_PROJECTOR": "untrusted-projector",
+        "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND": "untrusted-cutover",
+    }
+
+    result = subprocess.run(
+        [str(cron_entrypoint)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert json.loads(result.stdout) == {
+        "projector": f"{canonical_projector}/bin/axis-development-watchdog-canonical-projector",
+        "cutover": f"{cutover_reconcile}/bin/axis-development-watchdog-cutover-reconcile",
+    }
 
 
 @pytest.mark.parametrize("generation", ["A", "B"])

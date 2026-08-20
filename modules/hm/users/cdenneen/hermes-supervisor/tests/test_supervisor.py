@@ -56,6 +56,53 @@ def write_claim_assignment(root: Path, assignment_id: str, run_id: str) -> None:
     )
 
 
+def test_reconcile_launcher_uses_packaged_supervisor_interpreter():
+    module = (ROOT / "default.nix").read_text(encoding="utf-8")
+
+    assert (
+        'supervisorReconcileLauncher = pkgs.writeText '
+        '"axis-development-supervisor-reconcile.py"' in module
+    )
+    assert 'python = "${supervisorPython}/bin/python"' in module
+    assert 'axis-development-supervisor-reconcile-impl.py' in module
+    assert (
+        '"${supervisorReconcileLauncher}" '
+        '"$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"' in module
+    )
+    assert (
+        '"${./scripts/reconcile.py}" '
+        '"$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"' not in module
+    )
+
+
+def test_reconciler_requires_preflight_staged_inventory(tmp_path: Path, monkeypatch):
+    reconcile = load_module("reconcile_staging", ROOT / "scripts" / "reconcile.py")
+    monkeypatch.setattr(reconcile, "ROOT", tmp_path)
+    monkeypatch.delenv("AXIS_SUPERVISOR_INVENTORY_PATH", raising=False)
+
+    try:
+        reconcile.require_staged_inventory()
+    except RuntimeError as exc:
+        assert "canonical inventory publication is cycle-owned" in str(exc)
+    else:
+        raise AssertionError("unstaged reconciliation was accepted")
+
+    monkeypatch.setenv(
+        "AXIS_SUPERVISOR_INVENTORY_PATH", str(tmp_path / "inventory.json")
+    )
+    try:
+        reconcile.require_staged_inventory()
+    except RuntimeError as exc:
+        assert "accepts only the preflight staged inventory" in str(exc)
+    else:
+        raise AssertionError("canonical inventory path was accepted")
+
+    monkeypatch.setenv(
+        "AXIS_SUPERVISOR_INVENTORY_PATH", str(tmp_path / "inventory.pending.json")
+    )
+    reconcile.require_staged_inventory()
+
+
 def test_canonical_work_item_chooses_highest_complete_trusted_revision_only():
     from axis_supervisor.canonical_work_item import reconstruct_work_item
 
@@ -1170,6 +1217,7 @@ def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authori
 def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(
     tmp_path: Path,
 ):
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
     from axis_supervisor.collector import extract_findings
     from axis_supervisor.dispatcher import Dispatcher
     from axis_supervisor.graph import ExecutionGraphBuilder
@@ -1178,14 +1226,20 @@ def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(
     source_sha = "a" * 40
     planning = """Immutable PlanningRecord v2 - MCP Parallel Tranche
 
+Revision: 2
 Digest: `sha256:2222222222222222222222222222222222222222222222222222222222222222`
 Assignment type: code-implementation
 Repository: ghostspace/axis
 Authorized slices:
-- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py
+- axis29-http-transport: src/axis_runtime/mcp_http.py, tests/test_mcp_adapter_http.py, tests/mcp_http_fixture_server.py
+- axis29-primitives-refresh: src/axis_runtime/mcp_primitives.py, tests/test_mcp_discovery_refresh.py, tests/mcp_fixture_server.py
+- axis29-task-handles: src/axis_runtime/mcp_tasks.py, tests/test_mcp_task_handles.py, tests/mcp_fixture_server_tasks.py
 Required tests:
-- pytest -q tests/test_mcp_task_handles.py
+- uv run --extra dev pytest -q tests/test_mcp_adapter_http.py tests/test_mcp_adapter.py
+- uv run --extra dev pytest -q tests/test_mcp_discovery_refresh.py tests/test_mcp_adapter.py
+- uv run --extra dev pytest -q tests/test_mcp_task_handles.py tests/test_effect_time_authority_fixtures.py
 """
+    approval = f"**Approve** PlanningRecord v2 for exact digest `{digest}`"
     finding = """Current-main regression finding - MCP task-handle acceptance failure
 
 Affected tests:
@@ -1203,23 +1257,51 @@ Approved slice_id: axis29-task-handles
 Authority: use existing axis#29 PlanningRecord v2 digest `sha256:2222222222222222222222222222222222222222222222222222222222222222` only for bounded same-owner repair scope.
 Replay: exact three tests plus combined MCP suite after repair.
 """
+    notes = [
+        {
+            "id": 3661401209,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:17:07.576Z",
+            "body": finding,
+        },
+        {
+            "id": 3654285470,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:17:07.576Z",
+            "body": planning,
+        },
+        {
+            "id": 3654285471,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:18:07.576Z",
+            "updated_at": "2026-08-08T10:18:07.576Z",
+            "body": approval,
+        },
+    ]
+    canonical_work_item = reconstruct_work_item(
+        "",
+        notes,
+        {117046},
+        notes_state="NOTES_OK",
+        issue_url="https://gitlab.com/ghostspace/axis/-/issues/29",
+    )
     findings = extract_findings(
-        [
-            {
-                "id": 3661401209,
-                "author": {"username": "cdenneen"},
-                "created_at": "2026-08-08T10:17:07.576Z",
-                "body": finding,
-            },
-            {"id": 3654285470, "author": {"username": "cdenneen"}, "body": planning},
-        ],
+        notes,
         "ghostspace/axis#29",
         source_sha,
-        {"cdenneen"},
+        {117046},
+        canonical_work_item,
     )
     assert findings[0]["owner_ref"] == "ghostspace/axis#29"
     assert findings[0]["provenance"]["note_author"] == "cdenneen"
     assert findings[0]["provenance"]["source_sha"] == source_sha
+    authority_facts = canonical_work_item["authority_facts"]
+    assert authority_facts["approval_matches_record"] is True
+    # This is the production defect shape: a PlanningRecord uses Authorized
+    # slices, so the source-level collector has no aggregate Allowed paths.
+    assert authority_facts["approved_allowed_paths"] == []
 
     (tmp_path / "control.json").write_text(
         json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
@@ -1232,18 +1314,8 @@ Replay: exact three tests plus combined MCP suite after repair.
         "title": "MCP timeout regression",
         "source_state": "closed",
         "labels": ["p0"],
-        "authority_facts": {
-            "approval_matches_record": True,
-            "record_digest": digest,
-            "record_revision": 2,
-            "approval_note": "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209",
-            "approved_assignment_type": "code-implementation",
-            "approved_allowed_paths": [
-                "src/axis_runtime/mcp_tasks.py",
-                "tests/test_mcp_task_handles.py",
-            ],
-            "approved_required_tests": ["pytest -q tests/test_mcp_task_handles.py"],
-        },
+        "authority_facts": authority_facts,
+        "canonical_work_item": canonical_work_item,
         "blocking_dependency_refs": [],
         "merge_request_facts": [],
         "acceptance_facts": {"ids": [], "open_ids": []},
@@ -1317,6 +1389,13 @@ Replay: exact three tests plus combined MCP suite after repair.
     assert dispatched is not None
     assert dispatched["finding_identity"] == findings[0]["identity"]
     assert dispatched["planning_record"]["digest"] == digest
+    assert dispatched["source_item"]["authority_facts"][
+        "approved_allowed_paths"
+    ] == entry["candidate"]["allowed_paths"]
+    assert dispatched["source_item"]["authority_facts"][
+        "approved_required_tests"
+    ] == entry["candidate"]["required_tests"]
+    assert dispatched["mutation_grant_id"]
     blocked_reasons = {
         json.loads(line)["details"].get("reason")
         for line in (tmp_path / "operational-events.jsonl").read_text().splitlines()
@@ -1326,6 +1405,32 @@ Replay: exact three tests plus combined MCP suite after repair.
         blocked_reasons
     )
     assert Dispatcher(tmp_path).dispatch(graph, "finding-fixture", entry) is None
+
+
+def test_direct_finding_scope_requires_matching_approved_digest():
+    from axis_supervisor.dispatcher import Dispatcher
+
+    source = {
+        "authority_facts": {
+            "approval_matches_record": True,
+            "record_digest": "sha256:" + "a" * 64,
+            "approved_allowed_paths": [],
+            "approved_required_tests": ["pytest -q tests/test_existing.py"],
+        }
+    }
+    item = {
+        "authority": {"state": "direct"},
+        "finding_identity": "sha256:" + "c" * 64,
+        "candidate": {
+            "authority_digest": "sha256:" + "b" * 64,
+            "category": "implementation",
+            "result": "Executable",
+            "allowed_paths": ["src/new.py"],
+            "required_tests": ["pytest -q tests/test_new.py"],
+        },
+    }
+
+    assert Dispatcher._source_item_with_direct_candidate_scope(item, source) == source
 
 
 def test_closed_finding_frontier_excludes_duplicate_stale_and_satisfied_candidates(
@@ -2032,6 +2137,85 @@ def test_product_heartbeat_is_compact_and_rate_limited(tmp_path: Path):
     assert "Assignment" not in rendered
 
 
+def test_legacy_slack_state_backfills_product_projection_bucket(tmp_path: Path):
+    from axis_supervisor.observability import record_product_heartbeat
+    from axis_supervisor.slack_projection import SlackProjection
+
+    timestamp = "2026-08-10T00:00:00+00:00"
+    legacy_state = {
+        "schema": "axis.external-development-supervisor.slack-state",
+        "schema_version": "1.1.0",
+        "delivery_stage": "Slack_message_verified",
+        "delivery_history": [{"stage": "Slack_message_verified", "at": timestamp}],
+        "last_attempt_at": timestamp,
+        "semantic_revision": "legacy",
+        "source_revision": {},
+        "record_schema": "axis.external-development-supervisor.roadmap-semantics",
+        "record_schema_version": "1.2.0",
+        "last_delivery_error": None,
+        "workspace_id": "T1",
+        "workspace_name": "Test",
+        "bot_user_id": "UBOT",
+        "authorized_user_id": "U1",
+        "channel": "D1",
+        "ts": "0.1",
+        "previous_ts": None,
+        "fingerprint": "dashboard-fingerprint",
+        "message_operation": "verified",
+        "last_verified_at": timestamp,
+        "last_successful_update_at": timestamp,
+        "last_successful_update_epoch": 1_786_281_600,
+        "updated_at_epoch": 1_786_281_600,
+        "last_api_response": {"ok": True, "channel": "D1", "ts": "0.1"},
+        "projection_timestamps": {
+            "dashboard": {"overview": "0.1"},
+            "assignment": {},
+            "incident": {},
+            "decision": {},
+        },
+        "projection_fingerprints": {
+            "dashboard": {"overview": "dashboard-fingerprint"},
+            "assignment": {},
+            "incident": {},
+            "decision": {},
+        },
+        "dashboard_fallback": None,
+    }
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(slack_user_id="U1")), encoding="utf-8"
+    )
+    (tmp_path / "slack-overview-state.json").write_text(
+        json.dumps(legacy_state), encoding="utf-8"
+    )
+    record_product_heartbeat(
+        tmp_path,
+        {
+            "primary_kpi": {"count": 2, "denominator": 18},
+            "production_confidence": 40.0,
+            "capabilities": [{"first_failing_gate": "validation"}],
+        },
+    )
+    projection = SlackProjection(tmp_path)
+    projection.env_file = lambda: {"SLACK_BOT_TOKEN": "redacted"}
+    messages = {}
+
+    def api(_token, method, payload):
+        if method == "chat.postMessage":
+            messages["1.1"] = {"ts": "1.1", "text": payload["text"]}
+            return {"ok": True, "channel": "D1", "ts": "1.1"}
+        if method == "conversations.history":
+            return {"ok": True, "messages": list(messages.values())}
+        raise AssertionError(method)
+
+    projection.api = api
+    projection.process_outbox("redacted", "D1")
+
+    persisted = json.loads((tmp_path / "slack-overview-state.json").read_text())
+    assert persisted["projection_timestamps"]["dashboard"]["overview"] == "0.1"
+    assert persisted["projection_timestamps"]["product"]["heartbeat"] == "1.1"
+    assert persisted["projection_fingerprints"]["product"]["heartbeat"]
+
+
 def test_tier_b_test_candidate_is_not_duplicated_as_implementation(tmp_path: Path):
     from axis_supervisor.decomposition import SemanticDecompositionEngine
     from axis_supervisor.graph import ExecutionGraphBuilder
@@ -2333,6 +2517,71 @@ def test_semantic_test_commands_reject_shell_control():
         pass
     else:
         raise AssertionError("shell control syntax was accepted")
+    try:
+        test_command_argv(
+            "GITLAB_HOST=gitlab.com glab api projects/84759775/issues/231"
+        )
+    except ValueError as exc:
+        assert "not allowlisted" in str(exc)
+    else:
+        raise AssertionError("GitLab evidence retrieval was accepted as a test command")
+
+
+def test_read_only_semantic_prompt_only_allows_declared_local_tests():
+    from axis_supervisor.prompt_factory import PromptFactory
+
+    prompt = PromptFactory().semantic_prompt(
+        {
+            "assignment_id": "assignment-governance-231",
+            "assignment_type": "read-only-analysis",
+            "target_ref": "ghostspace/axis-governance#231",
+            "project": "ghostspace/axis-governance",
+            "responsibility": "contracts/planning-records",
+            "required_tests": [],
+            "source_fingerprint": "source-231",
+            "evidence_fingerprint": "evidence-231",
+            "source_item": {},
+        }
+    )
+
+    assert "Exact declared local test commands (the complete allowed list):\n[]" in prompt
+    assert "If that list is empty, every candidate must use `\"required_tests\": []`" in prompt
+    assert "GitLab/API queries" in prompt
+    assert "never in `required_tests`" in prompt
+
+
+def test_semantic_record_only_accepts_assignment_declared_test_commands():
+    from axis_supervisor.models import validate_semantic_record
+
+    record = semantic_record(
+        "ghostspace/axis-governance#231",
+        [
+            {
+                "slice_id": "governance-audit",
+                "title": "Revalidate governance evidence",
+                "category": "audit",
+                "result": "Executable",
+                "rationale": "The declared flake check revalidates the governed state.",
+                "project": "ghostspace/axis-governance",
+                "allowed_paths": [],
+                "required_tests": ["nix flake check"],
+            }
+        ],
+    )
+    assert validate_semantic_record(
+        record, allowed_test_commands=["nix flake check"]
+    ) is record
+
+    invalid = json.loads(json.dumps(record))
+    invalid["candidate_slices"][0]["required_tests"] = [
+        "GITLAB_HOST=gitlab.com glab api projects/84759775/issues/231"
+    ]
+    try:
+        validate_semantic_record(invalid, allowed_test_commands=[])
+    except ValueError as exc:
+        assert "not allowlisted" in str(exc)
+    else:
+        raise AssertionError("undeclared GitLab evidence retrieval was accepted as a test")
 
 
 def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
@@ -2735,7 +2984,10 @@ def test_reconciliation_failure_suppresses_agent(tmp_path: Path):
         encoding="utf-8",
     )
     failing = tmp_path / "fail.py"
-    failing.write_text("raise SystemExit(2)\n", encoding="utf-8")
+    failing.write_text(
+        "import sys\nsys.stderr.write('inventory authentication failed\\n')\nraise SystemExit(2)\n",
+        encoding="utf-8",
+    )
     env = os.environ | {
         "AXIS_SUPERVISOR_ROOT": str(root),
         "AXIS_SUPERVISOR_RECONCILE": str(failing),
@@ -2751,6 +3003,450 @@ def test_reconciliation_failure_suppresses_agent(tmp_path: Path):
     payload = json.loads(result.stdout)
     assert payload["wakeAgent"] is False
     assert "live reconciliation failed closed" in payload["reason"]
+    assert "inventory authentication failed" in payload["diagnostic"]
+    events = [
+        json.loads(line)
+        for line in (root / "operational-events.jsonl").read_text().splitlines()
+    ]
+    assert events[-1]["event_type"] == "preflight_skip"
+    assert events[-1]["details"]["diagnostic_id"] == payload["diagnostic_id"]
+    assert "inventory authentication failed" in events[-1]["details"]["diagnostic"]
+
+
+def test_localized_dependency_timeout_allows_usable_preflight(
+    tmp_path: Path, monkeypatch, capsys
+):
+    import preflight
+
+    root = tmp_path / "runtime"
+    root.mkdir()
+    control_path = root / "control.json"
+    control_value = control(minimum_free_disk_gib=0, daily_worker_cycle_limit=99)
+    control_path.write_text(
+        json.dumps(control_value),
+        encoding="utf-8",
+    )
+    inventory = {
+        "generation_id": "inventory-timeout",
+        "collection_status": {
+            "all_configured_repositories_inspected": True,
+            "dependency_queries": 12,
+            "dependency_query_failures": 1,
+            "dependency_link_timeouts": [
+                {
+                    "ref": "ghostspace/axis#36",
+                    "error": "links: TimeoutExpired",
+                    "timeout_seconds": 20,
+                }
+            ],
+            "retrieval_error_count": 1,
+            "stale_repository_count": 0,
+        },
+        "work_items": [
+            {
+                "ref": "ghostspace/axis#36",
+                "retrieval_errors": ["links: TimeoutExpired"],
+            }
+        ],
+        "supervisor_assignments": [],
+    }
+    execution_graph = {
+        "generation_id": "graph-timeout",
+        "inventory_generation_id": "inventory-timeout",
+        "executable_queue": [{"ref": "ghostspace/axis#37"}],
+        "queue_depth": 1,
+        "scheduler_state": {"selected_batch": []},
+    }
+    graduation = {
+        "projection_digest": "sha256:graduation-timeout",
+        "source_convergence_digest": "sha256:convergence-timeout",
+        "source_inventory_generation_id": "inventory-timeout",
+        "source_graph_generation_id": "graph-timeout",
+    }
+    mission = {
+        "source_generations": {
+            "inventory": "inventory-timeout",
+            "graph": "graph-timeout",
+            "graduation": "sha256:graduation-timeout",
+            "convergence": "sha256:convergence-timeout",
+        },
+        "termination_condition": {"should_terminate": False},
+    }
+    recorded_events = []
+    written_runs = []
+
+    monkeypatch.setattr(preflight, "ROOT", root)
+    monkeypatch.setattr(preflight, "CONTROL", control_path)
+    monkeypatch.setattr(preflight, "RUNS", root / "runs")
+    monkeypatch.setattr(preflight, "ASSIGNMENTS", root / "assignments")
+    monkeypatch.setattr(preflight, "INVENTORY_LOCK", root / "inventory.lock")
+    monkeypatch.setattr(
+        preflight, "INVENTORY_LOCK_OWNER", root / "inventory.lock" / "owner.json"
+    )
+    monkeypatch.setattr(preflight, "reconcile_prior_runs", lambda *_args: None)
+    monkeypatch.setattr(preflight, "load_control", lambda: control_value)
+    monkeypatch.setattr(
+        preflight,
+        "read_record",
+        lambda path, _schema: inventory
+        if path.name == "inventory.json"
+        else execution_graph
+        if path.name == "execution-graph.json"
+        else graduation,
+    )
+    monkeypatch.setattr(
+        preflight,
+        "read_mission_record",
+        lambda _path: mission,
+    )
+    monkeypatch.setattr(preflight, "has_runnable_action", lambda _mission: False)
+    monkeypatch.setattr(
+        preflight.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "record_event",
+        lambda _root, event_type, **kwargs: recorded_events.append(
+            {"event_type": event_type, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "write_record",
+        lambda _path, value, _schema: written_runs.append(value),
+    )
+
+    assert preflight.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["wakeAgent"] is True
+    assert inventory["work_items"][0]["retrieval_errors"] == [
+        "links: TimeoutExpired"
+    ]
+    degraded = next(
+        event
+        for event in recorded_events
+        if event["event_type"] == "preflight_degraded_retrieval"
+    )
+    assert degraded["details"]["affected_items"] == [
+        {"ref": "ghostspace/axis#36", "error": "links: TimeoutExpired"}
+    ]
+    assert written_runs[-1]["status"] == "reconciled"
+
+
+def test_source_generation_publication_requires_one_coherent_snapshot(
+    tmp_path: Path, monkeypatch
+):
+    import axis_supervisor.cycle as cycle
+
+    class Gate:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def decide(self, *_args, **_kwargs):
+            return None
+
+        def require(self, *_args, **_kwargs):
+            pass
+
+    writes = []
+    inventory = {"generation_id": "inventory-next"}
+    graph = {"generation_id": "graph-next", "inventory_generation_id": "inventory-next"}
+    graduation = {
+        "projection_digest": "sha256:graduation-next",
+        "source_convergence_digest": "sha256:convergence-next",
+        "source_inventory_generation_id": "inventory-next",
+        "source_graph_generation_id": "graph-next",
+    }
+    mission = {
+        "source_generations": {
+            "inventory": "inventory-next",
+            "graph": "graph-next",
+            "graduation": "sha256:graduation-next",
+            "convergence": "sha256:convergence-next",
+        }
+    }
+
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "MutationGate", Gate)
+    monkeypatch.setattr(
+        cycle,
+        "write_record",
+        lambda path, value, schema: writes.append((path.name, value, schema)),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "ExecutableFrontier",
+        lambda _root: type("Frontier", (), {"build": lambda *_args: {}})(),
+    )
+
+    cycle.publish_source_generation(inventory, graph, graduation, mission, [])
+
+    assert [name for name, _value, _schema in writes] == [
+        "execution-graph.json",
+        "capability-graduation.json",
+        "active-mission.json",
+        "inventory.json",
+    ]
+
+    writes.clear()
+    mission["source_generations"]["inventory"] = "inventory-stale"
+    try:
+        cycle.publish_source_generation(inventory, graph, graduation, mission, [])
+    except ValueError as exc:
+        assert "mission_inventory" in str(exc)
+    else:
+        raise AssertionError("incoherent source generations were published")
+    assert writes == []
+
+
+def test_cycle_settles_reconciled_run_after_a_bounded_result(
+    tmp_path: Path, monkeypatch
+):
+    import axis_supervisor.cycle as cycle
+    from axis_supervisor.schema_registry import read_record, write_record
+
+    class Gate:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def decide(self, *_args, **_kwargs):
+            return None
+
+        def require(self, *_args, **_kwargs):
+            pass
+
+    run_path = tmp_path / "runs" / "run-1.json"
+    write_record(
+        run_path,
+        {
+            "schema": "axis.external-development-supervisor.run",
+            "schema_version": "1.0.0",
+            "run_id": "run-1",
+            "status": "reconciled",
+            "host": "test-host",
+            "started_at_epoch": 1,
+            "mode": "enabled",
+            "allow_repository_mutation": False,
+            "inventory_generation_id": "inventory-next",
+            "model_calls_remaining": 1,
+            "reconciled_at_epoch": 1,
+        },
+        "axis.external-development-supervisor.run",
+    )
+    monkeypatch.setattr(cycle, "ROOT", tmp_path)
+    monkeypatch.setattr(cycle, "MutationGate", Gate)
+
+    cycle.settle_run("run-1", {"result": "no-assignment"})
+
+    settled = read_record(run_path, "axis.external-development-supervisor.run")
+    assert settled["status"] == "completed"
+    assert "no-assignment" in settled["completion_output"]
+
+
+def test_preflight_migrates_started_run_after_reconciliation_event(
+    tmp_path: Path, monkeypatch
+):
+    import preflight
+    from axis_supervisor.schema_registry import read_record, write_record
+
+    class Gate:
+        def decide(self, *_args, **_kwargs):
+            return None
+
+        def require(self, *_args, **_kwargs):
+            pass
+
+    runs = tmp_path / "runs"
+    run_path = runs / "run-legacy.json"
+    write_record(
+        run_path,
+        {
+            "schema": "axis.external-development-supervisor.run",
+            "schema_version": "1.0.0",
+            "run_id": "run-legacy",
+            "status": "started",
+            "host": "test-host",
+            "started_at_epoch": 1,
+            "mode": "enabled",
+            "allow_repository_mutation": False,
+            "inventory_generation_id": "inventory-current",
+            "model_calls_remaining": 1,
+        },
+        "axis.external-development-supervisor.run",
+    )
+    (tmp_path / "operational-events.jsonl").write_text(
+        json.dumps(
+            {
+                "event_type": "reconciliation_completed",
+                "details": {"run_id": "run-legacy"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "ROOT", tmp_path)
+    monkeypatch.setattr(preflight, "RUNS", runs)
+
+    preflight.reconcile_prior_runs({}, 100, Gate())
+
+    assert read_record(run_path, "axis.external-development-supervisor.run")[
+        "status"
+    ] == "reconciled"
+
+
+def test_canonical_slack_projection_accepts_coherently_published_sources(
+    tmp_path: Path, monkeypatch, capsys
+):
+    projection = load_module("canonical_slack_projection", ROOT / "scripts" / "slack_projection.py")
+    inventory = {"generation_id": "inventory-current"}
+    graph = {"generation_id": "graph-current", "inventory_generation_id": "inventory-current"}
+    graduation = {
+        "projection_digest": "sha256:graduation-current",
+        "source_convergence_digest": "sha256:convergence-current",
+        "source_inventory_generation_id": "inventory-current",
+        "source_graph_generation_id": "graph-current",
+    }
+    mission = {
+        "source_generations": {
+            "inventory": "inventory-current",
+            "graph": "graph-current",
+            "graduation": "sha256:graduation-current",
+            "convergence": "sha256:convergence-current",
+        }
+    }
+    monkeypatch.setattr(projection, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        projection,
+        "read_record",
+        lambda path, _schema: inventory if path.name == "inventory.json" else graph if path.name == "execution-graph.json" else {},
+    )
+    monkeypatch.setattr(projection, "read_capability_graduation", lambda _path: graduation)
+    monkeypatch.setattr(projection, "read_mission_record", lambda _path: mission)
+    monkeypatch.setattr(
+        projection,
+        "SlackProjection",
+        lambda _root: type("Projection", (), {"update": lambda *_args: {"updated": True}})(),
+    )
+    monkeypatch.setattr(sys, "argv", ["slack_projection.py"])
+
+    assert projection.main() == 0
+    assert json.loads(capsys.readouterr().out) == {"updated": True}
+
+
+def test_isolated_dependency_link_timeout_gate_requires_complete_noncanonical_accounting():
+    import preflight
+
+    inventory = {
+        "generation_id": "inventory-timeout",
+        "collection_status": {
+            "dependency_queries": 2,
+            "dependency_query_failures": 1,
+            "dependency_link_timeouts": [
+                {
+                    "ref": "ghostspace/axis#36",
+                    "error": "links: TimeoutExpired",
+                    "timeout_seconds": 20,
+                }
+            ],
+            "retrieval_error_count": 1,
+        },
+        "work_items": [
+            {
+                "ref": "ghostspace/axis#36",
+                "retrieval_errors": ["links: TimeoutExpired"],
+            }
+        ],
+    }
+    usable_graph = {
+        "inventory_generation_id": "inventory-timeout",
+        "executable_queue": [{"ref": "ghostspace/axis#37"}],
+    }
+
+    assert preflight.isolated_dependency_link_timeouts(inventory, usable_graph)
+    multiple_link_timeouts = inventory | {
+        "collection_status": inventory["collection_status"]
+        | {
+            "dependency_queries": 3,
+            "dependency_query_failures": 2,
+            "dependency_link_timeouts": [
+                *inventory["collection_status"]["dependency_link_timeouts"],
+                {
+                    "ref": "ghostspace/axis#38",
+                    "error": "links: TimeoutExpired",
+                    "timeout_seconds": 20,
+                },
+            ],
+            "retrieval_error_count": 2,
+        },
+        "work_items": inventory["work_items"]
+        + [
+            {
+                "ref": "ghostspace/axis#38",
+                "retrieval_errors": ["links: TimeoutExpired"],
+            }
+        ],
+    }
+    assert preflight.isolated_dependency_link_timeouts(
+        multiple_link_timeouts, usable_graph
+    )
+    assert not preflight.isolated_dependency_link_timeouts(
+        multiple_link_timeouts,
+        usable_graph
+        | {
+            "executable_queue": [
+                {"target_ref": "ghostspace/axis#38"}
+            ]
+        },
+    )
+    assert not preflight.isolated_dependency_link_timeouts(
+        inventory
+        | {
+            "work_items": [
+                {
+                    "ref": "ghostspace/axis#36",
+                    "retrieval_errors": ["notes: TimeoutExpired"],
+                }
+            ]
+        },
+        usable_graph,
+    )
+    assert not preflight.isolated_dependency_link_timeouts(
+        inventory,
+        usable_graph | {"executable_queue": []},
+    )
+
+
+def test_recovery_failure_preserves_durable_child_diagnostic(tmp_path: Path):
+    root = tmp_path / "runtime"
+    root.mkdir()
+    (root / "control.json").write_text(
+        json.dumps(control(minimum_free_disk_gib=0)), encoding="utf-8"
+    )
+    failing = tmp_path / "recover.py"
+    failing.write_text(
+        "import sys\nsys.stderr.write('lease schema mismatch\\n')\nraise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    env = os.environ | {
+        "AXIS_SUPERVISOR_ROOT": str(root),
+        "AXIS_SUPERVISOR_CTL": str(failing),
+    }
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "preflight.py")],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert "supervisor recovery failed closed" in payload["reason"]
+    assert "lease schema mismatch" in payload["diagnostic"]
+    event = json.loads((root / "operational-events.jsonl").read_text().splitlines()[-1])
+    assert event["event_type"] == "preflight_skip"
+    assert event["details"]["diagnostic_id"] == payload["diagnostic_id"]
 
 
 def test_fenced_lease_conflict_and_release(tmp_path: Path):
@@ -3047,7 +3743,12 @@ def test_slack_projection_updates_persistent_overview(tmp_path: Path):
     ]
     fallback, blocks, _ = projection.render(inventory, graph, control_value)
     assert fallback.startswith(
-        "AXIS | Capabilities 0/0 graduated (0%) | Roadmap 1/2 verified"
+        "AXIS | Progress reconciling | Capabilities 0/0 graduated (0%) | "
+        "Roadmap 1/2 verified"
+    )
+    assert any(
+        "progress state is reconciling" in block.get("text", {}).get("text", "")
+        for block in blocks
     )
     assert blocks[0]["type"] == "header"
     assert [block["text"]["text"] for block in blocks if block["type"] == "header"] == [

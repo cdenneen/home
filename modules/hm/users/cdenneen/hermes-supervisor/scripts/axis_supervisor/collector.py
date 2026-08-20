@@ -33,7 +33,9 @@ ROOT = Path(
     )
 )
 CONTROL = ROOT / "control.json"
-INVENTORY = ROOT / "inventory.json"
+INVENTORY = Path(
+    os.environ.get("AXIS_SUPERVISOR_INVENTORY_PATH", ROOT / "inventory.json")
+)
 WORKSPACE = Path(
     os.environ.get(
         "AXIS_SUPERVISOR_WORKSPACE", "/home/cdenneen/src/workspace/personal/work"
@@ -52,6 +54,7 @@ NOTE_STORAGE_LIMIT = 100
 NOTE_BODY_LIMIT = 12000
 _CLOSED_NOTE_TRACE_LIMIT = 500
 _CLOSED_NOTE_TRACE_FIELD_LIMIT = 512
+DEPENDENCY_LINK_TIMEOUT_SECONDS = 20
 _CLOSED_NOTE_MARKERS = (
     "immutable planningrecord",
     "planningrecord v2",
@@ -552,6 +555,22 @@ def local_repository_state(project: dict, merge_requests: list[dict] | None = No
         state["head"] = run([GIT, "rev-parse", "HEAD"], path).strip()
         state["branch"] = run([GIT, "branch", "--show-current"], path).strip()
         state["dirty"] = bool(run([GIT, "status", "--porcelain"], path).strip())
+        default_branch = str(project.get("default_branch") or "main")
+        state["root_is_default_branch"] = state["branch"] == default_branch
+        state["root_fast_forward_safe"] = (
+            subprocess.run(
+                [GIT, "merge-base", "--is-ancestor", "HEAD", default_remote],
+                cwd=str(path),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            ).returncode
+            == 0
+        )
+        state["root_needs_fast_forward"] = bool(
+            state["root_is_default_branch"]
+            and state["head"] != state["default_remote_head"]
+        )
         worktree_raw = run([GIT, "worktree", "list", "--porcelain"], path)
         worktrees = []
         for block in (
@@ -591,6 +610,7 @@ def local_repository_state(project: dict, merge_requests: list[dict] | None = No
                     "dirty": dirty,
                     "integrated_into_default": integrated,
                     "is_root": worktree_path.resolve() == path.resolve(),
+                    "prunable": "prunable" in fields,
                 }
             )
         state["worktrees"] = worktrees
@@ -729,6 +749,112 @@ def write_inventory(path: Path, inventory: dict) -> None:
     write_record(path, inventory, "axis.external-development-supervisor.inventory")
 
 
+def _pipeline_status(merge_request: object) -> str | None:
+    if not isinstance(merge_request, dict):
+        return None
+    for field in ("head_pipeline", "pipeline"):
+        pipeline = merge_request.get(field)
+        if isinstance(pipeline, dict):
+            status = pipeline.get("status")
+            if isinstance(status, str) and status:
+                return status
+    return None
+
+
+def _approval_status(approval_facts: object) -> tuple[bool, bool]:
+    """Return (available, approved) from GitLab's MR approvals response."""
+    if not isinstance(approval_facts, dict):
+        return False, False
+    approved = approval_facts.get("approved")
+    if isinstance(approved, bool):
+        return True, approved
+    approvals_left = approval_facts.get("approvals_left")
+    approvals_required = approval_facts.get("approvals_required")
+    if (
+        isinstance(approvals_left, int)
+        and not isinstance(approvals_left, bool)
+        and isinstance(approvals_required, int)
+        and not isinstance(approvals_required, bool)
+    ):
+        return True, approvals_left == 0
+    return False, False
+
+
+def _approved_by(merge_request: object) -> list:
+    if not isinstance(merge_request, dict):
+        return []
+    approved_by = merge_request.get("approved_by")
+    return approved_by if isinstance(approved_by, list) else []
+
+
+def normalize_open_merge_request(
+    project: str, merge_request: dict, approval_facts: object, detail_facts: object
+) -> dict:
+    """Normalize list, approvals, and detail API responses for lane adoption.
+
+    The list endpoint can omit both approvals and head-pipeline data.  Approval
+    facts are authoritative only when the dedicated approvals endpoint provides
+    an explicit decision; unavailable facts intentionally remain non-actionable.
+    """
+    detail = detail_facts if isinstance(detail_facts, dict) else {}
+    approval_facts_available, approved = _approval_status(approval_facts)
+    pipeline_status = _pipeline_status(detail) or _pipeline_status(merge_request)
+    approved_by = (
+        approval_facts["approved_by"]
+        if isinstance(approval_facts, dict)
+        and isinstance(approval_facts.get("approved_by"), list)
+        else _approved_by(merge_request)
+    )
+    return {
+        "project": project,
+        "iid": merge_request["iid"],
+        "title": merge_request["title"],
+        "state": merge_request["state"],
+        "source_branch": merge_request.get("source_branch"),
+        "target_branch": merge_request.get("target_branch"),
+        "sha": detail.get("sha") or merge_request.get("sha"),
+        "web_url": detail.get("web_url") or merge_request.get("web_url"),
+        "merge_status": (
+            detail.get("detailed_merge_status")
+            or detail.get("merge_status")
+            or merge_request.get("detailed_merge_status")
+            or merge_request.get("merge_status")
+        ),
+        "pipeline_status": pipeline_status,
+        "pipeline_facts_available": bool(pipeline_status),
+        "draft": bool(
+            detail.get("draft")
+            or detail.get("work_in_progress")
+            or merge_request.get("draft")
+            or merge_request.get("work_in_progress")
+        ),
+        "updated_at": detail.get("updated_at") or merge_request.get("updated_at"),
+        "assignees": [
+            str(value.get("username") or value.get("id"))
+            for value in merge_request.get("assignees") or []
+            if isinstance(value, dict) and (value.get("username") or value.get("id"))
+        ],
+        "merge_owner": (
+            (detail.get("merge_user") or merge_request.get("merge_user") or {}).get(
+                "username"
+            )
+            or (detail.get("merge_user") or merge_request.get("merge_user") or {}).get(
+                "id"
+            )
+        ),
+        "approved": approved,
+        "approved_by": approved_by,
+        "approval_state": (
+            "approved"
+            if approval_facts_available and approved
+            else "not-approved"
+            if approval_facts_available
+            else None
+        ),
+        "approval_facts_available": approval_facts_available,
+    }
+
+
 def main() -> int:
     started = time.time()
     control = load_control()
@@ -770,6 +896,7 @@ def main() -> int:
     milestones = []
     dependency_queries = 0
     dependency_query_failures = 0
+    dependency_link_timeouts = []
 
     for project in projects:
         project_id = project["id"]
@@ -801,19 +928,31 @@ def main() -> int:
             for milestone in project_milestones
         )
         project_open_mrs = [mr for mr in mrs if mr.get("state") == "opened"]
+        approval_facts = {}
+        detail_facts = {}
+        for mr in project_open_mrs:
+            iid = int(mr["iid"])
+            try:
+                approval_facts[iid] = glab(
+                    f"projects/{encoded}/merge_requests/{iid}/approvals"
+                )
+            except Exception:
+                # Keep collection available; unknown approval state must not be
+                # mistaken for an approved, ownerless merge lane.
+                approval_facts[iid] = None
+            try:
+                detail_facts[iid] = glab(f"projects/{encoded}/merge_requests/{iid}")
+            except Exception:
+                # The list response is an acceptable pipeline fallback, but a
+                # missing pipeline fact must remain explicitly non-actionable.
+                detail_facts[iid] = None
         open_mrs.extend(
-            {
-                "project": project["path_with_namespace"],
-                "iid": mr["iid"],
-                "title": mr["title"],
-                "state": mr["state"],
-                "source_branch": mr.get("source_branch"),
-                "target_branch": mr.get("target_branch"),
-                "sha": mr.get("sha"),
-                "web_url": mr.get("web_url"),
-                "merge_status": mr.get("detailed_merge_status")
-                or mr.get("merge_status"),
-            }
+            normalize_open_merge_request(
+                project["path_with_namespace"],
+                mr,
+                approval_facts.get(int(mr["iid"])),
+                detail_facts.get(int(mr["iid"])),
+            )
             for mr in project_open_mrs
         )
         repositories[project["path_with_namespace"]] = {
@@ -848,11 +987,23 @@ def main() -> int:
             if issue.get("state") == "opened":
                 try:
                     dependency_queries += 1
-                    links = glab(f"projects/{encoded}/issues/{issue['iid']}/links")
+                    links = glab(
+                        f"projects/{encoded}/issues/{issue['iid']}/links",
+                        timeout=DEPENDENCY_LINK_TIMEOUT_SECONDS,
+                    )
                 except Exception as exc:
                     links = []
                     dependency_query_failures += 1
-                    retrieval_errors.append(f"links: {type(exc).__name__}")
+                    error = f"links: {type(exc).__name__}"
+                    retrieval_errors.append(error)
+                    if isinstance(exc, subprocess.TimeoutExpired):
+                        dependency_link_timeouts.append(
+                            {
+                                "ref": ref,
+                                "error": error,
+                                "timeout_seconds": DEPENDENCY_LINK_TIMEOUT_SECONDS,
+                            }
+                        )
                 for link in links if isinstance(links, list) else []:
                     target = str(
                         link.get("references", {}).get("full") or link.get("web_url")
@@ -1029,7 +1180,17 @@ def main() -> int:
             "main@personal",
             "master@personal",
         }
-        if local.get("dirty") or not root_is_default:
+        prunable_worktrees = [
+            entry
+            for entry in local.get("worktrees") or []
+            if not entry.get("is_root") and entry.get("prunable")
+        ]
+        if (
+            local.get("dirty")
+            or not root_is_default
+            or local.get("root_needs_fast_forward")
+            or prunable_worktrees
+        ):
             related_open_mr = any(
                 mr["project"] == project_ref
                 and mr.get("source_branch") in root_branch
@@ -1049,6 +1210,19 @@ def main() -> int:
                     "supervisor_owned": supervisor_owned_branch(root_branch),
                     "under_owned_worktree_root": False,
                     "remote_fresh": bool(local.get("remote_fresh")),
+                    "root_is_default_branch": bool(
+                        local.get("root_is_default_branch")
+                    ),
+                    "root_fast_forward_safe": bool(
+                        local.get("root_fast_forward_safe")
+                    ),
+                    "root_needs_fast_forward": bool(
+                        local.get("root_needs_fast_forward")
+                    ),
+                    "default_branch": repository.get("default_branch") or "main",
+                    "prunable_worktree_paths": [
+                        entry.get("path") for entry in prunable_worktrees
+                    ],
                 },
             )
 
@@ -1238,6 +1412,7 @@ def main() -> int:
             ),
             "dependency_queries": dependency_queries,
             "dependency_query_failures": dependency_query_failures,
+            "dependency_link_timeouts": dependency_link_timeouts,
             "retrieval_error_count": retrieval_error_count,
             "stale_repository_count": stale_repository_count,
             "state_record_errors": state_record_errors,

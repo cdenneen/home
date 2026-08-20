@@ -14,7 +14,12 @@ from .accounting import AccountingLedger
 from .canonical_work_item import projection_for
 from .assignment_grants import load_grant as load_assignment_grant
 from .decomposition import SemanticDecompositionEngine
-from .models import test_command_argv, validate_allowed_path, validate_semantic_record
+from .models import (
+    declared_test_commands,
+    test_command_argv,
+    validate_allowed_path,
+    validate_semantic_record,
+)
 from .mutation import GateDecision, MutationGate, OperationClass, load_canonical_lease
 from .observability import record_event
 from .prompt_factory import PromptFactory
@@ -595,7 +600,10 @@ class HermesWorkerManager:
                             raise ValueError(
                                 "Tier A technical disposition requires a bounded Tier B test candidate"
                             )
-                record = validate_semantic_record(candidate)
+                record = validate_semantic_record(
+                    candidate,
+                    allowed_test_commands=declared_test_commands(assignment),
+                )
                 break
             except ValueError as exc:
                 assignment.setdefault("invalid_model_outputs", []).append(
@@ -609,7 +617,8 @@ class HermesWorkerManager:
                     prompt = (
                         "Your prior response violated the semantic response contract: "
                         f"{exc}. Return exactly one JSON object matching the supplied schema. "
-                        "Every required_tests entry must be an allowlisted executable command, never prose.\n\n"
+                        "Every required_tests entry must exactly match a declared allowlisted "
+                        "local test command; GitLab/API retrieval is evidence, never a test.\n\n"
                         + prompt
                     )
                     continue
