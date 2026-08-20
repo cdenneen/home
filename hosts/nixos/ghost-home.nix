@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ axis-control, pkgs, ... }:
 {
   systemd.user.startServices = false;
 
@@ -44,7 +44,17 @@
   };
 
   profiles.hermesAlpha0Gateway.enable = true;
-  profiles.hermesAxisControlGateway.enable = true;
+  profiles.hermesAxisControlGateway.enable = false;
   profiles.hermesGateway.enable = true;
-  profiles.hermesSupervisor.enable = true;
+  # The recovered local supervisor remains forensic/decommissioning evidence,
+  # not Ghost's AXIS application authority.
+  profiles.hermesSupervisor.enable = false;
+
+  services.axis-control-observer = {
+    enable = true;
+    package = axis-control.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  };
+
+  # This only deploys the canonical profile wrapper and report-only watchdog.
+  # Installing or graduating the Hermes scheduler is a separate reviewed step.
 }

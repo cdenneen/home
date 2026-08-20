@@ -28,12 +28,17 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - name: Configure private AXIS flake access
+      - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
             echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          if [ -z "$GH_PAT" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GH_PAT is unavailable in this workflow context" >&2
             exit 1
           fi
           umask 077
@@ -42,11 +47,22 @@ jobs:
             login gitlab+deploy-token-15084811
             password $GITLAB_AXIS_READ_TOKEN
           EOF
+          export NIX_CONFIG="access-tokens = github.com=$GH_PAT"
+          {
+            echo "NIX_CONFIG<<EOF"
+            printf '%s\n' "$NIX_CONFIG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
           unset GITLAB_AXIS_READ_TOKEN
           git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
             echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
             exit 1
           }
+          nix flake metadata github:ghostspace-com/axis-control/ba7e03ecce879be7047263b827d4a4dba8fd8527 --json >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace-com/axis-control" >&2
+            exit 1
+          }
+          unset GH_PAT
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
@@ -63,12 +79,17 @@ jobs:
         with:
           extra-conf: |
             experimental-features = nix-command flakes
-      - name: Configure private AXIS flake access
+      - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
             echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          if [ -z "$GH_PAT" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GH_PAT is unavailable in this workflow context" >&2
             exit 1
           fi
           umask 077
@@ -77,11 +98,22 @@ jobs:
             login gitlab+deploy-token-15084811
             password $GITLAB_AXIS_READ_TOKEN
           EOF
+          export NIX_CONFIG="access-tokens = github.com=$GH_PAT"
+          {
+            echo "NIX_CONFIG<<EOF"
+            printf '%s\n' "$NIX_CONFIG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
           unset GITLAB_AXIS_READ_TOKEN
           git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
             echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
             exit 1
           }
+          nix flake metadata github:ghostspace-com/axis-control/ba7e03ecce879be7047263b827d4a4dba8fd8527 --json >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace-com/axis-control" >&2
+            exit 1
+          }
+          unset GH_PAT
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:

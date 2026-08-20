@@ -3,6 +3,7 @@ let
   self = inputs.self;
   inherit (inputs)
     arion
+    axis-control
     catppuccin
     disko
     home-manager
@@ -64,7 +65,10 @@ let
     ]
     ++ nixpkgs.lib.optional enableNixIndex nix-index-database.homeModules.nix-index
     ++ nixpkgs.lib.optional enableNur nur.modules.homeManager.default
-    ++ [ self.homeModules.default ]
+    ++ [
+      axis-control.homeModules.default
+      self.homeModules.default
+    ]
     ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
     ++ [ sopsNix.homeManagerModules.sops ];
 
