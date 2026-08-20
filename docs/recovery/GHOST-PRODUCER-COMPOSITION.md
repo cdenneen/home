@@ -11,7 +11,7 @@ No Home Manager switch, service start, scheduler installation, gateway restart, 
 
 ## CI source-access contract
 
-Hosted CI requires repository secret `GHOSTSPACE_PRODUCER_READ_TOKEN`, a fine-grained token limited to read-only Contents/Metadata for only `ghostspace-com/axis-control` and `ghostspace-com/alpha0`, plus `GITLAB_AXIS_READ_TOKEN`, limited to read_repository for `ghostspace/axis`. They are CI source credentials only, distinct from all future runtime credentials. Workflows pass the GitHub credential only through the Nix process `access-tokens` setting and expose the GitLab credential only to a step-scoped, secret-free `GIT_ASKPASS` helper; neither credential is interpolated into Nix expressions, derivations, store paths, outputs, or logs. `GH_PAT` is not used. Missing/denied credentials are `PRIVATE_DEPENDENCY_ACCESS`, never grounds to weaken evaluation.
+Hosted CI requires repository secret `GHOSTSPACE_PRODUCER_READ_TOKEN`, a fine-grained token limited to read-only Contents/Metadata for only `ghostspace-com/axis-control` and `ghostspace-com/alpha0`, plus `GITLAB_AXIS_READ_USERNAME` and `GITLAB_AXIS_READ_TOKEN` from one project deploy token limited to `read_repository` for `ghostspace/axis`. They are CI source credentials only, distinct from all future runtime credentials. Workflows pass the GitHub credential only through the Nix process `access-tokens` setting and expose the GitLab credential only to a step-scoped, secret-free `GIT_ASKPASS` helper; neither credential is interpolated into Nix expressions, derivations, store paths, outputs, or logs. `GH_PAT` is not used. Missing/denied credentials are `PRIVATE_DEPENDENCY_ACCESS`, never grounds to weaken evaluation.
 
 CI failures are classified as:
 

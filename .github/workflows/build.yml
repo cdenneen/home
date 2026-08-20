@@ -57,10 +57,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_USERNAME: ${{ secrets.GITLAB_AXIS_READ_USERNAME }}
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_USERNAME" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
             echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
             exit 78
           fi
@@ -69,7 +70,7 @@ jobs:
           cat > "$askpass" <<'EOF'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' cdenneen ;;
+            *Username*) printf '%s\n' "$GITLAB_AXIS_READ_USERNAME" ;;
             *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
             *) exit 1 ;;
           esac
