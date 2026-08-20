@@ -16,9 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Dedicated read-only source credentials; never use GH_PAT here.
-  NIX_CONFIG: |
-    access-tokens = github.com=${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }} gitlab.com=${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+  # Empty until the dedicated read-only token is provisioned; never use GH_PAT.
+  NIX_CONFIG: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN != '' && format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) || '' }}
 
 jobs:
   # Flake checks are intentionally omitted in CI.
