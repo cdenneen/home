@@ -60,6 +60,10 @@
     owner = "cdenneen";
     mode = "0400";
   };
+  sops.secrets.tailscale_auth_key = {
+    owner = "root";
+    mode = "0400";
+  };
 
   users.users.cdenneen.openssh.authorizedKeys.keyFiles = [
     ../../pub/ssh/cdenneen_ed25519_2024.pub
@@ -124,6 +128,7 @@
     enable = true;
     openFirewall = true;
     useRoutingFeatures = "client";
+    authKeyFile = config.sops.secrets.tailscale_auth_key.path;
     extraSetFlags = [ "--accept-dns=true" ];
   };
 
