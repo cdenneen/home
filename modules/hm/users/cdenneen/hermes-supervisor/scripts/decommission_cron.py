@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import fcntl
 import json
 import os
@@ -50,7 +51,7 @@ def hermes_homes(root: Path) -> list[Path]:
     return homes
 
 
-def plan_home(home: Path) -> list[dict[str, Any]]:
+def plan_home(home: Path, worker_prompt: str) -> list[dict[str, Any]]:
     jobs_path = home / "cron" / "jobs.json"
     jobs_value = load_object(jobs_path) if jobs_path.exists() else {"jobs": []}
     jobs = jobs_value.get("jobs", [])
@@ -70,6 +71,8 @@ def plan_home(home: Path) -> list[dict[str, Any]]:
             if control.get("schema") != schema:
                 raise RuntimeError(f"unexpected control schema: {control_path}")
         configured_id = str((control or {}).get(field) or "")
+        if control is not None and control.get("cron_generation") != 1:
+            raise RuntimeError(f"unexpected cron_generation: {control_path}")
         if not matches:
             if configured_id:
                 raise RuntimeError(f"configured legacy job {name} is missing in {home}")
@@ -79,6 +82,8 @@ def plan_home(home: Path) -> list[dict[str, Any]]:
         if not configured_id or job_id != configured_id:
             raise RuntimeError(f"legacy job {name} lacks matching configured ownership ID in {home}")
         drift = [key for key, expected in contract["job"].items() if job.get(key) != expected]
+        if name == "axis-development-supervisor-worker" and job.get("prompt") != worker_prompt:
+            drift.append("prompt")
         if drift:
             raise RuntimeError(f"legacy job {name} contract drift in {home}: {', '.join(drift)}")
         removals.append({"home": home, "id": job_id, "name": name, "control": control_path, "field": field})
@@ -92,18 +97,23 @@ def atomic_write(path: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def apply(root: Path, hermes: str) -> list[dict[str, Any]]:
-    all_removals = []
-    for home in hermes_homes(root):
-        jobs_path = home / "cron" / "jobs.json"
-        lock_path = home / "cron" / "legacy-axis-decommission.lock"
-        if not jobs_path.exists() and not (home / "supervisor").exists():
-            continue
-        lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with lock_path.open("a", encoding="utf-8") as lock:
+def apply(root: Path, hermes: str, worker_prompt: str) -> list[dict[str, Any]]:
+    homes = [home for home in hermes_homes(root) if (home / "cron/jobs.json").exists() or (home / "supervisor").exists()]
+    with ExitStack() as stack:
+        plans = []
+        for home in homes:
+            lock_path = home / "cron" / "legacy-axis-decommission.lock"
+            lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            lock = stack.enter_context(lock_path.open("a", encoding="utf-8"))
             os.chmod(lock_path, 0o600)
             fcntl.flock(lock, fcntl.LOCK_EX)
-            removals = plan_home(home)
+            plans.append((home, plan_home(home, worker_prompt)))
+
+        # Validate every registry under lock before the first mutation. Drift in
+        # any profile therefore leaves every registry and control record intact.
+        all_removals = []
+        for home, removals in plans:
+            jobs_path = home / "cron" / "jobs.json"
             for item in removals:
                 env = {**os.environ, "HERMES_HOME": str(home)}
                 subprocess.run([hermes, "cron", "pause", item["id"]], check=False, env=env, timeout=120)
@@ -119,7 +129,7 @@ def apply(root: Path, hermes: str) -> list[dict[str, Any]]:
             for path, control in changed_controls.items():
                 atomic_write(path, control)
             all_removals.extend(removals)
-    return all_removals
+        return all_removals
 
 
 def main() -> int:
@@ -127,10 +137,12 @@ def main() -> int:
     parser.add_argument("command", choices=("check", "apply"))
     parser.add_argument("--root", type=Path, default=Path.home() / ".hermes")
     parser.add_argument("--hermes")
+    parser.add_argument("--worker-prompt", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "apply" and not args.hermes:
         parser.error("--hermes is required for apply")
-    removals = apply(args.root, args.hermes) if args.command == "apply" else [item for home in hermes_homes(args.root) for item in plan_home(home)]
+    worker_prompt = args.worker_prompt.read_text(encoding="utf-8").strip()
+    removals = apply(args.root, args.hermes, worker_prompt) if args.command == "apply" else [item for home in hermes_homes(args.root) for item in plan_home(home, worker_prompt)]
     print(json.dumps({"owned_legacy_jobs": [{"home": str(item["home"]), "id": item["id"], "name": item["name"]} for item in removals]}, sort_keys=True))
     return 0
 

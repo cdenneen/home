@@ -480,10 +480,12 @@ in
         (
           lib.hm.dag.entryAfter [ "writeBoundary" ] ''
             if [ -n "''${DRY_RUN_CMD:-}" ]; then
-              ${supervisorPython}/bin/python ${./scripts/decommission_cron.py} check
+              ${supervisorPython}/bin/python ${./scripts/decommission_cron.py} check \
+                --worker-prompt ${./worker-prompt.txt}
             else
               ${supervisorPython}/bin/python ${./scripts/decommission_cron.py} apply \
-                --hermes ${agentPkgs.hermes}/bin/hermes
+                --hermes ${agentPkgs.hermes}/bin/hermes \
+                --worker-prompt ${./worker-prompt.txt}
             fi
           ''
         );
