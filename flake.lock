@@ -98,16 +98,16 @@
       "locked": {
         "lastModified": 1787177243,
         "narHash": "sha256-gRJx9oidGQBXenI2kKjd4KjtyuJuJ8GwZqUtUxnD6f8=",
-        "ref": "main",
+        "owner": "ghostspace-com",
+        "repo": "axis-control",
         "rev": "ba7e03ecce879be7047263b827d4a4dba8fd8527",
-        "revCount": 29,
-        "type": "git",
-        "url": "ssh://git@github.com/ghostspace-com/axis-control"
+        "type": "github"
       },
       "original": {
+        "owner": "ghostspace-com",
         "ref": "main",
-        "type": "git",
-        "url": "ssh://git@github.com/ghostspace-com/axis-control"
+        "repo": "axis-control",
+        "type": "github"
       }
     },
     "brew-src": {

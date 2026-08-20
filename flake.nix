@@ -49,7 +49,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     axis-control = {
-      url = "git+ssh://git@github.com/ghostspace-com/axis-control?ref=main";
+      url = "github:ghostspace-com/axis-control/main";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
