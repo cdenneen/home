@@ -23,34 +23,72 @@ jobs:
   nixos-eval:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+      - name: Configure private AXIS flake access
+        env:
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          umask 077
+          cat > "$HOME/.netrc" <<EOF
+          machine gitlab.com
+            login gitlab+deploy-token-15084811
+            password $GITLAB_AXIS_READ_TOKEN
+          EOF
+          unset GITLAB_AXIS_READ_TOKEN
+          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
+            exit 1
+          }
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate NixOS (nyx)
-        run: nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
+        run: nix eval --raw .#nixosConfigurations.nyx.config.system.build.toplevel.drvPath --accept-flake-config
 
   darwin-eval:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v22
         with:
           extra-conf: |
             experimental-features = nix-command flakes
+      - name: Configure private AXIS flake access
+        env:
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          umask 077
+          cat > "$HOME/.netrc" <<EOF
+          machine gitlab.com
+            login gitlab+deploy-token-15084811
+            password $GITLAB_AXIS_READ_TOKEN
+          EOF
+          unset GITLAB_AXIS_READ_TOKEN
+          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
+            exit 1
+          }
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate Darwin (VNJTECMBCD)
-        run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+        run: nix eval --raw .#darwinConfigurations.VNJTECMBCD.system.drvPath --accept-flake-config
       - name: Evaluate Darwin (mbair legacy stack)
         run: nix eval --raw .#darwinConfigurations.mbair.system.drvPath --accept-flake-config
 
@@ -59,7 +97,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
@@ -75,7 +113,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v22
         with:
           extra-conf: |

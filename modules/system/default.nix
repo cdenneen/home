@@ -25,7 +25,6 @@ in
     ./console.nix
     ./sudo.nix
     ./ai-tools.nix
-    ./minimal-vm.nix
   ];
 
   options.profiles.defaults.enable = lib.mkEnableOption "Enable Defaults";
