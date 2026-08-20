@@ -10,6 +10,7 @@ keys:
   - &server_nyx age1svkqsf5r7ykyw2wam85vecgkp7sy3e8ava8ajfamjnsxgcep9vgsep4292
   - &server_ghost age1ggv6euwjzc2yje7vv5p6jy7nmm9ccpn67a475usvary2fnzzkvaqmgmlru
   - &server_macbookpronix age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8
+  - &server_savage age1sklzgq72s0yvw6lz8kvme4syhlzxxv3jwav8lqmzq5enja9r2qtqtule57
 creation_rules:
   - path_regex: secrets.yaml$
     key_groups:
@@ -21,12 +22,14 @@ creation_rules:
           - *server_nyx
           - *server_ghost
           - *server_macbookpronix
+          - *server_savage
   - path_regex: secrets/alpha0\.yaml$
     key_groups:
       - age:
           - *personal_current
           - *server_vnjtecmbcd
           - *server_ghost
+          - *server_savage
   - path_regex: secrets/.*\.ya?ml$
     key_groups:
       - age:
