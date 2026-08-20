@@ -10,9 +10,6 @@ on:
 concurrency:
   group: build-populate-${{ github.ref }}
   cancel-in-progress: true
-env:
-  # Empty until the dedicated read-only token is provisioned; never use GH_PAT.
-  NIX_CONFIG: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN != '' && format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) || '' }}
 permissions:
   contents: write
   id-token: write
@@ -59,6 +56,8 @@ jobs:
         id: update
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          # Scoped to the lock-update process; third-party actions never receive it.
+          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
         run: |
           set -euo pipefail
           input="${{ matrix.input }}"

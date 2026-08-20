@@ -60,7 +60,10 @@
 
   profiles.hermesAxisControlGateway.enable = false;
   profiles.hermesGateway.enable = true;
-  profiles.hermesSupervisor.enable = false;
+  profiles.hermesSupervisor = {
+    enable = false;
+    decommissionLegacyCron = true;
+  };
 
   services.axis-control-observer = {
     enable = true;

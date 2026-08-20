@@ -174,6 +174,9 @@ in
   };
 
   options.profiles.hermesSupervisor.enable = lib.mkEnableOption "temporary Hermes Development Supervisor";
+  options.profiles.hermesSupervisor.decommissionLegacyCron = lib.mkEnableOption ''
+    strictly remove owned legacy AXIS supervisor/watchdog Hermes cron records on an authorized Home activation
+  '';
 
   config = lib.mkIf (gatewayEnabled || secondaryGatewayEnabled || supervisorEnabled) {
     home.packages =
@@ -459,6 +462,20 @@ in
         fi
       ''
     );
+
+    home.activation.hermesLegacyAxisCronDecommission =
+      lib.mkIf
+        (gatewayEnabled && !supervisorEnabled && config.profiles.hermesSupervisor.decommissionLegacyCron)
+        (
+          lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+            if [ -n "''${DRY_RUN_CMD:-}" ]; then
+              ${supervisorPython}/bin/python ${./scripts/decommission_cron.py} check
+            else
+              ${supervisorPython}/bin/python ${./scripts/decommission_cron.py} apply \
+                --hermes ${agentPkgs.hermes}/bin/hermes
+            fi
+          ''
+        );
 
     home.activation.hermesSupervisorPluginCleanup = lib.mkIf (gatewayEnabled && !supervisorEnabled) (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''

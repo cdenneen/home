@@ -15,10 +15,6 @@ concurrency:
   group: flake-ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Empty until the dedicated read-only token is provisioned; never use GH_PAT.
-  NIX_CONFIG: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN != '' && format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) || '' }}
-
 jobs:
   # Flake checks are intentionally omitted in CI.
   # They are strict under flake-parts and require per-system guarantees
@@ -38,6 +34,9 @@ jobs:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate NixOS (nyx)
+        env:
+          # Nix fetch only; never expose source credentials to third-party actions.
+          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
         run: nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
 
   darwin-eval:
@@ -54,8 +53,12 @@ jobs:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate Darwin (VNJTECMBCD)
+        env:
+          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
         run: nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
       - name: Evaluate Darwin (mbair legacy stack)
+        env:
+          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
         run: nix eval --raw .#darwinConfigurations.mbair.system.drvPath --accept-flake-config
 
   flake-checks-full-linux:
@@ -69,6 +72,8 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
       - name: Full explicit checks (Linux)
+        env:
+          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
         run: |
           nix flake check --accept-flake-config
           nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
@@ -85,6 +90,8 @@ jobs:
           extra-conf: |
             experimental-features = nix-command flakes
       - name: Full explicit checks (Darwin)
+        env:
+          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
         run: |
           nix flake check --accept-flake-config
           nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config

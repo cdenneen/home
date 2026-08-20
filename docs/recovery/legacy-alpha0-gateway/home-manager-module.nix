@@ -16,9 +16,9 @@ let
   defaultSecretsCommand = "/run/current-system/sw/bin/cat ${defaultSecrets}";
   profileSecretsCommand = "/run/current-system/sw/bin/cat ${profileSecrets}";
   sessionRoutingShim = pkgs.writeTextDir "sitecustomize.py" (
-    builtins.readFile ./hermes-alpha0-gateway/sitecustomize.py
+    builtins.readFile ./routing/sitecustomize.py
   );
-  sessionRoutingCheck = ./hermes-alpha0-gateway/check_profile_session_key.py;
+  sessionRoutingCheck = ./routing/check_profile_session_key.py;
   servicePath = lib.makeBinPath [
     pkgs.bash
     pkgs.coreutils

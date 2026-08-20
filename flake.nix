@@ -422,11 +422,8 @@
                   timers = userSystemd.timers;
                   primary = services.hermes-gateway.Service;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
-                  rendered = builtins.toJSON {
-                    inherit services timers;
-                    activation = ghost.home.activation;
-                    files = ghost.home.file;
-                  };
+                  axisWatchdogCommand = builtins.concatStringsSep "\n" services.axis-control-watchdog.Service.ExecStart;
+                  forbiddenCheckout = "/home/cdenneen/src/workspace/work/axis-control";
                 in
                 assert inputs.axis-control.rev == "4c25bc19040295fc6579dde9c6831ef143d298d5";
                 assert inputs.alpha0.rev == "c000ed805b9231e39b8240469ca398a19e006aed";
@@ -449,7 +446,12 @@
                 assert !(services ? alpha0-core);
                 assert !(services ? hermes-alpha0-gateway);
                 assert !(ghost.home.file ? ".config/hermes/scheduler/alpha0-jobs.json");
-                assert !(lib.hasInfix "/src/workspace/work/axis-control" rendered);
+                assert !(ghost.home.file ? ".hermes/scripts/axis-development-supervisor-cycle.py");
+                assert !(ghost.home.activation ? hermesSupervisorState);
+                assert !(ghost.home.activation ? hermesSupervisorGatewayRestart);
+                assert ghost.home.activation ? hermesLegacyAxisCronDecommission;
+                assert !(lib.hasInfix forbiddenCheckout primaryCommand);
+                assert !(lib.hasInfix forbiddenCheckout axisWatchdogCommand);
                 pkgs.runCommand "ghost-recovery-composition-check" { } ''
                   touch "$out"
                 '';
