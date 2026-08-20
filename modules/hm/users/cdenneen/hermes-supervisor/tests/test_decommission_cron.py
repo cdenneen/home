@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -61,7 +62,7 @@ def fixture(home: Path, suffix: str = ""):
 
 def fake_hermes(path: Path):
     path.write_text(
-        """#!/usr/bin/env python3
+        f"""#!{sys.executable}
 import json, os, pathlib, sys
 jobs = pathlib.Path(os.environ['HERMES_HOME']) / 'cron/jobs.json'
 value = json.loads(jobs.read_text())
