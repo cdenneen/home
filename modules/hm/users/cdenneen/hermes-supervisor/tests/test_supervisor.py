@@ -1217,7 +1217,8 @@ def test_confirmed_axis29_mcp_timeout_finding_promotes_to_frontier_after_authori
 def test_collected_axis29_finding_promotes_once_to_dispatchable_frontier(
     tmp_path: Path,
 ):
-    from axis_supervisor.collector import extract_authority_facts, extract_findings
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
+    from axis_supervisor.collector import extract_findings
     from axis_supervisor.dispatcher import Dispatcher
     from axis_supervisor.graph import ExecutionGraphBuilder
 
@@ -1238,7 +1239,7 @@ Required tests:
 - uv run --extra dev pytest -q tests/test_mcp_discovery_refresh.py tests/test_mcp_adapter.py
 - uv run --extra dev pytest -q tests/test_mcp_task_handles.py tests/test_effect_time_authority_fixtures.py
 """
-    approval = f"**Approve** PlanningRecord revision 2 for exact digest `{digest}`"
+    approval = f"**Approve** PlanningRecord v2 for exact digest `{digest}`"
     finding = """Current-main regression finding - MCP task-handle acceptance failure
 
 Affected tests:
@@ -1256,31 +1257,51 @@ Approved slice_id: axis29-task-handles
 Authority: use existing axis#29 PlanningRecord v2 digest `sha256:2222222222222222222222222222222222222222222222222222222222222222` only for bounded same-owner repair scope.
 Replay: exact three tests plus combined MCP suite after repair.
 """
+    notes = [
+        {
+            "id": 3661401209,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:17:07.576Z",
+            "body": finding,
+        },
+        {
+            "id": 3654285470,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:17:07.576Z",
+            "updated_at": "2026-08-08T10:17:07.576Z",
+            "body": planning,
+        },
+        {
+            "id": 3654285471,
+            "author": {"id": 117046, "username": "cdenneen"},
+            "created_at": "2026-08-08T10:18:07.576Z",
+            "updated_at": "2026-08-08T10:18:07.576Z",
+            "body": approval,
+        },
+    ]
+    canonical_work_item = reconstruct_work_item(
+        "",
+        notes,
+        {117046},
+        notes_state="NOTES_OK",
+        issue_url="https://gitlab.com/ghostspace/axis/-/issues/29",
+    )
     findings = extract_findings(
-        [
-            {
-                "id": 3661401209,
-                "author": {"username": "cdenneen"},
-                "created_at": "2026-08-08T10:17:07.576Z",
-                "body": finding,
-            },
-            {"id": 3654285470, "author": {"username": "cdenneen"}, "body": planning},
-        ],
+        notes,
         "ghostspace/axis#29",
         source_sha,
-        {"cdenneen"},
+        {117046},
+        canonical_work_item,
     )
     assert findings[0]["owner_ref"] == "ghostspace/axis#29"
     assert findings[0]["provenance"]["note_author"] == "cdenneen"
     assert findings[0]["provenance"]["source_sha"] == source_sha
-    authority_facts = extract_authority_facts("", [planning, approval], [approval])
+    authority_facts = canonical_work_item["authority_facts"]
     assert authority_facts["approval_matches_record"] is True
     # This is the production defect shape: a PlanningRecord uses Authorized
     # slices, so the source-level collector has no aggregate Allowed paths.
     assert authority_facts["approved_allowed_paths"] == []
-    authority_facts["approval_note"] = (
-        "https://gitlab.com/ghostspace/axis/-/issues/29#note_3661401209"
-    )
 
     (tmp_path / "control.json").write_text(
         json.dumps(control(allow_repository_mutation=True)), encoding="utf-8"
@@ -1294,6 +1315,7 @@ Replay: exact three tests plus combined MCP suite after repair.
         "source_state": "closed",
         "labels": ["p0"],
         "authority_facts": authority_facts,
+        "canonical_work_item": canonical_work_item,
         "blocking_dependency_refs": [],
         "merge_request_facts": [],
         "acceptance_facts": {"ids": [], "open_ids": []},
