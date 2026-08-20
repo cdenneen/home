@@ -48,7 +48,7 @@ jobs:
           cat > "$askpass" <<'EOF'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' oauth2 ;;
+            *Username*) printf '%s\n' cdenneen ;;
             *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
             *) exit 1 ;;
           esac
@@ -89,7 +89,7 @@ jobs:
           cat > "$askpass" <<'EOF'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' oauth2 ;;
+            *Username*) printf '%s\n' cdenneen ;;
             *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
             *) exit 1 ;;
           esac
@@ -116,7 +116,7 @@ jobs:
           cat > "$askpass" <<'EOF'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' oauth2 ;;
+            *Username*) printf '%s\n' cdenneen ;;
             *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
             *) exit 1 ;;
           esac
@@ -154,7 +154,7 @@ jobs:
           cat > "$askpass" <<'EOF'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' oauth2 ;;
+            *Username*) printf '%s\n' cdenneen ;;
             *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
             *) exit 1 ;;
           esac
@@ -194,7 +194,7 @@ jobs:
           cat > "$askpass" <<'EOF'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' oauth2 ;;
+            *Username*) printf '%s\n' cdenneen ;;
             *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
             *) exit 1 ;;
           esac
