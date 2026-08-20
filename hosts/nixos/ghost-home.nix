@@ -1,5 +1,12 @@
-{ pkgs, ... }:
 {
+  alpha0,
+  hermes-src,
+  pkgs,
+  ...
+}:
+{
+  imports = [ alpha0.homeModules.default ];
+
   systemd.user.startServices = false;
 
   # Manually operated until Alpha0's GitLab relay acceptance gate passes.
@@ -43,7 +50,15 @@
     };
   };
 
-  profiles.hermesAlpha0Gateway.enable = true;
+  # Canonical Alpha0 is imported but remains fully dormant. Core and gateway
+  # graduate independently after the recovery gates are satisfied.
+  services.alpha0 = {
+    enableCore = false;
+    enableGateway = false;
+    package = alpha0.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    hermesPackage = hermes-src.packages.${pkgs.stdenv.hostPlatform.system}.messaging;
+  };
+
   profiles.hermesAxisControlGateway.enable = true;
   profiles.hermesGateway.enable = true;
   profiles.hermesSupervisor.enable = true;
