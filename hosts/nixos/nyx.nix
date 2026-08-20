@@ -204,6 +204,11 @@ let
       "unknown";
 in
 {
+  # The agentPkgs.hermes anthropic override (for Bedrock) lives in
+  # hosts/default.nix's `agentPkgsOverride` for this host, not here -
+  # a module-level _module.args.agentPkgs override doesn't reach modules
+  # that destructure agentPkgs directly, since it's specialArgs-provided.
+
   networking.hostName = "nyx";
   networking.extraHosts = ''
     100.80.58.4 nyx.tail0e55.ts.net

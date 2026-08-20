@@ -107,12 +107,23 @@ let
       nixosModules ? [ ],
       homeModules ? [ ],
       tags ? [ ],
+      # Per-host hook to patch agentPkgs (e.g. adding extraPythonPackages to
+      # the hermes-agent build) before it's threaded into both NixOS'
+      # specialArgs and home-manager's extraSpecialArgs below. Defaults to
+      # identity so every host except ones that opt in is unaffected.
+      # NB: a module-level `_module.args.agentPkgs` override does NOT work
+      # for this - specialArgs-provided names take precedence over same-named
+      # _module.args set by ordinary modules, so any module destructuring
+      # `agentPkgs` directly (ai-tools.nix, hermes-supervisor/default.nix)
+      # would still see the unpatched value. This has to happen here, before
+      # specialArgs exists.
+      agentPkgsOverride ? (agentPkgs: _unstablePkgs: agentPkgs),
     }:
     let
       pkgsSet = mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
-      agentPkgs = mkAgentPkgs system;
+      agentPkgs = agentPkgsOverride (mkAgentPkgs system) unstablePkgs;
       homeStateVersion = "25.11";
       specialArgs = inputs // {
         inherit

@@ -3,6 +3,7 @@ from datetime import datetime
 
 from .lifecycle import is_completed
 from .schema_registry import validate_record
+from .canonical_work_item import projection_for
 
 
 VERIFICATION_SCHEMA = "axis.external-development-supervisor.verification"
@@ -95,6 +96,9 @@ def historical_completion_result(item: dict, assignment: dict) -> dict[str, Any]
         "pipeline_rechecked": pipeline.get("status") == "success",
         "governance_linkage_rechecked": bool(
             planning.get("digest") and planning.get("approval_note")
+        ) and (
+            not item.get("canonical_work_item")
+            or bool((projection_for(item).get("authority_facts") or {}).get("approval_matches_record"))
         ),
         "closure_rechecked": item.get("state") == "closed",
         "integration_rechecked": bool(
@@ -173,6 +177,9 @@ def completion_receipt(
         "pipeline_rechecked": pipeline.get("status") == "success",
         "governance_linkage_rechecked": bool(
             planning.get("digest") and planning.get("approval_note")
+        ) and (
+            not source_item.get("canonical_work_item")
+            or bool((projection_for(source_item).get("authority_facts") or {}).get("approval_matches_record"))
         ),
         "closure_rechecked": source_item.get("state") == "closed",
         "integration_rechecked": bool(

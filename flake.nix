@@ -397,6 +397,50 @@
                     check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
                     touch "$out"
                   '';
+            }
+            // optionalAttrs pkgs.stdenv.isLinux {
+              hermes-gateway-roles =
+                let
+                  userSystemd = configurations.homeConfigurations."cdenneen@ghost".config.systemd.user;
+                  services = userSystemd.services;
+                  primary = services.hermes-gateway.Service;
+                  axisControl = services.hermes-axis-control-gateway.Service;
+                  alpha0 = services.hermes-alpha0-gateway.Service;
+                  primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
+                  axisControlCommand = builtins.concatStringsSep "\n" axisControl.ExecStart;
+                  alpha0Command = builtins.concatStringsSep "\n" alpha0.ExecStart;
+                in
+                assert userSystemd.startServices == false;
+                assert primary.WorkingDirectory == "%h/.hermes";
+                assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
+                assert !(lib.hasInfix "--profile" primaryCommand);
+                assert axisControl.WorkingDirectory == "/home/cdenneen/src/workspace/work/axis-control";
+                assert builtins.elem "HERMES_HOME=/home/cdenneen/src/workspace/work/axis-control/.hermes"
+                  axisControl.Environment;
+                assert lib.hasInfix "--profile axis-control gateway run" axisControlCommand;
+                assert alpha0.WorkingDirectory == "/home/cdenneen/.local/share/alpha0/hermes";
+                assert lib.hasInfix "HERMES_HOME=/home/cdenneen/.local/share/alpha0/hermes" alpha0Command;
+                assert lib.hasInfix "gateway run --external-supervisor" alpha0Command;
+                assert !(lib.hasInfix "--profile alpha0" alpha0Command);
+                pkgs.runCommand "hermes-gateway-roles-check" { } ''
+                  touch "$out"
+                '';
+              hermes-alpha0-gateway =
+                let
+                  hermes = inputs.hermes-src.packages.${system}.messaging;
+                  sessionRoutingShim = pkgs.writeTextDir "sitecustomize.py" (
+                    builtins.readFile ./modules/hm/users/cdenneen/hermes-alpha0-gateway/sitecustomize.py
+                  );
+                in
+                pkgs.runCommand "hermes-alpha0-gateway-check" { } ''
+                  cp -R ${./modules/hm/users/cdenneen/hermes-alpha0-gateway} source
+                  chmod -R u+w source
+                  cd source
+                  export PYTHONPATH=${sessionRoutingShim}:$PWD
+                  ${hermes.hermesVenv}/bin/python3 check_profile_session_key.py
+                  ${hermes.hermesVenv}/bin/python3 -m unittest -v test_profile_clarify_bypass.py
+                  touch "$out"
+                '';
             };
         };
     };

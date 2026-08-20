@@ -12,12 +12,14 @@ from pathlib import Path
 from urllib.parse import quote
 
 try:
+    from .canonical_work_item import reconstruct_work_item
     from .finding_ingestion import normalize_gitlab_findings
     from .lifecycle import is_terminal
     from .models import validate_assignment
     from .mutation import MutationGate, OperationClass
     from .schema_registry import read_record, write_record
 except ImportError:
+    from axis_supervisor.canonical_work_item import reconstruct_work_item
     from axis_supervisor.finding_ingestion import normalize_gitlab_findings
     from axis_supervisor.lifecycle import is_terminal
     from axis_supervisor.models import validate_assignment
@@ -438,108 +440,6 @@ def mr_mentions_issue(mr: dict, issue: dict) -> bool:
     return closing_ref or branch_ref
 
 
-def extract_authority_facts(
-    text: str,
-    note_bodies: list[str] | None = None,
-    approval_bodies: list[str] | None = None,
-) -> dict:
-    digests = sorted(set(re.findall(r"sha256:[0-9a-f]{64}", text, flags=re.I)))
-    approval_notes = [
-        body
-        for body in (approval_bodies or [])
-        if re.search(
-            r"\*\*Approve\*\*|Product Owner approval (?:with conditions|—)|Approved .*PlanningRecord",
-            body,
-            re.I,
-        )
-    ]
-    approval_digests = sorted(
-        {
-            digest.lower()
-            for body in approval_notes
-            for digest in re.findall(r"sha256:[0-9a-f]{64}", body, flags=re.I)
-        }
-    )
-    record_digest = None
-    record_body = None
-    for body in note_bodies or []:
-        if body in approval_notes or not re.search(
-            r"immutable PlanningRecord|PlanningRecord v1.*immutable revision",
-            body,
-            re.I | re.S,
-        ):
-            continue
-        match = re.search(
-            r"(?:Digest|digest):\s*`?(sha256:[0-9a-f]{64})", body, re.I
-        )
-        if match:
-            record_digest = match.group(1).lower()
-            record_body = body
-            break
-    approval = bool(approval_notes and approval_digests)
-    approval_matches_record = bool(
-        approval and record_digest is not None and record_digest in approval_digests
-    )
-    execution = None
-    match = re.search(
-        r"execution_rag:\s*(?:.|\n){0,300}?state:\s*(green|amber|red)", text, re.I
-    )
-    if match:
-        execution = match.group(1).lower()
-    approval_required = bool(
-        re.search(
-            r"approval-required|product_owner_approval_required:\s*true|approval_ref:\s*null",
-            text,
-            re.I,
-        )
-    )
-    revision_match = re.search(r"(?:revision|Revision):\s*(\d+)", text)
-    assignment_type_match = re.search(
-        r"Assignment type:\s*([a-z-]+)", record_body or "", re.I
-    )
-
-    def markdown_list(label: str, following: str) -> list[str]:
-        match = re.search(
-            rf"{re.escape(label)}:\s*\n(?P<items>(?:- .+\n?)+?)(?={following}:|\n\n|\Z)",
-            record_body or "",
-            re.I,
-        )
-        if not match:
-            return []
-        return [
-            line.removeprefix("- ").strip()
-            for line in match.group("items").splitlines()
-            if line.startswith("- ")
-        ]
-
-    return {
-        "digests": digests,
-        "approved": approval,
-        "approval_digests": approval_digests,
-        "record_digest": record_digest,
-        "record_revision": int(revision_match.group(1)) if revision_match else 1,
-        "approval_matches_record": approval_matches_record,
-        "approval_mismatch": bool(
-            approval and record_digest and not approval_matches_record
-        ),
-        "execution_rag": execution,
-        "approval_required": approval_required,
-        "decision_stop": bool(
-            re.search(r"(?:outcome|decision):\s*stop", text, re.I)
-        ),
-        "decision_escalate": bool(
-            re.search(r"(?:outcome|decision):\s*escalate", text, re.I)
-        ),
-        "approved_assignment_type": assignment_type_match.group(1).lower()
-        if assignment_type_match
-        else None,
-        "approved_allowed_paths": markdown_list("Allowed paths", "Required tests"),
-        "approved_required_tests": markdown_list(
-            "Required tests", "execution_rag"
-        ),
-    }
-
-
 def extract_acceptance_facts(text: str) -> dict:
     acceptance_ids = sorted(
         set(re.findall(r"acceptance_id:\s*([A-Za-z0-9._-]+)", text))
@@ -563,9 +463,10 @@ def extract_findings(
     owner_ref: str,
     source_sha: str | None = None,
     trusted_principals: set[int | str] | None = None,
+    canonical_work_item: dict | None = None,
 ) -> list[dict]:
     return normalize_gitlab_findings(
-        notes, owner_ref, source_sha, trusted_principals
+        notes, owner_ref, source_sha, trusted_principals, canonical_work_item
     )
 
 
@@ -608,27 +509,6 @@ def retire_unsupported_watchdog_assignment(raw_assignment: dict) -> bool:
         }
     )
     return True
-
-
-def approval_note_url(
-    notes: list[dict], trusted_user_ids: set[int | str], digest: str | None, issue_url: str
-) -> str | None:
-    if not digest:
-        return None
-    for note in notes:
-        body = str(note.get("body") or "")
-        if (
-            not note.get("system")
-            and (note.get("author") or {}).get("id") in trusted_user_ids
-            and re.search(
-                r"\*\*Approve\*\*|Product Owner approval (?:with conditions|—)|Approved .*PlanningRecord",
-                body,
-                re.I,
-            )
-            and digest.lower() in body.lower()
-        ):
-            return f"{issue_url}#note_{note.get('id')}"
-    return None
 
 
 def local_repository_state(project: dict, merge_requests: list[dict] | None = None) -> dict:
@@ -988,16 +868,6 @@ def main() -> int:
                 note for note in notes if _authority_note(note, trusted_user_ids)
             ]
             authority_bodies = [str(note["body"]) for note in authority_notes]
-            approval_bodies = [
-                str(note["body"])
-                for note in authority_notes
-                if (note.get("author") or {}).get("id") in trusted_user_ids
-                and re.search(
-                    r"\*\*Approve\*\*|Product Owner approval|Approved .*PlanningRecord",
-                    str(note["body"]),
-                    re.I,
-                )
-            ]
             description = str(issue.get("description") or "")
             text = f"{description}\n{'\n'.join(authority_bodies)}"
             parent_refs = sorted(
@@ -1020,17 +890,14 @@ def main() -> int:
                             "relationship": "authority_parent",
                         }
                     )
-            authority_facts = extract_authority_facts(
-                text, authority_bodies, approval_bodies
-            )
-            approved_note_url = approval_note_url(
+            canonical_work_item = reconstruct_work_item(
+                description,
                 notes,
                 trusted_user_ids,
-                authority_facts.get("record_digest"),
-                str(issue.get("web_url") or ""),
+                notes_state=note_snapshot["state"],
+                issue_url=str(issue.get("web_url") or ""),
             )
-            if approved_note_url and authority_facts.get("approval_matches_record"):
-                authority_facts["approval_note"] = approved_note_url
+            authority_facts = canonical_work_item["authority_facts"]
             findings = extract_findings(
                 notes,
                 ref,
@@ -1038,7 +905,9 @@ def main() -> int:
                     "default_remote_head"
                 ),
                 trusted_user_ids,
+                canonical_work_item,
             )
+            canonical_work_item["findings"] = findings
             source_items.append(
                 {
                     "ref": ref,
@@ -1065,6 +934,7 @@ def main() -> int:
                     "milestone": (issue.get("milestone") or {}).get("title"),
                     "priority": issue.get("severity") or None,
                     "authority_facts": authority_facts,
+                    "canonical_work_item": canonical_work_item,
                     "findings": findings,
                     "blocking_dependency_refs": sorted(set(blocking_dependencies)),
                     "merge_request_facts": [

@@ -21,7 +21,69 @@ let
       'import hermes_cli.commands as commands; assert commands.should_bypass_active_session is commands.is_gateway_known_command'
   '';
   gatewayEnabled = config.profiles.hermesGateway.enable && packageAvailable;
+  secondaryGatewayEnabled = config.profiles.hermesGatewaySecondary.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
+  anyGatewayEnabled = gatewayEnabled || secondaryGatewayEnabled;
+  # Mitigates a known upstream Hermes bug (NousResearch/hermes-agent#78068,
+  # #80471): certain exceptions mid-turn (a gateway restart, a bad path, a
+  # transient upstream-provider error - confirmed 2026-08-17 with a Bedrock
+  # internalServerException) corrupt nemo_relay's scope stack; end_turn's own
+  # cleanup then throws a second, unhandled RuntimeError and the session is
+  # stranded with no timeout, retry, or surfaced error. Track those issues
+  # for an upstream fix; this is the local workaround until one lands.
+  hermesStuckCronWatchdog = pkgs.writeShellScript "hermes-stuck-cron-watchdog" ''
+    set -euo pipefail
+    threshold_min="''${HERMES_WATCHDOG_THRESHOLD_MIN:-10}"
+    grace_min="''${HERMES_WATCHDOG_GRACE_MIN:-3}"
+    now=$(${pkgs.coreutils}/bin/date +%s)
+
+    # A restart here kills every session on the gateway, not just the stuck
+    # one - including a live conversation someone is actively watching.
+    # Confirmed 2026-08-17: restarted mid-conversation while a human was
+    # actively answering a clarify prompt in a different session on the
+    # same instance. Refuse to restart if ANY session on this instance has
+    # had activity within grace_min - that's real evidence the process is
+    # responsive, not hung, even if one unrelated run is stuck/orphaned.
+    gateway_has_recent_activity() {
+      local hermes_home="$1"
+      local rows
+      rows=$(HERMES_HOME="$hermes_home" ${agentPkgs.hermes}/bin/hermes sessions list --limit 20 2>/dev/null || true)
+      if echo "$rows" | ${pkgs.gnugrep}/bin/grep -qE '\bjust now\b'; then
+        return 0
+      fi
+      if echo "$rows" | ${pkgs.gnugrep}/bin/grep -qE '[0-9]+s ago'; then
+        return 0
+      fi
+      local m
+      m=$(echo "$rows" | ${pkgs.gnugrep}/bin/grep -oE '[0-9]+m ago' | ${pkgs.gnugrep}/bin/grep -oE '[0-9]+' | ${pkgs.coreutils}/bin/sort -n | ${pkgs.coreutils}/bin/head -1)
+      [ -n "$m" ] && [ "$m" -lt "$grace_min" ]
+    }
+
+    check_instance() {
+      local hermes_home="$1" service="$2"
+      HERMES_HOME="$hermes_home" ${agentPkgs.hermes}/bin/hermes cron runs --limit 50 2>/dev/null \
+        | ${pkgs.gawk}/bin/awk '$2=="running"{print}' \
+        | while read -r _id _status _job _src ts; do
+            started=$(${pkgs.coreutils}/bin/date -d "$ts" +%s 2>/dev/null || echo 0)
+            [ "$started" -eq 0 ] && continue
+            age_min=$(( (now - started) / 60 ))
+            if [ "$age_min" -ge "$threshold_min" ]; then
+              if gateway_has_recent_activity "$hermes_home"; then
+                echo "$(${pkgs.coreutils}/bin/date -Is) stuck cron run in $hermes_home (age ''${age_min}m) but another session there is active within ''${grace_min}m - not restarting $service"
+              else
+                echo "$(${pkgs.coreutils}/bin/date -Is) stuck cron run in $hermes_home (age ''${age_min}m), no recent activity anywhere on this instance - restarting $service"
+                ${pkgs.systemd}/bin/systemctl --user restart "$service"
+              fi
+              break
+            fi
+          done
+    }
+
+    check_instance "$HOME/.hermes" "hermes-gateway.service"
+    ${lib.optionalString secondaryGatewayEnabled ''
+      check_instance "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}" "hermes-gateway-secondary.service"
+    ''}
+  '';
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-supervisor";
   sourceRevision =
     if self ? rev then
@@ -81,11 +143,41 @@ let
 in
 {
   options.profiles.hermesGateway.enable = lib.mkEnableOption "managed Hermes messaging gateway";
+  options.profiles.hermesGateway.restartOnActivation = lib.mkEnableOption "restart the primary Hermes gateway during Home Manager activation";
+  options.profiles.hermesGateway.workingDirectory = lib.mkOption {
+    type = lib.types.str;
+    default = "%h/.hermes";
+    description = ''
+      cwd the primary gateway process runs from. Hermes auto-injects
+      AGENTS.md/SOUL.md/CLAUDE.md/.cursorrules found here into every chat
+      session's system prompt (see agent/agent_init.py's skip_context_files
+      handling) - point this at a project worktree to give Slack/chat
+      sessions the same ambient project context cron's --workdir gives.
+      Independent of HERMES_HOME (profile state - kanban/skills/sessions);
+      changing this does not move or affect profile data.
+    '';
+  };
+
+  options.profiles.hermesGatewaySecondary.enable = lib.mkEnableOption ''
+    a second, independently-profiled Hermes gateway instance - for running a
+    separate Slack app / project against its own Hermes profile (own
+    config.yaml, .env, skills, kanban board) without it sharing or polluting
+    the primary instance's state
+  '';
+  options.profiles.hermesGatewaySecondary.profileName = lib.mkOption {
+    type = lib.types.str;
+    description = "Hermes CLI profile name. HERMES_HOME resolves to %h/.hermes/profiles/<profileName> (see hermes profile create).";
+  };
+  options.profiles.hermesGatewaySecondary.workingDirectory = lib.mkOption {
+    type = lib.types.str;
+    description = "cwd this instance runs from - see profiles.hermesGateway.workingDirectory for what this controls.";
+  };
+
   options.profiles.hermesSupervisor.enable = lib.mkEnableOption "temporary Hermes Development Supervisor";
 
-  config = lib.mkIf (gatewayEnabled || supervisorEnabled) {
+  config = lib.mkIf (gatewayEnabled || secondaryGatewayEnabled || supervisorEnabled) {
     home.packages =
-      lib.optionals gatewayEnabled [ agentPkgs.hermes ]
+      lib.optionals (gatewayEnabled || secondaryGatewayEnabled) [ agentPkgs.hermes ]
       ++ lib.optionals supervisorEnabled [
         pkgs.bubblewrap
         supervisorCanaryCtl
@@ -130,9 +222,37 @@ in
             Type = "simple";
             ExecStartPre = hermesGatewayBypassCheck;
             ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
-            WorkingDirectory = "%h/.hermes";
+            WorkingDirectory = config.profiles.hermesGateway.workingDirectory;
             Environment = [
               "HERMES_HOME=%h/.hermes"
+              "PYTHONPATH=${hermesGatewaySitecustomize}"
+            ];
+            Restart = "on-failure";
+            RestartSec = 5;
+            TimeoutStopSec = 180;
+            KillMode = "mixed";
+            RestartPreventExitStatus = 78;
+          };
+          Install.WantedBy = [ "default.target" ];
+        };
+      })
+      (lib.mkIf secondaryGatewayEnabled {
+        hermes-gateway-secondary = {
+          Unit = {
+            Description = "Hermes Agent Gateway (secondary instance, profile: ${config.profiles.hermesGatewaySecondary.profileName}) - Messaging Platform Integration";
+            After = [
+              "network-online.target"
+              "hermes-gateway.service"
+            ];
+            Wants = [ "network-online.target" ];
+          };
+          Service = {
+            Type = "simple";
+            ExecStartPre = hermesGatewayBypassCheck;
+            ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
+            WorkingDirectory = config.profiles.hermesGatewaySecondary.workingDirectory;
+            Environment = [
+              "HERMES_HOME=%h/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}"
               "PYTHONPATH=${hermesGatewaySitecustomize}"
             ];
             Restart = "on-failure";
@@ -160,7 +280,27 @@ in
           Install.WantedBy = [ "default.target" ];
         };
       })
+      (lib.mkIf anyGatewayEnabled {
+        hermes-stuck-cron-watchdog = {
+          Unit.Description = "Restart a Hermes gateway instance if a cron run has been stuck (workaround for NousResearch/hermes-agent#78068, #80471)";
+          Service = {
+            Type = "oneshot";
+            ExecStart = "${hermesStuckCronWatchdog}";
+          };
+        };
+      })
     ];
+
+    systemd.user.timers = lib.mkIf anyGatewayEnabled {
+      hermes-stuck-cron-watchdog = {
+        Unit.Description = "Periodic check for stuck Hermes cron runs";
+        Timer = {
+          OnStartupSec = "2m";
+          OnUnitActiveSec = "5m";
+        };
+        Install.WantedBy = [ "timers.target" ];
+      };
+    };
 
     home.activation.hermesSupervisorLegacyCleanup = lib.mkIf gatewayEnabled (
       lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''
@@ -299,7 +439,7 @@ in
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         hermes_config="$HOME/.hermes/config.yaml"
         if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
-          config_tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.hermes/config.yaml.XXXXXX")"
+          config_tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-gateway-config.XXXXXX)"
           ${pkgs.yq-go}/bin/yq '
             .agent.restart_drain_timeout = 120
             | .agent.reasoning_overrides."gpt-5.4" = "medium"
@@ -311,7 +451,10 @@ in
               | .plugins.enabled = ((.plugins.enabled // []) | map(select(. != "axis-supervisor-commands")))
             ''}
           ' "$hermes_config" > "$config_tmp"
-          ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$hermes_config"
+          if ! ${pkgs.diffutils}/bin/cmp -s "$config_tmp" "$hermes_config" \
+            || [ "$(${pkgs.coreutils}/bin/stat -c %a "$hermes_config")" != 600 ]; then
+            ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$hermes_config"
+          fi
           ${pkgs.coreutils}/bin/rm -f "$config_tmp"
         fi
       ''
@@ -323,19 +466,21 @@ in
       ''
     );
 
-    home.activation.hermesSupervisorGatewayRestart = lib.mkIf gatewayEnabled (
-      lib.hm.dag.entryAfter
+    home.activation.hermesSupervisorGatewayRestart =
+      lib.mkIf (gatewayEnabled && config.profiles.hermesGateway.restartOnActivation)
         (
-          [
-            "reloadSystemd"
-            "hermesSupervisorGatewayConfig"
-          ]
-          ++ lib.optional supervisorEnabled "hermesSupervisorState"
-          ++ lib.optional (!supervisorEnabled) "hermesSupervisorPluginCleanup"
-        )
-        ''
-          $DRY_RUN_CMD ${pkgs.systemd}/bin/systemctl --user try-restart hermes-gateway.service
-        ''
-    );
+          lib.hm.dag.entryAfter
+            (
+              [
+                "reloadSystemd"
+                "hermesSupervisorGatewayConfig"
+              ]
+              ++ lib.optional supervisorEnabled "hermesSupervisorState"
+              ++ lib.optional (!supervisorEnabled) "hermesSupervisorPluginCleanup"
+            )
+            ''
+              $DRY_RUN_CMD ${pkgs.systemd}/bin/systemctl --user try-restart hermes-gateway.service
+            ''
+        );
   };
 }

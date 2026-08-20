@@ -19,6 +19,7 @@ from axis_supervisor.lifecycle import (
 from axis_supervisor.models import validate_assignment
 from axis_supervisor.canary import CanaryDenied, validate_canary
 from axis_supervisor.assignment_grants import AssignmentGrantDenied, validate_grant
+from axis_supervisor.canonical_work_item import projection_for
 
 ROOT = Path(os.environ.get("AXIS_SUPERVISOR_ROOT", Path.home() / ".hermes" / "supervisor" / "axis-development-supervisor"))
 CONTROL = ROOT / "control.json"
@@ -361,6 +362,27 @@ def recover_command(_args: argparse.Namespace) -> int:
     return 0
 
 
+def canonical_work_items(args: argparse.Namespace) -> int:
+    """Read-only projection inspector for collection/restart/migration diagnostics."""
+    inventory_path = Path(args.inventory or ROOT / "inventory.json")
+    value = read_record(inventory_path, "axis.external-development-supervisor.inventory")
+    items = []
+    for item in value.get("work_items") or []:
+        projection = projection_for(item)
+        items.append(
+            {
+                "ref": item.get("ref"),
+                "migration_state": "canonical" if item.get("canonical_work_item") else "n-1-legacy",
+                "collection_complete_for_authority": projection.get("collection_complete_for_authority", False),
+                "current_planning_record": projection.get("current_planning_record"),
+                "slice_inventory": projection.get("slice_inventory", []),
+                "authority_facts": projection.get("authority_facts", {}),
+            }
+        )
+    print(json.dumps({"dry_run": True, "inventory": str(inventory_path), "work_items": items}, sort_keys=True))
+    return 0
+
+
 def main() -> int:
     LEASES.mkdir(mode=0o700, parents=True, exist_ok=True)
     parser = argparse.ArgumentParser()
@@ -388,6 +410,10 @@ def main() -> int:
 
     recover_parser = subparsers.add_parser("recover")
     recover_parser.set_defaults(handler=recover_command)
+
+    canonical_parser = subparsers.add_parser("canonical-work-items")
+    canonical_parser.add_argument("--inventory")
+    canonical_parser.set_defaults(handler=canonical_work_items)
 
     status_parser = subparsers.add_parser("status")
     status_parser.set_defaults(handler=lambda _args: (print(json.dumps({"leases": active_leases(int(time.time()))}, sort_keys=True)), 0)[1])

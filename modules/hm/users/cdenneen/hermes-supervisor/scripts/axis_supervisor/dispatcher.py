@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from .assignment_grants import create_grant
+from .canonical_work_item import projection_for
 from .capability_graduation import read_capability_graduation
 from .frontier import compatible
 from .lifecycle import is_terminal
@@ -221,10 +222,17 @@ class Dispatcher:
         if any(not compatible(item, value) for value in active):
             return None
         source_item = item.get("source_item") or {}
-        authority_facts = source_item.get("authority_facts") or {}
+        projection = projection_for(source_item)
+        authority_facts = projection.get("authority_facts") or (
+            source_item.get("authority_facts") or {}
+            if not source_item.get("canonical_work_item")
+            else {}
+        )
+        current_planning_record = projection.get("current_planning_record") or {}
         planning_record = None
         if (
-            authority_facts.get("approval_matches_record")
+            authority_facts.get("collection_complete_for_authority", True)
+            and authority_facts.get("approval_matches_record")
             and authority_facts.get("record_digest")
             and authority_facts.get("approval_note")
         ):
@@ -232,6 +240,13 @@ class Dispatcher:
                 "revision": int(authority_facts.get("record_revision") or 1),
                 "digest": authority_facts.get("record_digest"),
                 "approval_note": authority_facts.get("approval_note"),
+                "record_source": authority_facts.get("record_source"),
+                "approval_source": authority_facts.get("approval_source"),
+                "slice_id": (item.get("candidate") or {}).get("slice_id"),
+                "allowed_paths": (item.get("candidate") or {}).get("allowed_paths")
+                or current_planning_record.get("slices"),
+                "required_tests": (item.get("candidate") or {}).get("required_tests")
+                or current_planning_record.get("required_tests"),
             }
         decision_record = (item.get("authority") or {}).get("decision_record")
         if planning_record is None and isinstance(decision_record, dict):
