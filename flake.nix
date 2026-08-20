@@ -93,6 +93,12 @@
       url = "github:NousResearch/hermes-agent/f5be9236e00ddf2f2a412697f267078fc4ee068e";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
+    alpha0 = {
+      url = "github:ghostspace-com/alpha0/c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+      inputs.hermes-src.follows = "hermes-src";
+    };
     fluxcdAgentSkills = {
       url = "github:cdenneen/fluxcd-agent-skills";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -413,15 +419,14 @@
                   services = userSystemd.services;
                   timers = userSystemd.timers;
                   primary = services.hermes-gateway.Service;
-                  alpha0 = services.hermes-alpha0-gateway.Service;
                   axisControlPackage = ghost.services.axis-control-observer.package;
                   axisControlWatchdog = services.axis-control-watchdog;
                   watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
                   profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
-                  alpha0Command = builtins.concatStringsSep "\n" alpha0.ExecStart;
                 in
                 assert inputs.axis-control.rev == "ba7e03ecce879be7047263b827d4a4dba8fd8527";
+                assert inputs.alpha0.rev == "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254";
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
                 assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
@@ -446,27 +451,12 @@
                 assert !(services ? axis-control-observe);
                 assert !(timers ? axis-control-observe);
                 assert !(timers ? axis-control-watchdog);
-                assert alpha0.WorkingDirectory == "/home/cdenneen/.local/share/alpha0/hermes";
-                assert lib.hasInfix "HERMES_HOME=/home/cdenneen/.local/share/alpha0/hermes" alpha0Command;
-                assert lib.hasInfix "gateway run --external-supervisor" alpha0Command;
-                assert !(lib.hasInfix "--profile alpha0" alpha0Command);
+                assert ghost.services.alpha0.enableCore == false;
+                assert ghost.services.alpha0.enableGateway == false;
+                assert ghost.services.alpha0.dataHome == "/home/cdenneen/.local/share/alpha0";
+                assert !(services ? alpha0-core);
+                assert !(services ? hermes-alpha0-gateway);
                 pkgs.runCommand "hermes-gateway-roles-check" { } ''
-                  touch "$out"
-                '';
-              hermes-alpha0-gateway =
-                let
-                  hermes = inputs.hermes-src.packages.${system}.messaging;
-                  sessionRoutingShim = pkgs.writeTextDir "sitecustomize.py" (
-                    builtins.readFile ./modules/hm/users/cdenneen/hermes-alpha0-gateway/sitecustomize.py
-                  );
-                in
-                pkgs.runCommand "hermes-alpha0-gateway-check" { } ''
-                  cp -R ${./modules/hm/users/cdenneen/hermes-alpha0-gateway} source
-                  chmod -R u+w source
-                  cd source
-                  export PYTHONPATH=${sessionRoutingShim}:$PWD
-                  ${hermes.hermesVenv}/bin/python3 check_profile_session_key.py
-                  ${hermes.hermesVenv}/bin/python3 -m unittest -v test_profile_clarify_bypass.py
                   touch "$out"
                 '';
             };
