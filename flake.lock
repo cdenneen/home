@@ -24,6 +24,33 @@
         "type": "github"
       }
     },
+    "alpha0": {
+      "inputs": {
+        "hermes-src": [
+          "hermes-src"
+        ],
+        "home-manager": [
+          "home-manager"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787191659,
+        "narHash": "sha256-bQmpUYI+I/o22iaqsWTh7WUH6cJnfkyzBE0iRMOOT1g=",
+        "owner": "ghostspace-com",
+        "repo": "alpha0",
+        "rev": "a1715b45d8d8db2470868819fb1973a1998b6c5b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ghostspace-com",
+        "repo": "alpha0",
+        "rev": "a1715b45d8d8db2470868819fb1973a1998b6c5b",
+        "type": "github"
+      }
+    },
     "apple-silicon-support": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -84,6 +111,30 @@
       "original": {
         "type": "git",
         "url": "https://gitlab.com/ghostspace/axis.git"
+      }
+    },
+    "axis-control": {
+      "inputs": {
+        "home-manager": [
+          "home-manager"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787189786,
+        "narHash": "sha256-9oQx1h1C47KaMm08FB7n82KxlwtgzPzzAt6YV1DXWig=",
+        "owner": "ghostspace-com",
+        "repo": "axis-control",
+        "rev": "4c25bc19040295fc6579dde9c6831ef143d298d5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ghostspace-com",
+        "repo": "axis-control",
+        "rev": "4c25bc19040295fc6579dde9c6831ef143d298d5",
+        "type": "github"
       }
     },
     "brew-src": {
@@ -1306,9 +1357,11 @@
     },
     "root": {
       "inputs": {
+        "alpha0": "alpha0",
         "apple-silicon-support": "apple-silicon-support",
         "arion": "arion",
         "axis": "axis",
+        "axis-control": "axis-control",
         "catppuccin": "catppuccin",
         "claude-src": "claude-src",
         "codex-src": "codex-src",

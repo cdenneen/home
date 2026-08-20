@@ -10,6 +10,10 @@ on:
 concurrency:
   group: build-populate-${{ github.ref }}
   cancel-in-progress: true
+env:
+  # Dedicated read-only source credentials; never use GH_PAT here.
+  NIX_CONFIG: |
+    access-tokens = github.com=${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }} gitlab.com=${{ secrets.GITLAB_AXIS_READ_TOKEN }}
 permissions:
   contents: write
   id-token: write
