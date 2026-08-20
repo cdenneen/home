@@ -56,10 +56,21 @@ jobs:
         id: update
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-          # Scoped to the lock-update process; third-party actions never receive it.
-          NIX_CONFIG: ${{ format('access-tokens = github.com={0} gitlab.com={1}', secrets.GHOSTSPACE_PRODUCER_READ_TOKEN, secrets.GITLAB_AXIS_READ_TOKEN) }}
+          GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
+            exit 78
+          fi
+          netrc="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.netrc"
+          umask 077
+          printf 'machine gitlab.com\n  login oauth2\n  password %s\n' "$GITLAB_AXIS_READ_TOKEN" > "$netrc"
+          chmod 0600 "$netrc"
+          trap 'rm -f "$netrc"' EXIT
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\nnetrc-file = %s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN" "$netrc")"
+          export NIX_CONFIG
           input="${{ matrix.input }}"
           git fetch origin main
           git checkout -B "update-flake-${input}" "origin/main"
