@@ -64,7 +64,10 @@
   profiles.hermesGateway.enable = true;
   # The recovered local supervisor remains forensic/decommissioning evidence,
   # not Ghost's AXIS application authority.
-  profiles.hermesSupervisor.enable = false;
+  profiles.hermesSupervisor = {
+    enable = false;
+    decommissionLegacyCron = true;
+  };
 
   services.axis-control-observer = {
     enable = true;

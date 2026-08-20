@@ -28,48 +28,39 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - name: Configure private flake access
-        env:
-          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
-            exit 1
-          fi
-          if [ -z "$GH_PAT" ]; then
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GH_PAT is unavailable in this workflow context" >&2
-            exit 1
-          fi
-          umask 077
-          cat > "$HOME/.netrc" <<EOF
-          machine gitlab.com
-            login gitlab+deploy-token-15084811
-            password $GITLAB_AXIS_READ_TOKEN
-          EOF
-          export NIX_CONFIG="access-tokens = github.com=$GH_PAT"
-          {
-            echo "NIX_CONFIG<<EOF"
-            printf '%s\n' "$NIX_CONFIG"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
-          unset GITLAB_AXIS_READ_TOKEN
-          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
-            exit 1
-          }
-          nix flake metadata github:ghostspace-com/axis-control/ba7e03ecce879be7047263b827d4a4dba8fd8527 --json >/dev/null || {
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace-com/axis-control" >&2
-            exit 1
-          }
-          unset GH_PAT
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate NixOS (nyx)
-        run: nix eval --raw .#nixosConfigurations.nyx.config.system.build.toplevel.drvPath --accept-flake-config
+        env:
+          GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_USERNAME: ${{ secrets.GITLAB_AXIS_READ_USERNAME }}
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_USERNAME" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
+            exit 78
+          fi
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
+          umask 077
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$GITLAB_AXIS_READ_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
+          export NIX_CONFIG
+          nix eval --raw .#nixosConfigurations.nyx.config.system.build.toplevel.drvPath --accept-flake-config
 
   darwin-eval:
     runs-on: macos-latest
@@ -79,50 +70,67 @@ jobs:
         with:
           extra-conf: |
             experimental-features = nix-command flakes
-      - name: Configure private flake access
-        env:
-          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
-            exit 1
-          fi
-          if [ -z "$GH_PAT" ]; then
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GH_PAT is unavailable in this workflow context" >&2
-            exit 1
-          fi
-          umask 077
-          cat > "$HOME/.netrc" <<EOF
-          machine gitlab.com
-            login gitlab+deploy-token-15084811
-            password $GITLAB_AXIS_READ_TOKEN
-          EOF
-          export NIX_CONFIG="access-tokens = github.com=$GH_PAT"
-          {
-            echo "NIX_CONFIG<<EOF"
-            printf '%s\n' "$NIX_CONFIG"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
-          unset GITLAB_AXIS_READ_TOKEN
-          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
-            exit 1
-          }
-          nix flake metadata github:ghostspace-com/axis-control/ba7e03ecce879be7047263b827d4a4dba8fd8527 --json >/dev/null || {
-            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace-com/axis-control" >&2
-            exit 1
-          }
-          unset GH_PAT
       - uses: cachix/cachix-action@v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Evaluate Darwin (VNJTECMBCD)
-        run: nix eval --raw .#darwinConfigurations.VNJTECMBCD.system.drvPath --accept-flake-config
+        env:
+          GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_USERNAME: ${{ secrets.GITLAB_AXIS_READ_USERNAME }}
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_USERNAME" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
+            exit 78
+          fi
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
+          umask 077
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$GITLAB_AXIS_READ_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
+          export NIX_CONFIG
+          nix eval --raw .#darwinConfigurations.VNJTECMBCD.system.drvPath --accept-flake-config
       - name: Evaluate Darwin (mbair legacy stack)
-        run: nix eval --raw .#darwinConfigurations.mbair.system.drvPath --accept-flake-config
+        env:
+          GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_USERNAME: ${{ secrets.GITLAB_AXIS_READ_USERNAME }}
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_USERNAME" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
+            exit 78
+          fi
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
+          umask 077
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$GITLAB_AXIS_READ_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
+          export NIX_CONFIG
+          nix eval --raw .#darwinConfigurations.mbair.system.drvPath --accept-flake-config
 
   flake-checks-full-linux:
     if: github.event_name == 'workflow_dispatch' && inputs.full_checks
@@ -135,7 +143,32 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
       - name: Full explicit checks (Linux)
+        env:
+          GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_USERNAME: ${{ secrets.GITLAB_AXIS_READ_USERNAME }}
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_USERNAME" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
+            exit 78
+          fi
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
+          umask 077
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$GITLAB_AXIS_READ_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
+          export NIX_CONFIG
           nix flake check --accept-flake-config
           nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
           nix build .#nixosConfigurations.MacBook-Pro-NixOS.config.system.build.toplevel --accept-flake-config
@@ -151,7 +184,32 @@ jobs:
           extra-conf: |
             experimental-features = nix-command flakes
       - name: Full explicit checks (Darwin)
+        env:
+          GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
+          GITLAB_AXIS_READ_USERNAME: ${{ secrets.GITLAB_AXIS_READ_USERNAME }}
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ -z "$GHOSTSPACE_PRODUCER_READ_TOKEN" ] || [ -z "$GITLAB_AXIS_READ_USERNAME" ] || [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
+            exit 78
+          fi
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
+          umask 077
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "$GITLAB_AXIS_READ_USERNAME" ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
+          export NIX_CONFIG
           nix flake check --accept-flake-config
           nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
           nix build '.#homeConfigurations.cdenneen@VNJTECMBCD.activationPackage' --accept-flake-config

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == refs/heads/main && -z "${ALLOW_DIRECT_MAIN_PUSH:-}" ]]; then
+    echo "blocked direct main push: use a PR (emergency: ALLOW_DIRECT_MAIN_PUSH=<incident>)" >&2
+    exit 1
+  fi
+  if [[ "$remote_ref" == refs/heads/main ]]; then
+    echo "AUDIT direct main override: ${ALLOW_DIRECT_MAIN_PUSH} ${local_sha} -> ${remote_sha}" >&2
+  fi
+done

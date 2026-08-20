@@ -1,7 +1,7 @@
 # Alpha0 producer migration
 
-Ghost now imports `alpha0.homeModules.default` from canonical producer revision
-`c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254`. The producer's independent
+Ghost imports `alpha0.homeModules.default` from canonical private producer
+`ghostspace-com/alpha0@c000ed805b9231e39b8240469ca398a19e006aed`. The producer's independent
 `services.alpha0.enableCore` and `services.alpha0.enableGateway` gates are both
 false, so this change installs no Alpha0 service, gateway, scheduler, or runtime
 state. The default data path remains `$XDG_DATA_HOME/alpha0` (currently

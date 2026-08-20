@@ -49,9 +49,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     axis-control = {
-      url = "github:ghostspace-com/axis-control/main";
+      url = "github:ghostspace-com/axis-control/721d7f93362feb8ad172dd9b3f057cdc1e0e75e4";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
+    };
+    alpha0 = {
+      url = "github:ghostspace-com/alpha0/c000ed805b9231e39b8240469ca398a19e006aed";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+      inputs.hermes-src.follows = "hermes-src";
     };
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
@@ -92,12 +98,6 @@
     hermes-src = {
       url = "github:NousResearch/hermes-agent/f5be9236e00ddf2f2a412697f267078fc4ee068e";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
-    };
-    alpha0 = {
-      url = "github:ghostspace-com/alpha0/c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.home-manager.follows = "home-manager";
-      inputs.hermes-src.follows = "hermes-src";
     };
     fluxcdAgentSkills = {
       url = "github:cdenneen/fluxcd-agent-skills";
@@ -412,7 +412,9 @@
             // optionalAttrs pkgs.stdenv.isLinux {
               axis-control-package = inputs.axis-control.checks.${system}.package;
               axis-control-home-module = inputs.axis-control.checks.${system}.home-module;
-              hermes-gateway-roles =
+              alpha0-package = inputs.alpha0.checks.${system}.package;
+              alpha0-home-module = inputs.alpha0.checks.${system}.home-module;
+              ghost-recovery-composition =
                 let
                   ghost = configurations.homeConfigurations."cdenneen@ghost".config;
                   userSystemd = ghost.systemd.user;
@@ -424,18 +426,20 @@
                   watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
                   profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
+                  forbiddenCheckout = "/home/cdenneen/src/workspace/work/axis-control";
                 in
-                assert inputs.axis-control.rev == "ba7e03ecce879be7047263b827d4a4dba8fd8527";
-                assert inputs.alpha0.rev == "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254";
+                assert inputs.axis-control.rev == "721d7f93362feb8ad172dd9b3f057cdc1e0e75e4";
+                assert inputs.alpha0.rev == "c000ed805b9231e39b8240469ca398a19e006aed";
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
                 assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
                 assert !(lib.hasInfix "--profile" primaryCommand);
+                assert ghost.profiles.hermesGateway.enable;
                 assert ghost.profiles.hermesAxisControlGateway.enable == false;
                 assert ghost.profiles.hermesSupervisor.enable == false;
                 assert ghost.services.axis-control-observer.enable;
                 assert !(services ? hermes-axis-control-gateway);
-                assert !(lib.hasInfix "/src/workspace/work/axis-control" (builtins.toJSON services));
+                assert !(lib.hasInfix forbiddenCheckout (builtins.toJSON services));
                 assert !(ghost.home.activation ? hermesAxisControlGatewayLegacyCleanup);
                 assert !(services ? hermes-supervisor-cron);
                 assert !(ghost.home.activation ? hermesSupervisorState);
@@ -447,7 +451,7 @@
                 assert !(axisControlWatchdog ? Install);
                 assert lib.hasPrefix "/nix/store/" watchdogCommand;
                 assert lib.hasInfix "/nix/store/" profileWrapperActivation;
-                assert !(lib.hasInfix "/src/workspace/work/axis-control" profileWrapperActivation);
+                assert !(lib.hasInfix forbiddenCheckout profileWrapperActivation);
                 assert !(services ? axis-control-observe);
                 assert !(timers ? axis-control-observe);
                 assert !(timers ? axis-control-watchdog);
@@ -456,7 +460,13 @@
                 assert ghost.services.alpha0.dataHome == "/home/cdenneen/.local/share/alpha0";
                 assert !(services ? alpha0-core);
                 assert !(services ? hermes-alpha0-gateway);
-                pkgs.runCommand "hermes-gateway-roles-check" { } ''
+                assert !(ghost.home.file ? ".config/hermes/scheduler/alpha0-jobs.json");
+                assert !(ghost.home.file ? ".hermes/scripts/axis-development-supervisor-cycle.py");
+                assert !(ghost.home.activation ? hermesSupervisorGatewayRestart);
+                assert ghost.home.activation ? hermesLegacyAxisCronDecommission;
+                assert !(lib.hasInfix forbiddenCheckout primaryCommand);
+                assert !(lib.hasInfix forbiddenCheckout watchdogCommand);
+                pkgs.runCommand "ghost-recovery-composition-check" { } ''
                   touch "$out"
                 '';
             };

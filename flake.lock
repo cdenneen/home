@@ -37,17 +37,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1787187874,
-        "narHash": "sha256-WADiCBhrDz2+Q7bpQoYsNgeLwW858x2uSSgsz2P5jJk=",
+        "lastModified": 1787193513,
+        "narHash": "sha256-d95dTv2+nRcKqZY9VwZ8xQTPGTEI5UuXWt28up5qbUQ=",
         "owner": "ghostspace-com",
         "repo": "alpha0",
-        "rev": "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254",
+        "rev": "c000ed805b9231e39b8240469ca398a19e006aed",
         "type": "github"
       },
       "original": {
         "owner": "ghostspace-com",
         "repo": "alpha0",
-        "rev": "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254",
+        "rev": "c000ed805b9231e39b8240469ca398a19e006aed",
         "type": "github"
       }
     },
@@ -123,17 +123,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1787177243,
-        "narHash": "sha256-gRJx9oidGQBXenI2kKjd4KjtyuJuJ8GwZqUtUxnD6f8=",
+        "lastModified": 1787250311,
+        "narHash": "sha256-ZbKnQC4jDFytWj+vb+F5Jf4CcgcWbLuTxRB/UZF+De8=",
         "owner": "ghostspace-com",
         "repo": "axis-control",
-        "rev": "ba7e03ecce879be7047263b827d4a4dba8fd8527",
+        "rev": "721d7f93362feb8ad172dd9b3f057cdc1e0e75e4",
         "type": "github"
       },
       "original": {
         "owner": "ghostspace-com",
-        "ref": "main",
         "repo": "axis-control",
+        "rev": "721d7f93362feb8ad172dd9b3f057cdc1e0e75e4",
         "type": "github"
       }
     },
