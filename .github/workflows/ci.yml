@@ -43,12 +43,21 @@ jobs:
             echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
             exit 78
           fi
-          netrc="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.netrc"
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
           umask 077
-          printf 'machine gitlab.com\n  login oauth2\n  password %s\n' "$GITLAB_AXIS_READ_TOKEN" > "$netrc"
-          chmod 0600 "$netrc"
-          trap 'rm -f "$netrc"' EXIT
-          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\nnetrc-file = %s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN" "$netrc")"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' oauth2 ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
           nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
 
@@ -75,12 +84,21 @@ jobs:
             echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
             exit 78
           fi
-          netrc="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.netrc"
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
           umask 077
-          printf 'machine gitlab.com\n  login oauth2\n  password %s\n' "$GITLAB_AXIS_READ_TOKEN" > "$netrc"
-          chmod 0600 "$netrc"
-          trap 'rm -f "$netrc"' EXIT
-          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\nnetrc-file = %s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN" "$netrc")"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' oauth2 ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
           nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
       - name: Evaluate Darwin (mbair legacy stack)
@@ -93,12 +111,21 @@ jobs:
             echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
             exit 78
           fi
-          netrc="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.netrc"
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
           umask 077
-          printf 'machine gitlab.com\n  login oauth2\n  password %s\n' "$GITLAB_AXIS_READ_TOKEN" > "$netrc"
-          chmod 0600 "$netrc"
-          trap 'rm -f "$netrc"' EXIT
-          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\nnetrc-file = %s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN" "$netrc")"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' oauth2 ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
           nix eval --raw .#darwinConfigurations.mbair.system.drvPath --accept-flake-config
 
@@ -122,12 +149,21 @@ jobs:
             echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
             exit 78
           fi
-          netrc="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.netrc"
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
           umask 077
-          printf 'machine gitlab.com\n  login oauth2\n  password %s\n' "$GITLAB_AXIS_READ_TOKEN" > "$netrc"
-          chmod 0600 "$netrc"
-          trap 'rm -f "$netrc"' EXIT
-          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\nnetrc-file = %s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN" "$netrc")"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' oauth2 ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
           nix flake check --accept-flake-config
           nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
@@ -153,12 +189,21 @@ jobs:
             echo "::error title=PRIVATE_DEPENDENCY_ACCESS::Required read-only producer source credential is missing"
             exit 78
           fi
-          netrc="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.netrc"
+          askpass="$RUNNER_TEMP/nix-private-inputs-${GITHUB_JOB}-${RANDOM}.askpass"
           umask 077
-          printf 'machine gitlab.com\n  login oauth2\n  password %s\n' "$GITLAB_AXIS_READ_TOKEN" > "$netrc"
-          chmod 0600 "$netrc"
-          trap 'rm -f "$netrc"' EXIT
-          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\nnetrc-file = %s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN" "$netrc")"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' oauth2 ;;
+            *Password*) printf '%s\n' "$GITLAB_AXIS_READ_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 0700 "$askpass"
+          trap 'rm -f "$askpass"' EXIT
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
           nix flake check --accept-flake-config
           nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
