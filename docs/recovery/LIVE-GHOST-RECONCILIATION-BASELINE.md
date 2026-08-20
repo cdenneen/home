@@ -56,12 +56,18 @@ Independent GETs matched canonical collection for all three project identities, 
 | `LEGACY_EVIDENCE_CAPTURE` | `PASS_WITH_PRIVATE_EXCLUSIONS` | 80 source-like entries verified; private DB evidence remains out of Git by design. |
 | `AXIS_CONTROL_BEHAVIOR_PARITY` | `PARTIAL` | Strong canonical safety contracts; bounded useful frontier/reconstruction/CI/UX gaps remain. |
 | `ALPHA0_REAL_DATA_RECOVERY` | `PASS_WITH_LIMITS` | Structural/offline compatibility passed; HMAC-signed Core-open and Hermes semantic restore remain. |
-| `HERMES_ROUTING_UNDERSTOOD` | `PARTIAL` | Three ownership domains mapped; exact live channel exclusivity and dedicated Alpha0 chat identity not independently attested. |
+| `HERMES_ROUTING_UNDERSTOOD` | `PARTIAL` | Three ownership domains and four scheduler registries mapped; exact live channel exclusivity and dedicated Alpha0 chat identity not independently attested. |
+| `HOST_COUPLING_CLASSIFIED` | `PASS_WITH_LIMITS` | Canonical, deployment, legacy, ephemeral and unknown couplings are classified; the axis-control watchdog and Alpha0 supervision remain host-local. |
+| `SECRET_PORTABILITY` | `PARTIAL` | Metadata-only requirements and preferred Home/Alpha0 SOPS authorities are mapped; axis-control and several integration mappings/rotations remain incomplete. |
+| `HERMES_STATE_PORTABILITY` | `PARTIAL` | Artifact dispositions are complete; supported semantic restore, session/routing proof and scheduler de-duplication remain unaccepted. |
+| `CONTROL_PLANE_HOST_MIGRATION` | `PLANNED_NOT_AUTHORIZED` | Future-only sequences define preconditions, abort, rollback and one-authority proof while retaining Alpha0 SQLite. |
+| `DEPLOYMENT_PLACEMENT` | `PARTIAL_UNDECIDED` | Logical roles and constraints are mapped; exact destinations and axis-lab-owned backend admission decisions remain open. |
+| `PORTABLE_MANAGEMENT_PLANE` | `PARTIAL` | Source and core state paths are portable in design, but cross-host supervision, managed secret mapping, signed deployment, custody and exact placement evidence remain incomplete. |
 | `ACTIVE_AXIS_CUSTODY` | `PARTIAL` | Nine lineages mapped; three depended partly on Ghost-local refs/worktrees at capture. |
 | `SAFE_DRAIN_READY` | `NO` | Live new-work sources, reconciler/workers and partial custody require re-observation and phased drain. |
 | `HOME_COMPOSITION_READY` | `NO` | PR #681 is dirty and lacks exact-head approval/current required CI. |
 | `SECURITY_REMEDIATION_READY` | `PLANNED_NOT_AUTHORIZED` | Paths/modes and future owner-only targets are known; values were not inspected and rotation was not performed. |
-| `CUTOVER_READY` | `NO` | Deployment identity, quiescence, routing exclusivity, custody, Home review/CI and rollback gates are incomplete. |
+| `CUTOVER_READY` | `NO` | Deployment identity, quiescence, routing exclusivity, custody, Home review/CI, Hermes semantic restore, cross-host supervision and rollback gates are incomplete. |
 
 ## Source reports
 
