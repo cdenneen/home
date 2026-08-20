@@ -24,33 +24,6 @@
         "type": "github"
       }
     },
-    "alpha0": {
-      "inputs": {
-        "hermes-src": [
-          "hermes-src"
-        ],
-        "home-manager": [
-          "home-manager"
-        ],
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1787187874,
-        "narHash": "sha256-WADiCBhrDz2+Q7bpQoYsNgeLwW858x2uSSgsz2P5jJk=",
-        "owner": "cdenneen",
-        "repo": "alpha0",
-        "rev": "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254",
-        "type": "github"
-      },
-      "original": {
-        "owner": "cdenneen",
-        "repo": "alpha0",
-        "rev": "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254",
-        "type": "github"
-      }
-    },
     "apple-silicon-support": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -1333,7 +1306,6 @@
     },
     "root": {
       "inputs": {
-        "alpha0": "alpha0",
         "apple-silicon-support": "apple-silicon-support",
         "arion": "arion",
         "axis": "axis",
