@@ -3,7 +3,7 @@
 This candidate composes exactly two canonical private producers:
 
 - `ghostspace-com/axis-control@4c25bc19040295fc6579dde9c6831ef143d298d5`
-- `ghostspace-com/alpha0@a1715b45d8d8db2470868819fb1973a1998b6c5b`
+- `ghostspace-com/alpha0@c000ed805b9231e39b8240469ca398a19e006aed`
 
 The embedded AXIS supervisor is retained at `modules/hm/users/cdenneen/hermes-supervisor/` as mixed generic-gateway source with its AXIS supervisor gate forced false; the embedded Alpha0 module and routing shim are archived at `docs/recovery/legacy-alpha0-gateway/`. Neither archive is imported. The remaining legacy axis-control gateway option is explicitly false and renders no unit. The canonical axis-control module renders only its report-only watchdog definition and profile wrapper; it installs no scheduler or gateway. Alpha0 Core and gateway gates are false and render neither service nor scheduler inventory. The primary generic Hermes gateway is unchanged.
 

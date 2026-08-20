@@ -37,17 +37,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1787191659,
-        "narHash": "sha256-bQmpUYI+I/o22iaqsWTh7WUH6cJnfkyzBE0iRMOOT1g=",
+        "lastModified": 1787193513,
+        "narHash": "sha256-d95dTv2+nRcKqZY9VwZ8xQTPGTEI5UuXWt28up5qbUQ=",
         "owner": "ghostspace-com",
         "repo": "alpha0",
-        "rev": "a1715b45d8d8db2470868819fb1973a1998b6c5b",
+        "rev": "c000ed805b9231e39b8240469ca398a19e006aed",
         "type": "github"
       },
       "original": {
         "owner": "ghostspace-com",
         "repo": "alpha0",
-        "rev": "a1715b45d8d8db2470868819fb1973a1998b6c5b",
+        "rev": "c000ed805b9231e39b8240469ca398a19e006aed",
         "type": "github"
       }
     },

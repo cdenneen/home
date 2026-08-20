@@ -54,7 +54,7 @@
       inputs.home-manager.follows = "home-manager";
     };
     alpha0 = {
-      url = "github:ghostspace-com/alpha0/a1715b45d8d8db2470868819fb1973a1998b6c5b";
+      url = "github:ghostspace-com/alpha0/c000ed805b9231e39b8240469ca398a19e006aed";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
       inputs.hermes-src.follows = "hermes-src";
@@ -429,7 +429,7 @@
                   };
                 in
                 assert inputs.axis-control.rev == "4c25bc19040295fc6579dde9c6831ef143d298d5";
-                assert inputs.alpha0.rev == "a1715b45d8d8db2470868819fb1973a1998b6c5b";
+                assert inputs.alpha0.rev == "c000ed805b9231e39b8240469ca398a19e006aed";
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
                 assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
