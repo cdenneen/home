@@ -173,6 +173,19 @@
         "all_configured_repositories_inspected": { "type": "boolean" },
         "dependency_queries": { "type": "integer", "minimum": 0 },
         "dependency_query_failures": { "type": "integer", "minimum": 0 },
+        "dependency_link_timeouts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ref", "error", "timeout_seconds"],
+            "properties": {
+              "ref": { "type": "string", "minLength": 1 },
+              "error": { "const": "links: TimeoutExpired" },
+              "timeout_seconds": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
         "retrieval_error_count": { "type": "integer", "minimum": 0 },
         "stale_repository_count": { "type": "integer", "minimum": 0 },
         "state_record_errors": {

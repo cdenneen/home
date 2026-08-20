@@ -88,7 +88,11 @@ def main() -> int:
     worker = owned_job("axis-development-supervisor-worker")
     projection = owned_job("axis-development-supervisor-report")
     cutover = load(CUTOVER) if CUTOVER.exists() else {"generation": "A"}
-    cutover_generation = str(cutover.get("generation") or "A")
+    cutover_generation = str(
+        os.environ.get("AXIS_SUPERVISOR_CUTOVER_GENERATION")
+        or cutover.get("generation")
+        or "A"
+    )
     if cutover_generation not in {"A", "B", "C", "D", "E"}:
         raise RuntimeError("unsupported Slack cutover generation")
     if args.command == "install":

@@ -22,7 +22,10 @@ in
     group = "alpha0-node";
     home = stateDir;
     shell = pkgs.bashInteractive;
-    openssh.authorizedKeys.keyFiles = [ ../../pub/ssh/alpha0-node-ghost.pub ];
+    openssh.authorizedKeys.keyFiles = [
+      ../../pub/ssh/alpha0-node-ghost.pub
+      ../../pub/ssh/alpha0-node-savage.pub
+    ];
   };
 
   services.openssh.extraConfig = lib.mkAfter ''

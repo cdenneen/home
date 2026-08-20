@@ -51,6 +51,8 @@
     };
   };
 
+  # Canonical Alpha0 is imported but remains fully dormant. Core and gateway
+  # graduate independently after the recovery gates are satisfied.
   services.alpha0 = {
     enableCore = false;
     enableGateway = false;
@@ -60,6 +62,8 @@
 
   profiles.hermesAxisControlGateway.enable = false;
   profiles.hermesGateway.enable = true;
+  # The recovered local supervisor remains forensic/decommissioning evidence,
+  # not Ghost's AXIS application authority.
   profiles.hermesSupervisor = {
     enable = false;
     decommissionLegacyCron = true;
@@ -69,4 +73,7 @@
     enable = true;
     package = axis-control.packages.${pkgs.stdenv.hostPlatform.system}.default;
   };
+
+  # This only deploys the canonical profile wrapper and report-only watchdog.
+  # Installing or graduating the Hermes scheduler is a separate reviewed step.
 }

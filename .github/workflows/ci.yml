@@ -23,7 +23,7 @@ jobs:
   nixos-eval:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
@@ -60,12 +60,12 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
-          nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
+          nix eval --raw .#nixosConfigurations.nyx.config.system.build.toplevel.drvPath --accept-flake-config
 
   darwin-eval:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v22
         with:
           extra-conf: |
@@ -102,7 +102,7 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           NIX_CONFIG="$(printf 'access-tokens = github.com=%s\n' "$GHOSTSPACE_PRODUCER_READ_TOKEN")"
           export NIX_CONFIG
-          nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
+          nix eval --raw .#darwinConfigurations.VNJTECMBCD.system.drvPath --accept-flake-config
       - name: Evaluate Darwin (mbair legacy stack)
         env:
           GHOSTSPACE_PRODUCER_READ_TOKEN: ${{ secrets.GHOSTSPACE_PRODUCER_READ_TOKEN }}
@@ -137,7 +137,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
@@ -178,7 +178,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v22
         with:
           extra-conf: |

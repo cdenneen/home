@@ -24,11 +24,7 @@ class CutoverCoordinator:
         self.path = root / "slack-cutover.json"
         self.clock = clock
         self.reconcile_command = reconcile_command or os.environ.get(
-            "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND",
-            str(
-                Path.home()
-                / ".nix-profile/bin/axis-development-watchdog-cutover-reconcile"
-            ),
+            "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND"
         )
         self.runner = runner or subprocess.run
 
@@ -70,33 +66,63 @@ class CutoverCoordinator:
     def _transition(
         self, value: dict[str, Any], generation: str, event: str
     ) -> dict[str, Any]:
-        value = dict(value)
-        value["generation"] = generation
-        value["status"] = {
+        previous = dict(value)
+        previous["history"] = list(value.get("history") or [])
+        candidate = dict(value)
+        candidate["history"] = list(value.get("history") or [])
+        candidate["generation"] = generation
+        candidate["status"] = {
             "A": "shadowing",
             "B": "parity",
             "C": "watchdog-writer",
             "D": "reporter-removal",
             "E": "observing",
         }[generation]
-        value.setdefault("history", []).append(
+        candidate.setdefault("history", []).append(
             {
                 "generation": generation,
                 "event": event,
                 "at": timestamp(int(self.clock())),
             }
         )
-        result = self._write(value)
-        self.reconcile()
-        return result
+        try:
+            # The supervisor cron reconciler reads this override while the
+            # committed generation remains unchanged.  A failed reconcile can
+            # therefore never publish a new writer generation.
+            self.reconcile(generation)
+        except Exception as exc:
+            failure = f"{event} reconcile failed: {exc}"
+            if previous.get("last_error"):
+                failure = f"{previous['last_error']}; {failure}"
+            previous["last_error"] = failure[-1200:]
+            previous.setdefault("history", []).append(
+                {
+                    "generation": previous["generation"],
+                    "event": "transition-reconcile-failed",
+                    "at": timestamp(int(self.clock())),
+                }
+            )
+            self._write(previous)
+            raise
+        return self._write(candidate)
 
-    def reconcile(self) -> None:
+    def reconcile(self, generation: str | None = None) -> None:
+        if not self.reconcile_command:
+            raise RuntimeError(
+                "AXIS_WATCHDOG_CUTOVER_RECONCILE_COMMAND must name a deployed command"
+            )
+        environment = os.environ
+        if generation is not None:
+            environment = environment | {
+                "AXIS_SUPERVISOR_CUTOVER_GENERATION": generation,
+            }
         result = self.runner(
             shlex.split(self.reconcile_command),
             text=True,
             capture_output=True,
             timeout=180,
             check=False,
+            env=environment,
         )
         if result.returncode != 0:
             output = (result.stdout or "") + (result.stderr or "")

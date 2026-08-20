@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from axis_supervisor import progress_coherence
 from axis_supervisor.accounting import AccountingLedger
 from axis_supervisor.lifecycle import is_terminal
 from axis_supervisor.mutation import MutationGate, OperationClass
@@ -72,21 +73,162 @@ def process_alive(pid: int, expected_start_time: str | None = None) -> bool:
         return False
 
 
-def skip(run_id: str, mode: str | None, reason: str) -> int:
+def child_diagnostic(exc: BaseException) -> str:
+    output = []
+    for name in ("stdout", "stderr", "output"):
+        value = getattr(exc, name, None)
+        if value:
+            if isinstance(value, bytes):
+                value = value.decode(errors="replace")
+            output.append(f"{name}: {value}")
+    return "\n".join(output)[-1200:]
+
+
+def skip(
+    run_id: str,
+    mode: str | None,
+    reason: str,
+    *,
+    diagnostic: str | None = None,
+) -> int:
+    diagnostic_id = uuid.uuid4().hex
+    details = {
+        "run_id": run_id,
+        "mode": mode,
+        "reason": reason,
+        "diagnostic_id": diagnostic_id,
+        "diagnostic": diagnostic,
+    }
+    record_event(ROOT, "preflight_skip", details=details, source="preflight", notify=False)
     emit({
         "wakeAgent": False,
         "run_id": run_id,
         "skip_agent": True,
         "reason": reason,
         "mode": mode,
+        "diagnostic_id": diagnostic_id,
+        "diagnostic": diagnostic,
     })
     return 0
+
+
+def isolated_dependency_link_timeouts(
+    inventory: dict, execution_graph: dict
+) -> list[dict]:
+    """Return fully-accounted, non-executable dependency-links timeouts.
+
+    Dependency-link collection enriches an item with its blocking edges.  A
+    bounded timeout leaves that item Unknown, but does not invalidate canonical
+    repository discovery or other executable items.  All other retrieval
+    errors, incomplete accounting, a fully failed dependency sweep, or a graph
+    that would execute an affected item remain fail-closed.
+    """
+    collection = inventory.get("collection_status") or {}
+    timed_out_items = []
+    retrieval_errors = 0
+    for item in inventory.get("work_items") or []:
+        errors = item.get("retrieval_errors") or []
+        retrieval_errors += len(errors)
+        for error in errors:
+            if error != "links: TimeoutExpired":
+                return []
+            timed_out_items.append(
+                {"ref": str(item.get("ref") or "unknown"), "error": error}
+            )
+
+    try:
+        dependency_queries = int(collection.get("dependency_queries", 0))
+        dependency_failures = int(collection.get("dependency_query_failures", 1))
+        reported_errors = int(collection.get("retrieval_error_count", 1))
+    except (TypeError, ValueError):
+        return []
+    if (
+        not timed_out_items
+        or retrieval_errors != len(timed_out_items)
+        or reported_errors != len(timed_out_items)
+        or dependency_failures != len(timed_out_items)
+        or dependency_queries <= dependency_failures
+    ):
+        return []
+    reported_timeouts = collection.get("dependency_link_timeouts")
+    if not isinstance(reported_timeouts, list):
+        return []
+    normalized_timeouts = []
+    for timeout in reported_timeouts:
+        if not isinstance(timeout, dict):
+            return []
+        try:
+            timeout_seconds = int(timeout.get("timeout_seconds") or 0)
+        except (TypeError, ValueError):
+            return []
+        normalized_timeouts.append(
+            {
+                "ref": str(timeout.get("ref") or ""),
+                "error": str(timeout.get("error") or ""),
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+    expected_timeouts = [
+        {
+            "ref": item["ref"],
+            "error": item["error"],
+            "timeout_seconds": timeout["timeout_seconds"],
+        }
+        for item in timed_out_items
+        for timeout in normalized_timeouts
+        if timeout["ref"] == item["ref"] and timeout["error"] == item["error"]
+    ]
+    if (
+        len(expected_timeouts) != len(timed_out_items)
+        or any(item["timeout_seconds"] <= 0 for item in expected_timeouts)
+        or sorted(expected_timeouts, key=lambda item: item["ref"])
+        != sorted(normalized_timeouts, key=lambda item: item["ref"])
+    ):
+        return []
+    if execution_graph.get("inventory_generation_id") != inventory.get("generation_id"):
+        return []
+    executable_queue = execution_graph.get("executable_queue") or []
+    if not executable_queue:
+        return []
+    affected_refs = {item["ref"] for item in timed_out_items}
+    queued_refs = {
+        str(entry.get("target_ref") or entry.get("ref") or "")
+        for entry in executable_queue
+        if isinstance(entry, dict)
+    }
+    selected_batch = (execution_graph.get("scheduler_state") or {}).get(
+        "selected_batch"
+    ) or []
+    queued_refs.update(
+        str(entry.get("target_ref") or entry.get("ref") or "")
+        for entry in selected_batch
+        if isinstance(entry, dict)
+    )
+    if affected_refs.intersection(queued_refs):
+        return []
+    return timed_out_items
 
 
 def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
     job_id = str(control.get("cron_job_id") or "").strip()
     output_dir = Path.home() / ".hermes" / "cron" / "output" / job_id
     outputs = list(output_dir.glob("*.md")) if job_id else []
+    reconciled_runs = set()
+    events_path = ROOT / "operational-events.jsonl"
+    try:
+        event_lines = events_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        event_lines = []
+    for line in event_lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("event_type") != "reconciliation_completed":
+            continue
+        run_id = str((event.get("details") or {}).get("run_id") or "")
+        if run_id:
+            reconciled_runs.add(run_id)
 
     for run_path in RUNS.glob("*.json"):
         try:
@@ -111,7 +253,7 @@ def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
                 "inventory_generation_id": record.get("inventory_generation_id"),
                 "model_calls_remaining": int(record.get("model_calls_remaining") or 0),
             }
-        if record.get("status") != "started":
+        if record.get("status") not in {"started", "reconciled"}:
             continue
 
         run_id = str(record.get("run_id") or "")
@@ -127,6 +269,9 @@ def reconcile_prior_runs(control: dict, now: int, gate: MutationGate) -> None:
         if matched is not None:
             record["status"] = "completed"
             record["completion_output"] = str(matched)
+            record["reconciled_at_epoch"] = now
+        elif run_id in reconciled_runs:
+            record["status"] = "reconciled"
             record["reconciled_at_epoch"] = now
         elif now - int(record.get("started_at_epoch", now)) > 1800:
             record["status"] = "abandoned"
@@ -179,13 +324,22 @@ def main() -> int:
     calls_today = accounting.model_attempts_today(now)
 
     reconcile_prior_runs(control, now, gate)
-    subprocess.run(
-        [sys.executable, str(SUPERVISORCTL), "recover"],
-        check=True,
-        text=True,
-        capture_output=True,
-        timeout=30,
-    )
+    try:
+        subprocess.run(
+            [sys.executable, str(SUPERVISORCTL), "recover"],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception as exc:
+        diagnostic = child_diagnostic(exc)
+        return skip(
+            run_id,
+            control.get("mode"),
+            f"supervisor recovery failed closed: {type(exc).__name__}: {exc}; {diagnostic}"[-1800:],
+            diagnostic=diagnostic,
+        )
     if INVENTORY_LOCK.exists() and now - int(INVENTORY_LOCK.stat().st_mtime) > 300:
         try:
             owner = json.loads(INVENTORY_LOCK_OWNER.read_text(encoding="utf-8"))
@@ -202,6 +356,8 @@ def main() -> int:
         stale_lock = ROOT / f"inventory.lock.stale.{now}"
         INVENTORY_LOCK.rename(stale_lock)
     try:
+        staged_inventory = ROOT / "inventory.pending.json"
+        staged_inventory.unlink(missing_ok=True)
         gate.require(
             gate.decide(OperationClass.RECONCILIATION),
             OperationClass.RECONCILIATION,
@@ -228,19 +384,29 @@ def main() -> int:
             text=True,
             capture_output=True,
             timeout=240,
+            env=os.environ | {"AXIS_SUPERVISOR_INVENTORY_PATH": str(staged_inventory)},
         )
         subprocess.run(
-            [sys.executable, str(CYCLE), "rebuild"],
+            [
+                sys.executable,
+                str(CYCLE),
+                "rebuild",
+                "--inventory-path",
+                str(staged_inventory),
+            ],
             check=True,
             text=True,
             capture_output=True,
             timeout=60,
         )
+        staged_inventory.unlink(missing_ok=True)
     except Exception as exc:
+        diagnostic = child_diagnostic(exc)
         return skip(
             run_id,
             control.get("mode"),
-            f"live reconciliation failed closed: {type(exc).__name__}: {exc}",
+            f"live reconciliation failed closed: {type(exc).__name__}: {exc}; {diagnostic}"[-1800:],
+            diagnostic=diagnostic,
         )
     finally:
         try:
@@ -257,7 +423,19 @@ def main() -> int:
         ROOT / "execution-graph.json",
         "axis.external-development-supervisor.execution-graph",
     )
+    graduation = read_record(
+        ROOT / "capability-graduation.json",
+        "axis.external-development-supervisor.capability-graduation",
+    )
     active_mission = read_mission_record(ROOT / "active-mission.json")
+    coherence = progress_coherence(
+        inventory, execution_graph, graduation, active_mission
+    )
+    if not coherence["trusted"]:
+        raise RuntimeError(
+            "reconciliation published incoherent source generations: "
+            + ", ".join(coherence["failures"])
+        )
     record_event(
         ROOT,
         "reconciliation_completed",
@@ -281,12 +459,34 @@ def main() -> int:
     collection = inventory.get("collection_status") or {}
     if not collection.get("all_configured_repositories_inspected"):
         return skip(run_id, mode, "configured repository discovery is incomplete")
-    if int(collection.get("retrieval_error_count", 1)) != 0:
+    isolated_timeouts = isolated_dependency_link_timeouts(inventory, execution_graph)
+    if int(collection.get("retrieval_error_count", 1)) != 0 and not isolated_timeouts:
         return skip(run_id, mode, "source retrieval is incomplete")
     if int(collection.get("stale_repository_count", 1)) != 0:
         return skip(run_id, mode, "local repository refs are stale relative to origin")
-    if int(collection.get("dependency_query_failures", 1)) != 0:
+    if int(collection.get("dependency_query_failures", 1)) != 0 and not isolated_timeouts:
         return skip(run_id, mode, "dependency retrieval is incomplete")
+    if isolated_timeouts:
+        record_event(
+            ROOT,
+            "preflight_degraded_retrieval",
+            details={
+                "run_id": run_id,
+                "mode": mode,
+                "inventory_generation_id": inventory.get("generation_id"),
+                "dependency_queries": collection.get("dependency_queries"),
+                "dependency_query_failures": collection.get(
+                    "dependency_query_failures"
+                ),
+                "retrieval_error_count": collection.get("retrieval_error_count"),
+                "dependency_link_timeouts": collection.get(
+                    "dependency_link_timeouts"
+                ),
+                "affected_items": isolated_timeouts,
+            },
+            source="preflight",
+            notify=False,
+        )
     active_assignments = [
         item
         for item in (inventory.get("supervisor_assignments") or [])
@@ -336,13 +536,14 @@ def main() -> int:
         "schema": "axis.external-development-supervisor.run",
         "schema_version": "1.0.0",
         "run_id": run_id,
-        "status": "started",
+        "status": "reconciled",
         "host": socket.gethostname(),
         "started_at_epoch": now,
         "mode": control.get("mode"),
         "allow_repository_mutation": bool(control.get("allow_repository_mutation")),
         "inventory_generation_id": inventory.get("generation_id"),
         "model_calls_remaining": max(0, model_limit - calls_today),
+        "reconciled_at_epoch": int(time.time()),
     }
     run_path = RUNS / f"{run_id}.json"
     gate.require(
@@ -404,9 +605,19 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        emit({
-            "wakeAgent": False,
-            "skip_agent": True,
-            "reason": f"preflight failure: {type(exc).__name__}: {exc}",
-        })
+        diagnostic = child_diagnostic(exc)
+        try:
+            skip(
+                f"axis-supervisor-failure-{uuid.uuid4().hex[:8]}",
+                None,
+                f"preflight failure: {type(exc).__name__}: {exc}; {diagnostic}"[-1800:],
+                diagnostic=diagnostic,
+            )
+        except Exception:
+            emit({
+                "wakeAgent": False,
+                "skip_agent": True,
+                "reason": f"preflight failure: {type(exc).__name__}: {exc}",
+                "diagnostic": diagnostic,
+            })
         raise SystemExit(0)

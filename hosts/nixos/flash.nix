@@ -60,6 +60,31 @@
     owner = "cdenneen";
     mode = "0400";
   };
+  sops.secrets.tailscale_auth_key = {
+    owner = "root";
+    mode = "0400";
+  };
+  sops.secrets.github_runner_token = {
+    owner = "cdenneen";
+    mode = "0400";
+  };
+
+  # ponytail: restricted to light/non-container jobs deliberately -- flash
+  # is a 1GB e2-micro, and axis's real CI (`container: python:3.14.6-slim`
+  # + npm/node build + pytest) will almost certainly OOM here. No
+  # docker/podman installed, so any workflow using `container:` fails fast
+  # instead of OOMing silently. Workflows must explicitly opt in via
+  # `runs-on: [self-hosted, flash]`; heavy/containerized jobs stay on
+  # GitHub-hosted ubuntu-latest.
+  services.github-runners.flash = {
+    enable = true;
+    url = "https://github.com/ghostspace-com";
+    tokenFile = config.sops.secrets.github_runner_token.path;
+    name = "flash";
+    extraLabels = [ "flash" ];
+    replace = true;
+    user = "cdenneen";
+  };
 
   users.users.cdenneen.openssh.authorizedKeys.keyFiles = [
     ../../pub/ssh/cdenneen_ed25519_2024.pub
@@ -124,6 +149,7 @@
     enable = true;
     openFirewall = true;
     useRoutingFeatures = "client";
+    authKeyFile = config.sops.secrets.tailscale_auth_key.path;
     extraSetFlags = [ "--accept-dns=true" ];
   };
 

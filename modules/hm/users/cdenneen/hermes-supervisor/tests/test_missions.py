@@ -196,6 +196,38 @@ def test_unbound_generated_action_does_not_claim_dispatchable_work(tmp_path: Pat
     assert has_runnable_action(mission) is False
 
 
+def test_preparation_only_dispatch_action_is_not_runnable_governed_mutation(
+    tmp_path: Path,
+):
+    from axis_supervisor.missions import ActiveMissionState, has_runnable_action
+
+    write_control(tmp_path)
+    item = {
+        "ref": "technical-revalidation:ghostspace/axis#7:tests",
+        "target_ref": "ghostspace/axis#7",
+        "kind": "technical-revalidation",
+        "assignment_type": "no-op-verification",
+        "project": "ghostspace/axis",
+        "authority": {"state": "preparation-only"},
+        "candidate": {"allowed_paths": [], "required_tests": ["pytest"]},
+        "affected_capabilities": ["Service"],
+    }
+    mission = ActiveMissionState(tmp_path).reconcile(
+        {},
+        graph(queue=[item]),
+        graduation(capability("Service", missing_gate="verification")),
+    )
+
+    action = next(
+        action
+        for action in mission["generated_actions"]
+        if action["kind"] == "dispatch-executable"
+    )
+    assert action["dispatch_class"] == "INVALID"
+    assert action["authority_state"] == "preparation-only"
+    assert has_runnable_action(mission) is False
+
+
 def test_external_blocked_stream_does_not_stop_compatible_work(tmp_path: Path):
     from axis_supervisor.missions import ActiveMissionState
 
@@ -278,7 +310,7 @@ def test_legacy_mission_state_migrates_in_place(tmp_path: Path):
         {}, graph(), graduation(capability("Service", missing_gate="verification"))
     )
 
-    assert migrated["schema_version"] == "4.0.0"
+    assert migrated["schema_version"] == "5.0.0"
     assert migrated["mission_id"] == "persisted-v1-mission"
     assert migrated["created_at"] == "2026-08-06T00:00:00+00:00"
     assert migrated["observations"][0]["source"] == "cycle-response"
@@ -316,10 +348,33 @@ def test_v2_mission_action_context_is_backfilled_before_validation(tmp_path: Pat
 
     migrated = read_mission_record(path)
     action = migrated["generated_actions"][0]
-    assert migrated["schema_version"] == "4.0.0"
+    assert migrated["schema_version"] == "5.0.0"
     assert action["capability_context"] == [{"capability": "CLI"}]
     assert action["merge_impact_projection"]["affected_capabilities"] == ["CLI"]
     assert action["merge_impact_projection"]["production_confidence_before"] == 40.0
+
+
+def test_mission_publishes_the_snapshot_generations_it_consumed(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    current = ActiveMissionState(tmp_path).reconcile(
+        {"generation_id": "inventory-current"},
+        graph() | {"generation_id": "graph-current"},
+        graduation(capability("Service", missing_gate="verification"))
+        | {
+            "projection_digest": "sha256:" + "c" * 64,
+            "source_convergence_digest": "sha256:" + "d" * 64,
+        },
+    )
+
+    assert current["schema_version"] == "5.0.0"
+    assert current["source_generations"] == {
+        "inventory": "inventory-current",
+        "graph": "graph-current",
+        "graduation": "sha256:" + "c" * 64,
+        "convergence": "sha256:" + "d" * 64,
+    }
 
 
 def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(
@@ -395,6 +450,74 @@ def test_zero_effect_action_is_suppressed_and_becomes_state_model_defect(
         {"capability": "Service", "gate": "verification", "state": "passed"}
     ]
     assert effective["action_effectiveness"][0]["classification"] == "effective"
+
+
+@pytest.mark.parametrize(
+    ("assignment_type", "result_state"),
+    [
+        ("read-only-analysis", "analysis-completed"),
+        ("no-op-verification", "no-op-verification-completed"),
+    ],
+)
+def test_requires_implementation_is_meaningful_frontier_progress(
+    tmp_path: Path, assignment_type: str, result_state: str
+):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    current_graduation = graduation(
+        capability("Service", missing_gate="verification")
+    )
+    action = manager.reconcile({}, graph(), current_graduation)[
+        "generated_actions"
+    ][0]
+    assignments = tmp_path / "assignments"
+    assignments.mkdir()
+    (assignments / "frontier-progress.json").write_text(
+        json.dumps(
+            {
+                "assignment_id": "frontier-progress",
+                "assignment_type": assignment_type,
+                "project": "ghostspace/axis",
+                "work_item": "ghostspace/axis#7",
+                "lifecycle_state": "completed",
+                "result_state": result_state,
+                "work_item_disposition": "requires-implementation",
+                "roadmap_convergence_improved": True,
+                "action_contract": {
+                    key: action[key]
+                    for key in (
+                        "action_id",
+                        "expected_gates",
+                        "expected_capabilities",
+                        "evidence_model_fingerprint",
+                        "suppression_fingerprint",
+                    )
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mission = manager.reconcile({}, graph(), current_graduation)
+    evaluation = mission["action_effectiveness"][0]
+
+    assert evaluation["observed_delta"] is False
+    assert evaluation["frontier_progress"] is True
+    assert evaluation["zero_effect_cycles"] == 0
+    assert evaluation["classification"] == "frontier-progress"
+    assert mission["effectiveness_metrics"] == {
+        "assignments_evaluated": 1,
+        "effective_assignments": 1,
+        "zero_effect_assignments": 0,
+        "suppressed_fingerprints": 0,
+        "state_model_defects": 0,
+        "applicability_revisions": 0,
+        "gates_reduced": 0,
+        "confidence_delta": 0.0,
+        "effectiveness_percent": 100.0,
+    }
 
 
 def test_action_48_backfill_records_partial_effect_without_suppression(tmp_path: Path):
@@ -643,3 +766,61 @@ def test_dependency_invalidation_is_exact_and_unrelated_edges_do_not_retire(tmp_
     )
     assert changed["retired_actions"][-1]["classification"] == "STALE"
     assert first["generated_actions"][0]["binding"]["dependency_fingerprint"] != changed["generated_actions"][0]["binding"]["dependency_fingerprint"]
+
+
+def test_dependency_binding_canonicalizes_edge_dicts_without_dict_comparison(tmp_path: Path):
+    from axis_supervisor.missions import ActiveMissionState
+
+    write_control(tmp_path)
+    manager = ActiveMissionState(tmp_path)
+    current = graduation(
+        capability("Service", missing_gate="verification", linked_work_items=["axis#1"])
+    )
+    first = manager.reconcile(
+        {},
+        graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}])
+        | {
+            "edges": [
+                {
+                    "from_ref": "axis#1",
+                    "to_ref": "axis#3",
+                    "relationship": "is_blocked_by",
+                    "metadata": {"priority": 2, "source": "planning"},
+                },
+                {
+                    "from_ref": "axis#1",
+                    "to_ref": "axis#2",
+                    "relationship": "relates",
+                    "metadata": {"source": "planning", "priority": 1},
+                },
+            ]
+        },
+        current,
+    )
+    reordered = manager.reconcile(
+        {},
+        graph(nodes=[{"ref": "axis#1", "milestone": "AX-M1"}])
+        | {
+            "edges": [
+                {
+                    "relationship": "relates",
+                    "to_ref": "axis#2",
+                    "from_ref": "axis#1",
+                    "metadata": {"priority": 1, "source": "planning"},
+                },
+                {
+                    "relationship": "is_blocked_by",
+                    "to_ref": "axis#3",
+                    "from_ref": "axis#1",
+                    "metadata": {"source": "planning", "priority": 2},
+                },
+            ]
+        },
+        current,
+    )
+
+    assert reordered["retired_actions"] == []
+    assert (
+        first["generated_actions"][0]["binding"]["dependency_fingerprint"]
+        == reordered["generated_actions"][0]["binding"]["dependency_fingerprint"]
+    )

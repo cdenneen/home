@@ -21,6 +21,8 @@ from .classifier import (
 from .decisions import DecisionStore
 from .decomposition import SemanticDecompositionEngine
 from .frontier import ExecutableFrontier
+from .semantic_escalation import exclude_pending as exclude_pending_semantic_escalations
+from .semantic_escalation import pending as pending_semantic_escalation
 from .mutation import MutationGate, OperationClass
 from .noop import (
     is_suppressed_no_op,
@@ -273,7 +275,11 @@ def _flow_state(
         return "verification", [
             "historical evidence has an explicit bounded technical verification action"
         ]
-    if item.get("source_state") == "closed":
+    if item.get("source_state") == "closed" and not any(
+        candidate.get("finding_identity")
+        and candidate.get("result") == "Executable"
+        for candidate in candidates
+    ):
         return "historical", [
             f"closed source projected outside active engineering flow; classification={item.get('classification')}"
         ]
@@ -659,7 +665,13 @@ class ExecutionGraphBuilder:
         self.authority = AuthorityResolver()
         self.gate = MutationGate(root, source="graph")
 
-    def build(self, inventory: dict, scheduler_context: dict | None = None) -> dict:
+    def build(
+        self,
+        inventory: dict,
+        scheduler_context: dict | None = None,
+        *,
+        persist: bool = True,
+    ) -> dict:
         control = read_record(
             self.root / "control.json",
             "axis.external-development-supervisor.control",
@@ -685,6 +697,11 @@ class ExecutionGraphBuilder:
         for assignment in (scheduler_context or {}).get("active_assignments") or []:
             assignment_by_id[assignment.get("assignment_id")] = assignment
         assignments = list(assignment_by_id.values())
+        dispatched_finding_identities = {
+            assignment.get("finding_identity")
+            for assignment in assignments
+            if assignment.get("finding_identity")
+        }
         nodes = []
         queue = []
         semantic_pending = 0
@@ -734,7 +751,11 @@ class ExecutionGraphBuilder:
                     "reason": "exact immutable Product Owner decision",
                     "decision_record": decision_record,
                 }
-            candidates = _candidates(item, semantic)
+            candidates = [
+                candidate
+                for candidate in _candidates(item, semantic)
+                if candidate.get("finding_identity") not in dispatched_finding_identities
+            ]
             if semantic is not None and authority["state"] in {
                 "unresolved",
                 "needs-product-owner",
@@ -979,6 +1000,15 @@ class ExecutionGraphBuilder:
                     _rank_queue_entry(entry, authority)
                     queue.append(entry)
 
+        semantic_quarantined = [
+            entry
+            for entry in queue
+            if pending_semantic_escalation(self.root, entry) is not None
+        ]
+        if semantic_quarantined:
+            queue = exclude_pending_semantic_escalations(self.root, queue)
+            semantic_pending = max(0, semantic_pending - len(semantic_quarantined))
+
         for entry in queue:
             entry["selection_rationale"] = _selection_rationale(entry)
         queue.sort(
@@ -1115,11 +1145,15 @@ class ExecutionGraphBuilder:
             "queue_depth": len(queue),
             "semantic_decomposition_pending": semantic_pending,
             "semantic_authority_unresolved": semantic_unresolved,
+            "semantic_escalation_quarantined": len(semantic_quarantined),
             "policy_suppressed_executable_count": policy_suppressed_executable,
             "scheduler_state": _scheduler_state(queue, control, scheduler_context),
             "queue_zero_proof": proof_conditions,
             "governed_queue_zero_proven": governed_zero,
         }
-        write_execution_graph(self.root / "execution-graph.json", graph, self.gate)
-        ExecutableFrontier(self.root).build(queue, assignments, graph["generation_id"])
+        if persist:
+            write_execution_graph(self.root / "execution-graph.json", graph, self.gate)
+            ExecutableFrontier(self.root).build(
+                queue, assignments, graph["generation_id"]
+            )
         return graph

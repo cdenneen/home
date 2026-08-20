@@ -140,6 +140,15 @@ let
     script = os.path.expanduser("~/.hermes/scripts/axis-development-supervisor-slack-impl.py")
     os.execv(python, [python, script, *sys.argv[1:]])
   '';
+  supervisorReconcileLauncher = pkgs.writeText "axis-development-supervisor-reconcile.py" ''
+    #!${supervisorPython}/bin/python
+    import os
+    import sys
+
+    python = "${supervisorPython}/bin/python"
+    script = os.path.expanduser("~/.hermes/scripts/axis-development-supervisor-reconcile-impl.py")
+    os.execv(python, [python, script, *sys.argv[1:]])
+  '';
 in
 {
   options.profiles.hermesGateway.enable = lib.mkEnableOption "managed Hermes messaging gateway";
@@ -372,7 +381,9 @@ in
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
           "${supervisorPreflightLauncher}" "$HOME/.hermes/scripts/axis-development-supervisor-preflight.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
-          "${./scripts/reconcile.py}" "$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"
+          "${./scripts/reconcile.py}" "$HOME/.hermes/scripts/axis-development-supervisor-reconcile-impl.py"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 700 -T \
+          "${supervisorReconcileLauncher}" "$HOME/.hermes/scripts/axis-development-supervisor-reconcile.py"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f \
           "$HOME/.hermes/scripts/axis-development-supervisor-report.py" \
           "${runtimeRoot}/report-delivery-pending.json" \

@@ -199,10 +199,14 @@ class ExecutableFrontier:
         queue: list[dict],
         active_assignments: list[dict],
         source_generation_id: str | None = None,
+        *,
+        persist: bool = True,
     ) -> dict:
         value = build_executable_frontier(
             self.root, queue, active_assignments, source_generation_id
         )
+        if not persist:
+            return value
         decision = self.gate.decide(OperationClass.RECONCILIATION)
         self.gate.require(decision, OperationClass.RECONCILIATION)
         write_record(self.path, value, FRONTIER_SCHEMA)

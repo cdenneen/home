@@ -182,6 +182,22 @@ def _classify_convergence(item: dict) -> tuple[str, str | None, str | None, str]
     if facts.get("related_open_merge_request"):
         return "Running", None, None, "repository state belongs to an open merge request"
     if (
+        scope == "root"
+        and facts.get("root_is_default_branch")
+        and facts.get("root_fast_forward_safe")
+        and facts.get("remote_fresh")
+        and (
+            facts.get("root_needs_fast_forward")
+            or facts.get("prunable_worktree_paths")
+        )
+    ):
+        return (
+            "Executable",
+            None,
+            None,
+            "clean default root can fast-forward and prune stale worktree metadata",
+        )
+    if (
         scope in {"worktree", "branch"}
         and facts.get("integrated_into_default")
         and facts.get("supervisor_owned")

@@ -421,8 +421,11 @@
                   services = userSystemd.services;
                   timers = userSystemd.timers;
                   primary = services.hermes-gateway.Service;
+                  axisControlPackage = ghost.services.axis-control-observer.package;
+                  axisControlWatchdog = services.axis-control-watchdog;
+                  watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
+                  profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
-                  axisWatchdogCommand = builtins.concatStringsSep "\n" services.axis-control-watchdog.Service.ExecStart;
                   forbiddenCheckout = "/home/cdenneen/src/workspace/work/axis-control";
                 in
                 assert inputs.axis-control.rev == "4c25bc19040295fc6579dde9c6831ef143d298d5";
@@ -436,7 +439,19 @@
                 assert ghost.profiles.hermesSupervisor.enable == false;
                 assert ghost.services.axis-control-observer.enable;
                 assert !(services ? hermes-axis-control-gateway);
+                assert !(lib.hasInfix forbiddenCheckout (builtins.toJSON services));
+                assert !(ghost.home.activation ? hermesAxisControlGatewayLegacyCleanup);
                 assert !(services ? hermes-supervisor-cron);
+                assert !(ghost.home.activation ? hermesSupervisorState);
+                assert !(ghost.home.file ? ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt");
+                assert
+                  axisControlWatchdog.Service.ExecStart == [
+                    "${axisControlPackage}/bin/axis-control watchdog --hermes-home /home/cdenneen/.hermes --profile axis-control"
+                  ];
+                assert !(axisControlWatchdog ? Install);
+                assert lib.hasPrefix "/nix/store/" watchdogCommand;
+                assert lib.hasInfix "/nix/store/" profileWrapperActivation;
+                assert !(lib.hasInfix forbiddenCheckout profileWrapperActivation);
                 assert !(services ? axis-control-observe);
                 assert !(timers ? axis-control-observe);
                 assert !(timers ? axis-control-watchdog);
@@ -447,11 +462,10 @@
                 assert !(services ? hermes-alpha0-gateway);
                 assert !(ghost.home.file ? ".config/hermes/scheduler/alpha0-jobs.json");
                 assert !(ghost.home.file ? ".hermes/scripts/axis-development-supervisor-cycle.py");
-                assert !(ghost.home.activation ? hermesSupervisorState);
                 assert !(ghost.home.activation ? hermesSupervisorGatewayRestart);
                 assert ghost.home.activation ? hermesLegacyAxisCronDecommission;
                 assert !(lib.hasInfix forbiddenCheckout primaryCommand);
-                assert !(lib.hasInfix forbiddenCheckout axisWatchdogCommand);
+                assert !(lib.hasInfix forbiddenCheckout watchdogCommand);
                 pkgs.runCommand "ghost-recovery-composition-check" { } ''
                   touch "$out"
                 '';

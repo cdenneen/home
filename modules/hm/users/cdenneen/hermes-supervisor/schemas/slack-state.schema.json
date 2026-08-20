@@ -124,7 +124,13 @@
   "$defs": {
     "projectionMaps": {
       "type": "object",
-      "required": ["dashboard", "assignment", "incident", "decision"],
+      "required": [
+        "dashboard",
+        "assignment",
+        "incident",
+        "decision",
+        "product"
+      ],
       "properties": {
         "dashboard": {
           "type": "object",
@@ -139,6 +145,10 @@
           "additionalProperties": { "type": "string" }
         },
         "decision": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "product": {
           "type": "object",
           "additionalProperties": { "type": "string" }
         }
