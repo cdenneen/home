@@ -123,17 +123,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1787189786,
-        "narHash": "sha256-9oQx1h1C47KaMm08FB7n82KxlwtgzPzzAt6YV1DXWig=",
+        "lastModified": 1787250311,
+        "narHash": "sha256-ZbKnQC4jDFytWj+vb+F5Jf4CcgcWbLuTxRB/UZF+De8=",
         "owner": "ghostspace-com",
         "repo": "axis-control",
-        "rev": "4c25bc19040295fc6579dde9c6831ef143d298d5",
+        "rev": "721d7f93362feb8ad172dd9b3f057cdc1e0e75e4",
         "type": "github"
       },
       "original": {
         "owner": "ghostspace-com",
         "repo": "axis-control",
-        "rev": "4c25bc19040295fc6579dde9c6831ef143d298d5",
+        "rev": "721d7f93362feb8ad172dd9b3f057cdc1e0e75e4",
         "type": "github"
       }
     },

@@ -49,7 +49,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     axis-control = {
-      url = "github:ghostspace-com/axis-control/4c25bc19040295fc6579dde9c6831ef143d298d5";
+      url = "github:ghostspace-com/axis-control/721d7f93362feb8ad172dd9b3f057cdc1e0e75e4";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
@@ -428,7 +428,7 @@
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
                   forbiddenCheckout = "/home/cdenneen/src/workspace/work/axis-control";
                 in
-                assert inputs.axis-control.rev == "4c25bc19040295fc6579dde9c6831ef143d298d5";
+                assert inputs.axis-control.rev == "721d7f93362feb8ad172dd9b3f057cdc1e0e75e4";
                 assert inputs.alpha0.rev == "c000ed805b9231e39b8240469ca398a19e006aed";
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
