@@ -219,6 +219,15 @@ in
           };
     };
 
+    profiles.hermesSlackPlatformOverride.targets = lib.mkMerge [
+      (lib.mkIf gatewayEnabled {
+        primary.homeRelativePath = ".hermes";
+      })
+      (lib.mkIf secondaryGatewayEnabled {
+        secondary.homeRelativePath = ".hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}";
+      })
+    ];
+
     systemd.user.services = lib.mkMerge [
       (lib.mkIf gatewayEnabled {
         hermes-gateway = {
