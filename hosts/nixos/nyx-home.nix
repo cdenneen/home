@@ -39,8 +39,6 @@ in
     workingDirectory = "/home/cdenneen/src/workspace/gitlab";
   };
 
-  profiles.hermesSlackClarifySelect.enable = true;
-
   programs.starship.settings.palette = lib.mkForce "nyx";
 
   programs.zsh.initContent = lib.mkAfter opencodePasswordInit;

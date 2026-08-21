@@ -62,6 +62,13 @@
 
   profiles.hermesAxisControlGateway.enable = false;
   profiles.hermesGateway.enable = true;
+  profiles.hermesSlackPlatformOverride.targets = {
+    alpha0.homeRelativePath = ".local/share/alpha0/hermes";
+    canonical-axis-control.homeRelativePath = ".hermes/profiles/axis-control";
+    # The disabled dedicated gateway remains live in Ghost's older deployed
+    # generation. Keep its profile patched until that stale unit is retired.
+    legacy-axis-control.homeRelativePath = "src/workspace/work/axis-control/.hermes/profiles/axis-control";
+  };
   # The recovered local supervisor remains forensic/decommissioning evidence,
   # not Ghost's AXIS application authority.
   profiles.hermesSupervisor.enable = false;
