@@ -178,13 +178,13 @@ let
       name = "onyx";
       system = "x86_64-linux";
       modules = [ ./nixos/onyx.nix ];
-      tags = [ ];
+      tags = [ "qemu-guest" ];
     }
     {
       name = "talon";
       system = "x86_64-linux";
       modules = [ ./nixos/talon.nix ];
-      tags = [ ];
+      tags = [ "qemu-guest" ];
     }
     {
       name = "utm";
