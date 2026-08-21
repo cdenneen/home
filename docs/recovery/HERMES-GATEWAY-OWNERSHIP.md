@@ -1,6 +1,6 @@
 # Hermes gateway and wrapper ownership
 
-Point-in-time Ghost map from 2026-08-20. This report names ownership and routing shape without credentials, channel values, messages, sessions, prompts, logs or scheduler output.
+Point-in-time Ghost map from 2026-08-20 with a read-only 2026-08-21 refresh. This report names ownership and routing shape without credentials, channel values, messages, sessions, prompts, logs or scheduler output. The exhaustive route/trigger table and current verdict are in `EXCLUSIVE-ROUTE-AND-HERMES-PORTABILITY.md`: `ROUTE_OWNERSHIP = PARTIAL`.
 
 ## Live ownership
 

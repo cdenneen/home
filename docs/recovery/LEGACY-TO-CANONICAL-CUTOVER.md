@@ -96,21 +96,22 @@ pgrep -a -u "$USER" -f 'reconcile-roadmap-execution|hermes.*axis-control|axis-de
 Preconditions: Phase 0 passed; fresh custody map signed; all active owners notified; pausing jobs is explicitly authorized. Do not stop gateways or existing workers.
 
 ```console
-# FUTURE ONLY — pause exact known new-work/recovery jobs; do not delete them.
-HERMES_HOME="$HOME/.hermes" hermes cron pause a9c0b0e9bcca
+# FUTURE ONLY — fence every known reprovision/recovery path before pausing jobs.
+systemctl --user disable --now hermes-supervisor-cron.service
+systemctl --user disable --now hermes-watchdog-cron.service
+systemctl --user disable --now hermes-watchdog-cutover.service
+systemctl --user disable --now axis-development-watchdog-backup.timer
+systemctl --user disable --now hermes-axis-control-scheduler-watchdog.timer
+systemctl --user stop axis-development-watchdog-monitor.service
+systemctl --user stop axis-development-watchdog-backup.service
+systemctl --user stop hermes-axis-control-scheduler-watchdog.service
+
+# Pause exact known recovery and new-work jobs; do not delete them.
 HERMES_HOME="$HOME/.hermes" hermes cron pause bb8d50dc3332
+HERMES_HOME="$HOME/.hermes" hermes cron pause a9c0b0e9bcca
 HERMES_HOME="$HOME/src/workspace/work/axis-control/.hermes" hermes cron pause 81776a5f93c5
 HERMES_HOME="$HOME/src/workspace/work/axis-control/.hermes" \
   hermes --profile axis-control cron pause 81776a5f93c5
-
-# Prevent legacy watchdog/provisioning paths from recreating epochs/jobs.
-systemctl --user disable --now axis-development-watchdog-backup.timer
-systemctl --user disable --now hermes-axis-control-scheduler-watchdog.timer
-systemctl --user stop axis-development-watchdog-backup.service
-systemctl --user stop hermes-axis-control-scheduler-watchdog.service
-systemctl --user disable hermes-supervisor-cron.service
-systemctl --user disable hermes-watchdog-cron.service
-systemctl --user disable hermes-watchdog-cutover.service
 
 # Prove paused/disabled and inactive state; do not run a scheduler tick.
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" a9c0b0e9bcca

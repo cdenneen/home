@@ -1,8 +1,8 @@
 # Portable control-plane boundary qualification
 
-Observed read-only on 2026-08-21. This report closes the code-custody question, qualifies route ownership without changing it, records the minimum cross-host supervision prototype, and reduces the Hermes migration set. It contains no credential values, route identifiers, message/session payloads, raw scheduler output, or database content.
+Observed read-only on 2026-08-21. This report closes the code-custody question, qualifies route ownership without changing it, records the minimum cross-host supervision contract, and reduces the Hermes migration set. It contains no credential values, route identifiers, message/session payloads, raw scheduler output, or database content.
 
-No worker, service, gateway, scheduler, database, credential, Home generation, GitLab object, or live Ghost state was changed. Product commits were made only in bounded canonical producer branches; no merge or activation occurred.
+No worker, service, gateway, scheduler, database, credential, Home generation, GitLab object, or live Ghost state was changed. Reviewed producer PRs were merged through normal source integration and verified on current main; no deployment or activation occurred.
 
 ## AXIS custody re-observation
 
@@ -37,8 +37,8 @@ Every observed route/session origin maps to one semantic owner:
 | Origin | Physical state domain | Logical owner | Qualification |
 |---|---|---|---|
 | Generic configured route and ten indexed sessions | generic Hermes root | `GENERIC_HERMES` | mapped |
-| AXIS-profile route, eleven indexed sessions and PO-alert origin | generic root with axis-control profile | `AXIS_CONTROL` | mapped, but overlaps a separate AXIS gateway domain |
-| Dedicated Alpha0 route and 26 indexed sessions | Alpha0 owner root/profile | `ALPHA0` | mapped and namespace-distinct; external app/channel identity still requires value-free owner attestation |
+| AXIS-profile route, 12 indexed sessions and PO-alert origin | generic root with axis-control profile | `AXIS_CONTROL` | mapped, but overlaps a separate AXIS gateway domain; count refreshed during the later 2026-08-21 route audit |
+| Dedicated Alpha0 route and 27 indexed sessions | Alpha0 owner root/profile | `ALPHA0` | mapped and namespace-distinct; count refreshed during the later 2026-08-21 route audit; external app/channel identity still requires value-free owner attestation |
 | Two historical generic session routes | generic Hermes root | `GENERIC_HERMES` | mapped; continuity/archive disposition pending |
 | Dedicated checkout-local AXIS gateway ingress | checkout-local Hermes root/profile | `AXIS_CONTROL` | semantic owner known; provider/app route equivalence remains unattested |
 
@@ -65,14 +65,14 @@ Current Home and PR #681 declarations are not runtime proof: disabled/absent gen
 
 Two bounded stacked producer PRs prototype the transport-neutral boundary:
 
-- axis-control PR #10, head `6cd62c34a7f2810003da5deb83ee5b6fe3e8504c`, exposes `axis-control.supervision.v1` through the existing JSON status CLI;
-- Alpha0 PR #4, head `3c0a5bae6242f0956782fd0ca36b9f5a747e07ea`, strictly consumes a supplied response and supplied GitLab observation.
+- axis-control PR #10 head `6cd62c34a7f2810003da5deb83ee5b6fe3e8504c` is merged in current main `830b6432a758a633afbf2f3127ceb3dfeba340d7` and exposes `axis-control.supervision.v1` through the existing JSON status CLI;
+- Alpha0 PR #4 head `3c0a5bae6242f0956782fd0ca36b9f5a747e07ea` is merged in current main `94e90beb00c46bca74f927437e1c8805eb64d099` and strictly consumes a supplied response and supplied GitLab observation.
 
 The response is capped at 64 KiB and contains only controller revision, verified deployment identity, watchdog-derived runtime health, correctness/completeness health, deterministic frontier digest, bounded active-lineage summary, committed-transition evidence or `UNKNOWN`, bounded drift/PO summaries and observation time. It excludes paths, PIDs, argv, commands, worktrees, Hermes rows and credentials.
 
 The Alpha0 proof blocks controller path construction, artifact reads, SQLite, process/subprocess and local filesystem access. With only a supplied producer response and bounded GitLab observation it reproduces revision/deployment/runtime/correctness/frontier/lineage/transition/drift/PO assessment, detects exact-head disagreement, and retains `mutation_performed=false`. Missing/headless GitLab evidence, missing project coverage, malformed/contradictory producer evidence and omitted summaries fail closed. No transport framework or live service was added.
 
-`CROSS_HOST_ALPHA0_SUPERVISION = PARTIAL`: the pure information boundary is proven by tests, but both PRs are unmerged, the normal Alpha0 status caller still uses the legacy local path, an authenticated transport/injection mechanism is intentionally unselected, and no signed live deployment emitted this response.
+`CROSS_HOST_SUPERVISION_CONTRACT = PROVEN`: exact merged producer and consumer mains passed current-main CI, strict cross-repository validation, and a disposable network-only two-container proof covering matching, changed-head, incomplete, contradictory and unavailable cases without local adjacency. `CROSS_HOST_SUPERVISION_DEPLOYMENT = PARTIAL`: the transport/auth wrapper was disposable, the normal Alpha0 status caller still uses the legacy local path, and no managed authenticated or signed live deployment emitted this response. See `EXCLUSIVE-ROUTE-AND-HERMES-PORTABILITY.md`.
 
 ## Reduced Hermes migration set
 
@@ -99,7 +99,9 @@ ACTIVE_AXIS_CUSTODY:
 ROUTE_OWNERSHIP:
   PARTIAL
 
-CROSS_HOST_ALPHA0_SUPERVISION:
+CROSS_HOST_SUPERVISION_CONTRACT:
+  PROVEN
+CROSS_HOST_SUPERVISION_DEPLOYMENT:
   PARTIAL
 
 HERMES_DURABLE_STATE_REQUIRED:
