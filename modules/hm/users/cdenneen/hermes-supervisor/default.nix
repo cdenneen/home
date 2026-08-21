@@ -20,6 +20,12 @@ let
     exec ${agentPkgs.hermes.hermesVenv}/bin/python3 -c \
       'import hermes_cli.commands as commands; assert commands.should_bypass_active_session is commands.is_gateway_known_command'
   '';
+  hermesGatewayBootstrapConfig = pkgs.writeText "hermes-gateway-config.yaml" ''
+    plugins:
+      enabled:
+        - platforms/slack
+      disabled: []
+  '';
   gatewayEnabled = config.profiles.hermesGateway.enable && packageAvailable;
   secondaryGatewayEnabled = config.profiles.hermesGatewaySecondary.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
@@ -166,6 +172,11 @@ in
       changing this does not move or affect profile data.
     '';
   };
+  options.profiles.hermesGateway.environmentFile = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = null;
+    description = "Credential environment file materialized outside the Nix store.";
+  };
 
   options.profiles.hermesGatewaySecondary.enable = lib.mkEnableOption ''
     a second, independently-profiled Hermes gateway instance - for running a
@@ -245,6 +256,9 @@ in
               "HERMES_HOME=%h/.hermes"
               "PYTHONPATH=${hermesGatewaySitecustomize}"
             ];
+            EnvironmentFile = lib.optional (
+              config.profiles.hermesGateway.environmentFile != null
+            ) config.profiles.hermesGateway.environmentFile;
             Restart = "on-failure";
             RestartSec = 5;
             TimeoutStopSec = 180;
@@ -455,8 +469,17 @@ in
       ''
     );
 
-    home.activation.hermesSupervisorGatewayConfig = lib.mkIf gatewayEnabled (
+    home.activation.hermesGatewayBootstrapConfig = lib.mkIf gatewayEnabled (
       lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        if [ ! -e "$HOME/.hermes/config.yaml" ] && [ ! -L "$HOME/.hermes/config.yaml" ]; then
+          $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -D -m 600 -T \
+            ${hermesGatewayBootstrapConfig} "$HOME/.hermes/config.yaml"
+        fi
+      ''
+    );
+
+    home.activation.hermesSupervisorGatewayConfig = lib.mkIf gatewayEnabled (
+      lib.hm.dag.entryAfter [ "hermesGatewayBootstrapConfig" "hermesSlackPlatformConfig" ] ''
         hermes_config="$HOME/.hermes/config.yaml"
         if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
           config_tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-gateway-config.XXXXXX)"
