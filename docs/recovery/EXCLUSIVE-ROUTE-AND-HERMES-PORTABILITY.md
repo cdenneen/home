@@ -45,8 +45,8 @@ Logical owners are restricted to `GENERIC_HERMES`, `AXIS_CONTROL`, and `ALPHA0`.
 | `GENERIC-CURRENT` | generic messaging ingress | generic gateway / default | none inherent | 10 indexed generic sessions; none selected for migration | `GENERIC_HERMES` | reconstruct owner-approved route; start sessions fresh unless a subset is separately qualified | yes: prove sole source/destination connection and continuity |
 | `GENERIC-HISTORICAL-A` | historical generic session origin, absent from current route config | generic gateway / default history | none | one indexed session | `GENERIC_HERMES` | owner selects archive or conditional session export | yes: explicit owner disposition |
 | `GENERIC-HISTORICAL-B` | historical generic session origin, absent from current route config | generic gateway / default history | none | one indexed session | `GENERIC_HERMES` | owner selects archive or conditional session export | yes: explicit owner disposition |
-| `AXIS-MULTIPLEX` | AXIS interaction carried by generic root | generic gateway / `axis-control` routed profile | root-profile PO-alert registry | 12 indexed AXIS sessions; archive-only | `AXIS_CONTROL` | archive legacy route/sessions; reconstruct only an approved non-mutating adapter | yes: value-free equivalence/non-equivalence attestation against dedicated AXIS ingress |
-| `AXIS-DEDICATED` | dedicated legacy AXIS messaging ingress | legacy axis-control gateway / explicit `axis-control` profile | checkout profile registry | no session index observed in checkout root/profile | `AXIS_CONTROL` | drain and archive; never restore as source authority | yes: owner-local external app/chat identity attestation and one-connection drain |
+| `AXIS-MULTIPLEX` | AXIS interaction carried by generic root | generic gateway / `axis-control` routed profile | root-profile PO-alert registry | 12 indexed AXIS sessions; archive-only | `AXIS_CONTROL` | archive legacy route/sessions; reconstruct only an approved non-mutating adapter | yes: confirm generic gateway ownership and dedicated scheduler has no external route |
+| `AXIS-DEDICATED` | no external ingress; dedicated legacy scheduler host | legacy axis-control gateway / explicit `axis-control` profile | checkout profile registry | no session index observed in checkout root/profile | `AXIS_CONTROL` | drain and archive; never restore as source authority | yes: scheduler/work custody drain and source-no-process proof |
 | `ALPHA0-DEDICATED` | dedicated Alpha0 messaging ingress | legacy Alpha0 gateway / owner root routed to `alpha0` | Alpha0 owner-root registry | 27 indexed Alpha0-profile sessions; archive-only | `ALPHA0` | recreate exact route/profile shim and start sessions fresh | yes: exact producer preflights, external identity attestation, source-no-connection proof |
 | `ALPHA0-LOOPBACK` | host-local Alpha0 API | legacy Alpha0 gateway / default owner | none | none | `ALPHA0` | recreate loopback-only from reviewed deployment | yes: collision and listener preflight |
 | `GENERIC-AXIS-WORKER` | enabled interval, agent-waking AXIS work | generic gateway / default | generic root | runtime ID/history archive-only | `AXIS_CONTROL` | do not restore | yes: future exact pause/removal and absence proof |
@@ -77,19 +77,40 @@ Six live physical `jobs.json` paths exist:
 
 That is seven enabled physical records representing six logical jobs. Historical `state-snapshots` are `ARCHIVE_ONLY`, not scheduler registries. Declarative removal alone is insufficient because provisioners, recovery timers, and persisted records can survive or recreate authority.
 
-### Qualification result
+The duplicate AXIS roadmap records share ID, name, cadence, creation time, workdir, prompt, and static definition, but are distinct files with divergent runtime histories. The checkout-root copy stopped advancing on 2026-08-17. The profile copy continued advancing under the only active checkout gateway, whose service, watchdog, and tests all select profile `axis-control`. The root command is only a compatibility wrapper for the profile implementation.
 
 ```text
+DUPLICATE_SCHEDULER_TOPOLOGY = PROVEN
+CHECKOUT_ROOT_RECORD = STALE_DERIVED_RECORD
+CURRENT_EFFECTIVE_RECORD = CHECKOUT_PROFILE
+FUTURE_CANONICAL_RECORD = NEITHER_LEGACY_RECORD
+```
+
+The enabled root record remains a mutation-capable reactivation hazard if an unprofiled gateway appears. A future authorized change must fence provisioners first, prove the root registry remains frozen while the profile advances, pause and remove only the root record through an explicit root `HERMES_HOME`, and prevent reproduction. Canonical continuation reconstructs a fresh disabled schedule from reviewed VCS rather than adopting either legacy registry.
+
+### Live external identity attestation
+
+An owner-local, read-only provider attestation on 2026-08-21 established two pairwise-distinct external identities without emitting credentials, destination values, messages, prompts, or session payloads:
+
+- the generic gateway owns the connected generic identity and carries the routed AXIS profile;
+- the Alpha0 gateway owns a separate connected Alpha0 identity;
+- the dedicated AXIS gateway has no external platform, served profile, or listener of its own. It is a scheduler host, not a third external identity. AXIS interaction and reporting use the generic gateway identity.
+
+Each configured external route therefore resolves to one active gateway owner. The dedicated AXIS process must not be represented as a separate chat identity. Provider bot identity and connected state were attested, but app-token-to-app identity was not independently exercised and no delivery readback was performed.
+
+```text
+EXTERNAL_ROUTE_IDENTITY = PARTIAL
 ROUTE_OWNERSHIP = PARTIAL
 ```
 
-Every known route maps semantically to one allowed logical owner, but exact exclusivity fails closed because:
+Every known route maps semantically to one allowed logical owner, and no active external identity collision was observed. Exact qualification remains partial because:
 
-- generic-carried `AXIS-MULTIPLEX` and the dedicated AXIS gateway cannot be proven externally equivalent or distinct from credential-free evidence;
-- the AXIS roadmap job remains enabled in two independent checkout registries;
+- app-token-to-app correspondence and destination delivery were not independently attested;
 - generic historical session origins still require owner archive/start-fresh decisions;
-- Alpha0's external app/chat identity is locally distinct but not independently attested;
+- the AXIS roadmap record remains enabled in both checkout registries, although only the profile copy is currently ticked;
 - live state is point-in-time and does not prove a no-restart/no-recreation interval.
+
+The two legacy AXIS environment files remain mode `0644`; future credential rotation and managed-secret replacement are required, but were not authorized in this phase.
 
 ## Minimal Hermes semantic migration set
 
@@ -133,9 +154,20 @@ A disposable mode-`0700` destination was created twice from exact merged produce
 
 ```text
 HERMES_SEMANTIC_RESTORE = PARTIAL
+GENERIC_ROUTE_RECONSTRUCTION = PARTIAL
 ```
 
-The empty required set and canonical Alpha0/axis-control profile/job reconstruction are reproducible. Overall proof remains partial because current Home VCS edits an existing mutable generic config rather than declaring the base generic route, and no owner-selected/qualified generic session export exists. Existing runtime route rows must not be imported to hide that gap.
+The empty required set and canonical Alpha0/axis-control profile/job reconstruction are reproducible. Home PR #692 exact head `f313cd60d850505b081490a3ef8ee74cf590a910` adds a missing-file-only, mode-`0600` generic config bootstrap, an out-of-store `EnvironmentFile` contract, legacy Slack plugin alias cleanup, and executable activation checks. The exact head passed both targeted Nix checks, a Ghost Home activation-package build, disposable fresh/existing/dangling-config checks, and independent review with no findings. GitHub review remains required; routine evaluation/security checks completed, while the full-flake jobs were skipped. The PR does not manage the external environment file, migrate credentials, activate Ghost, or restore historical sessions. Until that exact head is merged, re-reviewed after any change, and paired with managed secret authority in a disposable reconstruction, generic route reconstruction remains partial. Existing runtime route rows must not be imported to hide that gap.
+
+### Live fence qualification
+
+The empty destination migration set does not make current source state inconsequential. At the read-only observation, the effective profile scheduler had a current claim and a live reconciliation descendant; completion-trigger state had 10 pending effects across six lineages; and the legacy board had six running tasks and six running task runs. The generic worker, both checkout records, provisioners, the two-minute scheduler watchdog, and the 15-minute backup recovery path remained enabled. Those source records must be reconciled or explicitly preserved before a fence; they are archive evidence, never destination authority.
+
+```text
+REQUIRED_SEMANTIC_MIGRATION_SET.HERMES = []        PROVEN
+NO_SOURCE_STATE_NEEDED_FOR_SAFE_DRAIN_TODAY = true REFUTED
+LIVE_FENCING_OBSERVATION = NOT_AUTHORIZED
+```
 
 ## Future source fencing plan
 
@@ -154,13 +186,15 @@ The safety invariant is **at most one writer**: `not (legacy_writer and canonica
 2. Fence re-provision/recovery first: supervisor provisioner, watchdog provisioner/cutover, AXIS scheduler watchdog, and AXIS development backup/monitor. Preserve generic stuck-cron recovery.
 3. Pause the exact generic-root AXIS watchdog record and prove no recovery source recreated it.
 4. Pause the generic-root AXIS worker, then independently pause both physical checkout AXIS roadmap records. Shared logical ID is not proof that both files changed.
-5. Record a signed fence timestamp. Any later claim is a failed fence.
-6. Across at least two former five-minute intervals, admit no new claim; let existing work finish or reach approved durable custody; require stable complete GET-only reads and no mutation.
-7. Pause the AXIS PO report, then stop the dedicated legacy AXIS gateway only after interaction drain and exact route attestation. Generic Hermes remains unchanged.
+5. Record a preliminary admission-stop timestamp. Any later new-work claim fails the drain, but this timestamp is not the no-restart observation start.
+6. Across at least two former five-minute intervals, admit no new claim; let existing work finish or reach approved durable custody; require pending and in-flight effects to reach zero, stable complete GET-only reads, and no mutation.
+7. Pause the AXIS PO report, then stop the dedicated legacy AXIS scheduler gateway only after scheduler/work custody drains. It has no external interaction route of its own. Generic Hermes remains unchanged.
 8. Pause Alpha0 jobs and stop its gateway only after separate interaction continuity, identity and source-no-connection gates. Do not redirect Alpha0 to generic Hermes.
 9. Activate only the dormant Home target under separate authorization. Accept the safe zero-writer gap.
-10. Observe at least two former AXIS intervals and one generic-watchdog interval. Reject any recreated job, post-fence claim, route collision, unexpected generic restart or session loss.
-11. A future canonical writer requires a separate reviewed graduation and may start only after `legacy_writer = 0` is independently re-proven.
+10. Establish signed observation start `F0` only after every reprovisioner and legacy writer is disabled, no active legacy worker/reviewer/reconciler descendant remains, pending/in-flight and custody gates pass, all six registries validate, and the canonical writer is absent. Capture the initial scheduler, route, service/process, GitLab frontier, and custody digests at `F0`.
+11. Run a `24h15m` off-host no-restart observation from `F0`: the longest relevant schedule is the 24-hour Alpha0 daily brief and the longest legacy recovery cadence is 15 minutes. Sample every two minutes, cross the next daily boundary, and reconcile durable scheduler/journal evidence at the end. Any reboot, user-manager restart, clock discontinuity, evidence gap, registry mutation, or failed sample invalidates `F0` and resets the full window.
+12. Reject any recreated job, post-`F0` claim, route collision, unexpected generic restart or session loss. Require zero post-`F0` claims in all six registries, no reprovisioner invocation, no new legacy descendants, stable generic gateway start identity, and fully attributed GitLab frontier changes.
+13. A future canonical writer requires a separate reviewed graduation and may start only after `legacy_writer = 0` is independently re-proven.
 
 Rollback always returns through a zero-writer state. If generic continuity fails, restore only generic gateway/watchdog first. Never broad-resume legacy jobs or transition directly from a canonical writer to a legacy writer.
 
@@ -181,7 +215,16 @@ PROVEN
 CROSS_HOST_SUPERVISION_DEPLOYMENT:
 PARTIAL
 
+EXTERNAL_ROUTE_IDENTITY:
+PARTIAL
+
 ROUTE_OWNERSHIP:
+PARTIAL
+
+DUPLICATE_SCHEDULER_TOPOLOGY:
+PROVEN
+
+GENERIC_ROUTE_RECONSTRUCTION:
 PARTIAL
 
 REQUIRED_SEMANTIC_MIGRATION_SET:
@@ -193,6 +236,9 @@ PARTIAL
 SOURCE_FENCING_PLAN:
 PROVEN
 
+LIVE_FENCING_OBSERVATION:
+NOT_AUTHORIZED
+
 SAFE_DRAIN_READY:
 NO
 
@@ -200,4 +246,4 @@ CUTOVER_READY:
 NO
 ```
 
-`SAFE_DRAIN_READY` remains `NO` because route exclusivity and generic route reconstruction are incomplete, duplicate live checkout scheduler authority remains, no qualified generic session restore input exists, and no fence/no-restart observation window has occurred. Final host or data-service placement is outside this report.
+`SAFE_DRAIN_READY` remains `NO`: external identity attestation retains bounded provider/delivery gaps; Home PR #692 does not yet provide merged managed-secret reconstruction; both checkout records remain enabled despite the proven stale-derived classification; current source custody includes active work and pending effects; and the required, separately authorized `24h15m` fence/no-restart observation has not occurred. No Phase B command was executed. Final host or data-service placement is outside this report.
