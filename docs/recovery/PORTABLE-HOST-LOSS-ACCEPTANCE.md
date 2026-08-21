@@ -47,7 +47,7 @@ Alpha0 paths and listeners are configurable, and its SQLite backup is structural
 - Alpha0 SQLite/config paths and loopback listener selections;
 - Home Manager packages, user-systemd units, clean environment allowlists, and disabled service gates;
 - Slack/API/provider secret references and profile routing declarations;
-- bounded SSH node/relay identity, known hosts, and repository/cache paths;
+- separately bounded forced-command node and forwarding-relay SSH identities, known hosts, and repository/cache paths;
 - backend endpoints, TLS/namespace/secret references as axis-lab inventory inputs, without implying admission.
 
 Fixed `/etc/axis-control` trust files, Nix closure identity, local procfs for the watchdog, Alpha0 SQLite semantics, and storage authority rules are product/platform contracts rather than arbitrary deployment configuration.
@@ -74,13 +74,13 @@ Provision the managed least-privilege GitLab token, trusted PO identity configur
 
 **PARTIAL — the set is known; provider authorization and exact enabled integrations remain gated.**
 
-Provision the audit-key reference; distinct Core and gateway secret maps; dedicated Slack bot/app/member identity; API server key; selected model-provider credential; GitLab observer/relay identity where required; and OAuth/provider identities for each enabled integration. Use Home/Alpha0 SOPS/sops-nix for managed files. The SQLite database is durable data, not a secret authority, but transfer must be encrypted and owner-only.
+Provision the audit-key reference; distinct Core and gateway secret maps; dedicated Slack bot/app/member identity; API server key; selected model-provider credential; separate service-scoped `gitlab.com` and `git.ap.org` observer credentials where enabled; independently authorized forced-command node and forwarding-relay SSH identities where required; and OAuth/provider identities for each enabled integration. The operator `glab_cli_config` cannot substitute for either observer service credential, and neither SSH principal authorizes the other operation. Use Home/Alpha0 SOPS/sops-nix for managed files. The SQLite database is durable data, not a secret authority, but transfer must be encrypted and owner-only.
 
 ### 8. Which credentials require rotation rather than migration?
 
 **YES — rotation/reauthorization rules are explicit.**
 
-Unconditionally rotate/reissue the provider credential evidenced in mode-`0644` legacy environment files, Alpha0 API server key, axis-control GitLab token from unverified legacy custody, per-host LiteLLM key, destination relay/node SSH identity, cookie signing secret, and narrowly scoped Cloudflare/GitHub credentials where host/custody changes. Reauthorize AWS SSO, Google OAuth, Microsoft Graph OAuth, and AP GitLab user sessions rather than copying caches. Other keys are reusable only after explicit custody/scope/registration proof. See `SECRET-REQUIREMENTS-MANIFEST.md`.
+Unconditionally rotate/reissue the provider credential evidenced in mode-`0644` legacy environment files, Alpha0 API server key, axis-control GitLab token from unverified legacy custody, per-host LiteLLM key, each destination-specific forced-command node or forwarding-relay SSH identity, cookie signing secret, and narrowly scoped Cloudflare/GitHub credentials where host/custody changes. Reauthorize AWS SSO, Google OAuth, Microsoft Graph OAuth, and AP GitLab operator sessions rather than copying caches. Alpha0's two GitLab observer service credentials are separately reusable only after custody and read-only scope proof; otherwise rotate/reissue each independently. Other keys are reusable only after explicit custody/scope/registration proof. See `SECRET-REQUIREMENTS-MANIFEST.md`.
 
 ### 9. Can Slack bot identity survive a host move without functional change?
 
@@ -104,7 +104,7 @@ Alpha0 can fetch bounded GitLab truth remotely and can execute separately bounde
 
 **YES.**
 
-The online backup was structurally compatible with canonical schema v5: integrity and foreign keys passed, expected tables/columns/relationships matched, and disposable initialization made no migration/count change. A future move needs a final backup after write quiescence, encrypted transfer, destination mode `0700` directory/database `0600`, signed audit-key open, and one-writer proof. A PostgreSQL or other backend conversion is explicitly out of scope.
+The online backup was structurally compatible with canonical schema v5: integrity and foreign keys passed, expected tables/columns/relationships matched, and disposable initialization made no migration/count change. A future move needs a final backup after write quiescence, encrypted transfer, destination mode `0700` directory/database `0600`, signed audit-key open, and one-writer proof. SQLite remains Alpha0's current migration backend. PostgreSQL or Supabase is only a possible future Alpha0 backend candidate subject to a separate Alpha0 storage evaluation, migration, parity, restore, rollback, and authority-transfer gate. It is explicitly out of scope for host migration and does not imply sharing any AXIS Supabase project, database, schema, credential, writer, or backup boundary.
 
 ### 13. What exact migration acceptance proves there is only one authority after cutover?
 
