@@ -15,6 +15,15 @@
   # no kexec ever needed for hosts launched from this image.
   profiles.minimalVm.enable = true;
 
+  # modules/system/default.nix declares this secret gated on
+  # profiles.defaults.enable, but its consuming activation script isn't
+  # gated the same way -- minimalVm skips profiles.defaults, so declare it
+  # here directly (same fix as onyx.nix/talon.nix).
+  sops.secrets.github-token = {
+    owner = "cdenneen";
+    mode = "0400";
+  };
+
   services.openssh = {
     enable = true;
     settings = {
