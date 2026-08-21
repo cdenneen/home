@@ -1,0 +1,8 @@
+name: slack-platform
+label: Slack
+kind: platform
+version: 1.0.2
+description: >
+  Slack platform override that renders clarify choices as a numbered list
+  with a compact static selector.
+author: cdenneen

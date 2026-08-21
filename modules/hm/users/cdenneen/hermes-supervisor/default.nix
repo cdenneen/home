@@ -24,6 +24,7 @@ let
   secondaryGatewayEnabled = config.profiles.hermesGatewaySecondary.enable && packageAvailable;
   supervisorEnabled = config.profiles.hermesSupervisor.enable && packageAvailable;
   anyGatewayEnabled = gatewayEnabled || secondaryGatewayEnabled;
+  slackClarifySelectEnabled = config.profiles.hermesSlackClarifySelect.enable && anyGatewayEnabled;
   # Mitigates a known upstream Hermes bug (NousResearch/hermes-agent#78068,
   # #80471): certain exceptions mid-turn (a gateway restart, a bad path, a
   # transient upstream-provider error - confirmed 2026-08-17 with a Bedrock
@@ -182,6 +183,10 @@ in
     description = "cwd this instance runs from - see profiles.hermesGateway.workingDirectory for what this controls.";
   };
 
+  options.profiles.hermesSlackClarifySelect.enable = lib.mkEnableOption ''
+    the managed Slack platform override with mobile-readable clarify choices
+  '';
+
   options.profiles.hermesSupervisor.enable = lib.mkEnableOption "temporary Hermes Development Supervisor";
 
   config = lib.mkIf (gatewayEnabled || secondaryGatewayEnabled || supervisorEnabled) {
@@ -197,27 +202,45 @@ in
         supervisorCommand
         supervisorReview
       ];
-    home.file = lib.mkIf supervisorEnabled {
-      ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt".source = ./worker-prompt.txt;
-      ".hermes/supervisor/axis-development-supervisor/docs" = {
-        source = ./docs;
-        recursive = true;
-      };
-      ".hermes/supervisor/axis-development-supervisor/schemas" = {
-        source = ./schemas;
-        recursive = true;
-      };
-      ".hermes/supervisor/axis-development-supervisor/VERSION".source = ./VERSION;
-      ".hermes/supervisor/axis-development-supervisor/capability-runtime-matrix.json".source =
-        ./capability-runtime-matrix.json;
-      ".hermes/supervisor/axis-development-supervisor/deployed-source-revision.json".text =
-        builtins.toJSON
-          {
-            revision = sourceRevision;
-            dirty = !(self ? rev);
-            rollback = "home-manager generations";
+    home.file = lib.mkMerge [
+      (lib.mkIf supervisorEnabled {
+        ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt".source = ./worker-prompt.txt;
+        ".hermes/supervisor/axis-development-supervisor/docs" = {
+          source = ./docs;
+          recursive = true;
+        };
+        ".hermes/supervisor/axis-development-supervisor/schemas" = {
+          source = ./schemas;
+          recursive = true;
+        };
+        ".hermes/supervisor/axis-development-supervisor/VERSION".source = ./VERSION;
+        ".hermes/supervisor/axis-development-supervisor/capability-runtime-matrix.json".source =
+          ./capability-runtime-matrix.json;
+        ".hermes/supervisor/axis-development-supervisor/deployed-source-revision.json".text =
+          builtins.toJSON
+            {
+              revision = sourceRevision;
+              dirty = !(self ? rev);
+              rollback = "home-manager generations";
+            };
+      })
+      (lib.mkIf slackClarifySelectEnabled (
+        {
+          ".hermes/plugins/platforms/slack" = {
+            source = ./plugin/slack-platform;
+            recursive = true;
+            force = true;
           };
-    };
+        }
+        // lib.optionalAttrs secondaryGatewayEnabled {
+          ".hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}/plugins/platforms/slack" = {
+            source = ./plugin/slack-platform;
+            recursive = true;
+            force = true;
+          };
+        }
+      ))
+    ];
 
     systemd.user.services = lib.mkMerge [
       (lib.mkIf gatewayEnabled {
@@ -468,6 +491,32 @@ in
           fi
           ${pkgs.coreutils}/bin/rm -f "$config_tmp"
         fi
+      ''
+    );
+
+    home.activation.hermesSlackClarifySelectConfig = lib.mkIf slackClarifySelectEnabled (
+      lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        configure_plugin() {
+          config_file="$1"
+          if [ ! -f "$config_file" ] || [ -n "''${DRY_RUN_CMD:-}" ]; then
+            return
+          fi
+          config_tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-slack-plugin-config.XXXXXX)"
+          ${pkgs.yq-go}/bin/yq '
+            .plugins.enabled = (((.plugins.enabled // []) + ["platforms/slack"]) | unique)
+            | .plugins.disabled = ((.plugins.disabled // []) | map(select(. != "platforms/slack")))
+          ' "$config_file" > "$config_tmp"
+          if ! ${pkgs.diffutils}/bin/cmp -s "$config_tmp" "$config_file" \
+            || [ "$(${pkgs.coreutils}/bin/stat -c %a "$config_file")" != 600 ]; then
+            ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$config_file"
+          fi
+          ${pkgs.coreutils}/bin/rm -f "$config_tmp"
+        }
+
+        configure_plugin "$HOME/.hermes/config.yaml"
+        ${lib.optionalString secondaryGatewayEnabled ''
+          configure_plugin "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}/config.yaml"
+        ''}
       ''
     );
 
