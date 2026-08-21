@@ -75,7 +75,7 @@ The deployed daily-brief adapter matches canonical behavior. The two deployed st
 ## Recovery acceptance still required
 
 1. Independently attest availability/ownership of the production audit-key reference without copying its value, then verify signed audit-chain open in an authorized owner-only procedure.
-2. Perform a supported Hermes backup and disposable semantic restore of dedicated root/profile state, sessions, Kanban, both scheduler definitions, execution/ticker state and routing preflights.
+2. Reconstruct disabled Hermes root/profile routes and scheduler declarations from reviewed VCS with fresh runtime state, then prove profile-aware routing preflights. Archive source sessions, Kanban, execution and ticker state without importing them; only a separately qualified owner-selected generic session subset may receive a disposable semantic-restore test.
 3. Prove one-owner routing for the dedicated Alpha0 channel and profile-aware session keys; do not fall back to the generic or AXIS gateway.
 4. Reconcile the live status and SITREP wrapper semantics against the pinned package; restore schedules only through a separate reviewed, exact-head change.
 5. Obtain independently signed, root-owned deployment evidence binding the package, configuration, secret-file references, entrypoints and scheduler identity.
@@ -83,4 +83,4 @@ The deployed daily-brief adapter matches canonical behavior. The two deployed st
 
 ## Classification
 
-`ALPHA0_REAL_DATA_RECOVERY = PASS_WITH_LIMITS`: data and schema are structurally compatible and migration is unnecessary. Signed Core-open, dedicated Hermes semantic restoration, external integrations and deployment proof remain incomplete. Activation remains forbidden.
+`ALPHA0_REAL_DATA_RECOVERY = PASS_WITH_LIMITS`: data and schema are structurally compatible and database migration is unnecessary. Signed Core-open, exclusive Hermes route/job reconstruction, external integrations and deployment proof remain incomplete. No Alpha0 Hermes runtime state is currently a mandatory migration input. Activation remains forbidden.

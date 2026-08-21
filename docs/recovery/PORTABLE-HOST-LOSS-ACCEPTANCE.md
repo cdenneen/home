@@ -10,12 +10,12 @@ This report answers the control-plane portability question with evidence availab
 
 - **Source:** substantially portable. Canonical producer repositories and pinned packages replace the rootless legacy workspace.
 - **Deployment:** designed to be host-configurable under Nix/Home Manager, but current runtime activation and root-owned signed deployment identity are unproved.
-- **Durable state:** axis-control primarily reconstructs from GitLab; Alpha0's existing SQLite is structurally portable. Qualified pending-event export and Hermes semantic restore remain incomplete.
+- **Durable state:** axis-control primarily reconstructs from GitLab; Alpha0's existing SQLite is structurally portable. Qualified pending-event export, exclusive Hermes route reconstruction, and any conditional generic-session restore remain incomplete.
 - **Secrets:** metadata requirements and existing Home/Alpha0 SOPS authorities are known, but axis-control's managed GitLab mapping and several integration producers are incomplete. Exposed legacy provider credentials require reissue.
 - **External identities:** Slack Socket Mode is not inherently hostname-bound, but exact route ownership, credential custody, OAuth grants, and callback exceptions require acceptance.
-- **Host independence:** canonical axis-control can be separate from `AXIS_CORE`. Complete Alpha0 supervision cannot currently cross that boundary because it reads controller/Hermes files and SQLite locally.
+- **Host independence:** canonical axis-control can be separate from `AXIS_CORE`. The pure bounded cross-host Alpha0 supervision boundary is proven in unmerged producer/consumer PRs, but the normal caller, authenticated transport/injection and signed live deployment remain incomplete.
 
-The answer must remain **PARTIAL** until all six explicit blockers are closed: cross-host supervision, managed secret mapping, Hermes semantic restore, signed deployment, custody convergence, and exact placement evidence.
+The answer must remain **PARTIAL** until the remaining blockers close: cross-host supervision integration/deployment, managed secret mapping, exclusive Hermes route/job reconstruction (plus any separately qualified generic-session restore), signed deployment, live authority quiescence and exact placement evidence. Code custody itself is 9/9 remotely recoverable.
 
 ## Evidence scale
 
@@ -62,7 +62,7 @@ Remove runtime dependence on the rootless axis-control workspace, personal AXIS/
 
 **PARTIAL — the disposition is complete, but semantic restore is unproved.**
 
-Migrate only accepted generic interaction continuity and Alpha0 profile sessions, scheduler de-duplication/ticker state, profile durable state, and non-reconstructible events through supported semantic backup/restore. Recreate package/config templates, wrappers, prompts, producer skills, units, and scheduler declarations from reviewed VCS. Reconstruct route maps and provider/status/Kanban projections from canonical declarations/data. Archive dormant AXIS/rootless histories; discard liveness/cache/scratch after acceptance; reissue every secret map/environment credential. The artifact-by-artifact decision is in `HERMES-STATE-MIGRATION.md`.
+No Hermes state is currently qualified as a mandatory migration input. Recreate package/config templates, wrappers, prompts, producer skills, units and scheduler declarations from reviewed VCS; reconstruct route maps and provider/status/Kanban projections from canonical declarations/data; archive source sessions/executions/ticker history under approved retention without importing them as authority; discard liveness/cache/scratch after acceptance. Only an owner-selected generic unprofiled session subset remains a conditional future migration candidate after explicit continuity need and disposable semantic-restore proof. The artifact-by-artifact decision is in `HERMES-STATE-MIGRATION.md`.
 
 ### 6. Which secrets must move if axis-control changes hosts?
 
@@ -86,7 +86,7 @@ Unconditionally rotate/reissue the provider credential evidenced in mode-`0644` 
 
 **PARTIAL.**
 
-The logical app/bot identity can survive because the observed integration uses outbound Slack Socket Mode and no host-bound callback listener. Functional continuity still requires policy-permitted credential reuse or reissue, exactly one source/destination route owner, dedicated Alpha0 profile/session semantic restore, and verification that no separately configured callback/DNS allowlist exists. The source must disconnect before the destination connects.
+The logical app/bot identity can survive because the observed integration uses outbound Slack Socket Mode and no host-bound callback listener. Functional continuity still requires policy-permitted credential reuse or reissue, exactly one source/destination route owner, a fresh dedicated Alpha0 profile with profile-aware routing checks, and verification that no separately configured callback/DNS allowlist exists. Source Alpha0 Hermes sessions are archive-only under current qualification. The source must disconnect before the destination connects.
 
 ### 10. Can canonical axis-control run on a different host while AXIS Core remains on Ghost?
 
@@ -96,9 +96,9 @@ It uses GitLab over HTTPS and its own configurable local state; it does not call
 
 ### 11. Can canonical Alpha0 supervise axis-control over a host boundary?
 
-**NO, not completely under the current contract.**
+**PARTIAL — the pure information boundary is proven; live integration is not.**
 
-Alpha0 can fetch bounded GitLab truth remotely and can execute separately bounded SSH work packages. Full AXIS supervision also reads axis-control roadmap/handoff/scheduler-health JSON and local Hermes jobs/execution SQLite. No authenticated bounded remote status/provenance operation exports that state. GitLab-only health cannot prove controller scheduler health, exact controller deployment, custody, or meaningful progress. Do not substitute shared writable homes, NFS, or remote live SQLite.
+Axis-control PR #10 emits a bounded transport-neutral status/provenance response, and Alpha0 PR #4 proves that supplied response plus bounded GitLab reads can reproduce essential supervision without controller filesystem, process, Hermes database or worktree access. Both PRs are unmerged, the normal Alpha0 status caller still uses the legacy local path, authenticated transport/injection is intentionally unselected, and no signed live deployment has emitted the response. Do not substitute shared writable homes, NFS, or remote live SQLite.
 
 ### 12. Can Alpha0 move using its existing SQLite architecture without simultaneously changing its storage design?
 
@@ -129,7 +129,7 @@ Axis-lab owns active host/DR selection; local versus managed provider; region/ti
 | Product | Required inputs independent of a lost host | Inputs explicitly not required/forbidden |
 |---|---|---|
 | `AXIS_CONTROL` | Reviewed canonical VCS; pinned deployment definitions/closure; managed secret references; GitLab canonical truth; root-owned signed deployment trust; qualified versioned export of any non-reconstructible pending event | Ghost; rootless workspace; local AXIS checkout/Core filesystem; board/task projection; caches; worktrees; PID/lock/heartbeat; raw `.env`; hand-edited scheduler state |
-| `ALPHA0` | Reviewed canonical VCS; pinned deployment definitions/closure; managed audit-key/Core/gateway/integration references; final validated SQLite online backup; qualified Hermes durable-state semantic backup; external app/OAuth identity records | Ghost; legacy wrappers/checkouts; database-backend redesign; whole-home copy; OAuth/AWS caches; ephemeral Hermes state; raw environment; unclassified sessions/logs |
+| `ALPHA0` | Reviewed canonical VCS; pinned deployment definitions/closure; managed audit-key/Core/gateway/integration references; final validated SQLite online backup; reconstructed Hermes routes/jobs plus any separately qualified owner-selected generic session subset; external app/OAuth identity records | Ghost; legacy wrappers/checkouts; database-backend redesign; whole-home copy; OAuth/AWS caches; ephemeral Hermes state; raw environment; unclassified sessions/logs |
 
 ### Acceptance matrix
 
@@ -140,11 +140,11 @@ Axis-lab owns active host/DR selection; local versus managed provider; region/ti
 | Host-independent install | Fresh authorized host installs with no legacy workspace, source-host path, or AXIS Core filesystem dependency | `PARTIAL`: source/Home assertions support it; fresh-host acceptance not signed |
 | Axis-control reconstruction | Two complete stable GET-only GitLab reads; pending events use versioned idempotent import; no action on incomplete custody/review/current-main | `PARTIAL`: stable reconstruction was observed; current complete custody and event export remain open |
 | Alpha0 SQLite restore | Final post-quiescence online backup; integrity/FK/schema/migrations/aggregates; signed audit open; no initialization mutation; one writer | `PARTIAL`: structural disposable test passed; final quiesced backup/signed open/one-writer proof remain |
-| Hermes continuity | Complete artifact classification plus supported semantic backup/disposable restore for selected sessions/profile/scheduler state | `NO`: classification exists, semantic restore acceptance does not |
+| Hermes continuity | Complete artifact classification, reconstructed exclusive routes/jobs, and disposable restore only for any owner-selected generic session subset | `PARTIAL`: no Hermes state is mandatory; route reconstruction and the conditional session proof remain unaccepted |
 | Secret provisioning | Every consumer maps to managed Home/Alpha0 SOPS reference; destination modes pass; rotations/reauthorizations complete; no Git/store secret | `PARTIAL`: broad authority exists; axis-control and discovered integration mappings remain incomplete |
 | External identity | Exactly one Slack route; profile/session isolation; OAuth/callback/DNS actions complete | `PARTIAL`: topology is understood; exact identity/exclusivity remains unproved |
-| Cross-host supervision | Authenticated bounded schema-versioned controller status/provenance with freshness, host/deployment identity, and fail-closed unknowns | `NO`: current Alpha0 reader is filesystem-local |
-| Custody | Every lineage has complete remote/local disposition; no active worker/reviewer/CI interrupted; stable canonical digest | `PARTIAL`: three captured lineages depended partly on local custody; fresh convergence required |
+| Cross-host supervision | Authenticated bounded schema-versioned controller status/provenance with freshness, host/deployment identity, and fail-closed unknowns | `PARTIAL`: producer/consumer boundary tests pass; merge, transport injection and signed live deployment remain open |
+| Custody | Every lineage has complete remote/local disposition; no active worker/reviewer/CI interrupted; stable canonical digest | `FULLY_REMOTE_RECOVERABLE`: 9/9 implementation lineages are remote; local operational/review evidence remains forensic and safe drain is still blocked |
 | Placement | Destination logical-role binding, network/persistence/capacity/availability evidence, axis-lab admission where applicable | `NO`: no final placement and exact evidence are accepted |
 | One-authority cutover | Source no-admit/no-write observation, destination sole scheduler/writer/route, signed receipt, independent verification, safe rollback boundary | `NO`: design exists; execution is unauthorized/incomplete |
 
@@ -157,7 +157,7 @@ A portable acceptance rehearsal must use an isolated fresh authorized host or eq
 3. reconstruct axis-control through two stable GET-only reads while `AXIS_CORE` remains elsewhere;
 4. restore Alpha0 from a disposable copy of the qualified SQLite backup without schema/backend change or external mutation;
 5. perform signed audit open with managed key and prove wrong/missing key fails closed;
-6. restore selected Hermes durable artifacts semantically and prove namespace/routing/scheduler de-duplication;
+6. reconstruct exclusive Hermes routes/jobs and, only if separately qualified, restore an owner-selected generic session subset semantically without importing scheduler history;
 7. prove Slack/external route ownership without overlapping the source;
 8. demonstrate source no-admit/no-write and destination sole authority over the required observation window;
 9. produce and independently verify the metadata-only signed receipt;
@@ -167,4 +167,4 @@ A portable acceptance rehearsal must use an isolated fresh authorized host or eq
 
 `PORTABLE_MANAGEMENT_PLANE = PARTIAL` and `CUTOVER_READY = NO`.
 
-Canonical architecture no longer justifies treating Ghost as product authority. It does not yet justify treating host loss as fully accepted. Cross-host supervision, managed secret mapping, Hermes semantic restore, signed deployment, custody, and exact placement evidence must close through normal reviewed producer/Home/axis-lab work and an authorized rehearsal. No final placement is decided by this report.
+Canonical architecture no longer justifies treating Ghost as product authority. It does not yet justify treating host loss as fully accepted. Cross-host supervision integration/deployment, managed secret mapping, exclusive Hermes route/job reconstruction (plus any separately qualified generic-session restore), signed deployment, live authority quiescence and exact placement evidence must close through normal reviewed producer/Home/axis-lab work and an authorized rehearsal. Implementation custody is already 9/9 remotely recoverable; no final placement is decided by this report.

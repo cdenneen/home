@@ -12,7 +12,9 @@ Point-in-time Ghost map from 2026-08-20. This report names ownership and routing
 
 All three gateways were enabled and active at capture. They share a Hermes package closure but are not interchangeable front doors. Systemd does not express dependencies or route exclusivity among them; continuity and collision avoidance depend on configuration, state and channel ownership.
 
-Scheduler custody spans **four** registries, not just the three gateway owner homes. In addition to generic `~/.hermes/cron`, root profile `~/.hermes/profiles/axis-control/cron`, and dedicated Alpha0 `~/.local/share/alpha0/hermes/cron`, the rootless checkout has its own `/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron`. That fourth registry held enabled job `81776a5f93c5`, a five-minute `no_agent=false` roadmap precheck that could wake mutating model work. It is a critical drain target and is not represented by the sanitized five-job inventory captured from the other three registries.
+Scheduler custody has **four expected authority registries**, not just the three gateway owner homes. In addition to generic `~/.hermes/cron`, root profile `~/.hermes/profiles/axis-control/cron`, and dedicated Alpha0 `~/.local/share/alpha0/hermes/cron`, the rootless checkout has its own `/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron`. That checkout profile held an enabled five-minute `no_agent=false` roadmap precheck that could wake mutating model work. It is a critical drain target and is not represented by the sanitized five-job inventory captured from the other three registries.
+
+A 2026-08-21 read-only qualification also found additional live root/profile `jobs.json` paths. The checkout root and checkout profile are distinct files containing the same enabled agent-waking AXIS job identity, creating hidden duplicate persisted authority. Alpha0's routed-profile live path must also be accounted for even when its declarations reconstruct from the owner-root inventory. Every live jobs file must therefore be planned; the four expected registries are not a complete live filesystem inventory. Two older `state-snapshots/*/cron/jobs.json` files were also observed and are non-live `ARCHIVE_EVIDENCE`, not scheduler authority.
 
 ## Target non-overlap contract
 
@@ -53,10 +55,10 @@ The dormant Home candidate keeps the generic gateway enabled, forces the embedde
 ## Acceptance gates before gateway change
 
 - Re-observe unit/job/routing metadata and map every channel/chat to one owner without recording values in the report.
-- Capture supported owner-only backups for all three state roots and prove disposable semantic restoration.
+- Archive all three source state roots under approved owner-only retention without importing them as authority. Reconstruct disabled route/job declarations from reviewed VCS with fresh runtime state; prove a disposable semantic restore only if an owner later qualifies a generic unprofiled session subset.
 - Drain all new AXIS work sources before interrupting AXIS interaction; preserve active worker/review/CI custody until remote durability is proven.
 - Qualify canonical Alpha0 preflights and both scheduler wrappers from the exact pinned package.
 - Rebase Home composition, pass exact-head required CI, obtain fresh approval and signed deployment evidence.
 - After future activation, prove generic continuity, absence of duplicate routes/legacy AXIS authority, and dedicated Alpha0 isolation before deleting any old state.
 
-`HERMES_ROUTING_UNDERSTOOD = PARTIAL`: process, state and scheduler ownership are mapped; exact live route exclusivity, dedicated Alpha0 chat identity and semantic restore remain unproven. Cutover remains forbidden.
+`HERMES_ROUTING_UNDERSTOOD = PARTIAL`: every observed route/session origin has a logical owner, but hidden checkout scheduler duplication, generic/AXIS external route equivalence, historical generic-session disposition, dedicated Alpha0 identity and semantic restore remain unproven. Cutover remains forbidden. See `PORTABLE-CONTROL-PLANE-BOUNDARIES.md`.
