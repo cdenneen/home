@@ -37,12 +37,12 @@ Every observed route/session origin maps to one semantic owner:
 | Origin | Physical state domain | Logical owner | Qualification |
 |---|---|---|---|
 | Generic configured route and ten indexed sessions | generic Hermes root | `GENERIC_HERMES` | mapped |
-| AXIS-profile route, 12 indexed sessions and PO-alert origin | generic root with axis-control profile | `AXIS_CONTROL` | mapped, but overlaps a separate AXIS gateway domain; count refreshed during the later 2026-08-21 route audit |
-| Dedicated Alpha0 route and 27 indexed sessions | Alpha0 owner root/profile | `ALPHA0` | mapped and namespace-distinct; count refreshed during the later 2026-08-21 route audit; external app/channel identity still requires value-free owner attestation |
+| AXIS-profile route, 12 indexed sessions and PO-alert origin | generic root with axis-control profile | `AXIS_CONTROL` | mapped; provider attestation confirms the generic gateway carries this interaction/reporting route |
+| Dedicated Alpha0 route and 27 indexed sessions | Alpha0 owner root/profile | `ALPHA0` | mapped and namespace-distinct; provider identity is distinct from generic Hermes, with app-token correspondence/delivery readback still unproved |
 | Two historical generic session routes | generic Hermes root | `GENERIC_HERMES` | mapped; continuity/archive disposition pending |
-| Dedicated checkout-local AXIS gateway ingress | checkout-local Hermes root/profile | `AXIS_CONTROL` | semantic owner known; provider/app route equivalence remains unattested |
+| Checkout-local AXIS scheduler host | checkout-local Hermes root/profile | `AXIS_CONTROL` | no external platform, served profile or listener; not a separate ingress |
 
-No duplicate was found among the opaque configured route identifiers. Credential-free inspection cannot prove whether the generic AXIS-profile route and checkout-local AXIS gateway use the same or different external provider/app/channel identity. That requires a value-free owner attestation; secret values must not enter evidence.
+No duplicate was found among the opaque configured route identifiers. Owner-local provider attestation established distinct generic and Alpha0 identities and no dedicated AXIS external route. Secret values and destination values remain excluded from evidence.
 
 ### Scheduler registries
 
@@ -59,7 +59,7 @@ Read-only metadata also exposed additional live root/profile `jobs.json` paths. 
 
 Current Home and PR #681 declarations are not runtime proof: disabled/absent generated declarations do not remove persisted jobs or stop already-running gateways. No registry or gateway was changed.
 
-`ROUTE_OWNERSHIP = PARTIAL` because semantic ownership is mapped, but checkout scheduler duplication, generic/AXIS route equivalence, dedicated Alpha0 external identity, historical generic-session disposition and live declaration/runtime convergence remain unproved.
+`ROUTE_OWNERSHIP = PARTIAL` because semantic ownership and active gateway identity are mapped, but app-token correspondence/delivery readback, checkout scheduler duplication, historical generic-session disposition, managed generic reconstruction and live declaration/runtime convergence remain unproved.
 
 ## Minimum cross-host supervisory contract
 
@@ -114,4 +114,4 @@ CUTOVER_READY:
   NO
 ```
 
-`SAFE_DRAIN_READY` remains `NO`: healthy work was not interrupted; live controller/gateway/scheduler authority remains; hidden duplicate scheduler custody and route equivalence are unresolved; current exact-head review/CI is missing for several open lineages; and pending legacy controller events still require bounded reconciliation. Remote code custody is necessary but not sufficient for safe drain.
+`SAFE_DRAIN_READY` remains `NO`: healthy work was not interrupted; live controller/gateway/scheduler authority remains; the enabled stale checkout-root record is still a reactivation hazard; current exact-head review/CI is missing for several open lineages; pending legacy controller events require bounded reconciliation; generic managed-secret reconstruction is partial; and no authorized `24h15m` no-restart observation occurred. Remote code custody is necessary but not sufficient for safe drain.

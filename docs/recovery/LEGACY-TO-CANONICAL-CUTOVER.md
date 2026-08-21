@@ -150,9 +150,9 @@ git -C "$HOME/src/workspace/personal/work/axis" show-ref
 
 **Abort:** process remains active beyond its bounded run, local/remote heads disagree without disposition, any owner is gone, or GitLab surfaces are incomplete.
 
-## Phase 3 — quiesce legacy AXIS interaction authority
+## Phase 3 — quiesce legacy AXIS scheduler host
 
-Preconditions: Phase 2 acceptance passed; PO alert delivery is no longer required; generic gateway ownership is independently verified.
+Preconditions: Phase 2 acceptance passed; PO alert delivery is no longer required; generic gateway ownership is independently verified; the dedicated AXIS process is confirmed to have no external platform, served profile or listener.
 
 ```console
 # FUTURE ONLY.
@@ -169,7 +169,7 @@ systemctl --user is-active hermes-stuck-cron-watchdog.timer
 
 Do not remove rootless workspace, board DB, sessions, refs, jobs or evidence. Absence of processes is not permission to delete state.
 
-**Abort/rollback:** if generic communication or a non-AXIS route fails, re-enable/start only the dedicated AXIS gateway with incident approval, keep work-dispatch jobs paused, and re-establish the previous exclusive route map. Do not resume scheduler/watchdogs automatically.
+**Abort/rollback:** if generic communication fails, restore/check only `hermes-gateway.service` and `hermes-stuck-cron-watchdog`; the dedicated AXIS scheduler gateway cannot restore that route. If the scheduler-host stop itself must be reversed, start only that exact unit with all work-dispatch records and recovery timers still disabled, after incident approval. Do not resume scheduler/watchdogs automatically.
 
 ## Phase 4 — quiesce legacy Alpha0 scheduler and gateway
 
@@ -215,7 +215,21 @@ systemctl --user is-active hermes-stuck-cron-watchdog.timer
 ! systemctl --user is-active --quiet hermes-axis-control-gateway.service
 ! systemctl --user is-active --quiet hermes-alpha0-gateway.service
 ! systemctl --user is-enabled --quiet axis-development-watchdog-backup.timer
+! systemctl --user is-active --quiet axis-development-watchdog-backup.timer
+! systemctl --user is-enabled --quiet axis-development-watchdog-backup.service
+! systemctl --user is-active --quiet axis-development-watchdog-backup.service
+! systemctl --user is-enabled --quiet axis-development-watchdog-monitor.service
+! systemctl --user is-active --quiet axis-development-watchdog-monitor.service
 ! systemctl --user is-enabled --quiet hermes-axis-control-scheduler-watchdog.timer
+! systemctl --user is-active --quiet hermes-axis-control-scheduler-watchdog.timer
+! systemctl --user is-enabled --quiet hermes-axis-control-scheduler-watchdog.service
+! systemctl --user is-active --quiet hermes-axis-control-scheduler-watchdog.service
+! systemctl --user is-enabled --quiet hermes-supervisor-cron.service
+! systemctl --user is-active --quiet hermes-supervisor-cron.service
+! systemctl --user is-enabled --quiet hermes-watchdog-cron.service
+! systemctl --user is-active --quiet hermes-watchdog-cron.service
+! systemctl --user is-enabled --quiet hermes-watchdog-cutover.service
+! systemctl --user is-active --quiet hermes-watchdog-cutover.service
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" a9c0b0e9bcca
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" bb8d50dc3332
 assert_job_disabled_or_absent "$HOME/.hermes/profiles/axis-control/cron/jobs.json" adb213a9d005
@@ -244,7 +258,7 @@ Acceptance requires all of the following:
 - signed deployment record binds the realized Home/producer closures and configuration to the approved exact heads;
 - credential files remain external and owner-only; no secret appears in store/log/report.
 
-Only after an observation window covering at least two former AXIS scheduler intervals and one generic watchdog interval may the dormant composition be accepted. State deletion and credential rotation are separate authorized procedures.
+After every acceptance predicate above passes, require pending/in-flight effects to be zero, no legacy worker/reviewer/reconciler descendant, all six registries validated, and no canonical writer. Only then record signed observation start `F0` and capture the initial scheduler, route, service/process, GitLab frontier, and custody digests. From `F0`, run the off-host collector every two minutes for `24h15m`, crossing the next Alpha0 daily boundary and one additional maximum 15-minute recovery cadence. Reconcile durable scheduler databases and sanitized journals for the full interval at the end. A reboot, user-manager restart, clock discontinuity, evidence gap, registry mutation, failed sample, post-`F0` claim, reprovisioner invocation, new legacy descendant, unexpected generic restart/session loss, or unattributed GitLab change invalidates `F0` and restarts the full window. Only a completed clean window may accept the dormant composition. State deletion and credential rotation are separate authorized procedures.
 
 ## Rollback
 
@@ -254,21 +268,9 @@ There is no Home/runtime cutover to roll back. Keep sources paused, preserve evi
 
 ### After Phase 5
 
-Rollback is allowed only if no canonical dispatcher/mutator has admitted work (the dormant target should make this true) and the recorded previous generation is trusted.
+Do not run broad `home-manager switch --rollback`: the previous generation may restore legacy gateway or reprovisioner declarations, and Home rollback cannot safely reconstruct cron records removed by fail-closed decommission. Keep the dormant zero-writer generation in place and correct deployment evidence through a newly reviewed forward generation.
 
-```console
-# FUTURE ONLY; independent operator confirms no canonical work was admitted.
-home-manager switch --rollback
-systemctl --user is-active hermes-gateway.service
-sanitize_hermes_registry generic "$HOME/.hermes/cron/jobs.json"
-sanitize_hermes_registry root-axis-profile "$HOME/.hermes/profiles/axis-control/cron/jobs.json"
-sanitize_hermes_registry checkout-axis-root "$HOME/src/workspace/work/axis-control/.hermes/cron/jobs.json"
-sanitize_hermes_registry checkout-axis-profile "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json"
-sanitize_hermes_registry alpha0-root "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
-sanitize_hermes_registry alpha0-profile "$HOME/.local/share/alpha0/hermes/profiles/alpha0/cron/jobs.json"
-```
-
-Home rollback does not safely reconstruct cron records deleted by fail-closed decommission and must not automatically reactivate legacy mutation. Restore a removed job only from its signed sanitized definition, with exact ownership/cadence review and explicit authorization. Keep dispatch jobs paused until a fresh custody map passes. If rollback would create dual authority or lose generic continuity, leave the dormant generation in place and escalate rather than improvising.
+If generic continuity fails, restore/check only `hermes-gateway.service` and `hermes-stuck-cron-watchdog`; do not restore AXIS/Alpha0 gateways, jobs, provisioners or recovery timers. Any user-manager restart or approved generation change invalidates `F0` and requires all six registries, services, routes and custody to be re-attested before a new full observation window. Restore a removed job only through a separate authority decision, from its signed definition, after fresh custody proof and while every competing authority is disabled. If zero-writer safety and generic continuity cannot both be preserved, escalate rather than improvising.
 
 ## Later graduation (not this cutover)
 
