@@ -1,14 +1,16 @@
 { lib, pkgs, config, ... }:
 {
   boot = {
-    loader.grub = {
-      enable = true;
-      # device intentionally omitted: disko wires boot.loader.grub.devices
-      # itself from the bios_grub partition; setting it here too produces
-      # duplicate entries in mirroredBoots.
-      efiSupport = false;
-    };
-    loader.systemd-boot.enable = false;
+    # ponytail: OCI's VM.Standard.E2.1.Micro boots via UEFI firmware
+    # (confirmed via `oci compute instance get` -> launch-options.firmware =
+    # "UEFI_64"), unlike GCE's e2-micro which boots BIOS/SeaBIOS -- a
+    # BIOS-style grub install (bios_grub partition) is invisible to UEFI
+    # firmware, so it silently falls through to the original base image's
+    # EFI boot entry on every real reboot. systemd-boot + an ESP partition
+    # is the UEFI-native equivalent.
+    loader.systemd-boot.enable = true;
+    loader.efi.canTouchEfiVariables = true;
+    loader.grub.enable = false;
     initrd.availableKernelModules = [
       "virtio_pci"
       "virtio_blk"
@@ -27,9 +29,14 @@
     content = {
       type = "gpt";
       partitions = {
-        bios_grub = {
-          size = "1M";
-          type = "EF02";
+        ESP = {
+          size = "512M";
+          type = "EF00";
+          content = {
+            type = "filesystem";
+            format = "vfat";
+            mountpoint = "/boot";
+          };
         };
         root = {
           size = "100%";
