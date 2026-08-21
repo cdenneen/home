@@ -440,6 +440,7 @@
                   axisControlWatchdog = services.axis-control-watchdog;
                   watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
                   profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
+                  gatewayBootstrapActivation = ghost.home.activation.hermesGatewayBootstrapConfig.data;
                   slackPluginActivation = ghost.home.activation.hermesSlackPlatformConfig.data;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
                   nyxPrimaryCommand = builtins.concatStringsSep "\n" (
@@ -462,6 +463,12 @@
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
                 assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
+                assert primary.EnvironmentFile == [ "%h/.hermes/.env" ];
+                assert lib.hasInfix
+                  ''if [ ! -e "$HOME/.hermes/config.yaml" ] && [ ! -L "$HOME/.hermes/config.yaml" ]; then''
+                  gatewayBootstrapActivation;
+                assert lib.hasInfix ''"$HOME/.hermes/config.yaml"'' gatewayBootstrapActivation;
+                assert lib.hasInfix "install -D -m 600 -T" gatewayBootstrapActivation;
                 assert !(lib.hasInfix "--profile" primaryCommand);
                 assert ghost.profiles.hermesAxisControlGateway.enable == false;
                 assert ghost.profiles.hermesSupervisor.enable == false;
@@ -507,9 +514,36 @@
                   "/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/config.yaml"
                 ];
                 assert lib.hasInfix ".plugins.enabled" slackPluginActivation;
-                assert lib.hasInfix ". != \"slack-platform\"" slackPluginActivation;
+                assert lib.hasInfix "map(select(. != \"slack-platform\"))" slackPluginActivation;
                 assert nyxPrimaryCommand == nyxIntegratedPrimaryCommand;
-                pkgs.runCommand "hermes-gateway-roles-check" { } ''
+                pkgs.runCommand "hermes-gateway-roles-check" { nativeBuildInputs = [ pkgs.yq-go ]; } ''
+                  export DRY_RUN_CMD=
+                  export HOME="$TMPDIR/home"
+
+                  ${gatewayBootstrapActivation}
+                  test "$(stat -c %a "$HOME/.hermes/config.yaml")" = 600
+                  test "$(yq -o=json -I=0 '.plugins.enabled' "$HOME/.hermes/config.yaml")" = '["platforms/slack"]'
+                  cp "$HOME/.hermes/config.yaml" "$TMPDIR/original.yaml"
+                  ${gatewayBootstrapActivation}
+                  cmp "$TMPDIR/original.yaml" "$HOME/.hermes/config.yaml"
+
+                  yq -i '
+                    .plugins.enabled = ["slack-platform", "platforms/slack", "slack-platform"]
+                    | .plugins.disabled = ["slack-platform", "platforms/slack", "other"]
+                  ' "$HOME/.hermes/config.yaml"
+                  cat > "$TMPDIR/slack-activation" <<'EOF'
+                  ${slackPluginActivation}
+                  EOF
+                  substituteInPlace "$TMPDIR/slack-activation" --replace-fail /home/cdenneen "$HOME"
+                  bash "$TMPDIR/slack-activation"
+                  test "$(yq -o=json -I=0 '.plugins.enabled' "$HOME/.hermes/config.yaml")" = '["platforms/slack"]'
+                  test "$(yq -o=json -I=0 '.plugins.disabled' "$HOME/.hermes/config.yaml")" = '["other"]'
+
+                  export HOME="$TMPDIR/dangling"
+                  mkdir -p "$HOME/.hermes"
+                  ln -s "$HOME/missing" "$HOME/.hermes/config.yaml"
+                  ${gatewayBootstrapActivation}
+                  test -L "$HOME/.hermes/config.yaml"
                   touch "$out"
                 '';
             };
