@@ -13,9 +13,9 @@ This report answers the control-plane portability question with evidence availab
 - **Durable state:** axis-control primarily reconstructs from GitLab; Alpha0's existing SQLite is structurally portable. Qualified pending-event export, exclusive Hermes route reconstruction, and any conditional generic-session restore remain incomplete.
 - **Secrets:** metadata requirements and existing Home/Alpha0 SOPS authorities are known, but axis-control's managed GitLab mapping and several integration producers are incomplete. Exposed legacy provider credentials require reissue.
 - **External identities:** Slack Socket Mode is not inherently hostname-bound, but exact route ownership, credential custody, OAuth grants, and callback exceptions require acceptance.
-- **Host independence:** canonical axis-control can be separate from `AXIS_CORE`. The pure bounded cross-host Alpha0 supervision boundary is proven in unmerged producer/consumer PRs, but the normal caller, authenticated transport/injection and signed live deployment remain incomplete.
+- **Host independence:** canonical axis-control can be separate from `AXIS_CORE`. The bounded cross-host Alpha0 supervision contract is proven on merged producer/consumer mains and through an isolated network-only proof. The normal caller, managed authenticated transport/injection and signed live deployment remain incomplete.
 
-The answer must remain **PARTIAL** until the remaining blockers close: cross-host supervision integration/deployment, managed secret mapping, exclusive Hermes route/job reconstruction (plus any separately qualified generic-session restore), signed deployment, live authority quiescence and exact placement evidence. Code custody itself is 9/9 remotely recoverable.
+The answer must remain **PARTIAL** until the remaining blockers close: cross-host supervision deployment, managed secret mapping, exclusive Hermes route/job reconstruction (plus any separately qualified generic-session restore), signed deployment, live authority quiescence and exact placement evidence. The supervision contract is proven and code custody is 9/9 remotely recoverable.
 
 ## Evidence scale
 
@@ -35,7 +35,7 @@ Canonical GitLab observation, controller state, signed trust, and package execut
 
 **PARTIAL — canonical: none by hostname; current data, routes, and supervision are host-local.**
 
-Alpha0 paths and listeners are configurable, and its SQLite backup is structurally compatible with canonical code. Current durable database/Hermes state, dedicated Slack route, legacy checkout-bound wrappers, manual GitLab relay, and local axis-control supervision artifacts reside on or are rendered for Ghost. The cross-host supervision gap is a product-contract gap; the remaining names/paths are deployment or legacy coupling. Evidence: `ALPHA0-REAL-DATA-RECOVERY.md`, `HERMES-GATEWAY-OWNERSHIP.md`, and `HOST-COUPLING-AUDIT.md`.
+Alpha0 paths and listeners are configurable, and its SQLite backup is structurally compatible with canonical code. Current durable database/Hermes state, dedicated Slack route, legacy checkout-bound wrappers, manual GitLab relay, and local axis-control supervision artifacts reside on or are rendered for Ghost. The cross-host contract gap is closed; normal-caller transport and signed deployment remain deployment coupling. Evidence: `ALPHA0-REAL-DATA-RECOVERY.md`, `HERMES-GATEWAY-OWNERSHIP.md`, `HOST-COUPLING-AUDIT.md`, and `EXCLUSIVE-ROUTE-AND-HERMES-PORTABILITY.md`.
 
 ### 3. Which dependencies can already be expressed entirely as deployment configuration?
 
@@ -98,7 +98,7 @@ It uses GitLab over HTTPS and its own configurable local state; it does not call
 
 **PARTIAL — the pure information boundary is proven; live integration is not.**
 
-Axis-control PR #10 emits a bounded transport-neutral status/provenance response, and Alpha0 PR #4 proves that supplied response plus bounded GitLab reads can reproduce essential supervision without controller filesystem, process, Hermes database or worktree access. Both PRs are unmerged, the normal Alpha0 status caller still uses the legacy local path, authenticated transport/injection is intentionally unselected, and no signed live deployment has emitted the response. Do not substitute shared writable homes, NFS, or remote live SQLite.
+Merged axis-control main `830b6432a758a633afbf2f3127ceb3dfeba340d7` emits a bounded transport-neutral status/provenance response, and merged Alpha0 main `94e90beb00c46bca74f927437e1c8805eb64d099` proves that supplied response plus bounded GitLab reads reproduce essential supervision without controller filesystem, process, Hermes database or worktree access. A disposable network-only proof covered healthy, drifted, incomplete, contradictory and unavailable states. Deployment remains partial: the normal caller uses the legacy local path, managed authenticated transport/injection is unselected, and no signed live deployment has emitted the response. Do not substitute shared writable homes, NFS, or remote live SQLite.
 
 ### 12. Can Alpha0 move using its existing SQLite architecture without simultaneously changing its storage design?
 
@@ -143,7 +143,7 @@ Axis-lab owns active host/DR selection; local versus managed provider; region/ti
 | Hermes continuity | Complete artifact classification, reconstructed exclusive routes/jobs, and disposable restore only for any owner-selected generic session subset | `PARTIAL`: no Hermes state is mandatory; route reconstruction and the conditional session proof remain unaccepted |
 | Secret provisioning | Every consumer maps to managed Home/Alpha0 SOPS reference; destination modes pass; rotations/reauthorizations complete; no Git/store secret | `PARTIAL`: broad authority exists; axis-control and discovered integration mappings remain incomplete |
 | External identity | Exactly one Slack route; profile/session isolation; OAuth/callback/DNS actions complete | `PARTIAL`: topology is understood; exact identity/exclusivity remains unproved |
-| Cross-host supervision | Authenticated bounded schema-versioned controller status/provenance with freshness, host/deployment identity, and fail-closed unknowns | `PARTIAL`: producer/consumer boundary tests pass; merge, transport injection and signed live deployment remain open |
+| Cross-host supervision | Authenticated bounded schema-versioned controller status/provenance with freshness, host/deployment identity, and fail-closed unknowns | `PARTIAL`: contract and merged current-main integration pass; managed transport injection and signed live deployment remain open |
 | Custody | Every lineage has complete remote/local disposition; no active worker/reviewer/CI interrupted; stable canonical digest | `FULLY_REMOTE_RECOVERABLE`: 9/9 implementation lineages are remote; local operational/review evidence remains forensic and safe drain is still blocked |
 | Placement | Destination logical-role binding, network/persistence/capacity/availability evidence, axis-lab admission where applicable | `NO`: no final placement and exact evidence are accepted |
 | One-authority cutover | Source no-admit/no-write observation, destination sole scheduler/writer/route, signed receipt, independent verification, safe rollback boundary | `NO`: design exists; execution is unauthorized/incomplete |

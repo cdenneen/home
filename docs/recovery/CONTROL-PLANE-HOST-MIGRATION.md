@@ -407,4 +407,4 @@ Ghost, legacy workspaces, local AXIS checkouts, caches, non-durable sessions, ha
 
 ## Current blockers
 
-This design remains non-executable because the cross-host supervision prototype is unmerged/unintegrated, complete managed secret mapping, exclusive Hermes route reconstruction, signed deployment identity, live authority quiescence and exact destination/placement evidence are incomplete. Code custody is 9/9 remotely recoverable, but that does not authorize drain or cutover. `CUTOVER_READY` remains `NO`.
+This design remains non-executable because managed cross-host supervision deployment, complete managed secret mapping, exclusive Hermes route reconstruction, signed deployment identity, live authority quiescence and exact destination/placement evidence are incomplete. The supervision contract is proven on merged current mains and through disposable network isolation; code custody is 9/9 remotely recoverable. Neither fact authorizes drain or cutover. `CUTOVER_READY` remains `NO`.

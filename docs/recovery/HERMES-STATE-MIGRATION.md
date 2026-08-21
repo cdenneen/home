@@ -1,6 +1,6 @@
 # Hermes state migration
 
-**Status: FUTURE ONLY — DO NOT RUN.** This credential-free design classifies state; it does not authorize service, scheduler, route, credential, or data changes.
+**Status: FUTURE ONLY — DO NOT RUN.** This credential-free design classifies state; it does not authorize service, scheduler, route, credential, or data changes. The 2026-08-21 reduction and isolated empty-set reconstruction are recorded in `EXCLUSIVE-ROUTE-AND-HERMES-PORTABILITY.md`: `REQUIRED_SEMANTIC_MIGRATION_SET.HERMES = []` and `HERMES_SEMANTIC_RESTORE = PARTIAL` because the generic route declaration and any conditional selected-session input remain unqualified.
 
 ## Dispositions
 

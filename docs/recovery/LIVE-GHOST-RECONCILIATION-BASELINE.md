@@ -51,21 +51,21 @@ Independent GETs matched canonical collection for all three project identities, 
 
 | Classification | Result | Evidence / blocker |
 |---|---|---|
-| `CANONICAL_AXIS_CONTROL_SOURCE` | `READY_FOR_NORMAL_PR_FLOW` | Canonical main exists; PR #3 exact head is green and independently approved, but unmerged/unactivated. |
-| `CANONICAL_ALPHA0_SOURCE` | `READY_FOR_NORMAL_PR_FLOW` | Canonical main exists; PR #2 exact head is green and independently approved, but unmerged/unactivated. |
+| `CANONICAL_AXIS_CONTROL_SOURCE` | `MERGED_NOT_DEPLOYED` | PRs #3, #4 and #10 merged through reviewed flow; current main `830b6432a758a633afbf2f3127ceb3dfeba340d7` passed post-merge CI and remains unactivated. |
+| `CANONICAL_ALPHA0_SOURCE` | `MERGED_NOT_DEPLOYED` | PRs #2 and #4 merged through reviewed flow; current main `94e90beb00c46bca74f927437e1c8805eb64d099` passed post-merge CI and remains unactivated. |
 | `LEGACY_EVIDENCE_CAPTURE` | `PASS_WITH_PRIVATE_EXCLUSIONS` | 80 source-like entries verified; private DB evidence remains out of Git by design. |
 | `AXIS_CONTROL_BEHAVIOR_PARITY` | `PARTIAL` | Strong canonical safety contracts; bounded useful frontier/reconstruction/CI/UX gaps remain. |
 | `ALPHA0_REAL_DATA_RECOVERY` | `PASS_WITH_LIMITS` | Structural/offline compatibility passed; HMAC-signed Core-open and exclusive Hermes route/job reconstruction remain. |
 | `HERMES_ROUTING_UNDERSTOOD` | `PARTIAL` | Three ownership domains and four expected authority registries are mapped; additional live root/profile files include duplicate checkout scheduler authority, while generic/AXIS route equivalence and dedicated Alpha0 external identity remain unattested. |
-| `HOST_COUPLING_CLASSIFIED` | `PASS_WITH_LIMITS` | Canonical, deployment, legacy, ephemeral and unknown couplings are classified; a bounded cross-host supervision information boundary is prototyped, but live transport/deployment remains unaccepted. |
+| `HOST_COUPLING_CLASSIFIED` | `PASS_WITH_LIMITS` | Canonical, deployment, legacy, ephemeral and unknown couplings are classified; the bounded cross-host supervision contract is proven on merged mains and through isolated network transport, but managed live transport/deployment remains unaccepted. |
 | `SECRET_PORTABILITY` | `PARTIAL` | Metadata-only requirements and preferred Home/Alpha0 SOPS authorities are mapped; axis-control and several integration mappings/rotations remain incomplete. |
-| `HERMES_STATE_PORTABILITY` | `PARTIAL` | No Hermes state is currently qualified for mandatory migration; only an owner-selected generic session subset remains conditional, while route reconstruction and semantic proof are incomplete. |
-| `CONTROL_PLANE_HOST_MIGRATION` | `PLANNED_NOT_AUTHORIZED` | Future-only sequences define preconditions, abort, rollback and one-authority proof while retaining Alpha0 SQLite. |
+| `HERMES_STATE_PORTABILITY` | `PARTIAL` | Required Hermes migration set is empty; isolated Alpha0/axis-control profile/job reconstruction is restart-equivalent, but the generic route declaration and any conditional selected-session input remain unqualified. |
+| `CONTROL_PLANE_HOST_MIGRATION` | `PLANNED_NOT_AUTHORIZED` | The source-fencing plan deterministically covers known jobs, six registries, reprovision/recovery paths, generic continuity, aborts and rollback while retaining Alpha0 SQLite; it has not been executed. |
 | `DEPLOYMENT_PLACEMENT` | `PARTIAL_UNDECIDED` | Logical roles and constraints are mapped; exact destinations and axis-lab-owned backend admission decisions remain open. |
-| `PORTABLE_MANAGEMENT_PLANE` | `PARTIAL` | Source and core state paths are portable and the pure cross-host supervision boundary is tested, but transport integration, managed secrets, signed deployment, routing and exact placement evidence remain incomplete. |
+| `PORTABLE_MANAGEMENT_PLANE` | `PARTIAL` | Source and core state paths are portable and the cross-host supervision contract is proven, but managed transport integration, secrets, signed deployment, routing and exact placement evidence remain incomplete. |
 | `ACTIVE_AXIS_CUSTODY` | `FULLY_REMOTE_RECOVERABLE` | All 9 mapped work-item lineages have remote implementation custody; local review/controller evidence remains forensic and must not be fabricated in GitLab. |
 | `SAFE_DRAIN_READY` | `NO` | Live new-work sources/reconciler/workers, duplicate persisted scheduler authority, route-equivalence uncertainty and pending event reconciliation still require a future phased drain. |
-| `HOME_COMPOSITION_READY` | `NO` | PR #681 is dirty and lacks exact-head approval/current required CI. |
+| `HOME_COMPOSITION_READY` | `NO` | PR #681 remains blocked and lacks exact-head approval/passing required CI; no Home generation was activated. |
 | `SECURITY_REMEDIATION_READY` | `PLANNED_NOT_AUTHORIZED` | Paths/modes and future owner-only targets are known; values were not inspected and rotation was not performed. |
 | `CUTOVER_READY` | `NO` | Deployment identity, quiescence, routing exclusivity, live authority convergence, Home review/CI, exclusive Hermes reconstruction, cross-host supervision integration and rollback gates are incomplete. Code custody is 9/9 remotely recoverable but is not cutover authority. |
 
