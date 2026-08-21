@@ -55,10 +55,10 @@ The current Home composition supports this direction: `hosts/nixos/ghost-home.ni
 |---|---|---|
 | Alpha0 Core SQLite database | `REQUIRED_PRODUCT_CONTRACT` for current durable state | The path is XDG/configurable. The structurally tested Ghost backup had canonical schema v5 and requires no backend migration. Host migration and database-backend migration are separate transitions. |
 | Audit signing key reference | `REQUIRED_PRODUCT_CONTRACT` | Signed audit open must fail closed with a missing/wrong key. The key is externally provisioned; it is not database content. |
-| Alpha0 dedicated Hermes owner home/profile | `REQUIRED_PRODUCT_CONTRACT` for interaction continuity | Profile isolation, session identity, scheduler state, and routing preflights are local mutable state. They need a supported semantic backup/restore, not a bulk home copy. |
+| Alpha0 dedicated Hermes owner home/profile | `DEPLOYMENT_CONFIGURATION` for interaction continuity | Profile isolation and routing preflights are required, but declarations reconstruct from reviewed VCS with fresh runtime state. Source sessions and scheduler history are archive-only under current qualification; never bulk-copy the home. |
 | Core `127.0.0.1:8040`, Hermes `127.0.0.1:8642/8643`, optional service loopbacks | `DEPLOYMENT_CONFIGURATION` with intentional local isolation | Loopback protects the boundary but requires co-located clients or an explicitly reviewed proxy. It does not require Ghost by name. |
 | GitLab API and optional `127.0.0.1:19443` TLS relay | `DEPLOYMENT_CONFIGURATION` | Direct trusted routing is portable. The current manual Ghost-to-Nyx relay in `hosts/nixos/ghost-home.nix` is host-specific and gives API reachability only. |
-| Local axis-control roadmap/handoff/scheduler JSON and Hermes execution SQLite | `REQUIRED_PRODUCT_CONTRACT` for full current AXIS supervision | The audited `axis_control_supervision.py` joins local files with GitLab. There is no bounded cross-host status transport, so split-host supervision is incomplete. |
+| Local axis-control roadmap/handoff/scheduler JSON and Hermes execution SQLite | `LEGACY_COUPLING_TO_REMOVE` from cross-host supervision | The normal Alpha0 status caller still joins local files with GitLab. Producer PR #10 and consumer PR #4 prove a bounded transport-neutral replacement boundary, but they are unmerged/unintegrated and no signed live deployment has exercised it. |
 | Remote forced-command SSH work packages | `REQUIRED_PRODUCT_CONTRACT` for remote work execution, not supervision | The audited node transport binds request/result digests with strict host keys and bounds. `hosts/nixos/nyx-alpha0-node.nix` supplies a hardened node, but no axis-control status operation. |
 | Slack app/bot identity, API key, provider credentials, OAuth grants | `DEPLOYMENT_CONFIGURATION` | External identities are re-provisioned through managed authorities. Socket Mode has no host callback, but route exclusivity and credential custody still gate a move. |
 | Home Manager, Nix, user systemd, `/run/secrets`, clean environment | `DEPLOYMENT_CONFIGURATION` | The canonical module supplies this Linux deployment contract. No macOS/non-systemd launcher is qualified. |
@@ -67,7 +67,7 @@ The current Home composition supports this direction: `hosts/nixos/ghost-home.ni
 
 ### Cross-host supervision gap
 
-`ALPHA0` cannot currently provide complete supervision of `AXIS_CONTROL` across a host boundary. GitLab supplies project/MR/head/pipeline truth, but current health also reads the controller roadmap, handoff and scheduler-health JSON plus Hermes job/execution state from one local filesystem root. The remote work-package protocol does not export those artifacts. A future bounded, read-only, schema-versioned and authenticated status operation could close this gap; copying or remotely mounting live SQLite does not.
+`ALPHA0` cross-host supervision is `PARTIAL`. GitLab supplies project/MR/head/pipeline truth, and axis-control PR #10 plus Alpha0 PR #4 prove that a bounded `axis-control.supervision.v1` response can replace controller filesystem, process, Hermes database and worktree reads. The PRs remain unmerged, the normal status caller still uses the local path, authenticated transport/injection is unselected, and no signed live deployment has exercised the response. Copying or remotely mounting live SQLite is forbidden.
 
 ## Legacy and captured coupling to remove
 
@@ -93,8 +93,8 @@ The disabled `modules/hm/users/cdenneen/hermes-axis-control-gateway.nix` still c
 
 - `AXIS_CONTROL` canonical SDLC observation can run away from `AXIS_CORE`: **YES**, when direct GitLab HTTPS, managed credentials, owner-only local state, Nix closure, and root-owned signed trust are provisioned.
 - The current report-only Hermes watchdog can observe a remote Hermes profile: **NO**. It is intentionally host-local through SQLite, PID, and procfs.
-- `ALPHA0` can move without changing SQLite architecture: **YES**, subject to final quiesced backup, audit-key verification, and semantic Hermes restore.
-- `ALPHA0` can completely supervise a remote `AXIS_CONTROL` today: **NO**. GitLab observation crosses hosts; controller/Hermes status does not.
+- `ALPHA0` can move without changing SQLite architecture: **YES**, subject to final quiesced backup, audit-key verification, exclusive Hermes route/job reconstruction and one-owner integration proof.
+- `ALPHA0` can completely supervise a remote `AXIS_CONTROL` today: **PARTIAL**. The pure bounded producer/consumer information boundary is proven; merge, authenticated transport/injection, normal-caller integration and signed live deployment remain open.
 - Ghost-specific canonical product behavior: **none identified by hostname**. Remaining Ghost dependence is deployment state, legacy paths, current routing, credentials, local durable data, and unimplemented cross-host supervision.
 
 This classification is complete for the inspected canonical references, current Home composition, sanitized evidence inventory, and six supplied portability audits. Runtime activation and uninspected secret/database/session payloads remain outside scope.

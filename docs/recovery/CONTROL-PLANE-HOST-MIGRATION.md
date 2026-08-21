@@ -280,22 +280,22 @@ Delete disposable plaintext according to owner policy; retain only encrypted rec
 
 **Future-only action**
 
-Perform a supported semantic backup/restore rehearsal for approved durable sessions, scheduler de-duplication state, profile state, and non-reconstructible events. Recreate declarations from VCS, reconstruct projections, archive retired planes, discard ephemeral state only after retention review, and reissue secrets. Classify each external integration as rotate/reissue, OAuth reauthorize, callback update, DNS update, or no host-bound change.
+Recreate disabled Hermes declarations from VCS and dry-render one exclusive owner per route. Reconstruct projections from Alpha0 Core/provider evidence; archive source sessions/executions/ticker state under approved retention without importing them; discard ephemeral state only after retention review; reissue secrets. Only an owner-selected generic unprofiled session subset may receive a separate supported semantic backup/restore rehearsal after explicit continuity qualification. Classify each external integration as rotate/reissue, OAuth reauthorize, callback update, DNS update, or no host-bound change.
 
 **Acceptance**
 
-- No unprofiled legacy state overrides the dedicated Alpha0 profile.
-- Session namespaces and routing semantics survive the disposable restore.
-- Scheduler definitions remain disabled.
+- No unprofiled legacy state overrides the fresh dedicated Alpha0 profile.
+- Route/profile namespaces are exclusive without importing Alpha0 Hermes sessions or scheduler history.
+- Scheduler definitions remain disabled with fresh runtime identities.
 - One-owner Slack route proof is feasible; mode-`0644` legacy credential references are rotation-required.
 
 **Abort**
 
-Abort on unsupported semantic restore, namespace collision, duplicate delivery, missing integration owner, callback uncertainty, or route overlap.
+Abort on route/profile collision, duplicate delivery, missing integration owner, callback uncertainty, route overlap, or any attempted import of unqualified Hermes state.
 
 **Rollback**
 
-Discard the disposable restore; preserve source state and encrypted backup. Do not fall back to a bulk Hermes-home copy.
+Discard the disposable reconstruction; preserve source archives. Do not fall back to a bulk Hermes-home copy.
 
 ### Phase A0-4 — final source write quiescence and backup
 
@@ -332,7 +332,7 @@ Before destination writes, stop destination and resume only the exact reviewed s
 
 **Future-only action**
 
-Restore the final SQLite backup. Validate integrity, foreign keys, migration history, schema shape, aggregates, and structural audit continuity. Provision the audit key via managed reference and perform signed Core-open/audit verification. Run canonical doctor/status/daily brief/operating brief with external mutation denied. Restore only approved Hermes durable artifacts and repeat route/session/scheduler semantic checks. Keep jobs and gateway disabled.
+Restore the final SQLite backup. Validate integrity, foreign keys, migration history, schema shape, aggregates, and structural audit continuity. Provision the audit key via managed reference and perform signed Core-open/audit verification. Run canonical doctor/status/daily brief/operating brief with external mutation denied. Reconstruct disabled Hermes route/job declarations with fresh runtime state; restore only a separately qualified owner-selected generic session subset, if one exists. Keep jobs and gateway disabled.
 
 **Acceptance**
 
@@ -401,10 +401,10 @@ No secret, database/session payload, raw scheduler output, environment, log, or 
 A fresh authorized host must be recoverable from:
 
 - `AXIS_CONTROL`: reviewed VCS, pinned deployment definitions, managed secret references, GitLab truth, signed deployment trust, and any qualified non-reconstructible pending-event export;
-- `ALPHA0`: reviewed VCS, pinned deployment definitions, managed secret references/audit key, final validated SQLite backup, qualified Hermes durable-state backup, and external integration identity records.
+- `ALPHA0`: reviewed VCS, pinned deployment definitions, managed secret references/audit key, final validated SQLite backup, reconstructed exclusive Hermes route/job declarations, any separately qualified owner-selected generic session export, and external integration identity records.
 
 Ghost, legacy workspaces, local AXIS checkouts, caches, non-durable sessions, hand-edited scheduler state, PID/lock/heartbeat state, and runtime environment files are not valid recovery inputs.
 
 ## Current blockers
 
-This design remains non-executable because cross-host Alpha0 supervision, complete managed secret mapping, Hermes semantic restore, signed deployment identity, final custody convergence, and exact destination/placement evidence are incomplete. `CUTOVER_READY` remains `NO`.
+This design remains non-executable because the cross-host supervision prototype is unmerged/unintegrated, complete managed secret mapping, exclusive Hermes route reconstruction, signed deployment identity, live authority quiescence and exact destination/placement evidence are incomplete. Code custody is 9/9 remotely recoverable, but that does not authorize drain or cutover. `CUTOVER_READY` remains `NO`.

@@ -59,4 +59,8 @@ Classify each item exactly one of:
 - Do not interrupt workers/reviewers/CI. First disable only sources of *new* work in the authorized drain window; allow existing custody to reach a recorded boundary.
 - Archive board/task metadata as evidence after reconciliation. Do not import it as canonical controller state.
 
-`ACTIVE_AXIS_CUSTODY = PARTIAL`: all nine relevant lineages were mapped, but three relied partly on Ghost-local custody and later GitLab reads exposed head/state drift. Safe cutover was not established.
+## 2026-08-21 code-custody closure
+
+A fresh read-only GitLab/ancestry re-observation corrected the earlier AXIS57-A/!193 and AXIS85-A/!200 conflations. All open implementation heads now exist on live GitLab branches/MR refs, and every merged implementation/merge commit is contained by current main. No unique unpushed implementation commit remains in the nine mapped work-item lineages. Exact tuples and remaining local-only operational evidence are recorded in `PORTABLE-CONTROL-PLANE-BOUNDARIES.md`.
+
+`ACTIVE_AXIS_CUSTODY = FULLY_REMOTE_RECOVERABLE`: 9/9 for code recovery. Local board transitions, review artifacts, failed review attempts, drift classifications and controller checkpoints remain forensic/operational evidence; they do not justify a new commit or fabricated GitLab approval. Safe drain is still not established.

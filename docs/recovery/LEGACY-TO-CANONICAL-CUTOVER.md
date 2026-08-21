@@ -55,6 +55,15 @@ if len(jobs) > 1 or (jobs and jobs[0].get("enabled") is not False):
     raise SystemExit(f"job {expected}: expected absent or exactly one disabled record")
 PY
 }
+
+assert_registry_has_no_enabled_jobs() {
+  python3 - "$1" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+if path.exists() and any(job.get("enabled") is not False for job in json.loads(path.read_text()).get("jobs", [])):
+    raise SystemExit("registry contains enabled jobs")
+PY
+}
 ```
 
 ### Future verification commands
@@ -71,8 +80,10 @@ systemctl --user is-active hermes-stuck-cron-watchdog.timer
 systemctl --user list-timers --all
 sanitize_hermes_registry generic "$HOME/.hermes/cron/jobs.json"
 sanitize_hermes_registry root-axis-profile "$HOME/.hermes/profiles/axis-control/cron/jobs.json"
+sanitize_hermes_registry checkout-axis-root "$HOME/src/workspace/work/axis-control/.hermes/cron/jobs.json"
 sanitize_hermes_registry checkout-axis-profile "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json"
-sanitize_hermes_registry alpha0 "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+sanitize_hermes_registry alpha0-root "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+sanitize_hermes_registry alpha0-profile "$HOME/.local/share/alpha0/hermes/profiles/alpha0/cron/jobs.json"
 pgrep -a -u "$USER" -f 'reconcile-roadmap-execution|hermes.*axis-control|axis-development|alpha0'
 ```
 
@@ -88,6 +99,7 @@ Preconditions: Phase 0 passed; fresh custody map signed; all active owners notif
 # FUTURE ONLY — pause exact known new-work/recovery jobs; do not delete them.
 HERMES_HOME="$HOME/.hermes" hermes cron pause a9c0b0e9bcca
 HERMES_HOME="$HOME/.hermes" hermes cron pause bb8d50dc3332
+HERMES_HOME="$HOME/src/workspace/work/axis-control/.hermes" hermes cron pause 81776a5f93c5
 HERMES_HOME="$HOME/src/workspace/work/axis-control/.hermes" \
   hermes --profile axis-control cron pause 81776a5f93c5
 
@@ -103,6 +115,7 @@ systemctl --user disable hermes-watchdog-cutover.service
 # Prove paused/disabled and inactive state; do not run a scheduler tick.
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" a9c0b0e9bcca
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" bb8d50dc3332
+assert_job_disabled_or_absent "$HOME/src/workspace/work/axis-control/.hermes/cron/jobs.json" 81776a5f93c5
 assert_job_disabled_or_absent "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json" 81776a5f93c5
 ! systemctl --user is-active --quiet axis-development-watchdog-backup.service
 ! systemctl --user is-active --quiet hermes-axis-control-scheduler-watchdog.service
@@ -159,21 +172,23 @@ Do not remove rootless workspace, board DB, sessions, refs, jobs or evidence. Ab
 
 ## Phase 4 — quiesce legacy Alpha0 scheduler and gateway
 
-Preconditions: signed Core backup and disposable structural test passed; dedicated Hermes semantic backup/restore passed; status/SITREP outputs and exact channel ownership were qualified; no active Alpha0 interaction requires the gateway.
+Preconditions: signed Core backup and disposable structural test passed; disabled Hermes routes/jobs were reconstructed with fresh runtime state; status/SITREP outputs and exact channel ownership were qualified; no active Alpha0 interaction requires the gateway. Source Hermes sessions/executions/ticker history are archive-only unless a separately qualified generic session subset exists.
 
 ```console
 # FUTURE ONLY.
 HERMES_HOME="$HOME/.local/share/alpha0/hermes" hermes cron pause 6d29e5d5338a
 HERMES_HOME="$HOME/.local/share/alpha0/hermes" hermes cron pause 5990e9abf356
+# The routed-profile registry is inspected and asserted below; it currently has no jobs.
 systemctl --user disable --now hermes-alpha0-gateway.service
 
 assert_job_disabled_or_absent "$HOME/.local/share/alpha0/hermes/cron/jobs.json" 6d29e5d5338a
 assert_job_disabled_or_absent "$HOME/.local/share/alpha0/hermes/cron/jobs.json" 5990e9abf356
+assert_registry_has_no_enabled_jobs "$HOME/.local/share/alpha0/hermes/profiles/alpha0/cron/jobs.json"
 ! systemctl --user is-active --quiet hermes-alpha0-gateway.service
 systemctl --user is-active hermes-gateway.service
 ```
 
-**Abort/rollback:** if a dedicated Alpha0 route/session is still active or semantic restore is incomplete, do not stop the gateway. If already stopped and continuity is required, restore only the exact reviewed gateway; keep both schedules paused until their wrappers/state are separately accepted.
+**Abort/rollback:** if a dedicated Alpha0 route/session is still active or exclusive route reconstruction is incomplete, do not stop the gateway. If already stopped and continuity is required, restore only the exact reviewed gateway; keep both schedules paused until their wrappers and fresh runtime state are separately accepted.
 
 ## Phase 5 — activate the reviewed dormant Home composition
 
@@ -203,13 +218,16 @@ systemctl --user is-active hermes-stuck-cron-watchdog.timer
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" a9c0b0e9bcca
 assert_job_disabled_or_absent "$HOME/.hermes/cron/jobs.json" bb8d50dc3332
 assert_job_disabled_or_absent "$HOME/.hermes/profiles/axis-control/cron/jobs.json" adb213a9d005
-assert_job_disabled_or_absent "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json" 81776a5f93c5
-assert_job_disabled_or_absent "$HOME/.local/share/alpha0/hermes/cron/jobs.json" 6d29e5d5338a
-assert_job_disabled_or_absent "$HOME/.local/share/alpha0/hermes/cron/jobs.json" 5990e9abf356
+assert_registry_has_no_enabled_jobs "$HOME/src/workspace/work/axis-control/.hermes/cron/jobs.json"
+assert_registry_has_no_enabled_jobs "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json"
+assert_registry_has_no_enabled_jobs "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+assert_registry_has_no_enabled_jobs "$HOME/.local/share/alpha0/hermes/profiles/alpha0/cron/jobs.json"
 sanitize_hermes_registry generic "$HOME/.hermes/cron/jobs.json"
 sanitize_hermes_registry root-axis-profile "$HOME/.hermes/profiles/axis-control/cron/jobs.json"
+sanitize_hermes_registry checkout-axis-root "$HOME/src/workspace/work/axis-control/.hermes/cron/jobs.json"
 sanitize_hermes_registry checkout-axis-profile "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json"
-sanitize_hermes_registry alpha0 "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+sanitize_hermes_registry alpha0-root "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+sanitize_hermes_registry alpha0-profile "$HOME/.local/share/alpha0/hermes/profiles/alpha0/cron/jobs.json"
 ! pgrep -u "$USER" -f "$HOME/src/workspace/work/axis-control|reconcile-roadmap-execution"
 home-manager generations
 ```
@@ -243,8 +261,10 @@ home-manager switch --rollback
 systemctl --user is-active hermes-gateway.service
 sanitize_hermes_registry generic "$HOME/.hermes/cron/jobs.json"
 sanitize_hermes_registry root-axis-profile "$HOME/.hermes/profiles/axis-control/cron/jobs.json"
+sanitize_hermes_registry checkout-axis-root "$HOME/src/workspace/work/axis-control/.hermes/cron/jobs.json"
 sanitize_hermes_registry checkout-axis-profile "$HOME/src/workspace/work/axis-control/.hermes/profiles/axis-control/cron/jobs.json"
-sanitize_hermes_registry alpha0 "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+sanitize_hermes_registry alpha0-root "$HOME/.local/share/alpha0/hermes/cron/jobs.json"
+sanitize_hermes_registry alpha0-profile "$HOME/.local/share/alpha0/hermes/profiles/alpha0/cron/jobs.json"
 ```
 
 Home rollback does not safely reconstruct cron records deleted by fail-closed decommission and must not automatically reactivate legacy mutation. Restore a removed job only from its signed sanitized definition, with exact ownership/cadence review and explicit authorization. Keep dispatch jobs paused until a fresh custody map passes. If rollback would create dual authority or lose generic continuity, leave the dormant generation in place and escalate rather than improvising.

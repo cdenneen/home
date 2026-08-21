@@ -15,14 +15,14 @@ Each row below has one disposition. Conditional decisions are split into separat
 
 ## Runtime domains
 
-The capture identified four scheduler registries across three gateway domains:
+The capture identified four expected authority registries across three gateway domains:
 
 1. generic owner home `~/.hermes`, including its root scheduler;
 2. root profile `~/.hermes/profiles/axis-control`;
-3. rootless checkout home and profile under the legacy axis-control workspace;
+3. rootless checkout profile under the legacy axis-control workspace;
 4. dedicated Alpha0 owner home with routed `alpha0` profile.
 
-These are independent namespaces. They must never be merged. The intended dormant Home composition keeps only generic communication active, disables legacy AXIS and Alpha0 gateways/schedules, and installs an unscheduled report-only canonical AXIS observer definition.
+Later read-only inspection found additional live root/profile files at the checkout root and Alpha0 routed profile. Historical `state-snapshots/*/cron/jobs.json` files are non-live `ARCHIVE_EVIDENCE`, not registries or fallback authority. These namespaces and snapshots must never be merged or imported as current state. The intended dormant Home composition keeps only generic communication active, disables legacy AXIS and Alpha0 gateways/schedules, and installs an unscheduled report-only canonical AXIS observer definition.
 
 ## Complete artifact disposition matrix
 
@@ -30,13 +30,13 @@ These are independent namespaces. They must never be merged. The intended dorman
 |---|---|---|---|---|---|
 | Generic | Gateway/profile configuration template | Home/producer declaration | `RECREATE_FROM_VCS` | Install exact reviewed Home generation and Hermes package. | Signed deployment binds template, package, and entrypoint. |
 | Generic | Rendered route map and non-secret profile ownership | Generated deployment state | `RECONSTRUCT_FROM_CANONICAL` | Render one exclusive owner per route; do not byte-copy mutable YAML. | Sanitized route inventory shows no duplicate owner. |
-| Generic | Generic sessions and session index required for current interaction continuity | Unique application state | `MIGRATE_DURABLE` | Quiesce gateway; use supported semantic export/restore; preserve namespace and ownership. | Disposable restore passes session lookup/routing without payload disclosure. |
-| Generic | Generic Kanban/mission state still authoritative for non-AXIS interaction | Unique application state, if explicitly accepted | `MIGRATE_DURABLE` | Export/import with supported schema; if no importer exists, migrate a checkpointed whole generic DB, never selected rows. | Schema/integrity and application-level semantic checks pass. |
+| Generic | Owner-selected generic unprofiled Slack sessions with a proved continuity need | Unique application state only if explicitly selected | `MIGRATE_DURABLE` conditionally | Default to a fresh session. Migrate only an owner-selected subset through supported semantic export/restore after proving context cannot safely restart. | Disposable restore preserves generic namespace/routing without payload disclosure or AXIS/session import. |
+| Generic | Generic Kanban/mission state | No accepted unique state observed | `RECONSTRUCT_FROM_CANONICAL` | Rebuild from designated durable owners; do not import a whole state database. | Regenerated view is consistent and does not create authority. |
 | Generic | Derived Kanban/status views | Reconstructable projection | `RECONSTRUCT_FROM_CANONICAL` | Re-read designated durable owners after activation. | Regenerated view is consistent and does not create authority. |
-| Generic | Execution database required for generic continuity | Local durable state | `MIGRATE_DURABLE` | Stop writers, checkpoint SQLite, copy through authenticated encrypted channel, exclude WAL/SHM after checkpoint. | Integrity/schema/version/free-space checks and supported open pass. |
+| Generic | Scheduler execution database | Historical execution evidence; observed jobs are legacy AXIS | `ARCHIVE_EVIDENCE` | Archive quiesced metadata if required; do not import as live execution state. | Destination generic continuity succeeds without source executions. |
 | Generic | Non-AXIS scheduler definitions | Reviewed deployment declaration | `RECREATE_FROM_VCS` | Reinstall declared names/cadences/commands only; runtime job IDs are not authority. | Sanitized inventory equals signed declaration and jobs remain disabled until accepted. |
-| Generic | Scheduler execution/ticker history required for delivery de-duplication | Local durable scheduler state | `MIGRATE_DURABLE` | Use supported semantic scheduler backup/restore, not JSON/DB merging. | No duplicate delivery in a bounded disabled rehearsal. |
-| Generic | Gateway state JSON needed by supported restore | Local compatibility state | `MIGRATE_DURABLE` | Include only if the target Hermes version documents compatibility. | Exact target version accepts state in disposable restore. |
+| Generic | Scheduler execution/ticker history | Historical runtime evidence; no migration need currently qualified | `ARCHIVE_EVIDENCE` | Archive under approved retention and start destination runtime state fresh; derive delivery boundaries from accepted owners/receipts. | Disabled rehearsal proves cadence and no duplicate delivery without importing history. |
+| Generic | Gateway state JSON | Machine/runtime compatibility state | `DISCARD_EPHEMERAL` | Recreate from reviewed configuration; do not import mutable route/liveness state. | Fresh destination state passes route and liveness checks. |
 | Generic | Gateway heartbeat, PID, lock, socket, cron heartbeat, WAL/SHM after checkpoint | Machine/process state | `DISCARD_EPHEMERAL` | Let destination recreate after start. | No source machine identity appears in destination liveness. |
 | Generic | Logs/journal without approved retention need | Operational output | `DISCARD_EPHEMERAL` | Start a new destination journal lineage. | No logs copied into runtime state. |
 | Generic | Logs/journal with an approved retention need | Historical evidence | `ARCHIVE_EVIDENCE` | Seal separately in encrypted owner-only archive; never replay. | Retention/access policy and archive custody recorded. |
@@ -53,11 +53,11 @@ These are independent namespaces. They must never be merged. The intended dorman
 | Checkout AXIS root/profile | Worktrees, virtualenv, cache, PID, lock, heartbeat, temp snapshots | Rebuildable/machine state | `DISCARD_EPHEMERAL` | Delete only after custody and retention approval. | Every unique commit has approved durable disposition first. |
 | Alpha0 owner/default profile | Hermes package, configuration templates, routing shim, wrappers, prompts, producer-owned skills, units | Canonical Alpha0/Home producers | `RECREATE_FROM_VCS` | Install exact reviewed package and deployment definitions; keep disabled. | No Ghost/checkout path; profile and clarification preflights pass. |
 | Alpha0 owner/default profile | Rendered route map and provider observations | Generated configuration/projections | `RECONSTRUCT_FROM_CANONICAL` | Render dedicated app/profile ownership and re-read providers after authorization. | One owner per route; observations do not mutate providers. |
-| Alpha0 routed profile | Sessions required for interaction continuity | Unique dedicated-profile state | `MIGRATE_DURABLE` | Use supported profile-aware semantic export/restore. | Session keys retain profile identity; no generic fallback/collision. |
-| Alpha0 owner/routed profile | Kanban/profile durable state that cannot be reconstructed | Unique accepted interaction state | `MIGRATE_DURABLE` | Transfer only after owner classifies it as active and target schema accepts it. | Application-level semantics pass on disposable restore. |
+| Alpha0 routed profile | Hermes sessions | No continuity requirement currently qualified | `ARCHIVE_EVIDENCE` | Default to fresh sessions and retain source evidence only under approved retention. A future migration candidate requires a new explicit classification and profile-aware semantic restore proof. | Session keys retain profile identity; no generic fallback/collision. |
+| Alpha0 owner/routed profile | Kanban/profile state | Reconstructable or currently empty by sanitized metadata | `RECONSTRUCT_FROM_CANONICAL` | Rebuild from Alpha0 Core/providers; do not import a whole Hermes state database. | Application-level views regenerate without writes. |
 | Alpha0 owner/routed profile | Derived Kanban/status/brief projections | Reconstructable from Alpha0 SQLite/providers | `RECONSTRUCT_FROM_CANONICAL` | Re-render from accepted Core data and bounded provider observations. | Counts/semantics match without writes. |
 | Alpha0 owner/routed profile | Scheduler definitions for daily status and AXIS SITREP | Canonical producer definitions after wrapper review | `RECREATE_FROM_VCS` | Recreate disabled; do not copy runtime IDs or legacy wrappers. | Exact wrapper/config/audit-key semantics pass before individual enablement. |
-| Alpha0 owner/routed profile | Scheduler execution/ticker state needed to avoid duplicate delivery | Local durable scheduler state | `MIGRATE_DURABLE` | Use a supported semantic restore. | Disabled rehearsal proves cadence/last-delivery semantics and no duplicate. |
+| Alpha0 owner/routed profile | Scheduler execution/ticker state | Historical runtime evidence; no migration need currently qualified | `ARCHIVE_EVIDENCE` | Archive under approved retention and start destination runtime state fresh; derive delivery boundaries from Alpha0 Core/audit/provider receipts. | Disabled rehearsal proves cadence and no duplicate delivery without importing history. |
 | Alpha0 owner/routed profile | Historical scheduler registry, retired wrapper/config copies | Legacy evidence | `ARCHIVE_EVIDENCE` | Seal sanitized metadata; do not activate. | Canonical registry is generated independently. |
 | Alpha0 owner/routed profile | Gateway PID/state, heartbeats, locks, cache, temporary files | Process state | `DISCARD_EPHEMERAL` | Recreate at destination start. | New liveness identity is destination-local. |
 | Alpha0 owner/routed profile | Logs without approved retention need | Operational output | `DISCARD_EPHEMERAL` | Do not transfer. | Destination runtime contains no source log payload. |
@@ -76,11 +76,19 @@ A filesystem copy is not a semantic restore. Before any `MIGRATE_DURABLE` row mo
 3. checkpoint SQLite through supported application/SQLite behavior;
 4. export only the selected namespace and artifact class;
 5. use authenticated encrypted transport into a mode-`0700` destination directory with files mode `0600` or stricter;
-6. validate schema, integrity, profile-aware session keys, scheduler de-duplication, route ownership, and application-level reads on a disposable restore;
+6. validate schema, integrity, selected generic session lookup, profile-aware keys, route ownership, and application-level reads on a disposable restore;
 7. leave gateway and scheduler definitions disabled;
 8. record rollback custody without any payload in the public receipt.
 
 Until this test passes, `HERMES_STATE_PORTABILITY = PARTIAL`.
+
+## Reduced qualified migration set
+
+As of the 2026-08-21 read-only reduction, no Hermes artifact is unconditionally qualified for live semantic migration. The only conditional candidate is an owner-selected subset of generic unprofiled Slack sessions when explicit continuity need and disposable profile-aware restore proof exist. AXIS sessions/executions/checkpoints are archive or reconstruction inputs; Alpha0 Hermes sessions, execution/ticker state, routes, jobs and projections are archive/recreate/reconstruct classes.
+
+Alpha0 Core SQLite remains required durable application state with separate managed audit-key authority, but it is not Hermes state. See `PORTABLE-CONTROL-PLANE-BOUNDARIES.md`.
+
+`HERMES_DURABLE_STATE_REQUIRED = NONE_CURRENTLY_QUALIFIED`.
 
 ## Integration identity and host-move actions
 
@@ -98,7 +106,7 @@ Until this test passes, `HERMES_STATE_PORTABILITY = PARTIAL`.
 
 ### Slack host-move answer
 
-**YES, conditionally:** the logical Slack bot/app identity can survive a host move without functional change because the observed integration uses outbound Socket Mode rather than a host-bound callback. This does not make the move currently ready. Credential custody, exact channel/chat ownership, dedicated Alpha0 profile/session semantics, semantic state restore, and source-no-connection proof must pass. Credentials referenced by the mode-`0644` legacy environment files cannot survive as-is; they are rotation-required.
+**YES, conditionally:** the logical Slack bot/app identity can survive a host move without functional change because the observed integration uses outbound Socket Mode rather than a host-bound callback. This does not make the move currently ready. Credential custody, exact channel/chat ownership, fresh dedicated Alpha0 profile/routing semantics, and source-no-connection proof must pass. Source Alpha0 Hermes sessions remain archive-only under current qualification. Credentials referenced by the mode-`0644` legacy environment files cannot survive as-is; they are rotation-required.
 
 ## Abort and rollback
 
