@@ -65,7 +65,7 @@ Current Home and PR #681 declarations are not runtime proof: disabled/absent gen
 
 Two bounded stacked producer PRs prototype the transport-neutral boundary:
 
-- axis-control PR #10, head `63cefcb9639b7b8a0fa5a1822e06a158699a1ea5`, exposes `axis-control.supervision.v1` through the existing JSON status CLI;
+- axis-control PR #10, head `6cd62c34a7f2810003da5deb83ee5b6fe3e8504c`, exposes `axis-control.supervision.v1` through the existing JSON status CLI;
 - Alpha0 PR #4, head `3c0a5bae6242f0956782fd0ca36b9f5a747e07ea`, strictly consumes a supplied response and supplied GitLab observation.
 
 The response is capped at 64 KiB and contains only controller revision, verified deployment identity, watchdog-derived runtime health, correctness/completeness health, deterministic frontier digest, bounded active-lineage summary, committed-transition evidence or `UNKNOWN`, bounded drift/PO summaries and observation time. It excludes paths, PIDs, argv, commands, worktrees, Hermes rows and credentials.
