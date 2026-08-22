@@ -14,6 +14,15 @@ Normal producer integration completed before this qualification.
 
 The reviewed feature heads are ancestors of these merge commits. PR-head success is not used as the final source-integration claim.
 
+## Solo-maintainer review governance
+
+```text
+HUMAN_SECOND_PARTY_REVIEW = NOT_APPLICABLE
+repository has one authorized human maintainer
+```
+
+Home default-branch governance requires pull requests, strict current-base NixOS and Darwin checks, resolved review conversations, linear history, deletion/non-fast-forward protection, and no admin bypass actor. The required human approval count is zero and most-recent-push approval is disabled because the sole authorized human cannot provide a valid second-party approval. Independent exact-head model review remains a separate evidence/policy gate; it is never represented as human approval and becomes stale after any head change.
+
 ## Supervision boundary
 
 ```text
@@ -157,7 +166,7 @@ HERMES_SEMANTIC_RESTORE = PARTIAL
 GENERIC_ROUTE_RECONSTRUCTION = PARTIAL
 ```
 
-The empty required set and canonical Alpha0/axis-control profile/job reconstruction are reproducible. Home PR #692 exact head `f313cd60d850505b081490a3ef8ee74cf590a910` adds a missing-file-only, mode-`0600` generic config bootstrap, an out-of-store `EnvironmentFile` contract, legacy Slack plugin alias cleanup, and executable activation checks. The exact head passed both targeted Nix checks, a Ghost Home activation-package build, disposable fresh/existing/dangling-config checks, and independent review with no findings. GitHub review remains required; routine evaluation/security checks completed, while the full-flake jobs were skipped. The PR does not manage the external environment file, migrate credentials, activate Ghost, or restore historical sessions. Until that exact head is merged, re-reviewed after any change, and paired with managed secret authority in a disposable reconstruction, generic route reconstruction remains partial. Existing runtime route rows must not be imported to hide that gap.
+The empty required set and canonical Alpha0/axis-control profile/job reconstruction are reproducible. Home PR #692 reviewed head `f313cd60d850505b081490a3ef8ee74cf590a910` added a missing-file-only, mode-`0600` generic config bootstrap, an out-of-store `EnvironmentFile` contract, legacy Slack plugin alias cleanup, and executable activation checks. It merged through the linear protected-PR flow as current-main commit `3b3baa62e652277bf538188e0f8d565a8b52fc27`; the reviewed and merged trees are identical. The reviewed head passed both targeted Nix checks, a Ghost Home activation-package build, disposable fresh/existing/dangling-config checks, and independent review with no findings. Current-main NixOS and Darwin CI run `32596200628` succeeded. The merged declaration does not manage the external environment file, migrate credentials, activate Ghost, or restore historical sessions. Until it is paired with managed secret authority in a disposable reconstruction, generic route reconstruction remains partial. Existing runtime route rows must not be imported to hide that gap.
 
 ### Live fence qualification
 
@@ -246,4 +255,4 @@ CUTOVER_READY:
 NO
 ```
 
-`SAFE_DRAIN_READY` remains `NO`: external identity attestation retains bounded provider/delivery gaps; Home PR #692 does not yet provide merged managed-secret reconstruction; both checkout records remain enabled despite the proven stale-derived classification; current source custody includes active work and pending effects; and the required, separately authorized `24h15m` fence/no-restart observation has not occurred. No Phase B command was executed. Final host or data-service placement is outside this report.
+`SAFE_DRAIN_READY` remains `NO`: external identity attestation retains bounded provider/delivery gaps; merged Home declarations still require external managed-secret reconstruction proof; both checkout records remain enabled despite the proven stale-derived classification; current source custody includes active work and pending effects; and the required, separately authorized `24h15m` fence/no-restart observation has not occurred. No Phase B command was executed. Final host or data-service placement is outside this report.
