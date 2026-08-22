@@ -26,6 +26,7 @@ let
       value = homeConfiguration {
         system = host.system;
         legacyBigSur = host.legacyBigSur or false;
+        agentPkgsOverride = host.agentPkgsOverride or (agentPkgs: _unstablePkgs: agentPkgs);
         homeModules = [
           defaultHomeModule
           # Make the host name available during pure HM eval.

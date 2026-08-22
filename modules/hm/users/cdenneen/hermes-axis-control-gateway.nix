@@ -46,6 +46,9 @@ in
 
     home.packages = [ agentPkgs.hermes ];
 
+    profiles.hermesSlackPlatformOverride.targets.dedicated-axis-control.homeRelativePath =
+      "src/workspace/work/axis-control/.hermes/profiles/axis-control";
+
     home.activation.hermesAxisControlGatewayLegacyCleanup =
       lib.hm.dag.entryBefore [ "checkLinkTargets" ]
         ''
