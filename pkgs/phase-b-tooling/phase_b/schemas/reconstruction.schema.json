@@ -1,0 +1,439 @@
+{
+  "$id": "https://example.invalid/phase-b/reconstruction.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 14,
+  "minProperties": 14,
+  "properties": {
+    "attempt_id": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "clean_roots": {
+      "additionalProperties": false,
+      "maxProperties": 4,
+      "minProperties": 4,
+      "properties": {
+        "home": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "/.*",
+          "type": "string"
+        },
+        "preexisting_entries": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runtime": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "/.*",
+          "type": "string"
+        },
+        "workspace": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "/.*",
+          "type": "string"
+        }
+      },
+      "required": ["home", "preexisting_entries", "runtime", "workspace"],
+      "type": "object"
+    },
+    "environment": {
+      "additionalProperties": false,
+      "maxProperties": 3,
+      "minProperties": 3,
+      "properties": {
+        "artifact": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_only": {
+              "type": "boolean"
+            }
+          },
+          "required": ["digest", "id", "media_type", "owner_only"],
+          "type": "object"
+        },
+        "mode": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "variable_names": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 2048,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": ["artifact", "mode", "variable_names"],
+      "type": "object"
+    },
+    "execution_identity": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "home_id": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "home_mode": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "imported_state": {
+      "additionalProperties": false,
+      "maxProperties": 4,
+      "minProperties": 4,
+      "properties": {
+        "digest": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_only": {
+          "type": "boolean"
+        }
+      },
+      "required": ["digest", "id", "media_type", "owner_only"],
+      "type": "object"
+    },
+    "network_monitor": {
+      "additionalProperties": false,
+      "maxProperties": 2,
+      "minProperties": 2,
+      "properties": {
+        "artifact": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_only": {
+              "type": "boolean"
+            }
+          },
+          "required": ["digest", "id", "media_type", "owner_only"],
+          "type": "object"
+        },
+        "binding": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": ["closure", "digest", "path"],
+          "type": "object"
+        }
+      },
+      "required": ["artifact", "binding"],
+      "type": "object"
+    },
+    "runner": {
+      "additionalProperties": false,
+      "maxProperties": 3,
+      "minProperties": 3,
+      "properties": {
+        "closure": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "/.*",
+          "type": "string"
+        },
+        "digest": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "/.*",
+          "type": "string"
+        }
+      },
+      "required": ["closure", "digest", "path"],
+      "type": "object"
+    },
+    "schema": {
+      "const": "phase-b.reconstruction.v2"
+    },
+    "semantics": {
+      "additionalProperties": false,
+      "maxProperties": 4,
+      "minProperties": 4,
+      "properties": {
+        "digest": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_only": {
+          "type": "boolean"
+        }
+      },
+      "required": ["digest", "id", "media_type", "owner_only"],
+      "type": "object"
+    },
+    "source_revision": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "transcript": {
+      "additionalProperties": false,
+      "maxProperties": 3,
+      "minProperties": 3,
+      "properties": {
+        "input": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_only": {
+              "type": "boolean"
+            }
+          },
+          "required": ["digest", "id", "media_type", "owner_only"],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_only": {
+              "type": "boolean"
+            }
+          },
+          "required": ["digest", "id", "media_type", "owner_only"],
+          "type": "object"
+        },
+        "transcript": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_only": {
+              "type": "boolean"
+            }
+          },
+          "required": ["digest", "id", "media_type", "owner_only"],
+          "type": "object"
+        }
+      },
+      "required": ["input", "output", "transcript"],
+      "type": "object"
+    },
+    "write_monitor": {
+      "additionalProperties": false,
+      "maxProperties": 2,
+      "minProperties": 2,
+      "properties": {
+        "artifact": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "media_type": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_only": {
+              "type": "boolean"
+            }
+          },
+          "required": ["digest", "id", "media_type", "owner_only"],
+          "type": "object"
+        },
+        "binding": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": ["closure", "digest", "path"],
+          "type": "object"
+        }
+      },
+      "required": ["artifact", "binding"],
+      "type": "object"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "clean_roots",
+    "environment",
+    "execution_identity",
+    "home_id",
+    "home_mode",
+    "imported_state",
+    "network_monitor",
+    "runner",
+    "schema",
+    "semantics",
+    "source_revision",
+    "transcript",
+    "write_monitor"
+  ],
+  "type": "object"
+}

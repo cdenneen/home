@@ -1,0 +1,68 @@
+{
+  "$id": "https://example.invalid/phase-b/journal.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 8,
+  "minProperties": 8,
+  "properties": {
+    "action_id": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "minProperties": 1,
+      "properties": {
+        "attempt_id": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": ["attempt_id"],
+      "type": "object"
+    },
+    "previous_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "record_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "recorded_at": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema": {
+      "const": "phase-b.journal-record.v1"
+    },
+    "sequence": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "action_id",
+    "kind",
+    "payload",
+    "previous_digest",
+    "record_digest",
+    "recorded_at",
+    "schema",
+    "sequence"
+  ],
+  "type": "object"
+}

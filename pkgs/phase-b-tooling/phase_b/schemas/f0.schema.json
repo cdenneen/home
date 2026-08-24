@@ -1,0 +1,84 @@
+{
+  "$id": "https://example.invalid/phase-b/f0.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attempt_id": { "minLength": 1, "type": "string" },
+    "capture_id": { "pattern": "[0-9a-f]{64}", "type": "string" },
+    "custody_reads": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "additionalProperties": false,
+            "maxProperties": 4,
+            "minProperties": 4,
+            "properties": {
+              "digest": { "pattern": "sha256:[0-9a-f]{64}", "type": "string" },
+              "id": { "pattern": "[a-z][a-z0-9-]{2,63}", "type": "string" },
+              "media_type": { "const": "application/json" },
+              "owner_only": { "const": true }
+            },
+            "required": ["digest", "id", "media_type", "owner_only"],
+            "type": "object"
+          },
+          "method": { "enum": ["GET", "NO_OP"] },
+          "observed_monotonic": { "minimum": 0, "type": "number" }
+        },
+        "required": ["artifact", "method", "observed_monotonic"],
+        "type": "object"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "evidence": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "maxProperties": 4,
+        "minProperties": 4,
+        "properties": {
+          "digest": { "pattern": "sha256:[0-9a-f]{64}", "type": "string" },
+          "id": { "pattern": "[a-z][a-z0-9-]{2,63}", "type": "string" },
+          "media_type": { "const": "application/json" },
+          "owner_only": { "const": true }
+        },
+        "required": ["digest", "id", "media_type", "owner_only"],
+        "type": "object"
+      },
+      "maxProperties": 7,
+      "minProperties": 7,
+      "properties": {},
+      "required": [
+        "audit",
+        "registry",
+        "database",
+        "provider-route",
+        "custody",
+        "identity",
+        "time"
+      ],
+      "type": "object"
+    },
+    "f0_at": { "pattern": "[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z", "type": "string" },
+    "journal_head": { "pattern": "sha256:[0-9a-f]{64}", "type": "string" },
+    "registry_digests": {
+      "items": { "pattern": "sha256:[0-9a-f]{64}", "type": "string" },
+      "maxItems": 6,
+      "minItems": 6,
+      "type": "array"
+    },
+    "schema": { "const": "phase-b.f0.v3" }
+  },
+  "required": [
+    "attempt_id",
+    "capture_id",
+    "custody_reads",
+    "evidence",
+    "f0_at",
+    "journal_head",
+    "registry_digests",
+    "schema"
+  ],
+  "type": "object"
+}

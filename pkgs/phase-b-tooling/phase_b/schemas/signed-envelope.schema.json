@@ -1,0 +1,46 @@
+{
+  "$id": "https://example.invalid/phase-b/signed-envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 5,
+  "minProperties": 5,
+  "properties": {
+    "namespace": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": false,
+      "maxProperties": 2,
+      "minProperties": 2,
+      "properties": {
+        "schema": {
+          "const": "phase-b.sample.v1"
+        },
+        "value": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": ["schema", "value"],
+      "type": "object"
+    },
+    "schema": {
+      "const": "phase-b.signed-envelope.v1"
+    },
+    "signature": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "signer_id": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": ["namespace", "payload", "schema", "signature", "signer_id"],
+  "type": "object"
+}
