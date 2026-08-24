@@ -140,6 +140,72 @@ jobs:
           nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
           nix build .#nixosConfigurations.MacBook-Pro-NixOS.config.system.build.toplevel --accept-flake-config
 
+  minimalvm-full-linux:
+    # savage/flash/onyx/talon (profiles.minimalVm) are free-tier x86_64
+    # boxes with no headroom to build in-repo packages from source. They
+    # were never built anywhere, so cdenneen.cachix.org had nothing to
+    # substitute from -- every on-box `nixos-rebuild switch` compiled
+    # everything locally, which is what's been hanging/OOMing them, not raw
+    # RAM. Building them here on a real x86_64 runner and pushing the
+    # result to cachix means an on-box switch becomes mostly a download.
+    # Run this dispatch (full_checks=true) after merging config changes for
+    # any of these hosts, before switching on the host itself.
+    if: github.event_name == 'workflow_dispatch' && inputs.full_checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Configure private flake access
+        env:
+          GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GITLAB_AXIS_READ_TOKEN" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GITLAB_AXIS_READ_TOKEN is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          if [ -z "$GH_PAT" ]; then
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: GH_PAT is unavailable in this workflow context" >&2
+            exit 1
+          fi
+          umask 077
+          cat > "$HOME/.netrc" <<EOF
+          machine gitlab.com
+            login gitlab+deploy-token-15084811
+            password $GITLAB_AXIS_READ_TOKEN
+          EOF
+          export NIX_CONFIG="access-tokens = github.com=$GH_PAT"
+          {
+            echo "NIX_CONFIG<<EOF"
+            printf '%s\n' "$NIX_CONFIG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          unset GITLAB_AXIS_READ_TOKEN
+          git ls-remote https://gitlab.com/ghostspace/axis.git HEAD >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace/axis" >&2
+            exit 1
+          }
+          nix flake metadata github:ghostspace-com/axis-control/ba7e03ecce879be7047263b827d4a4dba8fd8527 --json >/dev/null || {
+            echo "PRIVATE_FLAKE_AUTH_UNAVAILABLE: cannot read ghostspace-com/axis-control" >&2
+            exit 1
+          }
+          unset GH_PAT
+      - uses: cachix/cachix-action@v17
+        with:
+          name: cdenneen
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build minimalVm hosts (savage, flash, onyx, talon)
+        run: |
+          nix build --accept-flake-config \
+            .#nixosConfigurations.savage.config.system.build.toplevel \
+            .#nixosConfigurations.flash.config.system.build.toplevel \
+            .#nixosConfigurations.onyx.config.system.build.toplevel \
+            .#nixosConfigurations.talon.config.system.build.toplevel
+
   flake-checks-full-darwin:
     if: github.event_name == 'workflow_dispatch' && inputs.full_checks
     runs-on: macos-latest

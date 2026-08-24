@@ -86,6 +86,23 @@
     nix.settings = {
       min-free = lib.mkDefault (2 * 1024 * 1024 * 1024);
       max-free = lib.mkDefault (5 * 1024 * 1024 * 1024);
+
+      # profiles.defaults is where the cachix substituter normally comes
+      # from, and this profile skips defaults entirely -- so these boxes had
+      # zero cache access and were compiling everything from source on every
+      # switch. That, not RAM, is why builds were hanging/OOMing (see
+      # ci.yml's minimalvm-full-linux job, which populates cdenneen.cachix.org
+      # for these exact hosts).
+      substituters = lib.mkDefault [
+        "https://cache.nixos.org"
+        "https://nix-community.cachix.org"
+        "https://cdenneen.cachix.org"
+      ];
+      trusted-public-keys = lib.mkDefault [
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+        "cdenneen.cachix.org-1:EUognwSf1y0FAzDOPmUuYtz6aOxCWyNbcMi8PjHV8gU="
+      ];
     };
     boot.tmp.cleanOnBoot = lib.mkDefault true;
   };
