@@ -68,6 +68,13 @@ jobs:
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build Phase B package and default checks
+        run: |
+          nix build .#packages.aarch64-linux.phase-b-tooling --accept-flake-config
+          nix build .#checks.aarch64-linux.phase-b-tooling-unit --accept-flake-config
+          nix build .#checks.aarch64-linux.phase-b-tooling-static --accept-flake-config
+          nix build .#checks.aarch64-linux.phase-b-tooling-module --accept-flake-config
+          nix build .#checks.aarch64-linux.phase-b-tooling-vm --accept-flake-config
       - name: Evaluate NixOS (nyx)
         run: nix eval --raw .#nixosConfigurations.nyx.config.system.build.toplevel.drvPath --accept-flake-config
 

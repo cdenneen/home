@@ -1,0 +1,68 @@
+{
+  "$id": "https://example.invalid/phase-b/raw-batch.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 4,
+  "minProperties": 4,
+  "properties": {
+    "events": {
+      "items": {
+        "additionalProperties": false,
+        "maxProperties": 2,
+        "minProperties": 2,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "maxProperties": 3,
+            "minProperties": 3,
+            "properties": {
+              "effect_capable_descendants": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reprovisioners": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "writers": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "effect_capable_descendants",
+              "reprovisioners",
+              "writers"
+            ],
+            "type": "object"
+          },
+          "type": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["data", "type"],
+        "type": "object"
+      },
+      "maxItems": 4096,
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema": {
+      "const": "phase-b.raw-batch.v1"
+    },
+    "source_cursor": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "stream": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": ["events", "schema", "source_cursor", "stream"],
+  "type": "object"
+}

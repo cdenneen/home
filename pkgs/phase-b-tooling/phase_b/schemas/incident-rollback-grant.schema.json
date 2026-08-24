@@ -1,0 +1,53 @@
+{
+  "$id": "https://ghostspace.example/schemas/phase-b/incident-rollback-grant.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 7,
+  "minProperties": 7,
+  "properties": {
+    "action": {
+      "const": "ROLLBACK_INVALID_PHASE_B_ATTEMPT"
+    },
+    "attempt_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{7,63}$",
+      "type": "string"
+    },
+    "authorized_actions": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "execution_journal_head": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "expires_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$",
+      "type": "string"
+    },
+    "reason_code": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Z0-9_]+$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "phase-b.incident-rollback-grant.v1"
+    }
+  },
+  "required": [
+    "action",
+    "attempt_id",
+    "authorized_actions",
+    "execution_journal_head",
+    "expires_at",
+    "reason_code",
+    "schema"
+  ],
+  "type": "object"
+}

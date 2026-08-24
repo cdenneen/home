@@ -1,0 +1,165 @@
+{
+  "$id": "https://example.invalid/phase-b/receiver-refresh-segment.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 14,
+  "minProperties": 14,
+  "properties": {
+    "attempt_id": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "authorization_grant_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "consumer_identity": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "consumer_nonce": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "final": {
+      "type": "boolean"
+    },
+    "invalidating_event_count": {
+      "const": 0
+    },
+    "observed_at": {
+      "maxLength": 4096,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$",
+      "type": "string"
+    },
+    "refresh_counter": {
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "refresh_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "type": "string"
+    },
+    "requested_transition": {
+      "const": "PHASE_B_FENCING_QUALIFICATION"
+    },
+    "sample": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "additionalProperties": false,
+          "maxProperties": 26,
+          "minProperties": 26,
+          "properties": {
+            "alpha0_profile_identity": { "type": "string" },
+            "alpha0_route_identity": { "type": "string" },
+            "alpha0_service_identity": { "type": "string" },
+            "alpha0_session_identity": { "type": "string" },
+            "boot_id": { "type": "string" },
+            "canonical_writers": { "type": "integer" },
+            "collector_identity": { "type": "string" },
+            "custody_remote": { "type": "integer" },
+            "custody_total": { "type": "integer" },
+            "effect_capable_descendants": { "type": "integer" },
+            "dedicated_axis_route": { "type": "string" },
+            "frontier_digest": { "type": "string" },
+            "generic_profile_identity": { "type": "string" },
+            "generic_route_identity": { "type": "string" },
+            "generic_service_identity": { "type": "string" },
+            "generic_session_identity": { "type": "string" },
+            "home_generation": { "type": "string" },
+            "host_identity": { "type": "string" },
+            "legacy_axis_new_work_writers": { "type": "integer" },
+            "legacy_axis_reprovisioners": { "type": "integer" },
+            "machine_id": { "type": "string" },
+            "pending_local_effects": { "type": "integer" },
+            "registry_digests": {
+              "items": { "type": "string" },
+              "maxItems": 6,
+              "minItems": 6,
+              "type": "array"
+            },
+            "stuck_watchdog_state": { "type": "string" },
+            "unknowns": {
+              "items": { "type": "string" },
+              "maxItems": 2048,
+              "type": "array"
+            },
+            "user_manager_id": { "type": "string" }
+          },
+          "required": [
+            "alpha0_profile_identity",
+            "alpha0_route_identity",
+            "alpha0_service_identity",
+            "alpha0_session_identity",
+            "boot_id",
+            "canonical_writers",
+            "collector_identity",
+            "custody_remote",
+            "custody_total",
+            "dedicated_axis_route",
+            "effect_capable_descendants",
+            "frontier_digest",
+            "generic_profile_identity",
+            "generic_route_identity",
+            "generic_service_identity",
+            "generic_session_identity",
+            "home_generation",
+            "host_identity",
+            "legacy_axis_new_work_writers",
+            "legacy_axis_reprovisioners",
+            "machine_id",
+            "pending_local_effects",
+            "registry_digests",
+            "stuck_watchdog_state",
+            "unknowns",
+            "user_manager_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "schema": {
+      "const": "phase-b.receiver-refresh-segment.v1"
+    },
+    "segment_index": {
+      "maximum": 2048,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "source_events": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "maxItems": 9,
+      "minItems": 9,
+      "type": "array"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "authorization_grant_digest",
+    "consumer_identity",
+    "consumer_nonce",
+    "final",
+    "invalidating_event_count",
+    "observed_at",
+    "refresh_counter",
+    "refresh_id",
+    "requested_transition",
+    "sample",
+    "schema",
+    "segment_index",
+    "source_events"
+  ],
+  "type": "object"
+}

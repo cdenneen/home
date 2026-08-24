@@ -1,0 +1,77 @@
+{
+  "$id": "https://example.invalid/phase-b/source-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 10,
+  "minProperties": 10,
+  "properties": {
+    "attempt_id": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "event_class": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "generation": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "metadata": {
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "minProperties": 1,
+      "properties": {
+        "cursor_anchor": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        }
+      },
+      "required": ["cursor_anchor"],
+      "type": "object"
+    },
+    "observed_at": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "observed_monotonic": {
+      "type": "number"
+    },
+    "offset": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "previous_token": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "schema": {
+      "const": "phase-b.source-event.v1"
+    },
+    "stream": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "event_class",
+    "generation",
+    "metadata",
+    "observed_at",
+    "observed_monotonic",
+    "offset",
+    "previous_token",
+    "schema",
+    "stream"
+  ],
+  "type": "object"
+}

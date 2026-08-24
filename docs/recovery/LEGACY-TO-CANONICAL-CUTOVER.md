@@ -19,8 +19,8 @@ These transitions are distinct. Completion of one supplies evidence to the next 
 Current state:
 
 ```text
-PHASE_B_EXECUTION_TOOL = NOT_IMPLEMENTED
-PHASE_B_RECEIPT_VERIFIER = NOT_IMPLEMENTED
+PHASE_B_EXECUTION_TOOL = PARTIAL
+PHASE_B_RECEIPT_VERIFIER = PARTIAL
 PHASE_B_ADMISSION = BLOCKED
 PHASE_B_FENCING_QUALIFICATION = NOT_EXECUTED
 ACTUAL_LEGACY_DRAIN = NOT_AUTHORIZED
@@ -99,17 +99,17 @@ It does **not** establish canonical deployment.
 
 `CANONICAL_DEPLOYMENT_ATTESTATION` binds a future destination package/config closure, canonical controller revisions, deployment identity, scheduler authority, managed secret references, and activation provenance. It is not a Phase B prerequisite and Phase B cannot create it.
 
-### Required implementation before Phase B can be authorized
+### Tooling implementation and remaining admission gates
 
-The policy and identities below are reviewed, but the root-anchored execution/evidence tool does not exist on current main. Ad hoc shell translation is forbidden.
+Home now contains a disabled-by-default `phase-b-tooling` package, a root trust-anchor NixOS module, fixed-boundary executor/collector/verifier entry points, strict evidence schemas, accelerated observation/fault/adversarial tests, and a disposable NixOS VM check. The code is intentionally `PARTIAL`, not production authority: no Ghost declaration enables it, no production signer keys or off-host receiver identity are configured, no production Hermes internal-lock mutation adapter has been accepted against live-compatible fixtures, and no source sensor transport has established gap-free production evidence capability. Ad hoc shell translation remains forbidden.
 
 ```text
-PHASE_B_EXECUTION_TOOL = NOT_IMPLEMENTED
-PHASE_B_RECEIPT_VERIFIER = NOT_IMPLEMENTED
+PHASE_B_EXECUTION_TOOL = PARTIAL
+PHASE_B_RECEIPT_VERIFIER = PARTIAL
 PHASE_B_ADMISSION = BLOCKED
 ```
 
-A future bounded implementation PR must provide one fail-closed tool and runnable tests that prove all of the following before this runbook can become executable:
+The following are admission gates, even though the code and fixture tests implement their fail-closed contracts:
 
 1. a trust anchor in a root-owned, non-operator-renamable directory binds allowed signer identities/namespaces, exact immutable executable closures/digests, expected source identities, the runbook tree, and the receipt/evidence schemas;
 2. the trust anchor is checked before any signature verifier or other executable is trusted; no command is resolved through operator `PATH` and no baseline may self-declare its verifier;
@@ -121,7 +121,8 @@ A future bounded implementation PR must provide one fail-closed tool and runnabl
 8. a root-trusted schema/verifier consumes actual B0-B6 artifacts, expected live/source identities, complete event-chain cursors, and signature material; it cannot accept digest-shaped placeholders, caller-supplied time, unverified prior links, or mutable verifier paths;
 9. tests cover signature trust rooting, path replacement/TOCTOU, hard-link/cardinality aliases, strict JSON type/duplicate handling, unit masks, partial failure after every mutation, stale evidence, identity mismatch, missing artifacts, and receipt-chain verification;
 10. observation tests cover collector disconnect/reconnect, cursor gaps/replay/rollback/rotation, provider-history unavailability, reboot, user-manager/Home identity changes, and wall/monotonic clock discontinuity;
-11. rollback tests execute every permitted partial-state recovery path and prove durable pre/post-mutation journal recovery, exact achieved-state accounting, no broad resume, no dual writer, and mandatory baseline/receipt invalidation.
+11. rollback tests execute every permitted partial-state recovery path and prove durable pre/post-mutation journal recovery, exact achieved-state accounting, no broad resume, no dual writer, and mandatory baseline/receipt invalidation;
+12. Ghost's automatic NixOS upgrade/reboot schedule is separately reconciled before the `24h15m` observation. Phase B's mutation grant does not authorize changing or masking that schedule; an unresolved scheduled reboot keeps admission blocked.
 
 ### Six physical registries
 
@@ -228,9 +229,9 @@ Together with B0's exact live bot/app/app-token/delivery proof and accepted arch
 
 ## Phase B acceptance and receipt
 
-Phase B could pass only when B0–B6 pass and an independently reviewed root-trusted verifier accepts a signed receipt. That schema/verifier/evidence collector is intentionally **not invented in this documentation PR** and remains a hard implementation prerequisite. It must enforce every requirement listed under "Required implementation before Phase B can be authorized," including exact expected identities and actual artifact presence/consistency rather than digest-shaped placeholders.
+Phase B could pass only when B0–B6 pass and an independently reviewed root-trusted verifier accepts and atomically consumes a signed receipt. Home contains the dormant schema, verifier, executor, collector, and adversarial fixture machinery described under "Tooling implementation and remaining admission gates." The code-only package cannot issue a production-valid receipt without a separately configured root anchor, independent production signers, live source sensors, an approved off-host receiver, a live-compatible Hermes adapter, fresh B0 artifacts, and an authorized run.
 
-Until that separate bounded implementation lands with runnable adversarial tests, the following block is a required **future output contract**, not an issuable receipt:
+The following block remains the required **future live output contract**, not a result of this implementation slice:
 
 ```text
 PHASE_B_FENCING_QUALIFICATION = PROVEN
@@ -257,8 +258,8 @@ CUTOVER_READY = NO
 Current admission remains:
 
 ```text
-PHASE_B_EXECUTION_TOOL = NOT_IMPLEMENTED
-PHASE_B_RECEIPT_VERIFIER = NOT_IMPLEMENTED
+PHASE_B_EXECUTION_TOOL = PARTIAL
+PHASE_B_RECEIPT_VERIFIER = PARTIAL
 PHASE_B_ADMISSION = BLOCKED
 PHASE_B_FENCING_QUALIFICATION = NOT_EXECUTED
 LIVE_FENCING_OBSERVATION = NOT_STARTED

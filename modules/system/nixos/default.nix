@@ -11,6 +11,7 @@ in
   imports = [
     ../default.nix
     ../minimal-vm.nix
+    ./phase-b-tooling.nix
     ./services
     ./containers
     ./filesystems.nix
