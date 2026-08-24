@@ -48,17 +48,29 @@ State directories must be `0700`, state/secret files `0600`, and the service mus
 | `alpha0-axis-operations-sitrep.py` | `UNKNOWN` pending managed-state review | Preserve hourly/no-agent/bounded intent. Do not replace until canonical `--apply`, config, state and audit-key semantics are qualified on a disposable restore. |
 | axis profile PO blocker wrapper | `LEGACY_GOOD_MISSING` UX, legacy implementation rejected | Rebuild only if required, over canonical PO evidence and durable delivery outbox/ACK. |
 
-## PR #681 target
+## Historical dormant candidate
 
-The dormant Home candidate keeps the generic gateway enabled, forces the embedded supervisor and legacy axis gateway false, and imports both producers with Alpha0 Core/gateway false and no canonical axis scheduler/gateway. It installs only a report-only unscheduled axis observer definition. This target removes overlapping declaration authority, but it is not deployed and cannot itself prove runtime routing or state migration.
+Home PR #681 was a point-in-time dormant candidate, not a procedural prerequisite. Requirement-level review against current main classifies its dormant negative-authority shape as already represented, its producer pins as obsolete, and its automatic cron decommission as defective for the six-registry topology. See `HOME-PR-681-DISPOSITION.md`. Any future dormant composition must be a new bounded current-main PR.
 
-## Acceptance gates before gateway change
+## Source-fence gates
 
-- Re-observe unit/job/routing metadata and map every channel/chat to one owner without recording values in the report.
-- Archive all three source state roots under approved owner-only retention without importing them as authority. Reconstruct disabled route/job declarations from reviewed VCS with fresh runtime state; prove a disposable semantic restore only if an owner later qualifies a generic unprofiled session subset.
-- Drain all new AXIS work sources and active custody before stopping the dedicated AXIS scheduler host. Preserve the generic gateway because it owns generic communication and the current AXIS interaction/reporting route.
-- Qualify canonical Alpha0 preflights and both scheduler wrappers from the exact pinned package.
-- Rebase Home composition, pass exact-head required CI, obtain fresh approval and signed deployment evidence.
-- After future activation, prove generic continuity, absence of duplicate routes/legacy AXIS authority, and dedicated Alpha0 isolation before deleting any old state.
+Current Phase B admission is blocked until a separate bounded PR implements the root-anchored six-registry execution/evidence tool, continuous collector, and receipt verifier required by `LEGACY-TO-CANONICAL-CUTOVER.md`.
 
-`HERMES_ROUTING_UNDERSTOOD = PARTIAL`: every observed route/session origin has a logical owner; provider attestation established distinct generic and Alpha0 identities and no dedicated AXIS external route. Qualification remains partial because app-token correspondence/delivery readback, historical generic-session disposition, duplicate enabled scheduler records, managed generic reconstruction and the no-restart observation remain incomplete. Cutover remains forbidden. See `PORTABLE-CONTROL-PLANE-BOUNDARIES.md`.
+- Establish `SOURCE_FENCE_BASELINE_EVIDENCE`: fresh owner-only backups/restore receipts, complete 9/9 custody with no consequential `UNKNOWN`, exact six-registry and unit/timer/process identities, expected reversible actions, route identity, and off-host evidence collection.
+- Re-observe routing without recording provider/destination values; abort before mutation on ambiguous external ownership.
+- Fence new-work provision/recovery paths before independently pausing each physical writer record. Preserve generic gateway and generic stuck-cron continuity.
+- Reach zero pending/in-flight effects and no legacy descendants without interrupting existing custody; then establish `F0` and complete the `24h15m` no-resurrection observation.
+- Prove generic Hermes reconstruction twice from current-main VCS plus owner-only external secret materialization and fresh runtime state, without Home activation or historical DB/session import.
+
+## Later canonical activation gates
+
+- Create a replacement current-main dormant composition with fresh exact producer pins and negative scheduler/gateway/writer assertions.
+- Pass required CI, independent exact-head model review, machine verification, managed secret provisioning, activation-package closure checks, and root-owned `CANONICAL_DEPLOYMENT_ATTESTATION`.
+- Obtain a separate Product Owner activation grant and preserve a surgical rollback generation. Phase B supplies evidence but never authorizes activation.
+
+## Post-activation and deletion gates
+
+- Prove generic continuity, absence of duplicate routes/legacy authority, and dedicated Alpha0 isolation after a separately authorized activation.
+- Delete no old state and rotate/revoke no credential without separate retention/security authorization and a valid one-authority receipt.
+
+`HERMES_ROUTING_UNDERSTOOD = PARTIAL`: every observed route/session origin has a logical owner; provider attestation established distinct generic and Alpha0 identities and no dedicated AXIS external route. Qualification remains partial because app-token correspondence/delivery readback, historical generic-session disposition, duplicate enabled scheduler records, managed generic reconstruction and the no-resurrection observation remain incomplete. Cutover remains forbidden. See `PORTABLE-CONTROL-PLANE-BOUNDARIES.md`.

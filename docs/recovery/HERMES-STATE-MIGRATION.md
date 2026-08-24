@@ -1,6 +1,6 @@
 # Hermes state migration
 
-**Status: FUTURE ONLY — DO NOT RUN.** This credential-free design classifies state; it does not authorize service, scheduler, route, credential, or data changes. The 2026-08-21 reduction and isolated empty-set reconstruction are recorded in `EXCLUSIVE-ROUTE-AND-HERMES-PORTABILITY.md`: `REQUIRED_SEMANTIC_MIGRATION_SET.HERMES = []` and `HERMES_SEMANTIC_RESTORE = PARTIAL` because the generic route declaration and any conditional selected-session input remain unqualified.
+**Status: FUTURE ONLY — DO NOT RUN.** This credential-free design classifies state; it does not authorize service, scheduler, route, credential, or data changes. The 2026-08-21 reduction and isolated empty-set reconstruction are recorded in `EXCLUSIVE-ROUTE-AND-HERMES-PORTABILITY.md`: `REQUIRED_SEMANTIC_MIGRATION_SET.HERMES = []` and `HERMES_SEMANTIC_RESTORE = PARTIAL` because merged generic declarations still require an external-secret, fresh-runtime disposable reconstruction proof and any conditional selected-session input remains unqualified.
 
 ## Dispositions
 
@@ -28,11 +28,11 @@ Later read-only inspection found additional live root/profile files at the check
 
 | Domain | Artifact | Current authority/value | Disposition | Migration action | Acceptance evidence |
 |---|---|---|---|---|---|
-| Generic | Gateway/profile configuration template | Home/producer declaration | `RECREATE_FROM_VCS` | Install exact reviewed Home generation and Hermes package. | Signed deployment binds template, package, and entrypoint. |
+| Generic | Gateway/profile configuration template | Home/producer declaration | `RECREATE_FROM_VCS` | During Phase B, render the exact reviewed closure into two mode-`0700` disposable homes with owner-only external secret materialization, gateway/network/send denied, and no source runtime state. Install/activation is later. | Equal sanitized semantic digests prove reconstructability; later signed deployment separately binds template, package, and entrypoint. |
 | Generic | Rendered route map and non-secret profile ownership | Generated deployment state | `RECONSTRUCT_FROM_CANONICAL` | Render one exclusive owner per route; do not byte-copy mutable YAML. | Sanitized route inventory shows no duplicate owner. |
 | Generic | Owner-selected generic unprofiled Slack sessions with a proved continuity need | Unique application state only if explicitly selected | `MIGRATE_DURABLE` conditionally | Default to a fresh session. Migrate only an owner-selected subset through supported semantic export/restore after proving context cannot safely restart. | Disposable restore preserves generic namespace/routing without payload disclosure or AXIS/session import. |
 | Generic | Generic Kanban/mission state | No accepted unique state observed | `RECONSTRUCT_FROM_CANONICAL` | Rebuild from designated durable owners; do not import a whole state database. | Regenerated view is consistent and does not create authority. |
-| Generic | Derived Kanban/status views | Reconstructable projection | `RECONSTRUCT_FROM_CANONICAL` | Re-read designated durable owners after activation. | Regenerated view is consistent and does not create authority. |
+| Generic | Derived Kanban/status views | Reconstructable projection | `RECONSTRUCT_FROM_CANONICAL` | Phase B may validate reconstruction in a disposable environment without activation; re-read live durable owners only after a later authorized activation. | Regenerated view is consistent and does not create authority. |
 | Generic | Scheduler execution database | Historical execution evidence; observed jobs are legacy AXIS | `ARCHIVE_EVIDENCE` | Archive quiesced metadata if required; do not import as live execution state. | Destination generic continuity succeeds without source executions. |
 | Generic | Non-AXIS scheduler definitions | Reviewed deployment declaration | `RECREATE_FROM_VCS` | Reinstall declared names/cadences/commands only; runtime job IDs are not authority. | Sanitized inventory equals signed declaration and jobs remain disabled until accepted. |
 | Generic | Scheduler execution/ticker history | Historical runtime evidence; no migration need currently qualified | `ARCHIVE_EVIDENCE` | Archive under approved retention and start destination runtime state fresh; derive delivery boundaries from accepted owners/receipts. | Disabled rehearsal proves cadence and no duplicate delivery without importing history. |
@@ -66,6 +66,8 @@ Later read-only inspection found additional live root/profile files at the check
 | All domains | Environment files, rendered secret maps, embedded credentials | Credential material | `SECRET_REISSUE` | Provision with SOPS/sops-nix/provider reauthorization at `0600` or stricter; never copy `/run` or legacy `.env`. | Managed reference and restrictive mode pass; old credentials revoked after cutover. |
 | All domains | Mode-`0644` legacy provider credential files | Exposed legacy credential container | `SECRET_REISSUE` | Issue a replacement and revoke old credential; permission repair alone is insufficient. | Rotation receipt contains identity metadata only. |
 | All domains | Root/profile state snapshots and private backup metadata | Recovery evidence, not live authority | `ARCHIVE_EVIDENCE` | Encrypt, deduplicate owner-side, record source/version/time/retention; keep outside Git. | Disposable restore is proved separately from live activation. |
+
+A Phase B generic reconstruction receipt proves reconstructability only. It is not `CANONICAL_DEPLOYMENT_ATTESTATION` and cannot authorize Home activation, route ownership transfer, scheduler enablement, state deletion, or historical session migration.
 
 ## Semantic backup/restore contract
 
