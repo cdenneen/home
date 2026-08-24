@@ -788,6 +788,6 @@ in
   );
 
   xdg.configFile = lib.mkIf (options.programs ? opencode && config.programs.opencode.enable) {
-    "opencode/config.json".force = true;
+    "opencode/opencode.json".force = true;
   };
 }

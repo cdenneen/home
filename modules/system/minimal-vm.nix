@@ -1,4 +1,4 @@
-{ config, lib, pkgs, homeStateVersion ? "25.11", ... }:
+{ config, lib, pkgs, homeStateVersion ? "26.05", ... }:
 {
   options.profiles.minimalVm.enable = lib.mkEnableOption "Minimal cloud VM profile (zsh, nvim, tailscale, no theme/shell bloat)";
 
@@ -46,7 +46,6 @@
       home.stateVersion = homeStateVersion;
       programs.home-manager.enable = true;
       programs.zsh.enable = true;
-      programs.neovim.enable = true;
       catppuccin.enable = lib.mkForce false;
       catppuccin.starship.enable = lib.mkForce false;
       catppuccin.bat.enable = lib.mkForce false;

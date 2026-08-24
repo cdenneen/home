@@ -11,7 +11,6 @@ in
   imports = [
     ../default.nix
     ../minimal-vm.nix
-    ./compat/display-manager-generic.nix
     ./services
     ./containers
     ./filesystems.nix
