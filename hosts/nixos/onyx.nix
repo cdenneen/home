@@ -23,31 +23,21 @@
     kernelParams = [ "console=ttyS0,38400n8" ];
   };
 
-  disko.devices.disk.sda = {
-    type = "disk";
-    device = "/dev/sda";
-    content = {
-      type = "gpt";
-      partitions = {
-        ESP = {
-          size = "512M";
-          type = "EF00";
-          content = {
-            type = "filesystem";
-            format = "vfat";
-            mountpoint = "/boot";
-          };
-        };
-        root = {
-          size = "100%";
-          content = {
-            type = "filesystem";
-            format = "ext4";
-            mountpoint = "/";
-          };
-        };
-      };
-    };
+  # ponytail: NOT disko. nixos-anywhere/kexec repeatedly OOM'd on this 1GB
+  # OCI shape (the generic kexec installer floor is ~400MB+, independent of
+  # target config size -- see cloud-architecture-plan.md). onyx was instead
+  # converted in-place from its running Ubuntu image via NixOS's official
+  # lustrate mechanism (/etc/NIXOS_LUSTRATE), reusing the existing GPT
+  # partitions as-is. These UUIDs are Ubuntu's own cloud-image partition
+  # UUIDs (identical across onyx/talon since both came from the same base
+  # image) -- fileSystems here must match reality, not a fresh disko layout.
+  fileSystems."/" = {
+    device = "/dev/disk/by-uuid/fdf980dc-4811-4282-88df-3c217e5c2fdb";
+    fsType = "ext4";
+  };
+  fileSystems."/boot" = {
+    device = "/dev/disk/by-uuid/40C7-C0D6";
+    fsType = "vfat";
   };
 
   networking = {

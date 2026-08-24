@@ -187,12 +187,6 @@ let
       tags = [ "qemu-guest" ];
     }
     {
-      name = "oci-x86-bootstrap";
-      system = "x86_64-linux";
-      modules = [ ./nixos/oci-x86-bootstrap-image.nix ];
-      tags = [ "qemu-guest" ];
-    }
-    {
       name = "utm";
       system = "aarch64-linux";
       modules = [ ./nixos/utm.nix ];
