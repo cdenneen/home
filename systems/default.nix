@@ -250,12 +250,13 @@ let
       system,
       homeModules ? [ ],
       legacyBigSur ? false,
+      agentPkgsOverride ? (agentPkgs: _unstablePkgs: agentPkgs),
     }:
     let
       pkgsSet = if legacyBigSur then mkMbairPkgs system else mkPkgs system;
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
-      agentPkgs = if legacyBigSur then null else mkAgentPkgs system;
+      agentPkgs = if legacyBigSur then null else agentPkgsOverride (mkAgentPkgs system) unstablePkgs;
       homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
       sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
       homeStateVersion = if legacyBigSur then "25.05" else "25.11";
