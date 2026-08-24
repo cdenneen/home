@@ -69,6 +69,16 @@
     ../../pub/ssh/cdenneen_ed25519_2024.pub
   ];
 
+  # Dedicated, restricted key for ghost's daily axis-dr-backup rsync push
+  # (see ghost.nix). `restrict` disables pty/port-forwarding/X11/agent-
+  # forwarding/user-rc for this specific key -- rsync itself doesn't need
+  # any of those, so this key can't be used for anything beyond an rsync
+  # transfer even if it leaked, without needing to hardcode rsync's exact
+  # server-mode command line (which varies by flags and would be fragile).
+  users.users.cdenneen.openssh.authorizedKeys.keys = [
+    "restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOR5rEWJEClquJI8QKoVBJQI+Zqc4R1CSW5GDY/2AL25 ghost-axis-dr-backup"
+  ];
+
   services.openssh = {
     enable = true;
     settings = {

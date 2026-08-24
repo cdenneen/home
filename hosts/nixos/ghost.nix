@@ -720,6 +720,89 @@ in
     '';
   };
 
+  # Daily DR backup: axis's own export (identity/memory/knowledge_documents/
+  # vault), a neo4j dump (brief clean stop/start -- ~3s downtime observed,
+  # neo4j Community has no online-backup, dump requires the db stopped),
+  # and a qdrant snapshot of every collection (queried dynamically -- ghost
+  # has grown to 12 collections across axis/jarvis/litellm, don't hardcode
+  # names). Pushed to savage over tailscale via a dedicated `restrict`-only
+  # key (see savage.nix) since ghost is the only real copy of any of this
+  # right now. Not real-time -- daily is the agreed bound on acceptable
+  # data loss (see cloud-architecture-plan.md's DR section).
+  sops.secrets.ghost_axis_dr_backup_key = {
+    owner = "root";
+    mode = "0400";
+  };
+  sops.secrets.ghost_axis_dr_export_passphrase = {
+    owner = "axis";
+    mode = "0400";
+  };
+
+  systemd.services.axis-dr-backup = {
+    description = "Daily AXIS DR backup (axis export + neo4j dump + qdrant snapshots) to savage";
+    unitConfig.RequiresMountsFor = [
+      config.sops.secrets.ghost_axis_dr_backup_key.path
+      config.sops.secrets.ghost_axis_dr_export_passphrase.path
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "root";
+    };
+    script = ''
+      set -euo pipefail
+      ts="$(${pkgs.coreutils}/bin/date -u +%Y%m%dT%H%M%SZ)"
+      stage="/var/lib/axis-dr-backup/$ts"
+      install -d -m 0755 "$stage"
+
+      echo "[axis-dr-backup] exporting axis core state..."
+      install -d -m 0750 -o axis -g axis "$stage/axis-owned"
+      ${pkgs.util-linux}/bin/runuser -u axis -- ${pkgs.bash}/bin/bash -c \
+        "${pkgs.coreutils}/bin/cat ${config.sops.secrets.ghost_axis_dr_export_passphrase.path} | ${
+          axis.packages.${pkgs.system}.axis
+        }/bin/axis --data-root /var/lib/axis export --output '$stage/axis-owned/axis-export.tar' --passphrase-stdin"
+
+      echo "[axis-dr-backup] dumping neo4j (brief clean stop/start)..."
+      ${pkgs.systemd}/bin/systemctl stop podman-neo4j.service
+      ${pkgs.coreutils}/bin/sleep 3
+      install -d -m 0755 "$stage/neo4j"
+      ${pkgs.podman}/bin/podman run --rm \
+        -v /var/lib/neo4j/data:/data:U \
+        -v "$stage/neo4j":/dumps:U \
+        --entrypoint neo4j-admin \
+        docker.io/library/neo4j@sha256:362542416de6c09a971484d1893878016cc3b5cdec166e54b1c824a220ecd6b9 \
+        database dump neo4j --to-path=/dumps
+      ${pkgs.systemd}/bin/systemctl start podman-neo4j.service
+
+      echo "[axis-dr-backup] snapshotting qdrant collections..."
+      qkey="$(${pkgs.coreutils}/bin/cut -d= -f2 /run/ghost-services/qdrant/env)"
+      install -d -m 0755 "$stage/qdrant"
+      for coll in $(${pkgs.curl}/bin/curl -sf -H "api-key: $qkey" http://127.0.0.1:6333/collections | ${pkgs.jq}/bin/jq -r '.result.collections[].name'); do
+        snap="$(${pkgs.curl}/bin/curl -sf -X POST -H "api-key: $qkey" "http://127.0.0.1:6333/collections/$coll/snapshots" | ${pkgs.jq}/bin/jq -r '.result.name')"
+        ${pkgs.curl}/bin/curl -sf -H "api-key: $qkey" -o "$stage/qdrant/$coll--$snap" "http://127.0.0.1:6333/collections/$coll/snapshots/$snap"
+      done
+
+      echo "[axis-dr-backup] pushing to savage..."
+      ${pkgs.rsync}/bin/rsync -az \
+        -e "${pkgs.openssh}/bin/ssh -i ${config.sops.secrets.ghost_axis_dr_backup_key.path} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/var/lib/axis-dr-backup/known_hosts" \
+        "$stage/" "cdenneen@100.76.222.17:/var/backups/ghost-dr/$ts/"
+
+      echo "[axis-dr-backup] pruning local staging older than 3 days..."
+      ${pkgs.findutils}/bin/find /var/lib/axis-dr-backup -maxdepth 1 -mindepth 1 -mtime +3 -exec rm -rf {} +
+
+      echo "[axis-dr-backup] done: $ts"
+    '';
+  };
+
+  systemd.timers.axis-dr-backup = {
+    description = "Daily AXIS DR backup timer";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "03:17";
+      Persistent = true;
+      RandomizedDelaySec = "10m";
+    };
+  };
+
   systemd.services.axis-web = {
     description = "AXIS Web embodiment";
     wantedBy = [ "multi-user.target" ];
