@@ -135,7 +135,7 @@ Axis-lab owns active host/DR selection; local versus managed provider; region/ti
 
 | Acceptance area | Required proof | Current result |
 |---|---|---|
-| Canonical source | Exact producer commits in reviewed canonical history or independently approved immutable pins; required CI and exact-head review | `PARTIAL`: producer sources exist; current Home candidate/runtime binding is not fully accepted |
+| Canonical source | Exact producer commits in reviewed canonical history or independently verified immutable pins accepted by the Product Owner; required CI and exact-head review | `PARTIAL`: producer sources exist; current Home candidate/runtime binding is not fully accepted |
 | Deployment identity | Root-owned signed manifest/trust binds source, package/interpreter closure, configuration references, entrypoints, services and scheduler identities | `NO`: deployed identity remains unproved |
 | Host-independent install | Fresh authorized host installs with no legacy workspace, source-host path, or AXIS Core filesystem dependency | `PARTIAL`: source/Home assertions support it; fresh-host acceptance not signed |
 | Axis-control reconstruction | Two complete stable GET-only GitLab reads; pending events use versioned idempotent import; no action on incomplete custody/review/current-main | `PARTIAL`: stable reconstruction was observed; current complete custody and event export remain open |
@@ -145,6 +145,7 @@ Axis-lab owns active host/DR selection; local versus managed provider; region/ti
 | External identity | Exactly one Slack route; profile/session isolation; OAuth/callback/DNS actions complete | `PARTIAL`: topology is understood; exact identity/exclusivity remains unproved |
 | Cross-host supervision | Authenticated bounded schema-versioned controller status/provenance with freshness, host/deployment identity, and fail-closed unknowns | `PARTIAL`: contract and merged current-main integration pass; managed transport injection and signed live deployment remain open |
 | Custody | Every lineage has complete remote/local disposition; no active worker/reviewer/CI interrupted; stable canonical digest | `FULLY_REMOTE_RECOVERABLE`: 9/9 implementation lineages are remote; local operational/review evidence remains forensic and safe drain is still blocked |
+| Phase B source fence | Fresh signed source baseline, exact six-registry/reprovisioner fence, zero pending/local-only effects, `24h15m` no-resurrection observation, generic continuity and disposable generic reconstruction | `BLOCKED`: the required root-anchored execution/evidence tool and receipt verifier are not implemented; even a future receipt would remain separate from destination deployment |
 | Placement | Destination logical-role binding, network/persistence/capacity/availability evidence, axis-lab admission where applicable | `NO`: no final placement and exact evidence are accepted |
 | One-authority cutover | Source no-admit/no-write observation, destination sole scheduler/writer/route, signed receipt, independent verification, safe rollback boundary | `NO`: design exists; execution is unauthorized/incomplete |
 
@@ -158,13 +159,13 @@ A portable acceptance rehearsal must use an isolated fresh authorized host or eq
 4. restore Alpha0 from a disposable copy of the qualified SQLite backup without schema/backend change or external mutation;
 5. perform signed audit open with managed key and prove wrong/missing key fails closed;
 6. reconstruct exclusive Hermes routes/jobs and, only if separately qualified, restore an owner-selected generic session subset semantically without importing scheduler history;
-7. prove Slack/external route ownership without overlapping the source;
-8. demonstrate source no-admit/no-write and destination sole authority over the required observation window;
-9. produce and independently verify the metadata-only signed receipt;
+7. consume a fresh independently verified Phase B receipt proving exact legacy new-work writers/reprovisioners absent while generic and non-writer legacy continuity remains; re-run Phase B if any boot/user-manager/Home/registry/custody identity changed;
+8. under a separate `ACTUAL_LEGACY_DRAIN` grant, prove general source no-write and route quiescence; then prove Slack/external route ownership without overlap and separately demonstrate destination sole authority over the later cutover observation window;
+9. produce a root-owned metadata-only receipt with independent exact-head model review and machine verification for Product Owner acceptance;
 10. exercise rollback at the declared boundary without creating dual writers or a forked audit chain.
 
 ## Conservative final disposition
 
 `PORTABLE_MANAGEMENT_PLANE = PARTIAL` and `CUTOVER_READY = NO`.
 
-Canonical architecture no longer justifies treating Ghost as product authority. It does not yet justify treating host loss as fully accepted. Cross-host supervision integration/deployment, managed secret mapping, exclusive Hermes route/job reconstruction (plus any separately qualified generic-session restore), signed deployment, live authority quiescence and exact placement evidence must close through normal reviewed producer/Home/axis-lab work and an authorized rehearsal. Implementation custody is already 9/9 remotely recoverable; no final placement is decided by this report.
+Canonical architecture no longer justifies treating Ghost as product authority. It does not yet justify treating host loss as fully accepted. A Phase B source-fence receipt is a separate required input, not deployment or cutover acceptance. Cross-host supervision integration/deployment, managed secret mapping, exclusive Hermes route/job reconstruction (plus any separately qualified generic-session restore), signed deployment, destination authority, and exact placement evidence must close through normal reviewed producer/Home/axis-lab work and an authorized rehearsal. Implementation custody is already 9/9 remotely recoverable; no final placement is decided by this report.

@@ -95,7 +95,7 @@ CURRENT_EFFECTIVE_RECORD = CHECKOUT_PROFILE
 FUTURE_CANONICAL_RECORD = NEITHER_LEGACY_RECORD
 ```
 
-The enabled root record remains a mutation-capable reactivation hazard if an unprofiled gateway appears. A future authorized change must fence provisioners first, prove the root registry remains frozen while the profile advances, pause and remove only the root record through an explicit root `HERMES_HOME`, and prevent reproduction. Canonical continuation reconstructs a fresh disabled schedule from reviewed VCS rather than adopting either legacy registry.
+The enabled root record remains a mutation-capable reactivation hazard if an unprofiled gateway appears. A future authorized Phase B implementation may only fence provisioners and pause the root record through an explicit root `HERMES_HOME`; removal belongs to a separately reviewed post-drain retention/deletion transition. It must prove the root registry remains frozen while the profile advances and prevent reproduction. Canonical continuation reconstructs a fresh disabled schedule from reviewed VCS rather than adopting either legacy registry.
 
 ### Live external identity attestation
 
@@ -168,50 +168,51 @@ GENERIC_ROUTE_RECONSTRUCTION = PARTIAL
 
 The empty required set and canonical Alpha0/axis-control profile/job reconstruction are reproducible. Home PR #692 reviewed head `f313cd60d850505b081490a3ef8ee74cf590a910` added a missing-file-only, mode-`0600` generic config bootstrap, an out-of-store `EnvironmentFile` contract, legacy Slack plugin alias cleanup, and executable activation checks. It merged through the linear protected-PR flow as current-main commit `3b3baa62e652277bf538188e0f8d565a8b52fc27`; the reviewed and merged trees are identical. The reviewed head passed both targeted Nix checks, a Ghost Home activation-package build, disposable fresh/existing/dangling-config checks, and independent review with no findings. Current-main NixOS and Darwin CI run `32596200628` succeeded. The merged declaration does not manage the external environment file, migrate credentials, activate Ghost, or restore historical sessions. Until it is paired with managed secret authority in a disposable reconstruction, generic route reconstruction remains partial. Existing runtime route rows must not be imported to hide that gap.
 
-### Live fence qualification
+### Evidence basis for Phase B fencing qualification
 
 The empty destination migration set does not make current source state inconsequential. At the read-only observation, the effective profile scheduler had a current claim and a live reconciliation descendant; completion-trigger state had 10 pending effects across six lineages; and the legacy board had six running tasks and six running task runs. The generic worker, both checkout records, provisioners, the two-minute scheduler watchdog, and the 15-minute backup recovery path remained enabled. Those source records must be reconciled or explicitly preserved before a fence; they are archive evidence, never destination authority.
 
 ```text
 REQUIRED_SEMANTIC_MIGRATION_SET.HERMES = []        PROVEN
 NO_SOURCE_STATE_NEEDED_FOR_SAFE_DRAIN_TODAY = true REFUTED
-LIVE_FENCING_OBSERVATION = NOT_AUTHORIZED
+PHASE_B_FENCING_QUALIFICATION = NOT_EXECUTED
+LIVE_FENCING_OBSERVATION = NOT_STARTED
 ```
 
-## Future source fencing plan
+## Reviewed Phase B source-fencing plan
 
-The safety invariant is **at most one writer**: `not (legacy_writer and canonical_writer)`. The dormant transition may intentionally have zero writers. The current canonical observer is not a writer.
+Current admission is `PHASE_B_ADMISSION = BLOCKED`: the policy/identity plan is reviewed, but no root-anchored six-registry execution tool, continuous evidence collector, or receipt verifier exists on current main. No Product Owner grant may issue until a separate bounded implementation PR closes those gaps and admission is recalculated.
+
+The safety invariant is **at most one writer per logical role**: `not (legacy_writer and canonical_writer)`. Phase B deliberately targets `legacy_AXIS_new_work_writer=0, canonical_AXIS_writer=0`; legacy Alpha0 authority remains unchanged until later drain. It is not legacy interaction drain, Home activation, controller graduation, migration, or cutover. After the missing tool/verifier implementation lands and admission is recalculated, the future executable boundary would be `LEGACY-TO-CANONICAL-CUTOVER.md`; it is not executable now.
 
 ### Classification
 
-- **Creates new work:** generic-root AXIS worker; both physical copies of the checkout AXIS roadmap job; dedicated AXIS gateway while it hosts that scheduler; supervisor provisioner.
-- **Observes/reports only:** AXIS PO alert; Alpha0 daily brief; Alpha0 AXIS SITREP; dormant canonical observer.
+- **Creates new work:** generic-root AXIS worker; both physical copies of the checkout AXIS roadmap job; dedicated AXIS gateway only while its scheduler record is effective; supervisor provisioner.
+- **Observes/reports only:** AXIS PO alert; Alpha0 daily brief; Alpha0 AXIS SITREP; dormant canonical observer. These are not paused merely to qualify new-work fencing.
 - **Watchdog/recovery:** generic-root AXIS watchdog; AXIS scheduler watchdog; AXIS development backup/monitor; watchdog provisioner/cutover.
 - **Preserve for generic continuity:** generic gateway and generic stuck-cron watchdog.
 
-### Deterministic sequence — future only
+### Deterministic Phase B sequence — future only
 
-1. Require an authorized maintenance window, incident commander, independent verifier, signed transcript, exact reviewed Home/producer closures, complete custody re-observation, backups, and `canonical_writer = 0`.
-2. Fence re-provision/recovery first: supervisor provisioner, watchdog provisioner/cutover, AXIS scheduler watchdog, and AXIS development backup/monitor. Preserve generic stuck-cron recovery.
-3. Pause the exact generic-root AXIS watchdog record and prove no recovery source recreated it.
-4. Pause the generic-root AXIS worker, then independently pause both physical checkout AXIS roadmap records. Shared logical ID is not proof that both files changed.
-5. Record a preliminary admission-stop timestamp. Any later new-work claim fails the drain, but this timestamp is not the no-restart observation start.
-6. Across at least two former five-minute intervals, admit no new claim; let existing work finish or reach approved durable custody; require pending and in-flight effects to reach zero, stable complete GET-only reads, and no mutation.
-7. Pause the AXIS PO report, then stop the dedicated legacy AXIS scheduler gateway only after scheduler/work custody drains. It has no external interaction route of its own. Generic Hermes remains unchanged.
-8. Pause Alpha0 jobs and stop its gateway only after separate interaction continuity, identity and source-no-connection gates. Do not redirect Alpha0 to generic Hermes.
-9. Activate only the dormant Home target under separate authorization. Accept the safe zero-writer gap.
-10. Establish signed observation start `F0` only after every reprovisioner and legacy writer is disabled, no active legacy worker/reviewer/reconciler descendant remains, pending/in-flight and custody gates pass, all six registries validate, and the canonical writer is absent. Capture the initial scheduler, route, service/process, GitLab frontier, and custody digests at `F0`.
-11. Run a `24h15m` off-host no-restart observation from `F0`: the longest relevant schedule is the 24-hour Alpha0 daily brief and the longest legacy recovery cadence is 15 minutes. Sample every two minutes, cross the next daily boundary, and reconcile durable scheduler/journal evidence at the end. Any reboot, user-manager restart, clock discontinuity, evidence gap, registry mutation, or failed sample invalidates `F0` and resets the full window.
-12. Reject any recreated job, post-`F0` claim, route collision, unexpected generic restart or session loss. Require zero post-`F0` claims in all six registries, no reprovisioner invocation, no new legacy descendants, stable generic gateway start identity, and fully attributed GitLab frontier changes.
-13. A future canonical writer requires a separate reviewed graduation and may start only after `legacy_writer = 0` is independently re-proven.
+1. Bind a Product Owner grant to `SOURCE_FENCE_BASELINE_EVIDENCE`: exact Home/runbook SHA, fresh owner-only backup/restore receipts, complete 9/9 custody with no consequential `UNKNOWN`, all six physical registry identities/digests, service/timer/process/route identity, expected reversible actions, rollback identities, and collector/transcript identity. This is distinct from future `CANONICAL_DEPLOYMENT_ATTESTATION`.
+2. Verify the root-trusted signature over the exact source baseline, validate and externally lock all six registries before mutation, then runtime-mask supervisor/watchdog provisioners, cutover/recovery services, scheduler watchdog, and development backup/monitor. Preserve generic stuck-cron recovery.
+3. Pause the exact generic-root AXIS watchdog and worker records, then independently pause both physical checkout roadmap records. Shared logical ID is not proof both files changed. Pause, never delete.
+4. Record a preliminary admission-stop timestamp. Across at least two former five-minute intervals, admit no new claim; let existing work finish or reach durable custody; require pending/in-flight effects to reach zero and two stable complete GET-only reads with `NO_OP`.
+5. Establish signed `F0` only after every legacy AXIS new-work writer/reprovisioner is fenced, every effect-capable legacy worker/reviewer/reconciler descendant is absent, pending/local-only effects are zero, custody remains 9/9, all six registries validate, generic Hermes is healthy, the Home generation is unchanged, no canonical AXIS writer exists, and legacy Alpha0 authority is explicitly unchanged/not drained.
+6. Run the `24h15m` off-host no-resurrection observation from `F0`, sampling every two minutes and reconciling durable databases/journals at the end. Reboot, user-manager restart, Home generation change, clock discontinuity, evidence gap, `UNKNOWN`, registry mutation, descendant/authority recurrence, generic restart/session loss, Alpha0 route/service/session drift, or unattributed frontier change invalidates the run.
+7. Separately prove generic reconstruction twice in mode-`0700` disposable homes from current-main VCS plus owner-only external secret materialization and fresh runtime state, with network/start/send denied and zero imported session/execution/scheduler DB state. Equal sanitized semantic digests prove reconstructability only, not deployment.
+8. Return control to the Product Owner. Reporter/gateway drain, Home activation, canonical graduation, and cutover each require a later separate grant.
 
-Rollback always returns through a zero-writer state. If generic continuity fails, restore only generic gateway/watchdog first. Never broad-resume legacy jobs or transition directly from a canonical writer to a legacy writer.
+Before `F0`, rollback records the exact partial fence and never claims zero AXIS new-work writers; exact baseline restoration requires incident authorization and a fresh Phase B attempt. After `F0`, rollback preserves the AXIS zero-new-work-writer state and restores only an exact component required for generic/active-work continuity. Never broad-resume jobs, restore recovery timers, or run broad Home rollback.
 
 ```text
 SOURCE_FENCING_PLAN = PROVEN
+SOURCE_FENCE_BASELINE_CONTRACT = PROVEN
+CANONICAL_DEPLOYMENT_GATE = SEPARATE
+HOME_ACTIVATION = OUTSIDE_PHASE_B
 ```
 
-The plan is deterministic and covers all known jobs, registries, provisioners, watchdogs, preservation checks, aborts and rollback boundaries. It has not been executed.
+The plan covers all known jobs, registries, provisioners, watchdogs, backups, custody, identity, preservation, aborts, rollback, observation, and generic reconstruction boundaries. It has not been executed.
 
 ## Final status
 
@@ -245,7 +246,31 @@ PARTIAL
 SOURCE_FENCING_PLAN:
 PROVEN
 
+SOURCE_FENCE_BASELINE_CONTRACT:
+PROVEN
+
+CANONICAL_DEPLOYMENT_ATTESTATION:
+NOT_ESTABLISHED
+
+PHASE_B_EXECUTION_TOOL:
+NOT_IMPLEMENTED
+
+PHASE_B_RECEIPT_VERIFIER:
+NOT_IMPLEMENTED
+
+PHASE_B_ADMISSION:
+BLOCKED
+
+PHASE_B_FENCING_QUALIFICATION:
+NOT_EXECUTED
+
 LIVE_FENCING_OBSERVATION:
+NOT_STARTED
+
+CANONICAL_COMPOSITION_ACTIVATED:
+NO
+
+CANONICAL_CONTROLLER_GRADUATION:
 NOT_AUTHORIZED
 
 SAFE_DRAIN_READY:
@@ -255,4 +280,4 @@ CUTOVER_READY:
 NO
 ```
 
-`SAFE_DRAIN_READY` remains `NO`: external identity attestation retains bounded provider/delivery gaps; merged Home declarations still require external managed-secret reconstruction proof; both checkout records remain enabled despite the proven stale-derived classification; current source custody includes active work and pending effects; and the required, separately authorized `24h15m` fence/no-restart observation has not occurred. No Phase B command was executed. Final host or data-service placement is outside this report.
+`PHASE_B_ADMISSION` remains `BLOCKED` and `SAFE_DRAIN_READY` remains `NO`: external identity attestation retains bounded provider/delivery gaps; managed generic reconstruction proof is incomplete; both checkout records remain enabled despite the proven stale-derived classification; current source custody includes active work and pending effects; and no authorized `24h15m` fence/no-resurrection observation has passed. Phase B success could make safe drain **eligible for a later Product Owner decision**, but could not activate, graduate, migrate, or cut over anything. Final host or data-service placement remains outside this report.

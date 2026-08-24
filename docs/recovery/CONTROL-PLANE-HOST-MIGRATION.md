@@ -22,12 +22,18 @@ This plan preserves:
 
 This plan excludes final host placement, AXIS backend placement, database-backend conversion, legacy workspace transfer, live execution, provider mutation, credential values, scheduler payloads, and any implicit activation. Host migration and database migration are separate transitions. **Alpha0 remains SQLite throughout.**
 
+## Boundary with Phase B source fencing
+
+Host migration may eventually consume a fresh independently verified `PHASE_B_FENCING_QUALIFICATION` receipt; current Phase B admission is `BLOCKED` because the root-anchored execution/evidence tool and receipt verifier are not implemented. No receipt is currently issuable. This migration plan does not define, execute, or retroactively validate Phase B. The receipt proves legacy AXIS new-work writer/reprovisioner absence, custody preservation, unchanged legacy Alpha0 authority, generic continuity, and generic reconstructability for an exact boot/user-manager/Home-generation baseline. It does not prove destination deployment.
+
+Any future signed receipt must be no older than five minutes and cryptographically link an uninterrupted off-host audit/journal/provider event chain from `F0` through consumption. Refresh/link semantics require their own implemented, root-trusted schema and verifier; documentation alone cannot satisfy this gate. Reboot, user-manager restart, Home generation change, evidence/cursor gap, registry/custody/route/service/session drift, or source recurrence requires a fresh source-fence baseline and full Phase B qualification before migration continues.
+
 ## Global authorization gate
 
 Before either product sequence begins, all of the following must exist:
 
-1. named source/destination logical-role bindings, maintenance window, incident commander, and independent verifier;
-2. exact reviewed producer and deployment commits, exact closures, current required CI, and fresh exact-head approval after the last change;
+1. named source/destination logical-role bindings, maintenance window, and Product Owner incident command; independent exact-head model review and machine verification are separate evidence gates, not second-human approval;
+2. exact reviewed producer and deployment commits, exact closures, current required CI, and fresh independent exact-head model review after the last change;
 3. root-owned signed deployment manifests/trust binding source, package, interpreter, configuration references, entrypoints, and scheduler identity;
 4. owner-only transcript/evidence storage with public reports restricted to sanitized metadata;
 5. fresh inventory of source services, timers, all scheduler registries, route owners, active custody, durable state, secret references, and destination network dependencies;
@@ -43,42 +49,41 @@ Installation success never authorizes stopping source authority.
 
 ## `AXIS_CONTROL` migration sequence
 
-### Phase AC-1 — freeze sources of new work
+### Phase AC-1 — consume and revalidate the Phase B receipt
 
 **Preconditions**
 
 - Global gate passes.
-- Exact scheduler/recovery identities match the signed sanitized inventory.
-- All active workers, reviewers, CI runs, and local custody are mapped.
+- An implemented root-trusted receipt verifier proves the exact source boot, user-manager, Home-generation, command closure, six-registry, generic/Alpha0 route-service-session, and custody identities, and is no older than five minutes.
+- The receipt's `24h15m` observation and generic reconstruction proof passed.
 
 **Future-only action**
 
-Pause only exact sources of new controller work. Disable exact watchdog/recovery paths that could recreate an epoch or job. Leave existing workers, reviewers, CI, and interaction needed for their custody uninterrupted.
+Perform read-only no-recurrence checks and verify uninterrupted audit/journal/provider cursors through the current sample. Do not repeat or broaden the source fence inside host migration. Confirm every fenced AXIS writer/reprovisioner remains masked/inactive, every effect-capable descendant remains absent, generic continuity and unchanged Alpha0 authority remain identity-stable, and no canonical AXIS writer appeared after the receipt.
 
 **Acceptance**
 
-- No new assignment appears for at least two former scheduler intervals.
-- Existing workers/reviewers/CI continue to their natural durable boundary.
-- Every expected job/timer is absent or disabled by exact identity.
+- Phase B receipt is root-trusted, schema-valid, at most five minutes old by its signed `observed_through_at`, identity-matched, and linked to a gap-free continuous evidence chain and any prior receipt.
+- No recurrence, registry drift, custody regression, Home/user-manager change, or unexplained frontier change exists.
 
 **Abort**
 
-Abort on new work after freeze, unexpected identity, automatic recreation, route loss needed by an active owner, or any interrupted worker/reviewer/CI.
+Abort on stale/mismatched receipt, recurrence, unexpected identity, route loss, or custody regression. Obtain a new Product Owner Phase B grant rather than repairing the fence inside migration.
 
 **Rollback**
 
-With incident-command approval, resume only the exact minimum source component needed for continuity. Never broadly resume all jobs. Rebuild the custody map from scratch.
+No migration mutation has occurred. Preserve the qualified AXIS zero-new-work-writer state and Phase B evidence; legacy Alpha0 authority remains unchanged. Restore only exact generic continuity under incident authorization.
 
-### Phase AC-2 — converge custody and canonical truth
+### Phase AC-2 — refresh custody and canonical truth
 
 **Preconditions**
 
-- AC-1 acceptance passes.
-- No source of new work is active.
+- AC-1 receipt revalidation passes.
+- No legacy or canonical AXIS new-work writer is active; legacy Alpha0 authority remains unchanged/not drained.
 
 **Future-only action**
 
-Re-observe every captured and newly discovered lineage. Classify each exactly one of:
+Re-observe every captured and newly discovered lineage after the Phase B receipt. Classify each exactly one of:
 
 - `REMOTE_COMPLETE`;
 - `REMOTE_IN_FLIGHT`;
@@ -101,7 +106,7 @@ Abort on incomplete GitLab surfaces, local/remote disagreement without dispositi
 
 **Rollback**
 
-Keep source freeze and evidence intact; correct custody through normal review. If continuity requires resuming source admission, do so only through a separately authorized exact-component rollback and repeat AC-1.
+Keep source fence and evidence intact; correct custody through normal review. If continuity requires resuming source admission, do so only through separately authorized exact-component rollback; invalidate the receipt and repeat Phase B before migration resumes.
 
 ### Phase AC-3 — classify controller state
 
@@ -162,7 +167,7 @@ Remove/disable the unaccepted destination runtime without changing source or Git
 **Preconditions**
 
 - AC-4 stable observations pass.
-- Source is still frozen and retains authority.
+- Phase B source fence remains valid; any surviving legacy continuity retains authority until separately drained.
 
 **Future-only action**
 
@@ -180,39 +185,86 @@ Abort on any missing tuple member, digest instability, projection treated as aut
 
 **Rollback**
 
-Keep destination disabled and source frozen; repeat canonical observation after resolving evidence, not by editing destination state.
+Keep destination disabled and the Phase B source fence intact; repeat canonical observation after resolving evidence, not by editing destination state.
 
-### Phase AC-6 — one-authority handoff
+### Phase AC-6 — `ACTUAL_LEGACY_DRAIN`
 
 **Preconditions**
 
 - AC-5 exact comparison passes.
-- Source rollback package and destination activation are independently approved.
+- The Product Owner grants this drain separately from Phase B, activation, graduation, and cutover.
+- Source rollback package is accepted; destination remains disabled.
 
 **Future-only action**
 
-1. Stop source controller gateway/scheduler authority.
-2. Prove source jobs absent/disabled, recovery timers unable to recreate them, controller/reconciler processes absent, and no new source epoch.
-3. Start destination observer only and repeat stable GET-only reconstruction.
-4. Enable destination interaction/scheduling only in a separately reviewed activation.
-5. Record the signed migration receipt described below.
+Stop source controller gateway/scheduler authority after interactions and custody reach durable boundaries. Prove source jobs disabled, recovery timers unable to recreate them, controller/reconciler processes absent, no new source epoch, and no route/session owner still requiring source continuity.
 
-**Acceptance: exact one-authority proof**
+**Acceptance**
 
-- Exactly one enabled `AXIS_CONTROL` scheduler identity exists.
-- Exactly one gateway owns each `AXIS_CONTROL` route.
-- Source cannot admit new work and remains inactive over at least two former scheduler intervals plus one watchdog interval.
-- Destination does not duplicate branch/MR/custody/event identity.
-- Stable GitLab observation digest spans the handoff boundary.
-- Signed receipt binds source stop evidence, destination deployment, route/scheduler identity, final canonical digest, and activation time.
+- General source no-admit/no-write and route quiescence pass over the reviewed interval.
+- No destination controller, gateway, scheduler, or writer is active.
+- Generic Hermes continuity required outside AXIS remains healthy.
 
-**Abort**
+**Abort / rollback**
 
-Abort before destination admission on route overlap, source process/job recurrence, digest change, deployment mismatch, or missing receipt fields.
+Abort on active ownership, recurrence, custody change, or generic-continuity loss. Before any destination activation, restore only the exact source component authorized by the rollback package; this invalidates downstream receipts and requires a fresh Phase B qualification.
 
-**Rollback**
+### Phase AC-7 — `CANONICAL_HOME_COMPOSITION_ACTIVATION`
 
-Before destination admits work, stop destination and restore the exact source authority with destination disabled. After destination admits work, never simply restart source: quiesce destination and execute a reviewed reverse handoff with the same custody protocol.
+**Preconditions**
+
+- AC-6 drain acceptance passes.
+- Root-owned `CANONICAL_DEPLOYMENT_ATTESTATION`, exact activation closure, managed secrets, destination identity, and surgical rollback generation are accepted under a new Product Owner grant.
+
+**Future-only action**
+
+Activate the reviewed dormant Home composition. Start destination observer only and repeat stable GET-only reconstruction. Keep interaction, scheduling, reconciliation mutation, and canonical writer authority disabled.
+
+**Acceptance**
+
+- Destination observer matches final source/GitLab truth without writes.
+- Source remains drained; no route or scheduler overlap exists.
+- Activation provenance and rollback identity match the deployment attestation.
+
+**Abort / rollback**
+
+Abort on any write, overlap, source recurrence, digest change, or deployment mismatch. Roll back only the reviewed destination activation while preserving the source fence and forensic evidence.
+
+### Phase AC-8 — `CANONICAL_CONTROLLER_GRADUATION`
+
+**Preconditions**
+
+- AC-7 observer acceptance passes.
+- A separate Product Owner grant names the exact route, scheduler, writer, and rollback identities.
+
+**Future-only action**
+
+Enable destination interaction and scheduling in the reviewed order. Prove exactly one enabled `AXIS_CONTROL` scheduler identity and one gateway owner per `AXIS_CONTROL` route, with no duplicate branch/MR/custody/event identity.
+
+**Acceptance**
+
+- Canonical destination is the sole AXIS writer, scheduler, and route owner.
+- Stable GitLab observation spans the graduation boundary.
+- Source remains unable to admit work or resurrect authority.
+
+**Abort / rollback**
+
+Abort before destination admission on overlap, recurrence, digest change, or missing evidence. After destination admission, never simply restart source: quiesce destination and execute a reviewed reverse handoff with the same custody protocol.
+
+### Phase AC-9 — `CUTOVER`
+
+**Preconditions**
+
+- AC-8 graduation and its observation window pass.
+- The Product Owner separately accepts the complete migration receipt.
+
+**Future-only action**
+
+Record the signed migration receipt described below. Do not treat activation time as cutover time.
+
+**Acceptance**
+
+The receipt binds Phase B, actual drain, canonical deployment, activation, sole route/scheduler/writer authority, final canonical digest, graduation observation, rollback identity, and explicit Product Owner cutover acceptance.
 
 ---
 
@@ -297,12 +349,12 @@ Abort on route/profile collision, duplicate delivery, missing integration owner,
 
 Discard the disposable reconstruction; preserve source archives. Do not fall back to a bulk Hermes-home copy.
 
-### Phase A0-4 — final source write quiescence and backup
+### Phase A0-4 — `ACTUAL_LEGACY_DRAIN`, final source quiescence, and backup
 
 **Preconditions**
 
-- A0-1 through A0-3 pass.
-- Maintenance authorization names exact Core/gateway/schedule identities and final backup destination.
+- A0-1 through A0-3 pass and the Phase B receipt remains valid.
+- A separate Product Owner drain grant names exact Core/gateway/schedule identities, final backup destination, and rollback boundary; activation, graduation, and cutover remain unauthorized.
 
 **Future-only action**
 
@@ -350,47 +402,76 @@ Abort on any integrity/audit/schema/count mismatch, migration, network mutation 
 
 Before any destination write, discard the destination restore and resume the exact source under A0-4 rollback. The source backup remains authoritative.
 
-### Phase A0-6 — integration route and one-writer handoff
+### Phase A0-6 — `CANONICAL_HOME_COMPOSITION_ACTIVATION`
 
 **Preconditions**
 
 - A0-5 passes.
-- Each integration action and destination credential is complete.
-- Source route and auto-recovery stop controls are independently verified.
+- Root-owned `CANONICAL_DEPLOYMENT_ATTESTATION`, exact activation closure, destination identity, managed credentials, and rollback generation are accepted under a new Product Owner grant.
 
 **Future-only action**
 
-Start destination Core read-only/paused and verify signed audit open. Start destination gateway only after exclusive Slack route proof. Restore schedules one at a time after exact wrapper/state qualification. Observe source across at least two former scheduler intervals and one gateway/watchdog interval. Record source service/timer/job inactivity and unchanged source database metadata before allowing destination progression.
+Activate the reviewed dormant composition. Start destination Core read-only/paused and verify signed audit open. Keep destination gateway, schedules, and writer authority disabled.
+
+**Acceptance**
+
+- Destination read-only state matches the accepted final backup and audit head.
+- Source remains drained and no route, scheduler, or writer overlap exists.
+- Activation provenance and rollback identity match the deployment attestation.
+
+**Abort / rollback**
+
+Abort on source recurrence, write, unsigned audit open, deployment mismatch, or route/scheduler appearance. Roll back only the reviewed destination activation while preserving source evidence and the final backup.
+
+### Phase A0-7 — `CANONICAL_CONTROLLER_GRADUATION`
+
+**Preconditions**
+
+- A0-6 passes.
+- A separate Product Owner grant names each integration action, route, schedule, writer, and rollback identity.
+
+**Future-only action**
+
+Start the destination gateway only after exclusive route proof. Restore schedules one at a time after exact wrapper/state qualification. Enable destination Core writes only at the reviewed boundary. Observe source across at least two former scheduler intervals and one gateway/watchdog interval.
 
 **Acceptance: exact one-authority proof**
 
-- Exactly one Alpha0 Core writer exists.
-- Exactly one Alpha0 gateway owns the dedicated route.
+- Exactly one Alpha0 Core writer and one dedicated Alpha0 gateway exist.
 - Source database remains unchanged after final backup and source cannot auto-restart.
 - Destination continues from the accepted audit head without duplicate scheduled delivery.
 - Generic and axis-control gateways do not absorb Alpha0 traffic.
-- Signed receipt binds the one-writer, one-route, source-no-write, and observation-window evidence.
 
-**Abort**
+**Abort / rollback**
 
-Abort before destination write on source recurrence, route overlap, unsigned audit open, duplicate delivery risk, missing integration evidence, or database metadata change.
+Abort before destination write on recurrence, overlap, unsigned audit open, duplicate-delivery risk, missing integration evidence, or source database change. Before a destination write, restore source only through the reviewed rollback. After a destination write, never resume the old source database: quiesce destination, create/validate a new consistent backup, reverse-transfer encrypted, restore, and repeat one-writer proof.
 
-**Rollback**
+### Phase A0-8 — `CUTOVER`
 
-Before any destination write, stop destination and restore source route/Core as reviewed. After a destination write, never resume the old source database: quiesce destination, create/validate a new consistent backup, reverse-transfer encrypted, restore, and repeat one-writer proof. Route rollback is separate and may return interaction to a safe paused state without discarding accepted destination Core data.
+**Preconditions**
+
+- A0-7 graduation and observation pass.
+- The Product Owner separately accepts the complete migration receipt.
+
+**Future-only action**
+
+Record cutover acceptance without changing authority. Activation or first destination write is not itself cutover.
+
+**Acceptance**
+
+The signed receipt binds Phase B, actual drain/final backup, canonical deployment and activation, one-writer/one-route graduation evidence, observation result, rollback identity, and explicit Product Owner cutover acceptance.
 
 ## Signed one-authority migration receipt
 
-Migration is incomplete until an independent verifier accepts a root-owned signed receipt containing metadata only:
+Migration is incomplete until the Product Owner accepts a root-owned signed receipt after separate independent exact-head model review and machine verification. This is not a second-human approval. The metadata-only receipt contains:
 
 - source and destination logical-role bindings;
 - exact producer/deployment revisions, package/interpreter closures, and trust identity;
-- source freeze/stop/quiescence timestamps and observation-window result;
+- Phase B fence, actual drain/stop/quiescence, activation, graduation, and cutover-acceptance timestamps plus observation results;
 - final axis-control observation digest and custody summary;
 - final Alpha0 backup completion, schema/migration, aggregate, and audit-head metadata without database hash or payload;
 - destination service, scheduler, gateway, and route identities;
 - secret-reference identities without values;
-- incident commander and independent reviewer identities;
+- Product Owner incident-command identity plus independent exact-head model-review and machine-verification evidence identities;
 - last safe rollback boundary and whether destination admitted any write;
 - explicit proof that source cannot admit/write work and destination is sole authority.
 

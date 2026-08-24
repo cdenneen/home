@@ -57,7 +57,7 @@ The four expected authority registries remain:
 
 Read-only metadata also exposed additional live root/profile `jobs.json` paths. Most importantly, the checkout root and checkout axis-control profile are distinct files containing the same enabled agent-waking AXIS job identity. That is hidden duplicate persisted scheduler authority. Alpha0 also has a routed-profile live path that must be accounted for even when canonical declarations are reconstructed from its owner-root inventory. Two older `state-snapshots/*/cron/jobs.json` files are non-live `ARCHIVE_EVIDENCE`; they must not be counted or imported as scheduler authority.
 
-Current Home and PR #681 declarations are not runtime proof: disabled/absent generated declarations do not remove persisted jobs or stop already-running gateways. No registry or gateway was changed.
+Declarative Home candidates, including the historical PR #681 target, are not runtime proof: disabled/absent generated declarations do not remove persisted jobs or stop already-running gateways. PR #681 is not a current Phase B prerequisite; see `HOME-PR-681-DISPOSITION.md`. No registry or gateway was changed.
 
 `ROUTE_OWNERSHIP = PARTIAL` because semantic ownership and active gateway identity are mapped, but app-token correspondence/delivery readback, checkout scheduler duplication, historical generic-session disposition, managed generic reconstruction and live declaration/runtime convergence remain unproved.
 
@@ -107,6 +107,24 @@ CROSS_HOST_SUPERVISION_DEPLOYMENT:
 HERMES_DURABLE_STATE_REQUIRED:
   none currently qualified; conditional owner-selected generic session subset only
 
+SOURCE_FENCE_BASELINE_CONTRACT:
+  PROVEN
+
+PHASE_B_EXECUTION_TOOL:
+  NOT_IMPLEMENTED
+
+PHASE_B_RECEIPT_VERIFIER:
+  NOT_IMPLEMENTED
+
+PHASE_B_ADMISSION:
+  BLOCKED
+
+PHASE_B_FENCING_QUALIFICATION:
+  NOT_EXECUTED
+
+CANONICAL_DEPLOYMENT_ATTESTATION:
+  NOT_ESTABLISHED
+
 SAFE_DRAIN_READY:
   NO
 
@@ -114,4 +132,4 @@ CUTOVER_READY:
   NO
 ```
 
-`SAFE_DRAIN_READY` remains `NO`: healthy work was not interrupted; live controller/gateway/scheduler authority remains; the enabled stale checkout-root record is still a reactivation hazard; current exact-head review/CI is missing for several open lineages; pending legacy controller events require bounded reconciliation; generic managed-secret reconstruction is partial; and no authorized `24h15m` no-restart observation occurred. Remote code custody is necessary but not sufficient for safe drain.
+`PHASE_B_ADMISSION` remains `BLOCKED` and `SAFE_DRAIN_READY` remains `NO`: healthy work was not interrupted; live writer/recovery authority remains; the enabled stale checkout-root record is still a reactivation hazard; pending legacy controller events require bounded reconciliation; generic managed-secret reconstruction is partial; and no authorized `24h15m` no-resurrection observation occurred. A future Phase B receipt would prove only the source fence, custody preservation, generic continuity, and generic reconstructability. It would not establish canonical deployment, activation, graduation, or cutover. Remote code custody is necessary but not sufficient for safe drain.

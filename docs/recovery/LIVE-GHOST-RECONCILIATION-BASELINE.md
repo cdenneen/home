@@ -2,6 +2,8 @@
 
 Observed 2026-08-20. This is a credential-free, point-in-time recovery record. It does not authorize activation or decommission.
 
+> **Historical observation only.** This file is not the current Phase B command plan or a canonical deployment candidate. Current transition boundaries are defined in `LEGACY-TO-CANONICAL-CUTOVER.md`; later evidence supersedes readiness conclusions without rewriting this capture.
+
 ## Authority boundary
 
 | Concern | Authority | Status in this report |
@@ -59,13 +61,18 @@ Independent GETs matched canonical collection for all three project identities, 
 | `HERMES_ROUTING_UNDERSTOOD` | `PARTIAL` | Six live registries are mapped; provider attestation established distinct generic and Alpha0 identities and no dedicated AXIS external route. App-token correspondence/delivery readback, historical generic-session disposition, duplicate enabled scheduler records and managed reconstruction remain incomplete. |
 | `HOST_COUPLING_CLASSIFIED` | `PASS_WITH_LIMITS` | Canonical, deployment, legacy, ephemeral and unknown couplings are classified; the bounded cross-host supervision contract is proven on merged mains and through isolated network transport, but managed live transport/deployment remains unaccepted. |
 | `SECRET_PORTABILITY` | `PARTIAL` | Metadata-only requirements and preferred Home/Alpha0 SOPS authorities are mapped; axis-control and several integration mappings/rotations remain incomplete. |
-| `HERMES_STATE_PORTABILITY` | `PARTIAL` | Required Hermes migration set is empty; isolated Alpha0/axis-control profile/job reconstruction is restart-equivalent, but the generic route declaration and any conditional selected-session input remain unqualified. |
-| `CONTROL_PLANE_HOST_MIGRATION` | `PLANNED_NOT_AUTHORIZED` | The source-fencing plan deterministically covers known jobs, six registries, reprovision/recovery paths, generic continuity, aborts and rollback while retaining Alpha0 SQLite; it has not been executed. |
+| `HERMES_STATE_PORTABILITY` | `PARTIAL` | Required Hermes migration set is empty; isolated Alpha0/axis-control profile/job reconstruction is restart-equivalent, but generic external-secret fresh-runtime reconstruction and any conditional selected-session input remain unqualified. |
+| `SOURCE_FENCE_BASELINE` | `POINT_IN_TIME_ONLY` | This capture predates a fresh signed Phase B baseline and cannot authorize mutation. |
+| `PHASE_B_ADMISSION` | `BLOCKED` | Policy and exact identities are reviewed, but the root-anchored execution/evidence tool, continuous collector, and receipt verifier are not implemented on current main. |
+| `PHASE_B_FENCING_QUALIFICATION` | `NOT_EXECUTED` | The reviewed source-fencing policy covers six registries, recovery paths, custody, generic continuity and a `24h15m` observation, but no live qualification occurred. |
+| `GENERIC_ROUTE_RECONSTRUCTION` | `PARTIAL` | Current-main declarations exist; two fresh owner-only external-secret materializations with zero historical runtime import remain unproved. |
+| `CANONICAL_DEPLOYMENT_ATTESTATION` | `UNKNOWN` | No root-owned signed destination closure/activation identity was accepted; this is a later gate, not Phase B evidence. |
+| `CONTROL_PLANE_HOST_MIGRATION` | `PLANNED_NOT_AUTHORIZED` | Host migration consumes a valid Phase B receipt plus separate deployment evidence and authorization; it does not define or execute Phase B. |
 | `DEPLOYMENT_PLACEMENT` | `PARTIAL_UNDECIDED` | Logical roles and constraints are mapped; exact destinations and axis-lab-owned backend admission decisions remain open. |
 | `PORTABLE_MANAGEMENT_PLANE` | `PARTIAL` | Source and core state paths are portable and the cross-host supervision contract is proven, but managed transport integration, secrets, signed deployment, routing and exact placement evidence remain incomplete. |
 | `ACTIVE_AXIS_CUSTODY` | `FULLY_REMOTE_RECOVERABLE` | All 9 mapped work-item lineages have remote implementation custody; local review/controller evidence remains forensic and must not be fabricated in GitLab. |
-| `SAFE_DRAIN_READY` | `NO` | Live new-work sources/reconciler/workers, the enabled stale checkout-root record, pending event reconciliation, managed generic reconstruction and an authorized `24h15m` no-restart observation still require a future phased drain. |
-| `HOME_COMPOSITION_READY` | `NO` | PR #681 remains blocked and lacks exact-head approval/passing required CI; no Home generation was activated. |
+| `SAFE_DRAIN_READY` | `NO` | Live new-work sources/reconciler/workers, the enabled stale checkout-root record, pending event reconciliation, managed generic reconstruction and an authorized `24h15m` no-resurrection observation still require a future phased drain. |
+| `HOME_COMPOSITION_READY_AT_CAPTURE` | `NO` | Historical PR #681 was blocked at capture and is not a current Phase B prerequisite; no Home generation was activated. |
 | `SECURITY_REMEDIATION_READY` | `PLANNED_NOT_AUTHORIZED` | Paths/modes and future owner-only targets are known; values were not inspected and rotation was not performed. |
 | `CUTOVER_READY` | `NO` | Deployment identity, quiescence, routing exclusivity, live authority convergence, Home review/CI, exclusive Hermes reconstruction, cross-host supervision integration and rollback gates are incomplete. Code custody is 9/9 remotely recoverable but is not cutover authority. |
 
