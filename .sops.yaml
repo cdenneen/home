@@ -12,8 +12,8 @@ keys:
   - &server_macbookpronix age1txemjnq72tf7wx85a5klf8f72fgm3yll0pkpuuj79rwjfa4c8qtq9ww6u8
   - &server_savage age1sklzgq72s0yvw6lz8kvme4syhlzxxv3jwav8lqmzq5enja9r2qtqtule57
   - &server_flash age1yaanh2sarpdf6nmjwj0v6map0zvnqzg69umvfv87q8dqzwsnz35q03wgdn
-  - &server_onyx age1j3uagjksk2u87v24t3dtxwtw47kgagcdsuj37a2pt9u3g6fktvds46zd85
-  - &server_talon age1zfedxxkcvm6vsnljhpd3nmm8ag5nar0hxxa9z4sck4kzaxar5ehqna3w2t
+  - &server_onyx age1msypfq448jts24zy2eusz6hmyxvgyqkvhhccs72t0c0f3yf0t9cshpd7ft
+  - &server_talon age159whdaeqktqcljurlv629pgdqrn9lg372dffs7wy94c9xmtrzv4qvt7hyd
 creation_rules:
   - path_regex: secrets.yaml$
     key_groups:
