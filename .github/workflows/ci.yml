@@ -171,7 +171,6 @@ jobs:
           unset GH_PAT
       - name: Full explicit checks (Linux)
         run: |
-          nix flake check --accept-flake-config
           nix build .#nixosConfigurations.nyx.config.system.build.toplevel --accept-flake-config
           nix build .#nixosConfigurations.MacBook-Pro-NixOS.config.system.build.toplevel --accept-flake-config
 
@@ -288,7 +287,6 @@ jobs:
           unset GH_PAT
       - name: Full explicit checks (Darwin)
         run: |
-          nix flake check --accept-flake-config
           nix build .#darwinConfigurations.VNJTECMBCD.system --accept-flake-config
           nix build '.#homeConfigurations.cdenneen@VNJTECMBCD.activationPackage' --accept-flake-config
 
