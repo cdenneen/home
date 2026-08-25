@@ -88,7 +88,7 @@ let
     }) schemaNames
   );
 in
-pkgs.testers.runNixOSTest {
+(pkgs.testers.runNixOSTest {
   name = "phase-b-tooling-vm";
   nodes.machine = { ... }: {
     imports = [ module ];
@@ -192,4 +192,9 @@ pkgs.testers.runNixOSTest {
     machine.succeed("! systemctl --user --machine=phaseb-source@.host is-active phaseb-vm-target.service")
     machine.succeed("PYTHONPATH=${phaseB}/lib/phase-b:${phaseB}/lib/phase-b/tests ${pkgs.python3}/bin/python -m unittest -v test_registry_journal.RegistryTests.test_exact_atomic_replace_pause_sequence_is_accepted test_registry_journal.JournalTests.test_anonymous_publication_fault_boundaries_are_atomic test_cli_receiver.ReceiverTests.test_durable_cas_is_one_time_and_bool_is_not_counter test_strict_json_trust.TrustTests.test_production_cli_rejects_options_and_missing_anchor", timeout=300)
   '';
-}
+}).overrideTestDerivation
+  (_: {
+    # GitHub's aarch64 runner exposes nixos-test but not /dev/kvm; QEMU's
+    # deterministic TCG fallback is sufficient for this dormant module smoke test.
+    requiredSystemFeatures = [ "nixos-test" ];
+  })
