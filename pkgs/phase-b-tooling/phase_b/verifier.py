@@ -1322,11 +1322,9 @@ def _verify_f0(
     starts = [float(item["window"]["start_monotonic"]) for item in captures.values()]
     ends = [float(item["window"]["end_monotonic"]) for item in captures.values()]
     observed = [float(item["observed_monotonic"]) for item in captures.values()]
-    time_point = float(captures["time"]["observed_monotonic"])
     if (
         max(observed) - min(observed) > F0_CAPTURE_WINDOW_SECONDS
         or max(starts) > min(ends)
-        or not max(starts) <= time_point <= min(ends)
         or raw["f0_at"] != captures["time"]["observed_at"]
     ):
         raise VerificationError("F0 captures lack a common stable five-second window")

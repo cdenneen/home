@@ -510,7 +510,12 @@ class DurableReceiverState:
                 tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
             )
             try:
-                os.write(out, strict_json.canonical(new))
+                remaining = memoryview(strict_json.canonical(new))
+                while remaining:
+                    written = os.write(out, remaining)
+                    if written <= 0:
+                        raise ReceiverError("short receiver state write")
+                    remaining = remaining[written:]
                 os.fsync(out)
             finally:
                 os.close(out)

@@ -612,6 +612,7 @@ class FakeF0EvidenceSource:
         self.baseline = baseline
         self.calls: list[tuple[str, str]] = []
         self.mutate: Any = None
+        self.advance_before_final = 0.0
 
     def capture_custody(self, request: Any, method: str) -> dict[str, Any]:
         self.calls.append((request.phase, "custody"))
@@ -625,6 +626,7 @@ class FakeF0EvidenceSource:
         return self.mutate(envelope, "custody") if self.mutate else envelope
 
     def capture_final(self, request: Any) -> dict[str, dict[str, Any]]:
+        self.fixture.clock.advance(self.advance_before_final)
         mono = self.fixture.clock.monotonic()
         registry_digests = [
             strict_json.digest(strict_json.loads(path.read_bytes()))
