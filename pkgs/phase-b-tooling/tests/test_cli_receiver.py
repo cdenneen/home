@@ -85,6 +85,41 @@ class ReceiverTests(unittest.TestCase):
                 )
             )
 
+    def test_cas_publishes_complete_state_across_short_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            secure_root = Path(temporary)
+            receiver = DurableReceiverState(
+                secure_root / "receiver",
+                owner_uid=os.getuid(),
+                secure_root=secure_root,
+            )
+            head = receiver.current_head(ATTEMPT)
+            real_write = os.write
+
+            def short_write(descriptor: int, data: Any) -> int:
+                return real_write(descriptor, data[:7])
+
+            with patch("phase_b.receiver.os.write", side_effect=short_write):
+                self.assertTrue(
+                    receiver.compare_and_set(
+                        ATTEMPT,
+                        0,
+                        None,
+                        "consumer-short-write",
+                        "consumer-001",
+                        "PHASE_B_FENCING_QUALIFICATION",
+                        "sha256:" + "1" * 64,
+                        head,
+                        "sha256:" + "2" * 64,
+                        *_fresh_cas_times(receiver),
+                    )
+                )
+            snapshot, _live_head = receiver.consumption_snapshot(ATTEMPT)
+            self.assertIsNotNone(snapshot)
+            assert snapshot is not None
+            self.assertEqual(snapshot["counter"], 1)
+            self.assertEqual(snapshot["nonces"], ["consumer-short-write"])
+
     def test_cas_rechecks_freshness_and_grant_expiry_under_receiver_lock(self) -> None:
         for delay, grant_seconds in ((301, 900), (31, 30)):
             with (
@@ -1586,6 +1621,9 @@ class ProductionBoundaryTests(unittest.TestCase):
             path.chmod(0o400)
         backend = FakeBackend(self.fixture)
         live_source = FakeF0EvidenceSource(self.fixture, baseline)
+        # Production captures are sequential; their independently observed times
+        # may differ while their signed stable windows still overlap.
+        live_source.advance_before_final = 0.25
         verified_bindings = []
         arguments = {
             "input_root": inputs,
