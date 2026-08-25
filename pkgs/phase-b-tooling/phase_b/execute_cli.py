@@ -10,7 +10,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -779,10 +779,21 @@ def _execute_with(
             ).as_dict()
         captures["custody"] = final_custody_capture
         evidence["custody"] = final_custody_ref
+        common_end = min(
+            float(capture["window"]["end_monotonic"])
+            for capture in captures.values()
+        )
+        time_capture = captures["time"]
+        f0_at = (
+            _grant_time(time_capture["observed_at"], "F0 time")
+            + timedelta(
+                seconds=common_end - float(time_capture["observed_monotonic"])
+            )
+        ).isoformat().replace("+00:00", "Z")
         f0 = executor.establish_f0_candidate(
             evidence,
             capture_id,
-            captures["time"]["observed_at"],
+            f0_at,
             lambda candidate: _validate_f0_candidate(
                 candidate,
                 baseline,

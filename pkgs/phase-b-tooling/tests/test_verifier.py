@@ -1349,6 +1349,22 @@ class VerifierTests(unittest.TestCase):
                 HMACSHA256Verifier(),
             )
 
+    def test_f0_rejects_declared_time_outside_common_stable_cut(self) -> None:
+        changed_f0 = deepcopy(self.f0)
+        changed_f0["f0_at"] = (
+            datetime.fromisoformat(changed_f0["f0_at"].replace("Z", "+00:00"))
+            + timedelta(milliseconds=250)
+        ).isoformat().replace("+00:00", "Z")
+        with self.assertRaisesRegex(VerificationError, "common stable cut"):
+            _validate_f0_candidate(
+                changed_f0,
+                self.baseline,
+                self.fixture.expectations(),
+                self.fixture,
+                self.anchor,
+                HMACSHA256Verifier(),
+            )
+
     def test_accepts_actual_artifacts_and_consumes_once(self) -> None:
         verifier, authority = self.verifier()
         result = verifier.verify(self.bundle)
