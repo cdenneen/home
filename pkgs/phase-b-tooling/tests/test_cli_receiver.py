@@ -1656,10 +1656,23 @@ class ProductionBoundaryTests(unittest.TestCase):
         self.assertEqual(capture_call_count, 8)
         terminal = records[-1]
         self.assertEqual(terminal["action_id"], "f0-established")
+        candidate = terminal["payload"]["artifact"]
         self.assertEqual(
             terminal["payload"]["artifact_digest"],
-            strict_json.digest(terminal["payload"]["artifact"]),
+            strict_json.digest(candidate),
         )
+        captured = {
+            source: strict_json.loads(
+                (
+                    artifacts
+                    / "evidence"
+                    / f"{candidate['evidence'][source]['id']}.artifact"
+                ).read_bytes()
+            )["payload"]
+            for source in ("custody", "time")
+        }
+        self.assertEqual(candidate["f0_at"], captured["custody"]["observed_at"])
+        self.assertNotEqual(candidate["f0_at"], captured["time"]["observed_at"])
         self.assertFalse((receipts / "f0.json").exists())
 
         def rejected_recovery(

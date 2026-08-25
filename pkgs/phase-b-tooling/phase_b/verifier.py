@@ -1322,12 +1322,20 @@ def _verify_f0(
     starts = [float(item["window"]["start_monotonic"]) for item in captures.values()]
     ends = [float(item["window"]["end_monotonic"]) for item in captures.values()]
     observed = [float(item["observed_monotonic"]) for item in captures.values()]
+    common_start, common_end = max(starts), min(ends)
+    time_capture = captures["time"]
+    selected_f0_at = (
+        _parse_time(time_capture["observed_at"], "F0 time capture")
+        + timedelta(
+            seconds=common_end - float(time_capture["observed_monotonic"])
+        )
+    ).isoformat().replace("+00:00", "Z")
     if (
         max(observed) - min(observed) > F0_CAPTURE_WINDOW_SECONDS
-        or max(starts) > min(ends)
-        or raw["f0_at"] != captures["time"]["observed_at"]
+        or common_start > common_end
+        or raw["f0_at"] != selected_f0_at
     ):
-        raise VerificationError("F0 captures lack a common stable five-second window")
+        raise VerificationError("F0 captures lack a bound common stable cut")
 
     audit = strict_json.exact_object(
         captures["audit"]["evidence"],
