@@ -266,6 +266,17 @@ in
             Description = "Hermes Agent Gateway - Messaging Platform Integration";
             After = [ "network-online.target" ];
             Wants = [ "network-online.target" ];
+            # BOOT-025: RestartSec below (5s) is slower than systemd's
+            # default 10s StartLimitIntervalSec/5-burst window, so a
+            # persistent failure (e.g. a single-writer collision that never
+            # clears) never fills the burst window and restarts forever at
+            # a throttled-but-indefinite rate (confirmed live on Nyx: 106+
+            # restarts over ~9 minutes before this fix). Widening the
+            # interval to comfortably exceed 5 * RestartSec makes the burst
+            # limit actually trip: the unit gives up and goes to `failed`
+            # (visible/alertable) instead of retrying forever.
+            StartLimitIntervalSec = 60;
+            StartLimitBurst = 5;
           };
           Service = {
             Type = "simple";
@@ -306,6 +317,9 @@ in
               "hermes-gateway.service"
             ];
             Wants = [ "network-online.target" ];
+            # BOOT-025: see hermes-gateway's matching comment above.
+            StartLimitIntervalSec = 60;
+            StartLimitBurst = 5;
           };
           Service = {
             Type = "simple";

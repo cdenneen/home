@@ -83,6 +83,12 @@ in
         Description = "Hermes Axis-Control Gateway / Cron Scheduler";
         After = [ "network-online.target" ];
         Wants = [ "network-online.target" ];
+        # BOOT-025: see hermes-supervisor's matching comment - widens the
+        # start-limit window so a persistent failure (e.g. a single-writer
+        # collision) actually trips the burst limit and the unit gives up
+        # rather than restarting indefinitely at a throttled rate.
+        StartLimitIntervalSec = 60;
+        StartLimitBurst = 5;
       };
       Service = {
         Type = "simple";
