@@ -39,7 +39,13 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from action_classification import continuity_mode_permits, effective_continuity_class
+from action_classification import (
+    CONTINUITY_ORDER,
+    continuity_mode_permits,
+    effective_continuity_class,
+    source_ceiling,
+)
+from metadata_attestation import attested_source_for_peer
 from classifier import OutageClassifier
 from continuity import ContinuityController, ContinuityDenied, EmergencyCredentialStore
 from governor import (
@@ -215,7 +221,36 @@ class PolicyEndpoint:
             "cost_usd": data.get("_response_cost"),
         }
 
-    def handle_chat_completion(self, priority: Priority, body: bytes) -> tuple[int, bytes]:
+    def _resolve_workload_source(self, asserted_source, peer_port, local_port):
+        """#40: upgrade the request-body-ASSERTED x_hermes_source to
+        ATTESTED when the kernel-guaranteed TCP peer's own side channel
+        (written by the sitecustomize patch, keyed by its own pid) is
+        available and agrees. On disagreement, resolve to whichever
+        source's ceiling is more restrictive - a conflict must never
+        make the request more permissive (#39C). Returns
+        (resolved_source, provenance, conflict_evidence_or_None)."""
+        if peer_port is None or local_port is None:
+            return asserted_source, "asserted", None
+        attested, attempted = attested_source_for_peer(local_port, peer_port)
+        if not attempted or attested is None:
+            return asserted_source, "asserted", None
+        if asserted_source is None:
+            return attested, "attested", None
+        if attested == asserted_source:
+            return attested, "attested", None
+        # Disagreement: keep whichever yields the stricter ceiling.
+        stricter = (
+            attested
+            if CONTINUITY_ORDER.index(source_ceiling(attested))
+            >= CONTINUITY_ORDER.index(source_ceiling(asserted_source))
+            else asserted_source
+        )
+        conflict = {"asserted": asserted_source, "attested": attested, "resolved": stricter}
+        return stricter, "asserted_conflict_resolved_to_stricter", conflict
+
+    def handle_chat_completion(
+        self, priority: Priority, body: bytes, peer_port: int | None = None, local_port: int | None = None,
+    ) -> tuple[int, bytes]:
         try:
             parsed = json.loads(body)
         except json.JSONDecodeError:
@@ -232,10 +267,16 @@ class PolicyEndpoint:
             if isinstance(t, dict)
         ]
         tool_names = [name for name in tool_names if name]
-        workload_source = parsed.get("x_hermes_source")
+        asserted_source = parsed.get("x_hermes_source")
+        workload_source, source_provenance, metadata_conflict = self._resolve_workload_source(
+            asserted_source, peer_port, local_port
+        )
         effective_class, classification_evidence = effective_continuity_class(
             self.continuity_class, tool_names, workload_source
         )
+        classification_evidence["source_ceiling_provenance"] = source_provenance
+        if metadata_conflict is not None:
+            classification_evidence["metadata_conflict"] = metadata_conflict
 
         # x_hermes_* fields are for this endpoint's own classification only -
         # confirmed live (nyx-gitlab, 2026-08-27): forwarding x_hermes_source
@@ -423,7 +464,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
-        status, raw = self.endpoint.handle_chat_completion(self._priority_for_request(), body)
+        status, raw = self.endpoint.handle_chat_completion(
+            self._priority_for_request(), body,
+            peer_port=self.client_address[1], local_port=self.server.server_address[1],
+        )
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
