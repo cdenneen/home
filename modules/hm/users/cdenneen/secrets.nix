@@ -339,6 +339,7 @@ in
     telegram_chat_id.mode = "0400";
     jfrog_api_token.mode = "0400";
     jfrog_artifactory_token.mode = "0400";
+    op_service_account_token_ap.mode = "0400";
 
     glab_cli_config = {
       mode = "0600";
