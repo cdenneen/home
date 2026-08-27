@@ -39,6 +39,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from action_classification import continuity_mode_permits, effective_continuity_class
 from classifier import OutageClassifier
 from continuity import ContinuityController, ContinuityDenied, EmergencyCredentialStore
 from governor import (
@@ -63,7 +64,23 @@ class PolicyEndpoint:
     def __init__(self, config: dict):
         self.config = config
         self.actor = config["actor"]
+        # trust_domain -> agent -> workstream -> resource_project_context
+        # -> workload/action. Required, no default - gateway/profile
+        # identity (actor, above) must never silently stand in for these;
+        # an instance missing any of them fails closed at startup rather
+        # than guessing a trust domain.
+        self.trust_domain = config["trust_domain"]
+        if self.trust_domain not in ("work", "personal"):
+            raise ValueError(f"trust_domain must be 'work' or 'personal', got {self.trust_domain!r}")
+        self.agent = config["agent"]
+        self.workstream = config["workstream"]
+        self.resource_project_context = config.get("resource_project_context")
         self.priority = Priority(config.get("priority", "P2"))
+        # Gateway-level ceiling only (continuity-class-audit.md) - the most
+        # permissive continuity_class this actor could ever reach. Real
+        # per-request classification (action_classification.py) takes the
+        # more restrictive of this ceiling and the request's own
+        # tool/source-derived classification; it never widens past this.
         self.continuity_class = config.get("continuity_class", "automatic-read-only")
         self.eros_base_url = config["eros_base_url"].rstrip("/")
         # Read at process startup, not baked into the rendered config file -
@@ -205,19 +222,76 @@ class PolicyEndpoint:
             return 400, json.dumps({"error": {"message": "invalid JSON body"}}).encode()
         requested_route = parsed.get("model", "")
 
+        # Piece 1 (tool-name allowlist, unknown -> deny automatic) and
+        # piece 2 (x_hermes_source, propagated via the workload-metadata
+        # sitecustomize patch) combine here into one effective per-request
+        # continuity_class - never more permissive than the gateway ceiling.
+        tool_names = [
+            t.get("function", {}).get("name")
+            for t in (parsed.get("tools") or [])
+            if isinstance(t, dict)
+        ]
+        tool_names = [name for name in tool_names if name]
+        workload_source = parsed.get("x_hermes_source")
+        effective_class, classification_evidence = effective_continuity_class(
+            self.continuity_class, tool_names, workload_source
+        )
+
+        # x_hermes_* fields are for this endpoint's own classification only -
+        # confirmed live (nyx-gitlab, 2026-08-27): forwarding x_hermes_source
+        # verbatim to Eros/Bedrock fails with "Extra inputs are not
+        # permitted" (Bedrock's strict request schema rejects unrecognized
+        # top-level fields). Strip every x_hermes_* key before forwarding;
+        # everything downstream (Eros forwarding, idempotency digest) uses
+        # this sanitized body, never the original.
+        hermes_meta_keys = [k for k in parsed if k.startswith("x_hermes_")]
+        if hermes_meta_keys:
+            sanitized = {k: v for k, v in parsed.items() if k not in hermes_meta_keys}
+            body = json.dumps(sanitized).encode()
+
+        idempotency_key = parsed.get("idempotency_key")
+        digest = self.state.digest_for(self.actor, requested_route, body, idempotency_key)
+
         mode = self.current_mode()
 
         if mode in ("continuity_auto", "break_glass"):
             if priority not in (Priority.P0, Priority.P1):
                 self.state.record_admission(
                     actor=self.actor, priority=priority.value,
-                    continuity_class=self.continuity_class,
+                    continuity_class=effective_class,
                     requested_route=requested_route, decision="deny",
                     reason=f"{mode}: P2/P3 suspended during continuity",
                     economic_state=EconomicState.BREAK_GLASS.value,
+                    classification_evidence=classification_evidence,
+                    trust_domain=self.trust_domain, agent=self.agent,
+                    workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
                 )
                 return 403, json.dumps({
                     "error": {"message": "P2/P3 suspended during continuity", "type": "continuity_priority_denied"}
+                }).encode()
+            if not continuity_mode_permits(mode, effective_class):
+                # continuity_class is orthogonal to priority
+                # (execution-contract.md 10.4): a P0/P1 request whose
+                # effective classification is human-present or stricter is
+                # still denied under continuity_auto, since no human is
+                # present by construction in that mode.
+                self.state.record_admission(
+                    actor=self.actor, priority=priority.value,
+                    continuity_class=effective_class,
+                    requested_route=requested_route, decision="deny",
+                    reason=f"{mode}: effective continuity_class '{effective_class}' not permitted under this mode",
+                    economic_state=EconomicState.BREAK_GLASS.value,
+                    classification_evidence=classification_evidence,
+                    trust_domain=self.trust_domain, agent=self.agent,
+                    workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
+                )
+                return 403, json.dumps({
+                    "error": {
+                        "message": f"continuity_class '{effective_class}' not permitted under {mode}",
+                        "type": "continuity_class_denied",
+                    }
                 }).encode()
             try:
                 cred = (
@@ -228,26 +302,48 @@ class PolicyEndpoint:
             except ContinuityDenied as exc:
                 self.state.record_admission(
                     actor=self.actor, priority=priority.value,
-                    continuity_class=self.continuity_class,
+                    continuity_class=effective_class,
                     requested_route=requested_route, decision="deny",
                     reason=f"continuity denied: {exc}",
                     economic_state=EconomicState.BREAK_GLASS.value,
+                    classification_evidence=classification_evidence,
+                    trust_domain=self.trust_domain, agent=self.agent,
+                    workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
                 )
                 # BOOT-013: emergency credential retrieval fails -> deny,
                 # alert, never substitute a normal credential.
                 return 503, json.dumps({
                     "error": {"message": f"continuity unavailable: {exc}", "type": "continuity_credential_unavailable"}
                 }).encode()
-            return self._forward_continuity(cred, requested_route, body, priority)
+            return self._forward_continuity(cred, requested_route, body, priority, digest)
 
         # mode == "normal"
+        #
+        # execution-contract.md 10.5 / BOOT-028: Eros restoration must not
+        # replay an in-flight or completed continuity action merely because
+        # the normal route became available again. The mutating action may
+        # have completed via CONTINUITY-AUTO/BREAK-GLASS moments ago, then
+        # the caller resubmits the identical request now that mode has
+        # reverted to "normal" - this check, not just the one inside
+        # _forward_continuity, is what actually closes that path, since a
+        # resubmission after recovery arrives here, not through continuity.
+        existing = self.state.idempotency_lookup(digest)
+        if existing and existing.get("completed_at"):
+            cached = existing["response_json"]
+            return 200, cached.encode() if isinstance(cached, str) else b"{}"
+
         state, reason = self.economic_state()
         decision = admission_decision(state, priority)
         self.state.record_admission(
             actor=self.actor, priority=priority.value,
-            continuity_class=self.continuity_class,
+            continuity_class=effective_class,
             requested_route=requested_route, decision=decision.value,
             reason=reason, economic_state=state.value,
+            classification_evidence=classification_evidence,
+            trust_domain=self.trust_domain, agent=self.agent,
+            workstream=self.workstream,
+            resource_project_context=self.resource_project_context,
         )
         if decision == Admission.DENY:
             return 403, json.dumps({
@@ -271,20 +367,16 @@ class PolicyEndpoint:
                 actual_provider=None, actual_model=attestation.get("actual_model"),
                 cost_usd=cost, input_tokens=attestation.get("input_tokens"),
                 output_tokens=attestation.get("output_tokens"), source="eros",
+                trust_domain=self.trust_domain, agent=self.agent,
+                workstream=self.workstream,
+                resource_project_context=self.resource_project_context,
             )
         return status, raw
 
     def _break_glass_credential(self):
         return self.continuity.credential_store.load()
 
-    def _forward_continuity(self, cred, requested_route, body, priority):
-        idempotency_key = None
-        try:
-            parsed = json.loads(body)
-            idempotency_key = parsed.get("idempotency_key")
-        except json.JSONDecodeError:
-            pass
-        digest = self.state.digest_for(self.actor, requested_route, body, idempotency_key)
+    def _forward_continuity(self, cred, requested_route, body, priority, digest):
         existing = self.state.idempotency_lookup(digest)
         if existing and existing.get("completed_at"):
             # Eros recovery / retry-after-continuity case: the same
@@ -308,6 +400,9 @@ class PolicyEndpoint:
             actual_provider=cred.provider, actual_model=cred.model,
             cost_usd=0.0, input_tokens=0, output_tokens=0, source="continuity",
             request_digest=digest,
+            trust_domain=self.trust_domain, agent=self.agent,
+            workstream=self.workstream,
+            resource_project_context=self.resource_project_context,
         )
         return 200, response_body
 
@@ -342,6 +437,9 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps({
                 "mode": self.endpoint.current_mode(),
                 "actor": self.endpoint.actor,
+                "trust_domain": self.endpoint.trust_domain,
+                "agent": self.endpoint.agent,
+                "workstream": self.endpoint.workstream,
             }).encode()
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

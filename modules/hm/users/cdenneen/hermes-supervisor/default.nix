@@ -8,7 +8,8 @@
 }:
 let
   packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
-  hermesGatewaySitecustomize = pkgs.writeTextDir "sitecustomize.py" ''
+  workloadMetadata = import ../hermes-workload-metadata { inherit pkgs agentPkgs; };
+  hermesGatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize ''
     try:
         import hermes_cli.commands as commands
         commands.should_bypass_active_session = commands.is_gateway_known_command
@@ -20,6 +21,10 @@ let
     exec ${agentPkgs.hermes.hermesVenv}/bin/python3 -c \
       'import hermes_cli.commands as commands; assert commands.should_bypass_active_session is commands.is_gateway_known_command'
   '';
+  hermesGatewayChecks = [
+    hermesGatewayBypassCheck
+    workloadMetadata.selftestCheck
+  ];
   hermesGatewayBootstrapConfig = pkgs.writeText "hermes-gateway-config.yaml" ''
     plugins:
       enabled:
@@ -249,7 +254,7 @@ in
           };
           Service = {
             Type = "simple";
-            ExecStartPre = hermesGatewayBypassCheck;
+            ExecStartPre = hermesGatewayChecks;
             ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
             WorkingDirectory = config.profiles.hermesGateway.workingDirectory;
             Environment = [
@@ -280,7 +285,7 @@ in
           };
           Service = {
             Type = "simple";
-            ExecStartPre = hermesGatewayBypassCheck;
+            ExecStartPre = hermesGatewayChecks;
             ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
             WorkingDirectory = config.profiles.hermesGatewaySecondary.workingDirectory;
             Environment = [

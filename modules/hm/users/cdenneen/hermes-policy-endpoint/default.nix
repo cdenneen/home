@@ -22,6 +22,21 @@ let
       configFile = pkgs.writeText "hermes-policy-endpoint-${name}-config.json" (
         builtins.toJSON {
           actor = name;
+          # trust_domain -> agent -> workstream -> resource_project_context
+          # -> workload/action. Gateway/profile identity ("actor" above) is
+          # deliberately NOT treated as equivalent to workstream or
+          # economic-policy identity - a single agent (e.g. "nyx") can span
+          # multiple interconnected workstreams (eks, gitlab, jfrog, ...)
+          # that share qualified work-domain knowledge/skills because their
+          # infrastructure is materially interdependent. trust_domain is
+          # the hard WORK/PERSONAL tenant-isolation boundary enforced even
+          # though work and personal share Eros/LiteLLM/OmniRoute/memory
+          # infrastructure - required, no default, fails closed rather
+          # than silently defaulting to a guess.
+          trust_domain = inst.trustDomain;
+          agent = inst.agent;
+          workstream = inst.workstream;
+          resource_project_context = inst.resourceProjectContext;
           priority = inst.priority;
           continuity_class = inst.continuityClass;
           eros_base_url = inst.erosBaseUrl;
@@ -78,6 +93,26 @@ let
       port = lib.mkOption {
         type = lib.types.port;
         description = "Local port this instance listens on (127.0.0.1 only). Not yet referenced by any Hermes profile - wiring Hermes to use it is a separate, explicitly-authorized Phase 2 action.";
+      };
+      trustDomain = lib.mkOption {
+        type = lib.types.enum [
+          "work"
+          "personal"
+        ];
+        description = "Hard tenant-isolation boundary, enforced independently of gateway/profile identity, even though work and personal share Eros/LiteLLM/OmniRoute/memory infrastructure. No default - every instance must state this explicitly.";
+      };
+      agent = lib.mkOption {
+        type = lib.types.str;
+        description = "The logical agent this instance belongs to (e.g. 'nyx', 'ghost') - one agent may span multiple workstreams; this is coarser than, and independent of, the gateway/profile identity in `actor`.";
+      };
+      workstream = lib.mkOption {
+        type = lib.types.str;
+        description = "First-class admission/accounting dimension independent of gateway/profile (e.g. 'eks', 'gitlab', 'jfrog', 'assistant', 'alpha0', 'axis-control'). Action/effect authority and continuity_class are per workload/action, never inferred from workstream alone.";
+      };
+      resourceProjectContext = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Reserved for a future per-request resource/project-scoped signal (e.g. a specific EKS cluster or GitLab project). Schema support only in this pass - not yet populated per-request.";
       };
       priority = lib.mkOption {
         type = lib.types.enum [
