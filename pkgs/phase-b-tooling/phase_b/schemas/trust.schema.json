@@ -1,0 +1,1477 @@
+{
+  "$id": "https://example.invalid/phase-b/trust.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 16,
+  "minProperties": 16,
+  "properties": {
+    "anchor_generation": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "authority_identities": {
+      "additionalProperties": false,
+      "maxProperties": 3,
+      "minProperties": 3,
+      "properties": {
+        "alpha0": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "profile_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "route_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "service_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "profile_identity",
+            "route_identity",
+            "service_identity",
+            "session_identity"
+          ],
+          "type": "object"
+        },
+        "dedicated_axis_route": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "generic": {
+          "additionalProperties": false,
+          "maxProperties": 4,
+          "minProperties": 4,
+          "properties": {
+            "profile_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "route_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "service_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "session_identity": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "profile_identity",
+            "route_identity",
+            "service_identity",
+            "session_identity"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "alpha0",
+        "dedicated_axis_route",
+        "generic"
+      ],
+      "type": "object"
+    },
+    "canonical_vectors_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "collector_identity": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "effect_plan_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "executables": {
+      "additionalProperties": false,
+      "maxProperties": 18,
+      "minProperties": 18,
+      "properties": {
+        "artifact-reader": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "collector": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "custody-reader": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "executor": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "hermes": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "hermes-mutation-adapter": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "network-monitor": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "observation-signer": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "privilege-dropper": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "process-inspector": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "receiver-client": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "reconstruction-runner": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "signature-verifier": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "source-sensor": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "source-signer": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "systemctl": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "verifier": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        },
+        "write-monitor": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "closure": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            },
+            "digest": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "sha256:[0-9a-f]{64}",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "pattern": "/.*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "closure",
+            "digest",
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "artifact-reader",
+        "collector",
+        "custody-reader",
+        "executor",
+        "hermes",
+        "hermes-mutation-adapter",
+        "network-monitor",
+        "observation-signer",
+        "privilege-dropper",
+        "process-inspector",
+        "receiver-client",
+        "reconstruction-runner",
+        "signature-verifier",
+        "source-sensor",
+        "source-signer",
+        "systemctl",
+        "verifier",
+        "write-monitor"
+      ],
+      "type": "object"
+    },
+    "listener_inventory_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "namespace_roles": {
+      "additionalProperties": false,
+      "maxProperties": 18,
+      "minProperties": 18,
+      "properties": {
+        "phase-b-backup-restore": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-baseline": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-consumption-grant": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-f0": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-incident-rollback-grant": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-observation": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-operation-grant": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-receipt": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-reconstruction": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.audit": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.custody": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.database": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.identity": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.provider-route": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.registry": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.systemd": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.time": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase-b-source-event.user-journal": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase-b-backup-restore",
+        "phase-b-baseline",
+        "phase-b-consumption-grant",
+        "phase-b-f0",
+        "phase-b-incident-rollback-grant",
+        "phase-b-observation",
+        "phase-b-operation-grant",
+        "phase-b-receipt",
+        "phase-b-reconstruction",
+        "phase-b-source-event.audit",
+        "phase-b-source-event.custody",
+        "phase-b-source-event.database",
+        "phase-b-source-event.identity",
+        "phase-b-source-event.provider-route",
+        "phase-b-source-event.registry",
+        "phase-b-source-event.systemd",
+        "phase-b-source-event.time",
+        "phase-b-source-event.user-journal"
+      ],
+      "type": "object"
+    },
+    "process_inventory_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "registry_paths": {
+      "items": {
+        "maxLength": 8192,
+        "minLength": 1,
+        "pattern": "/.*",
+        "type": "string"
+      },
+      "maxItems": 4096,
+      "minItems": 6,
+      "type": "array"
+    },
+    "rollback_plan_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "runbook_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "schema": {
+      "const": "phase-b.trust.v2"
+    },
+    "schema_digests": {
+      "additionalProperties": false,
+      "maxProperties": 14,
+      "minProperties": 14,
+      "properties": {
+        "baseline": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "consumption": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "f0": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "incident-rollback-grant": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "journal": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "observation": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "operation-grant": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "raw-batch": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "receipt": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "reconstruction": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "receiver-refresh-segment": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "signed-envelope": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "source-event": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "trust": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline",
+        "consumption",
+        "f0",
+        "incident-rollback-grant",
+        "journal",
+        "observation",
+        "operation-grant",
+        "raw-batch",
+        "receipt",
+        "reconstruction",
+        "receiver-refresh-segment",
+        "signed-envelope",
+        "source-event",
+        "trust"
+      ],
+      "type": "object"
+    },
+    "signers": {
+      "additionalProperties": false,
+      "maxProperties": 14,
+      "minProperties": 14,
+      "properties": {
+        "offhost-collection": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "receipt": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "reconstruction": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-audit": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-custody": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-database": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-identity": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-provider-route": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-registry": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-systemd": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-time": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "sensor-user-journal": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "source-authorization": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        },
+        "source-execution": {
+          "additionalProperties": false,
+          "maxProperties": 3,
+          "minProperties": 3,
+          "properties": {
+            "algorithm": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            "public_key": {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "algorithm",
+            "id",
+            "public_key"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "offhost-collection",
+        "receipt",
+        "reconstruction",
+        "sensor-audit",
+        "sensor-custody",
+        "sensor-database",
+        "sensor-identity",
+        "sensor-provider-route",
+        "sensor-registry",
+        "sensor-systemd",
+        "sensor-time",
+        "sensor-user-journal",
+        "source-authorization",
+        "source-execution"
+      ],
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": false,
+      "maxProperties": 11,
+      "minProperties": 11,
+      "properties": {
+        "boot_id": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "booted_closure": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "sha256:[0-9a-f]{64}",
+          "type": "string"
+        },
+        "gid": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "home": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "pattern": "/.*",
+          "type": "string"
+        },
+        "home_generation": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "host_identity": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "machine_id": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "uid": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "user": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "user_manager_id": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "user_manager_machine": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "boot_id",
+        "booted_closure",
+        "gid",
+        "home",
+        "home_generation",
+        "host_identity",
+        "machine_id",
+        "uid",
+        "user",
+        "user_manager_id",
+        "user_manager_machine"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "anchor_generation",
+    "authority_identities",
+    "canonical_vectors_digest",
+    "collector_identity",
+    "effect_plan_digest",
+    "executables",
+    "listener_inventory_digest",
+    "namespace_roles",
+    "process_inventory_digest",
+    "registry_paths",
+    "rollback_plan_digest",
+    "runbook_digest",
+    "schema",
+    "schema_digests",
+    "signers",
+    "source"
+  ],
+  "type": "object"
+}

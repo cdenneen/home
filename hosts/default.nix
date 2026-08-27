@@ -175,6 +175,18 @@ let
       tags = [ ];
     }
     {
+      name = "onyx";
+      system = "x86_64-linux";
+      modules = [ ./nixos/onyx.nix ];
+      tags = [ "qemu-guest" ];
+    }
+    {
+      name = "talon";
+      system = "x86_64-linux";
+      modules = [ ./nixos/talon.nix ];
+      tags = [ "qemu-guest" ];
+    }
+    {
       name = "utm";
       system = "aarch64-linux";
       modules = [ ./nixos/utm.nix ];

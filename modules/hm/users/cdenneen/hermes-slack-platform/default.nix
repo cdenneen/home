@@ -70,7 +70,7 @@ in
         fi
         config_tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-slack-plugin-config.XXXXXX)"
         ${pkgs.yq-go}/bin/yq '
-          .plugins.enabled = (((.plugins.enabled // []) + ["platforms/slack"]) | unique)
+          .plugins.enabled = (((.plugins.enabled // []) | map(select(. != "slack-platform"))) + ["platforms/slack"] | unique)
           | .plugins.disabled = ((.plugins.disabled // []) | map(select(. != "platforms/slack" and . != "slack-platform")))
         ' "$config_file" > "$config_tmp"
         if ! ${pkgs.diffutils}/bin/cmp -s "$config_tmp" "$config_file" \

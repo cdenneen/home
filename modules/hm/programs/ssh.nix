@@ -30,8 +30,10 @@ in
     home.file.".ssh/known_hosts.d/internal-hosts".text = ''
       nyx,nyx.tail0e55.ts.net,100.80.58.4 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3PCrjUkoqJkZ1Ibi+s702ub7zrqvh44pxVFii5C/FG
       ghost,ghost.tail0e55.ts.net,100.114.242.29,150.136.97.147 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIr7jR0S7KbVD7+wYAqgCEiVVyUYhM2K90EiVKz7ofCd
-      savage,136.117.81.52 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKhv+cYoSk3vklIXT6JiN2KydQ0Yqc6G2dM7ns5QcBtH
-      flash,34.171.198.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfbHp32yNF080ljwAUsImHCx/78fnTndM1GST7DIG6s
+      savage,100.76.222.17 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKhv+cYoSk3vklIXT6JiN2KydQ0Yqc6G2dM7ns5QcBtH
+      flash,100.117.228.112,34.171.198.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDfbHp32yNF080ljwAUsImHCx/78fnTndM1GST7DIG6s
+      onyx,100.67.24.27,150.136.243.163 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC115wfVAmr673dTdsA8atoz/SCaP/H05S2O3+6XUMdZ
+      talon,100.107.59.106,157.151.247.217 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEtLq0PsflmGDtlrAEagKaiD4kCzuX6PfKMlLNABDcrO
     '';
     services = lib.optionalAttrs hasSshAgentService {
       ssh-agent.enable = true;

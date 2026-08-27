@@ -1,0 +1,51 @@
+{
+  "$id": "https://example.invalid/phase-b/operation-grant.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "maxProperties": 7,
+  "minProperties": 7,
+  "properties": {
+    "action": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "attempt_id": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "baseline_digest": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "pattern": "sha256:[0-9a-f]{64}",
+      "type": "string"
+    },
+    "expires_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{6})?Z$",
+      "type": "string"
+    },
+    "grant_nonce": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    },
+    "issued_at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{6})?Z$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "phase-b.operation-grant.v1"
+    }
+  },
+  "required": [
+    "action",
+    "attempt_id",
+    "baseline_digest",
+    "expires_at",
+    "grant_nonce",
+    "issued_at",
+    "schema"
+  ],
+  "type": "object"
+}

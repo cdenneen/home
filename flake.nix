@@ -20,7 +20,7 @@
 
   inputs = {
     # Canonical nixpkgs input required by flake-parts (stable for system builds)
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
     arion = {
       url = "github:hercules-ci/arion";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -36,7 +36,7 @@
     };
     flake-parts.url = "github:hercules-ci/flake-parts";
     home-manager = {
-      url = "github:nix-community/home-manager/release-25.11";
+      url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     home-manager-mbair = {
@@ -56,7 +56,7 @@
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
     nix-darwin = {
-      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
+      url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-darwin-mbair = {
@@ -305,6 +305,8 @@
             tokensave = pkgs.callPackage ./pkgs/tokensave.nix { };
             pi-agent = pkgs.callPackage ./pkgs/pi-agent.nix { };
             pi-plugins = pkgs.callPackage ./pkgs/pi-plugins.nix { };
+          } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            phase-b-tooling = pkgs.callPackage ./pkgs/phase-b-tooling.nix { };
           };
 
           devshells.default = {
@@ -398,6 +400,27 @@
                     check-jsonschema --schemafile source/schemas/control.schema.json source/control.defaults.json
                     touch "$out"
                   '';
+              phase-b-tooling-static =
+                pkgs.runCommand "phase-b-tooling-static-check"
+                  {
+                    nativeBuildInputs = [
+                      pkgs.check-jsonschema
+                      pkgs.pyright
+                      pkgs.ruff
+                    ];
+                  }
+                  ''
+                    cp -R ${./pkgs/phase-b-tooling} source
+                    chmod -R u+w source
+                    ruff check --ignore E402 source
+                    pyright source
+                    check-jsonschema --check-metaschema source/phase_b/schemas/*.schema.json
+                    cat > consumption-refresh.json <<'EOF'
+                    {"attempt_id":"attempt","authorization_grant_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","consumer_identity":"consumer","consumer_nonce":"nonce","continued_at":"2026-08-20T00:00:00Z","expected_counter":1,"grant_expires_at":"2026-08-20T00:15:00Z","previous_receipt_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","receipt_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","receiver_head":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","requested_transition":"PHASE_B_FENCING_QUALIFICATION","schema":"phase-b.consumption.v1"}
+                    EOF
+                    check-jsonschema --schemafile source/phase_b/schemas/consumption.schema.json consumption-refresh.json
+                    touch "$out"
+                  '';
               hermes-watchdog =
                 pkgs.runCommand "hermes-watchdog-check"
                   {
@@ -424,7 +447,17 @@
                     touch "$out"
                   '';
             }
-            // optionalAttrs pkgs.stdenv.isLinux {
+            // optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+              phase-b-tooling-unit = self'.packages.phase-b-tooling;
+              phase-b-tooling-module = pkgs.callPackage ./pkgs/phase-b-tooling/module-eval-check.nix {
+                module = ./modules/system/nixos/phase-b-tooling.nix;
+                nixosSystem = inputs.nixpkgs.lib.nixosSystem;
+                phaseB = self'.packages.phase-b-tooling;
+              };
+              phase-b-tooling-vm = pkgs.callPackage ./pkgs/phase-b-tooling/vm-test.nix {
+                module = ./modules/system/nixos/phase-b-tooling.nix;
+                phaseB = self'.packages.phase-b-tooling;
+              };
               axis-control-package = inputs.axis-control.checks.${system}.package;
               axis-control-home-module = inputs.axis-control.checks.${system}.home-module;
               hermes-gateway-roles =
@@ -440,6 +473,7 @@
                   axisControlWatchdog = services.axis-control-watchdog;
                   watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
                   profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
+                  gatewayBootstrapActivation = ghost.home.activation.hermesGatewayBootstrapConfig.data;
                   slackPluginActivation = ghost.home.activation.hermesSlackPlatformConfig.data;
                   primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
                   nyxPrimaryCommand = builtins.concatStringsSep "\n" (
@@ -462,6 +496,12 @@
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
                 assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
+                assert primary.EnvironmentFile == [ "%h/.hermes/.env" ];
+                assert lib.hasInfix
+                  ''if [ ! -e "$HOME/.hermes/config.yaml" ] && [ ! -L "$HOME/.hermes/config.yaml" ]; then''
+                  gatewayBootstrapActivation;
+                assert lib.hasInfix ''"$HOME/.hermes/config.yaml"'' gatewayBootstrapActivation;
+                assert lib.hasInfix "install -D -m 600 -T" gatewayBootstrapActivation;
                 assert !(lib.hasInfix "--profile" primaryCommand);
                 assert ghost.profiles.hermesAxisControlGateway.enable == false;
                 assert ghost.profiles.hermesSupervisor.enable == false;
@@ -507,9 +547,36 @@
                   "/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/config.yaml"
                 ];
                 assert lib.hasInfix ".plugins.enabled" slackPluginActivation;
-                assert lib.hasInfix ". != \"slack-platform\"" slackPluginActivation;
+                assert lib.hasInfix "map(select(. != \"slack-platform\"))" slackPluginActivation;
                 assert nyxPrimaryCommand == nyxIntegratedPrimaryCommand;
-                pkgs.runCommand "hermes-gateway-roles-check" { } ''
+                pkgs.runCommand "hermes-gateway-roles-check" { nativeBuildInputs = [ pkgs.yq-go ]; } ''
+                  export DRY_RUN_CMD=
+                  export HOME="$TMPDIR/home"
+
+                  ${gatewayBootstrapActivation}
+                  test "$(stat -c %a "$HOME/.hermes/config.yaml")" = 600
+                  test "$(yq -o=json -I=0 '.plugins.enabled' "$HOME/.hermes/config.yaml")" = '["platforms/slack"]'
+                  cp "$HOME/.hermes/config.yaml" "$TMPDIR/original.yaml"
+                  ${gatewayBootstrapActivation}
+                  cmp "$TMPDIR/original.yaml" "$HOME/.hermes/config.yaml"
+
+                  yq -i '
+                    .plugins.enabled = ["slack-platform", "platforms/slack", "slack-platform"]
+                    | .plugins.disabled = ["slack-platform", "platforms/slack", "other"]
+                  ' "$HOME/.hermes/config.yaml"
+                  cat > "$TMPDIR/slack-activation" <<'EOF'
+                  ${slackPluginActivation}
+                  EOF
+                  substituteInPlace "$TMPDIR/slack-activation" --replace-fail /home/cdenneen "$HOME"
+                  bash "$TMPDIR/slack-activation"
+                  test "$(yq -o=json -I=0 '.plugins.enabled' "$HOME/.hermes/config.yaml")" = '["platforms/slack"]'
+                  test "$(yq -o=json -I=0 '.plugins.disabled' "$HOME/.hermes/config.yaml")" = '["other"]'
+
+                  export HOME="$TMPDIR/dangling"
+                  mkdir -p "$HOME/.hermes"
+                  ln -s "$HOME/missing" "$HOME/.hermes/config.yaml"
+                  ${gatewayBootstrapActivation}
+                  test -L "$HOME/.hermes/config.yaml"
                   touch "$out"
                 '';
             };

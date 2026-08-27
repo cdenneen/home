@@ -128,7 +128,7 @@ let
       stablePkgs = pkgsSet.stable;
       unstablePkgs = pkgsSet.unstable;
       agentPkgs = agentPkgsOverride (mkAgentPkgs system) unstablePkgs;
-      homeStateVersion = "25.11";
+      homeStateVersion = "26.05";
       specialArgs = inputs // {
         inherit
           system
@@ -184,7 +184,7 @@ let
       nixDarwinInput = if legacyBigSur then inputs.nix-darwin-mbair else inputs.nix-darwin;
       nixHomebrewInput = if legacyBigSur then inputs.nix-homebrew-mbair else inputs.nix-homebrew;
       sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
-      homeStateVersion = if legacyBigSur then "25.05" else "25.11";
+      homeStateVersion = if legacyBigSur then "25.05" else "26.05";
       hostHomeModules = sharedHomeModulesFor {
         enableCatppuccin = !legacyBigSur;
         enableNixIndex = !legacyBigSur;
@@ -259,7 +259,7 @@ let
       agentPkgs = if legacyBigSur then null else agentPkgsOverride (mkAgentPkgs system) unstablePkgs;
       homeManagerInput = if legacyBigSur then inputs.home-manager-mbair else home-manager;
       sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
-      homeStateVersion = if legacyBigSur then "25.05" else "25.11";
+      homeStateVersion = if legacyBigSur then "25.05" else "26.05";
       hostHomeModules = sharedHomeModulesFor {
         enableCatppuccin = !legacyBigSur;
         enableNixIndex = !legacyBigSur;

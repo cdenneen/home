@@ -61,7 +61,10 @@
   };
 
   profiles.hermesAxisControlGateway.enable = false;
-  profiles.hermesGateway.enable = true;
+  profiles.hermesGateway = {
+    enable = true;
+    environmentFile = "%h/.hermes/.env";
+  };
   profiles.hermesSlackPlatformOverride.targets = {
     alpha0.homeRelativePath = ".local/share/alpha0/hermes";
     canonical-axis-control.homeRelativePath = ".hermes/profiles/axis-control";
