@@ -65,6 +65,21 @@
     enable = true;
     environmentFile = "%h/.hermes/.env";
   };
+
+  # Wire the local Mem0 REST API into each Hermes gateway profile.
+  # All agents on ghost share user_id="ghost".  MEM0_AGENT_ID tags by profile.
+  systemd.user.services.hermes-gateway.environment = {
+    MEM0_BASE_URL = "http://127.0.0.1:8888";
+    MEM0_USER_ID = "ghost";
+    MEM0_AGENT_ID = "hermes-primary";
+  };
+
+  # When hermesAxisControlGateway is re-enabled, add:
+  # systemd.user.services.<axis-control-service-name>.environment = {
+  #   MEM0_BASE_URL = "http://127.0.0.1:8888";
+  #   MEM0_USER_ID = "ghost";
+  #   MEM0_AGENT_ID = "hermes-axis-control";
+  # };
   profiles.hermesSlackPlatformOverride.targets = {
     alpha0.homeRelativePath = ".local/share/alpha0/hermes";
     canonical-axis-control.homeRelativePath = ".hermes/profiles/axis-control";

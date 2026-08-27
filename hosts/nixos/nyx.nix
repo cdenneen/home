@@ -344,6 +344,16 @@ in
 
   virtualisation.docker.enable = lib.mkForce false;
 
+  # Shared Mem0 memory service for all Hermes gateway profiles on this host.
+  # All profiles hit the same Supabase pgvector DB; isolation is per MEM0_USER_ID
+  # injected in nyx-home.nix.
+  containerPresets.mem0 = {
+    enable = true;
+    userId = "nyx";
+    databaseUrlFile = config.sops.secrets.mem0_database_url.path;
+    openaiApiKeyFile = config.sops.secrets.openai_api_key.path;
+  };
+
   services.amazon-ssm-agent.enable = true;
 
   # Allow inbound services over the private tailnet without opening ports to the public internet.
@@ -806,6 +816,20 @@ in
   sops.secrets.opensync_workos_cookie_password = {
     owner = "cdenneen";
     group = "users";
+    mode = "0400";
+  };
+
+  # Mem0 memory service secrets.  Add these keys to secrets/secrets.yaml:
+  #   mem0_database_url:  DATABASE_URL=postgresql://...  (Supabase pgvector URL)
+  #   openai_api_key:     OPENAI_API_KEY=sk-...  (used by mem0 for embeddings)
+  sops.secrets.mem0_database_url = {
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+  sops.secrets.openai_api_key = {
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
 

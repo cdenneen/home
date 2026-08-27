@@ -10,6 +10,7 @@ in
 {
   imports = [
     ./chat.nix
+    ./mem0.nix
     ./portainer.nix
   ];
 

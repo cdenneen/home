@@ -39,6 +39,23 @@ in
     workingDirectory = "/home/cdenneen/src/workspace/gitlab";
   };
 
+  # Wire the local Mem0 REST API into each Hermes gateway profile.
+  # All agents on nyx share user_id="nyx" (one pool, cross-agent recall).
+  # MEM0_AGENT_ID tags memories by profile so you can filter per-profile
+  # without siloing the pool.  Claude Code / OpenCode connect via the
+  # OpenMemory MCP server on port 8889 instead (see containerPresets.mem0).
+  systemd.user.services.hermes-gateway.environment = {
+    MEM0_BASE_URL = "http://127.0.0.1:8888";
+    MEM0_USER_ID = "nyx";
+    MEM0_AGENT_ID = "hermes-eks";
+  };
+
+  systemd.user.services.hermes-gateway-secondary.environment = {
+    MEM0_BASE_URL = "http://127.0.0.1:8888";
+    MEM0_USER_ID = "nyx";
+    MEM0_AGENT_ID = "hermes-gitlab";
+  };
+
   programs.starship.settings.palette = lib.mkForce "nyx";
 
   programs.zsh.initContent = lib.mkAfter opencodePasswordInit;

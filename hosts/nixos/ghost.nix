@@ -175,6 +175,14 @@ in
       dataDir = "/var/lib/open-webui-fresh";
       ollamaBaseUrl = "http://127.0.0.1:${toString ollamaPort}";
     };
+    # Shared Mem0 memory service for all Hermes gateway profiles on this host.
+    # openai_api_key is already declared below; mem0_database_url is new.
+    mem0 = {
+      enable = true;
+      userId = "ghost";
+      databaseUrlFile = config.sops.secrets.mem0_database_url.path;
+      openaiApiKeyFile = config.sops.secrets.openai_api_key.path;
+    };
   };
   virtualisation.docker.enable = lib.mkForce false;
   virtualisation.podman.autoPrune = {
@@ -562,6 +570,13 @@ in
   sops.secrets.openai_api_key = {
     owner = "cdenneen";
     group = "users";
+    mode = "0400";
+  };
+  # Mem0 database URL.  Add to secrets/secrets.yaml:
+  #   mem0_database_url: DATABASE_URL=postgresql://...  (Supabase pgvector URL)
+  sops.secrets.mem0_database_url = {
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
   sops.secrets.gitlab_com_runner_token = {
