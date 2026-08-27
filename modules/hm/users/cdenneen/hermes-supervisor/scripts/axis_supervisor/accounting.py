@@ -13,6 +13,65 @@ from .schema_registry import read_record, validate_record
 
 ATTEMPT_SCHEMA_ID = "axis.external-development-supervisor.model-attempt"
 
+# Worker accounting event contract (task AX-M4/#59): every model-attempt
+# record's cost must be classified into exactly one of these states, never
+# left to imply zero cost by omission.
+#
+# Hermes's own hermes_cli.oneshot usage report carries a coarser
+# CostStatus of "actual" | "estimated" | "included" | "unknown" (see
+# hermes_agent's agent/usage_pricing.py). The three states below that map
+# from it are DERIVED per-attempt, straight from that report:
+#   actual    -> KNOWN_COST                     (real, metered provider cost)
+#   estimated -> RECONSTRUCTED_COST              (priced from a pricing table,
+#                                                  not a direct provider meter)
+#   included  -> SUBSCRIPTION_NO_INCREMENTAL_METER (bundled in a subscription;
+#                                                  no incremental per-call cost)
+#   unknown   -> UNKNOWN_COST                    (Hermes itself couldn't price it)
+#
+# UNAVAILABLE_USAGE is not a Hermes cost_status at all - it is what this
+# ledger assigns when Hermes never got the chance to report ANYTHING (the
+# subprocess was killed before writing --usage-file, or the report was
+# unreadable). This is the fix for task #58's stale-ledger gap: previously
+# this case just silently omitted `usage`, which is indistinguishable from
+# "$0" to any downstream reader that doesn't know to check for absence.
+#
+# PROVIDER_BILLED_UNATTRIBUTED is intentionally never emitted here. It is
+# reserved for the provider-bill reconciliation layer (roadmap: Provider
+# Billing Reconciliation / Forward Accounting Cut Line, tasks #60/#64) -
+# spend the provider's own invoice shows that no ledger record, at any
+# per-attempt granularity, can be tied back to. That is a whole-system
+# reconciliation finding, not a fact knowable from a single attempt.
+COST_STATE_KNOWN_COST = "KNOWN_COST"
+COST_STATE_RECONSTRUCTED_COST = "RECONSTRUCTED_COST"
+COST_STATE_UNKNOWN_COST = "UNKNOWN_COST"
+COST_STATE_SUBSCRIPTION_NO_INCREMENTAL_METER = "SUBSCRIPTION_NO_INCREMENTAL_METER"
+COST_STATE_PROVIDER_BILLED_UNATTRIBUTED = "PROVIDER_BILLED_UNATTRIBUTED"
+COST_STATE_UNAVAILABLE_USAGE = "UNAVAILABLE_USAGE"
+
+_HERMES_COST_STATUS_TO_COST_STATE = {
+    "actual": COST_STATE_KNOWN_COST,
+    "estimated": COST_STATE_RECONSTRUCTED_COST,
+    "included": COST_STATE_SUBSCRIPTION_NO_INCREMENTAL_METER,
+    "unknown": COST_STATE_UNKNOWN_COST,
+}
+
+
+def cost_state_for(usage: dict[str, Any] | None) -> str:
+    """Classify a model-attempt's cost into the worker accounting event
+    contract's enum. Never returns anything implying zero cost by default -
+    an unrecognized or missing Hermes cost_status maps to UNKNOWN_COST, not
+    KNOWN_COST, and a wholly absent usage report maps to UNAVAILABLE_USAGE,
+    never KNOWN_COST/$0."""
+    if usage is None:
+        return COST_STATE_UNAVAILABLE_USAGE
+    cost_status = usage.get("cost_status")
+    if not isinstance(cost_status, str):
+        # A list/dict cost_status would be unhashable and crash a plain
+        # dict.get() lookup - malformed input must fail closed to
+        # UNKNOWN_COST, not raise and erase the whole ledger record.
+        return COST_STATE_UNKNOWN_COST
+    return _HERMES_COST_STATUS_TO_COST_STATE.get(cost_status, COST_STATE_UNKNOWN_COST)
+
 
 @dataclass(frozen=True)
 class Attempt:
@@ -176,6 +235,8 @@ class AccountingLedger:
             "result": result,
             "recorded_at_epoch": now,
         }
+        if result in {"succeeded", "failed"}:
+            record["cost_state"] = cost_state_for(usage)
         if usage is not None:
             record["usage"] = usage
         if attempt.prompt_digest:

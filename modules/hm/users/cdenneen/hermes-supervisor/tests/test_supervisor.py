@@ -2851,6 +2851,90 @@ def test_missing_usage_report_after_kill_records_none_not_zero(
     assert finished["usage"] is None
 
 
+def test_cost_state_maps_every_hermes_cost_status_to_the_accounting_contract():
+    """AX-M4/#59: the worker accounting event contract's cost_state enum.
+    Every real Hermes CostStatus value must land on its documented mapping -
+    this is the contract other reconciliation work (task #60/#64) is
+    designed against, so a silent drift here would be a real bug."""
+    from axis_supervisor.accounting import cost_state_for
+
+    assert cost_state_for({"cost_status": "actual"}) == "KNOWN_COST"
+    assert cost_state_for({"cost_status": "estimated"}) == "RECONSTRUCTED_COST"
+    assert (
+        cost_state_for({"cost_status": "included"})
+        == "SUBSCRIPTION_NO_INCREMENTAL_METER"
+    )
+    assert cost_state_for({"cost_status": "unknown"}) == "UNKNOWN_COST"
+
+
+def test_cost_state_negative_cases_never_default_to_known_cost():
+    """Negative cases: an absent usage report, a usage report with no
+    cost_status key, and an unrecognized/future cost_status value must all
+    fail closed to an unknown/unavailable state - never silently to
+    KNOWN_COST, which would be indistinguishable from a real $0 attempt."""
+    from axis_supervisor.accounting import cost_state_for
+
+    assert cost_state_for(None) == "UNAVAILABLE_USAGE"
+    assert cost_state_for({}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": None}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": "some-future-hermes-status"}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": "KNOWN_COST"}) == "UNKNOWN_COST"  # case-sensitive, not coerced
+    # A malformed usage report can plausibly have a non-string cost_status
+    # (e.g. a corrupted/future-shaped write). An unhashable value like a
+    # list or dict must not be handed straight to dict.get() as the lookup
+    # key - that raises TypeError and would erase the whole ledger record
+    # instead of merely misclassifying its cost.
+    assert cost_state_for({"cost_status": ["actual"]}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": {"nested": "actual"}}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": 42}) == "UNKNOWN_COST"
+
+
+def test_ledger_record_carries_cost_state_for_finished_attempts_only(tmp_path: Path):
+    """Live-proves the full contract against the real AccountingLedger, not
+    just the pure mapping function: cost_state must appear on succeeded/
+    failed records and be absent on the in-flight 'started' record (a
+    started attempt has no cost yet - it hasn't finished)."""
+    from axis_supervisor.accounting import AccountingLedger
+
+    ledger = AccountingLedger(tmp_path)
+    attempt = ledger.start(
+        role="semantic",
+        model="gpt-5.4",
+        provider="openai-api",
+        run="run-1",
+        assignment="assignment-1",
+        limit=100,
+    )
+    ledger.finish(attempt, "succeeded", usage={"cost_status": "actual", "estimated_cost_usd": 0.02})
+
+    records = [
+        json.loads(line) for line in ledger.path.read_text(encoding="utf-8").splitlines()
+    ]
+    started, succeeded = records
+    assert started["result"] == "started"
+    assert "cost_state" not in started
+    assert succeeded["result"] == "succeeded"
+    assert succeeded["cost_state"] == "KNOWN_COST"
+
+    attempt2 = ledger.start(
+        role="semantic",
+        model="gpt-5.4",
+        provider="openai-api",
+        run="run-1",
+        assignment="assignment-1",
+        limit=100,
+    )
+    ledger.finish(attempt2, "failed", usage=None, error="TimeoutError: worker timed out")
+
+    records = [
+        json.loads(line) for line in ledger.path.read_text(encoding="utf-8").splitlines()
+    ]
+    failed = records[-1]
+    assert failed["result"] == "failed"
+    assert failed["cost_state"] == "UNAVAILABLE_USAGE"
+    assert "usage" not in failed
+
+
 def test_axis119_proof_is_verified_complete():
     from axis_supervisor.verification import verification_for
 

@@ -29,7 +29,17 @@
     "recorded_at_epoch": { "type": "integer", "minimum": 1 },
     "prompt_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "usage": { "type": "object" },
-    "error": { "type": "string" }
+    "error": { "type": "string" },
+    "cost_state": {
+      "enum": [
+        "KNOWN_COST",
+        "RECONSTRUCTED_COST",
+        "UNKNOWN_COST",
+        "SUBSCRIPTION_NO_INCREMENTAL_METER",
+        "PROVIDER_BILLED_UNATTRIBUTED",
+        "UNAVAILABLE_USAGE"
+      ]
+    }
   },
   "additionalProperties": false
 }
