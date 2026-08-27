@@ -2609,12 +2609,16 @@ def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
     manager = workers.HermesWorkerManager(tmp_path, "/bin/hermes", "/bin/supervisorctl")
     manager.hermes_python = lambda: sys.executable
     manager.gate = type("Gate", (), {"require": lambda *_args, **_kwargs: None})()
+    fake_attempt = type("Attempt", (), {"attempt_id": "attempt-large-prompt"})()
+    finished = {}
     manager.accounting = type(
         "Accounting",
         (),
         {
-            "start": lambda *_args, **_kwargs: object(),
-            "finish": lambda *_args, **_kwargs: None,
+            "start": lambda *_args, **_kwargs: fake_attempt,
+            "finish": lambda _self, attempt, result, **kwargs: finished.update(
+                attempt=attempt, result=result, **kwargs
+            ),
         },
     )()
     monkeypatch.setattr(
@@ -2643,7 +2647,208 @@ def test_model_prompt_is_sent_over_stdin(monkeypatch, tmp_path: Path):
     assert captured["input"] == prompt
     assert captured["kwargs"]["stdin"] is workers.subprocess.PIPE
     assert captured["command"][1].endswith("oneshot_stdin.py")
-    assert captured["command"][-2:] == ["--toolsets", ""]
+    assert captured["command"][-4:] == ["--usage-file", captured["command"][-3], "--toolsets", ""]
+    assert captured["command"][-3].endswith("attempt-large-prompt.json")
+    assert finished["result"] == "succeeded"
+    # No usage report was actually written by the fake Process, so this
+    # attempt must be recorded with unknown usage, not silently as $0/None
+    # treated-as-free - the ledger schema simply omits the key in that case.
+    assert finished["usage"] is None
+
+
+def test_model_attempt_usage_report_is_read_recorded_and_discarded(
+    monkeypatch, tmp_path: Path
+):
+    """BOOT/AX-M4: hermes -z already writes a full cost/token usage report
+    via --usage-file; the worker must read it back and attach it to the
+    AccountingLedger record - this is the fix for the previously-confirmed
+    gap where every worker model-attempt had 'usage' entirely absent."""
+    from axis_supervisor import workers
+
+    usage_report = {
+        "estimated_cost_usd": 0.0421,
+        "cost_status": "known",
+        "cost_source": "provider_pricing_table",
+        "input_tokens": 12_345,
+        "output_tokens": 678,
+        "total_tokens": 13_023,
+        "api_calls": 1,
+        "model": "gpt-5.4",
+        "provider": "openai-api",
+        "session_id": "sess-abc",
+        "completed": True,
+        "failed": False,
+        "service_tier": None,
+    }
+
+    class Process:
+        pid = 123
+        returncode = 0
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+
+        def communicate(self, input=None, timeout=None):
+            usage_path = Path(self.command[self.command.index("--usage-file") + 1])
+            usage_path.write_text(json.dumps(usage_report), encoding="utf-8")
+            return ('{"result":"ok"}', None)
+
+    monkeypatch.setattr(workers.subprocess, "Popen", Process)
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(max_semantic_prompt_bytes=200_000)), encoding="utf-8"
+    )
+    manager = workers.HermesWorkerManager(tmp_path, "/bin/hermes", "/bin/supervisorctl")
+    manager.hermes_python = lambda: sys.executable
+    manager.gate = type("Gate", (), {"require": lambda *_args, **_kwargs: None})()
+    fake_attempt = type("Attempt", (), {"attempt_id": "attempt-usage-report"})()
+    finished = {}
+    manager.accounting = type(
+        "Accounting",
+        (),
+        {
+            "start": lambda *_args, **_kwargs: fake_attempt,
+            "finish": lambda _self, attempt, result, **kwargs: finished.update(
+                attempt=attempt, result=result, **kwargs
+            ),
+        },
+    )()
+    monkeypatch.setattr(
+        workers,
+        "load_canonical_lease",
+        lambda *_args, **_kwargs: {"fencing_token": "token"},
+    )
+    assignment = {
+        "assignment_id": "assignment-usage-report",
+        "project": "ghostspace/axis",
+        "created_by_run": "run-1",
+    }
+    output = manager.run_model(
+        "gpt-5.4", "prompt", 900, assignment, "semantic", object()
+    )
+
+    assert output == '{"result":"ok"}'
+    assert finished["result"] == "succeeded"
+    assert finished["usage"] == usage_report
+    # The temp usage-report file must be discarded after being read - it must
+    # not accumulate forever under accounting/usage-tmp/.
+    assert not (tmp_path / "accounting" / "usage-tmp" / "attempt-usage-report.json").exists()
+
+
+def test_model_attempt_failure_still_records_usage_when_available(
+    monkeypatch, tmp_path: Path
+):
+    """hermes -z writes --usage-file even on agent failure so spend is never
+    silently unattributed just because the run itself didn't succeed."""
+    import pytest
+
+    from axis_supervisor import workers
+
+    usage_report = {"estimated_cost_usd": 0.01, "input_tokens": 500, "output_tokens": 0}
+
+    class Process:
+        pid = 123
+        returncode = 1
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+
+        def communicate(self, input=None, timeout=None):
+            usage_path = Path(self.command[self.command.index("--usage-file") + 1])
+            usage_path.write_text(json.dumps(usage_report), encoding="utf-8")
+            return ("agent failed: boom", None)
+
+    monkeypatch.setattr(workers.subprocess, "Popen", Process)
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(max_semantic_prompt_bytes=200_000)), encoding="utf-8"
+    )
+    manager = workers.HermesWorkerManager(tmp_path, "/bin/hermes", "/bin/supervisorctl")
+    manager.hermes_python = lambda: sys.executable
+    manager.gate = type("Gate", (), {"require": lambda *_args, **_kwargs: None})()
+    fake_attempt = type("Attempt", (), {"attempt_id": "attempt-failure-usage"})()
+    finished = {}
+    manager.accounting = type(
+        "Accounting",
+        (),
+        {
+            "start": lambda *_args, **_kwargs: fake_attempt,
+            "finish": lambda _self, attempt, result, **kwargs: finished.update(
+                attempt=attempt, result=result, **kwargs
+            ),
+        },
+    )()
+    monkeypatch.setattr(
+        workers,
+        "load_canonical_lease",
+        lambda *_args, **_kwargs: {"fencing_token": "token"},
+    )
+    assignment = {
+        "assignment_id": "assignment-failure-usage",
+        "project": "ghostspace/axis",
+        "created_by_run": "run-1",
+    }
+    with pytest.raises(RuntimeError):
+        manager.run_model("gpt-5.4", "prompt", 900, assignment, "semantic", object())
+
+    assert finished["result"] == "failed"
+    assert finished["usage"] == usage_report
+    assert "error" in finished
+
+
+def test_missing_usage_report_after_kill_records_none_not_zero(
+    monkeypatch, tmp_path: Path
+):
+    """If the subprocess is killed before hermes -z ever writes its usage
+    file (e.g. a hard timeout), the attempt must record unknown usage, not a
+    fabricated $0 - unattributed spend is real economic exposure."""
+    import pytest
+
+    from axis_supervisor import workers
+
+    class Process:
+        pid = 123
+        returncode = -9
+
+        def __init__(self, command, **kwargs):
+            self.command = command
+
+        def communicate(self, input=None, timeout=None):
+            # Deliberately never writes the --usage-file path.
+            raise RuntimeError("simulated crash before usage report was written")
+
+    monkeypatch.setattr(workers.subprocess, "Popen", Process)
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(max_semantic_prompt_bytes=200_000)), encoding="utf-8"
+    )
+    manager = workers.HermesWorkerManager(tmp_path, "/bin/hermes", "/bin/supervisorctl")
+    manager.hermes_python = lambda: sys.executable
+    manager.gate = type("Gate", (), {"require": lambda *_args, **_kwargs: None})()
+    fake_attempt = type("Attempt", (), {"attempt_id": "attempt-killed"})()
+    finished = {}
+    manager.accounting = type(
+        "Accounting",
+        (),
+        {
+            "start": lambda *_args, **_kwargs: fake_attempt,
+            "finish": lambda _self, attempt, result, **kwargs: finished.update(
+                attempt=attempt, result=result, **kwargs
+            ),
+        },
+    )()
+    monkeypatch.setattr(
+        workers,
+        "load_canonical_lease",
+        lambda *_args, **_kwargs: {"fencing_token": "token"},
+    )
+    assignment = {
+        "assignment_id": "assignment-killed",
+        "project": "ghostspace/axis",
+        "created_by_run": "run-1",
+    }
+    with pytest.raises(RuntimeError):
+        manager.run_model("gpt-5.4", "prompt", 900, assignment, "semantic", object())
+
+    assert finished["result"] == "failed"
+    assert finished["usage"] is None
 
 
 def test_axis119_proof_is_verified_complete():

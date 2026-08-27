@@ -13,6 +13,7 @@ def main() -> int:
     parser.add_argument("--provider", required=True)
     parser.add_argument("--reasoning", required=True)
     parser.add_argument("--toolsets")
+    parser.add_argument("--usage-file")
     args = parser.parse_args()
 
     load_config = hermes_config.load_config
@@ -31,6 +32,7 @@ def main() -> int:
         model=args.model,
         provider=args.provider,
         toolsets=args.toolsets,
+        usage_file=args.usage_file,
     )
 
 
