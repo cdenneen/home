@@ -11,14 +11,18 @@
   # restart-loop - while a transient crash still retries normally via the
   # unit's ordinary Restart=on-failure.
   #
-  # `flock <lockfile> -- <argv...>` execs its command directly (systemd's
-  # own ExecStart word-splitting, not a shell), so this only works
-  # correctly for ExecStart values that are already argv-safe (no shell
-  # metacharacters) - true of every gateway ExecStart in this repo today.
+  # `flock [options] <file> <command> [<argument>...]` execs its command
+  # directly with no `--` separator (confirmed live: util-linux 2.42.2's
+  # flock treats a literal `--` as the command itself and fails trying to
+  # execve("--") - this is NOT a GNU-getopt-style end-of-options marker).
+  # This relies on systemd's own ExecStart word-splitting (not a shell),
+  # so it only works correctly for ExecStart values that are already
+  # argv-safe (no shell metacharacters) - true of every gateway ExecStart
+  # in this repo today.
   wrapExecStart =
     {
       lockPath,
       execStart,
     }:
-    "${pkgs.util-linux}/bin/flock -n -E 78 ${lockPath} -- ${execStart}";
+    "${pkgs.util-linux}/bin/flock -n -E 78 ${lockPath} ${execStart}";
 }
