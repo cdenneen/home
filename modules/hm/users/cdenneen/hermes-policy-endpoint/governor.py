@@ -13,6 +13,24 @@ Capability floors are look-up only here: this module NEVER lowers a
 route below the workload's declared minimum_capability_tier. It only
 ever decides whether/how often a request at its already-declared tier
 may be admitted right now.
+
+Budget scope: `compute_state` operates per-actor (one Eros virtual key,
+one PolicyEndpoint instance, one local SQLite ledger) - by construction,
+not per trust_domain. There is one global monthly objective spanning
+Work and Personal; trust_domain provides isolation and attribution, not
+an independent top-level budget. Enforcement targets the lowest
+responsible actor/workstream before degrading unrelated domains -
+per-actor scoping here already does that; it does not itself need a
+trust_domain concept. Rolling every actor's local spend_events into one
+global ledger/forecast against the overall monthly objective is not
+implemented by this host-local module - Eros's LiteLLM_SpendLogs is
+already the authoritative aggregate (confirmed in Phase 1 attribution
+work) and is the natural home for that rollup. Shared economic
+governance must never weaken Work/Personal isolation elsewhere: this
+endpoint only ever sees route/model/tool-name/cost/token metadata, never
+prompt content, memory, retrieved knowledge, or another actor's
+credential - each actor's Eros virtual key and local state DB are
+already fully separate per instance.
 """
 
 import calendar
@@ -161,6 +179,16 @@ class WorkloadAuthority:
     minimum_capability: str
 
 
+# continuity_class="automatic-read-only" here does NOT conflict with
+# action_classification.py's unknown-TOOL ceiling (manual-break-glass) -
+# PO decision, roadmap-amendment-unified-topology-workstreams-global-
+# economics-developer-clients.md #37, 2026-08-25: unknown *purpose*
+# (an uncharacterized workload in the abstract) does not imply dangerous
+# *effect*; unknown effect (a specific tool call whose mutation status is
+# unverified) does. This default answers the former question; that
+# module's EFFECT_CLASS_CEILING[UNKNOWN] answers the latter. Do not
+# unify these into one value - see action_classification.py's module
+# docstring and test_endpoint.py's TestUnknownPurposeVsUnknownEffect.
 UNKNOWN_WORKLOAD_DEFAULT = WorkloadAuthority(
     priority=Priority.P2,
     mutation_allowed=False,

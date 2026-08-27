@@ -24,7 +24,14 @@ CREATE TABLE IF NOT EXISTS admission_events (
     requested_route TEXT NOT NULL,
     decision TEXT NOT NULL,          -- admit | queue | deny
     reason TEXT NOT NULL,
-    economic_state TEXT NOT NULL
+    economic_state TEXT NOT NULL,
+    classification_evidence TEXT,    -- action_classification.py's per-request
+                                      -- evidence dict (JSON), NULL for events
+                                      -- that predate action-level classification
+    trust_domain TEXT,                -- 'work' | 'personal' - hard tenant boundary
+    agent TEXT,                        -- e.g. 'nyx', 'ghost' - independent of gateway/profile
+    workstream TEXT,                   -- e.g. 'eks', 'gitlab', 'assistant', 'axis-control'
+    resource_project_context TEXT      -- reserved, not yet populated per-request
 );
 
 CREATE TABLE IF NOT EXISTS spend_events (
@@ -38,7 +45,11 @@ CREATE TABLE IF NOT EXISTS spend_events (
     input_tokens INTEGER,
     output_tokens INTEGER,
     source TEXT NOT NULL,            -- 'eros' | 'continuity'
-    request_digest TEXT
+    request_digest TEXT,
+    trust_domain TEXT,                -- 'work' | 'personal'
+    agent TEXT,
+    workstream TEXT,
+    resource_project_context TEXT
 );
 
 CREATE TABLE IF NOT EXISTS continuity_episodes (
@@ -76,6 +87,20 @@ class LocalState:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn):
+        # Additive columns on tables that may already exist on a
+        # previously-deployed instance (PR #711) without them.
+        admission_cols = {row["name"] for row in conn.execute("PRAGMA table_info(admission_events)")}
+        for col in ("classification_evidence", "trust_domain", "agent", "workstream", "resource_project_context"):
+            if col not in admission_cols:
+                conn.execute(f"ALTER TABLE admission_events ADD COLUMN {col} TEXT")
+        spend_cols = {row["name"] for row in conn.execute("PRAGMA table_info(spend_events)")}
+        for col in ("trust_domain", "agent", "workstream", "resource_project_context"):
+            if col not in spend_cols:
+                conn.execute(f"ALTER TABLE spend_events ADD COLUMN {col} TEXT")
 
     @contextmanager
     def _conn(self):
@@ -91,15 +116,20 @@ class LocalState:
 
     def record_admission(
         self, *, actor, priority, continuity_class, requested_route,
-        decision, reason, economic_state,
+        decision, reason, economic_state, classification_evidence=None,
+        trust_domain=None, agent=None, workstream=None, resource_project_context=None,
     ):
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO admission_events "
                 "(ts, actor, priority, continuity_class, requested_route, "
-                " decision, reason, economic_state) VALUES (?,?,?,?,?,?,?,?)",
+                " decision, reason, economic_state, classification_evidence, "
+                " trust_domain, agent, workstream, resource_project_context) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time(), actor, priority, continuity_class,
-                 requested_route, decision, reason, economic_state),
+                 requested_route, decision, reason, economic_state,
+                 json.dumps(classification_evidence) if classification_evidence is not None else None,
+                 trust_domain, agent, workstream, resource_project_context),
             )
 
     # --- spend -----------------------------------------------------------
@@ -107,6 +137,7 @@ class LocalState:
     def record_spend(
         self, *, actor, requested_route, actual_provider, actual_model,
         cost_usd, input_tokens, output_tokens, source, request_digest=None,
+        trust_domain=None, agent=None, workstream=None, resource_project_context=None,
     ):
         # cost_usd is Optional[float]; None is stored as NULL, never as 0.0.
         # A caller passing 0.0 explicitly (e.g. a genuinely free local model)
@@ -115,11 +146,13 @@ class LocalState:
             conn.execute(
                 "INSERT INTO spend_events "
                 "(ts, actor, requested_route, actual_provider, actual_model, "
-                " cost_usd, input_tokens, output_tokens, source, request_digest) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " cost_usd, input_tokens, output_tokens, source, request_digest, "
+                " trust_domain, agent, workstream, resource_project_context) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time(), actor, requested_route, actual_provider,
                  actual_model, cost_usd, input_tokens, output_tokens,
-                 source, request_digest),
+                 source, request_digest,
+                 trust_domain, agent, workstream, resource_project_context),
             )
 
     def burn_since(self, actor: str, since_ts: float) -> dict:
@@ -130,7 +163,12 @@ class LocalState:
             row = conn.execute(
                 "SELECT "
                 "  COALESCE(SUM(cost_usd), 0.0) AS known_cost, "
-                "  SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS unknown_count, "
+                # SUM() over zero matching rows returns NULL, not 0 (unlike
+                # COUNT) - an actor with no spend_events yet would otherwise
+                # crash economic_state()'s `> 0` comparison on NULL.
+                # Confirmed live (nyx-gitlab, 2026-08-27): first-ever POST to
+                # a freshly deployed instance raised TypeError here.
+                "  COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS unknown_count, "
                 "  COUNT(*) AS total_count "
                 "FROM spend_events WHERE actor = ? AND ts >= ?",
                 (actor, since_ts),

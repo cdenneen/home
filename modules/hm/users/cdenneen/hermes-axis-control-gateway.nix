@@ -10,7 +10,8 @@ let
   packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
   axisControlRoot = "${config.home.homeDirectory}/src/workspace/work/axis-control";
   hermesHome = "${axisControlRoot}/.hermes";
-  hermesGatewaySitecustomize = pkgs.writeTextDir "sitecustomize.py" ''
+  workloadMetadata = import ./hermes-workload-metadata { inherit pkgs agentPkgs; };
+  hermesGatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize ''
     try:
         import hermes_cli.commands as commands
         commands.should_bypass_active_session = commands.is_gateway_known_command
@@ -22,6 +23,10 @@ let
     exec ${agentPkgs.hermes.hermesVenv}/bin/python3 -c \
       'import hermes_cli.commands as commands; assert commands.should_bypass_active_session is commands.is_gateway_known_command'
   '';
+  hermesGatewayChecks = [
+    hermesGatewayBypassCheck
+    workloadMetadata.selftestCheck
+  ];
   servicePath = builtins.concatStringsSep ":" [
     "${axisControlRoot}/.venv/bin"
     "${config.home.profileDirectory}/bin"
@@ -71,7 +76,7 @@ in
       };
       Service = {
         Type = "simple";
-        ExecStartPre = hermesGatewayBypassCheck;
+        ExecStartPre = hermesGatewayChecks;
         ExecStart = "${agentPkgs.hermes}/bin/hermes --profile axis-control gateway run";
         WorkingDirectory = axisControlRoot;
         Environment = [
