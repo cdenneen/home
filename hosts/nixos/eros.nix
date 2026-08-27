@@ -170,6 +170,7 @@ in
       ${pkgs.coreutils}/bin/install -d -m 0700 /run/eros-litellm
       cat > "${litellmConfigFile}" <<'EOF'
       model_list:
+        # --- Legacy aliases (existing live consumers; kept for compatibility) ---
         - model_name: coding
           litellm_params:
             model: ollama/qwen2.5-coder:7b
@@ -197,28 +198,73 @@ in
           litellm_params:
             model: gemini/gemini-2.5-flash
             api_key: os.environ/GEMINI_API_KEY
+        # Fixed 2026-08-27: was bedrock/us.anthropic.claude-sonnet-4-6 ($3/$15 per
+        # Mtok), which is *more expensive* than Sonnet 5 ($2/$10 per Mtok) despite
+        # being the older model. Live traffic was silently overpaying since this
+        # route went into use. See phase1-attribution-and-counterfactual.md.
         - model_name: coding-strong
           litellm_params:
-            model: bedrock/us.anthropic.claude-sonnet-4-6
+            model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+
+        # --- Stable capability-tier routes (00-program-spec.md route contract) ---
+        - model_name: tier0-local
+          litellm_params:
+            model: ollama/qwen2.5-coder:7b
+            api_base: http://127.0.0.1:11434
+          model_info:
+            max_input_tokens: 28672
+            max_output_tokens: 4096
+        - model_name: tier1-general
+          litellm_params:
+            model: gemini/gemini-2.5-flash
+            api_key: os.environ/GEMINI_API_KEY
+        - model_name: tier1-coding
+          litellm_params:
+            model: openai/gpt-5-mini
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: tier2-general
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-5
+            aws_region_name: us-east-1
+        - model_name: tier2-coding
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-5
+            aws_region_name: us-east-1
+        - model_name: tier2-research
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-5
+            aws_region_name: us-east-1
+        - model_name: tier3-quality
+          litellm_params:
+            model: bedrock/global.anthropic.claude-opus-5
+            aws_region_name: us-east-1
+        # tier4-frontier deliberately has no fallback and is not part of any
+        # fallback chain below - explicit-only, separate key at the governor
+        # layer (00-program-spec.md: "explicit only; no automatic fallback").
+        - model_name: tier4-frontier
+          litellm_params:
+            model: openai/gpt-5.6-sol
+            api_key: os.environ/OPENAI_API_KEY
       general_settings:
         master_key: os.environ/LITELLM_MASTER_KEY
         database_url: os.environ/DATABASE_URL
       litellm_settings:
-        cache: true
+        # Bootstrap default is cache bypass everywhere (01-eros-inference-fabric.md).
+        # Previously cache:true + router_settings.cache_responses:false were both
+        # present at once (ambiguous, flagged in 07-cache-and-retrieval.md) - fixed
+        # by disabling caching outright until 07's adoption sequence is run.
+        cache: false
         drop_params: true
-        cache_params:
-          type: qdrant-semantic
-          cache_policy: semantic
-          similarity_threshold: 0.95
-          supported_call_types: [completion, acompletion]
-          qdrant_semantic_cache_embedding_model: local-embed
-          qdrant_collection_name: litellm_semantic_cache
       router_settings:
         cache_responses: false
-        fallbacks:
-          - coding: [coding-openai, coding-haiku, coding-gemini]
-          - coding-strong: [coding-gemini]
+        # No cross-tier fallbacks: 01-eros-inference-fabric.md prohibits generic
+        # fallback ("Generic 429/error fallback is prohibited"), and the previous
+        # `coding-strong: [coding-gemini]` entry silently collapsed a Claude-tier
+        # request onto Gemini Flash on failure - undetectable capability
+        # downgrade. Routing rejects rather than silently downgrades; the
+        # host-local policy endpoint / continuity controller owns any approved
+        # continuity path, not the LiteLLM router.
         num_retries: 1
         timeout: 90
       EOF
