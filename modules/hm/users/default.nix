@@ -17,7 +17,9 @@ in
 {
   imports = [
     ./cdenneen/default.nix
+    ./cdenneen/gitlab-mcp-proxy/default.nix
     ./cdenneen/hermes-axis-control-gateway.nix
+    ./cdenneen/hermes-policy-endpoint/default.nix
     ./cdenneen/hermes-slack-platform
     ./cdenneen/hermes-supervisor/default.nix
     ./cdenneen/hermes-watchdog/default.nix

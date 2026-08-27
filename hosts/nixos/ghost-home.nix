@@ -83,4 +83,60 @@
 
   # This only deploys the canonical profile wrapper and report-only watchdog.
   # Installing or graduating the Hermes scheduler is a separate reviewed step.
+
+  # Bootstrap-tier host-local policy endpoints (deployed, healthy, NOT yet
+  # referenced by any Hermes profile's model.base_url - see
+  # modules/hm/users/cdenneen/hermes-policy-endpoint and
+  # bootstrap-gate-evidence.md). Wiring a profile to actually use one is a
+  # separate Phase 2 canary action requiring its own explicit approval.
+  # trust_domain/agent/workstream are a first-class dimension independent
+  # of gateway/profile identity (new architecture constraint): Ghost is
+  # uniformly the PERSONAL trust domain (even axis-control, which does
+  # software-engineering work, mutates only this personal repo, not an
+  # employer system) - contrast Nyx below, which is the WORK trust domain.
+  #
+  # continuityClass here is a CEILING only (continuity-class-audit.md):
+  # the most permissive class any workload on this gateway could ever
+  # reach, set to the most-permissive value appearing anywhere in the
+  # audit's per-workload table for this gateway. It is deliberately NOT
+  # the old blanket per-gateway value (that was the audit's finding -
+  # unapproved, superseded). action_classification.py's per-request
+  # tool/source classification takes the more restrictive of (its own
+  # classification, this ceiling) for every actual request - this ceiling
+  # never grants more than automatic-read-only on its own.
+  profiles.hermesPolicyEndpoint.instances = {
+    ghost-default = {
+      port = 8601;
+      trustDomain = "personal";
+      agent = "ghost";
+      workstream = "assistant";
+      priority = "P1";
+      continuityClass = "automatic-read-only";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_ghost_default";
+    };
+    ghost-alpha0 = {
+      port = 8602;
+      trustDomain = "personal";
+      agent = "ghost";
+      workstream = "alpha0";
+      priority = "P1";
+      continuityClass = "automatic-read-only";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_ghost_alpha0";
+    };
+    ghost-axis-control = {
+      port = 8603;
+      trustDomain = "personal";
+      agent = "ghost";
+      workstream = "axis-control";
+      priority = "P1";
+      continuityClass = "automatic-read-only";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_ghost_axis_control";
+    };
+  };
 }

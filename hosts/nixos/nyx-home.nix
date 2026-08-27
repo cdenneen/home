@@ -39,10 +39,56 @@ in
     workingDirectory = "/home/cdenneen/src/workspace/gitlab";
   };
 
+  # Shared OAuth-refreshing proxy so both Hermes gateway instances above can
+  # use GitLab's native MCP server without hitting Hermes's lack of built-in
+  # OAuth-refresh support for MCP servers - see modules/hm/users/cdenneen/
+  # gitlab-mcp-proxy for details and the bootstrap steps for creds.json.
+  profiles.gitlabMcpProxy.enable = true;
+
   programs.starship.settings.palette = lib.mkForce "nyx";
 
   programs.zsh.initContent = lib.mkAfter opencodePasswordInit;
 
   programs.bash.initExtra = lib.mkAfter opencodePasswordInit;
 
+  # Bootstrap-tier host-local policy endpoints (deployed, healthy, NOT yet
+  # referenced by any Hermes profile's model.base_url - see
+  # modules/hm/users/cdenneen/hermes-policy-endpoint and
+  # bootstrap-gate-evidence.md). Wiring a profile to actually use one is a
+  # separate Phase 2 canary action requiring its own explicit approval.
+  # Nyx is one WORK trust domain with multiple interconnected workstreams
+  # (eks, gitlab - jfrog/assistant not yet onboarded to this endpoint).
+  # agent="nyx" is coarser than, and independent of, gateway/profile
+  # identity; workstream is the first-class dimension distinguishing eks
+  # from gitlab traffic on the same agent. Gateway consolidation
+  # (whether nyx-eks/nyx-gitlab could become one Work gateway) is
+  # explicitly deferred to a dedicated topology audit after Bootstrap
+  # enforcement is proven - not performed in this slice.
+  #
+  # continuityClass here is a CEILING only (continuity-class-audit.md) -
+  # see the matching comment in ghost-home.nix.
+  profiles.hermesPolicyEndpoint.instances = {
+    nyx-eks = {
+      port = 8601;
+      trustDomain = "work";
+      agent = "nyx";
+      workstream = "eks";
+      priority = "P1";
+      continuityClass = "automatic-read-only";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_nyx_eks";
+    };
+    nyx-gitlab = {
+      port = 8602;
+      trustDomain = "work";
+      agent = "nyx";
+      workstream = "gitlab";
+      priority = "P1";
+      continuityClass = "automatic-read-only";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_nyx_gitlab";
+    };
+  };
 }
