@@ -66,7 +66,11 @@ class PolicyEndpoint:
         self.priority = Priority(config.get("priority", "P2"))
         self.continuity_class = config.get("continuity_class", "automatic-read-only")
         self.eros_base_url = config["eros_base_url"].rstrip("/")
-        self.eros_api_key = config["eros_api_key"]
+        # Read at process startup, not baked into the rendered config file -
+        # sops-nix materializes this path at its own activation/runtime
+        # ordering, which may run after this service's config is rendered.
+        with open(config["eros_api_key_file"]) as f:
+            self.eros_api_key = f.read().strip()
         self.monthly_budget = float(config.get("monthly_budget_usd", 20.0))
         self.expected_burn_1h = float(config.get("expected_burn_1h_usd", 0.5))
 

@@ -13,6 +13,12 @@ let
     name: inst:
     let
       instRoot = "${stateRoot}/${name}";
+      # The rendered config only ever contains paths, never secret values -
+      # sops-nix's own activation/runtime ordering is independent of home-
+      # manager's activation scripts, so a secret's decrypted content is
+      # not reliably readable during `home.activation` (confirmed live:
+      # activation-time substitution raced sops-nix and failed). The
+      # service reads eros_api_key_file itself at process startup instead.
       configFile = pkgs.writeText "hermes-policy-endpoint-${name}-config.json" (
         builtins.toJSON {
           actor = name;
@@ -21,7 +27,7 @@ let
           eros_base_url = inst.erosBaseUrl;
           eros_tailscale_ip = inst.erosTailscaleIp;
           eros_port = inst.erosPort;
-          eros_api_key = "@EROS_API_KEY@"; # substituted at activation, never in the Nix store
+          eros_api_key_file = config.sops.secrets.${inst.erosApiKeySecret}.path;
           monthly_budget_usd = inst.monthlyBudgetUsd;
           expected_burn_1h_usd = inst.expectedBurn1hUsd;
           state_db_path = "${instRoot}/state.db";
@@ -38,17 +44,11 @@ let
           break_glass_flag_path = "${instRoot}/break-glass.flag";
         }
       );
-      renderedConfigPath = "${instRoot}/config.json";
     in
     {
       activation = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/mkdir -p "${instRoot}"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 700 "${instRoot}"
-        api_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.${inst.erosApiKeySecret}.path}")"
-        ${pkgs.gnused}/bin/sed "s#@EROS_API_KEY@#$api_key#" "${configFile}" \
-          > "${renderedConfigPath}.tmp"
-        ${pkgs.coreutils}/bin/install -m 600 -T "${renderedConfigPath}.tmp" "${renderedConfigPath}"
-        ${pkgs.coreutils}/bin/rm -f "${renderedConfigPath}.tmp"
       '';
 
       service = {
@@ -59,7 +59,7 @@ let
         };
         Service = {
           Type = "simple";
-          ExecStart = "${pkgs.python3}/bin/python3 ${endpointSrc}/endpoint.py --config ${renderedConfigPath} --port ${toString inst.port}";
+          ExecStart = "${pkgs.python3}/bin/python3 ${endpointSrc}/endpoint.py --config ${configFile} --port ${toString inst.port}";
           WorkingDirectory = instRoot;
           Restart = "on-failure";
           RestartSec = 5;
