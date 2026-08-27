@@ -8,6 +8,7 @@ let
   litellmPort = 4000;
   litellmEnvFile = "/run/eros-litellm/env";
   litellmConfigFile = "/run/eros-litellm/config.yaml";
+  omniroutePort = 20128;
   qdrantPort = 6333;
 in
 {
@@ -284,15 +285,40 @@ in
     ];
   };
 
+  systemd.services.omniroute = {
+    description = "OmniRoute local AI gateway";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    path = [ pkgs.nodejs_24 ];
+    environment = {
+      HOME = config.users.users.cdenneen.home;
+      HOSTNAME = "127.0.0.1";
+      PORT = toString omniroutePort;
+      DATA_DIR = "${config.users.users.cdenneen.home}/.omniroute";
+    };
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = config.users.users.cdenneen.home;
+      ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+  };
+
   systemd.services.tailscale-serve-eros = {
-    description = "Expose LiteLLM over Tailscale";
+    description = "Expose LiteLLM and OmniRoute over Tailscale";
     after = [
       "tailscaled.service"
       "podman-litellm.service"
+      "omniroute.service"
     ];
     requires = [
       "tailscaled.service"
       "podman-litellm.service"
+      "omniroute.service"
     ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig.Type = "oneshot";
@@ -304,6 +330,7 @@ in
         exit 0
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
     '';
   };
 
