@@ -5,6 +5,50 @@ Everything here must remain readable/writable with Eros, LiteLLM, and
 Postgres completely unavailable (execution-contract.md 10.2, "host-local
 independence"). This is a single SQLite file per host/profile; there is
 no dependency on any remote database.
+
+IDEMPOTENCY SCOPE (task #44, "idempotency is an execution invariant, not
+merely a continuity-recovery concern" - audited 2026-08-27):
+
+  ENFORCED here, across every path that reaches handle_chat_completion:
+    - continuity path (CONTINUITY-AUTO / BREAK-GLASS) - _forward_continuity
+    - normal path (Eros healthy) - the recovery-replay check added for
+      BOOT-028: a digest completed via continuity is not re-executed if
+      the same request arrives again once mode has reverted to "normal"
+      (execution-contract.md 10.5). One digest_for() call per request,
+      computed once up front, used by both paths.
+    - process restart - the digest/idempotency table is durable SQLite,
+      not in-memory; a restarted process sees the same completed digests.
+    - caller-side retry after a 502 (Eros unreachable) or 503 (continuity
+      credential unavailable) - the SAME digest, retried, correctly finds
+      no completed row yet (since neither failure path calls
+      idempotency_complete) and is allowed to actually attempt the work -
+      idempotency here means "don't replay completed work," not "block
+      every retry of failed work."
+
+  NOT ENFORCED HERE (by design, not a gap):
+    - This endpoint has no internal retry/fallback loop of its own -
+      forward_normal makes exactly one urllib call per invocation; there
+      is nothing to deduplicate at that level beyond the caller-retry case
+      above. Any provider-side retry behavior is Eros/LiteLLM's own
+      concern, not visible to or controllable from this process.
+    - The actual GitLab/EKS mutation a model's tool_call implies happens
+      entirely outside this process, after Hermes (or an MCP server)
+      receives this endpoint's response - this endpoint proxies chat
+      completions, it never itself calls a mutating tool. Deduplicating
+      *that* execution is Hermes/Axis-control/work-package custody's own
+      concern (execution-contract.md 09's exact-worktree/exact-head
+      semantics), not something to duplicate here with a second identity
+      mechanism, per explicit instruction.
+    - Axis-control/Alpha0 worker dispatch idempotency is out of scope
+      entirely - action-level-classification-and-metadata-mechanism.md
+      §4(c) and the post-MVP AC convergence program own that boundary.
+
+  READ-ONLY / NOT APPLICABLE:
+    - Read-only requests (status checks, GitLab read tools, cron
+      monitoring) have no meaningful "duplicate execution" hazard - a
+      second identical read just re-reads. digest_for/idempotency_lookup
+      still run for these (cheap, uniform code path) but never matter in
+      practice since nothing about a repeated read is unsafe.
 """
 
 import hashlib
