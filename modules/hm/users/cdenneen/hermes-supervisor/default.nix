@@ -9,6 +9,9 @@
 let
   packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
   workloadMetadata = import ../hermes-workload-metadata { inherit pkgs agentPkgs; };
+  singleWriterLock = import ../hermes-single-writer-lock.nix { inherit pkgs; };
+  gatewayHermesHome = "${config.home.homeDirectory}/.hermes";
+  gatewaySecondaryHermesHome = "${config.home.homeDirectory}/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}";
   hermesGatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize ''
     try:
         import hermes_cli.commands as commands
@@ -244,6 +247,18 @@ in
       })
     ];
 
+    # BOOT-002/024: build-time half of single-writer safety - see
+    # hermes-single-writer-registry.nix.
+    profiles.hermesSingleWriterRegistry.entries =
+      lib.optional gatewayEnabled {
+        name = "hermes-gateway";
+        hermesHome = gatewayHermesHome;
+      }
+      ++ lib.optional secondaryGatewayEnabled {
+        name = "hermes-gateway-secondary";
+        hermesHome = gatewaySecondaryHermesHome;
+      };
+
     systemd.user.services = lib.mkMerge [
       (lib.mkIf gatewayEnabled {
         hermes-gateway = {
@@ -255,7 +270,16 @@ in
           Service = {
             Type = "simple";
             ExecStartPre = hermesGatewayChecks;
-            ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
+            # BOOT-002/024: non-blocking flock on a lockfile inside this
+            # gateway's own HERMES_HOME - a second writer (Nix-declared or
+            # not) is denied at startup rather than silently crash-looping
+            # against the same home. Exit 78 matches RestartPreventExitStatus
+            # below, so a genuine collision fails safely (bounded, no
+            # restart-loop) while a transient crash still retries normally.
+            ExecStart = singleWriterLock.wrapExecStart {
+              lockPath = "${gatewayHermesHome}/.single-writer.lock";
+              execStart = "${agentPkgs.hermes}/bin/hermes gateway run";
+            };
             WorkingDirectory = config.profiles.hermesGateway.workingDirectory;
             Environment = [
               "HERMES_HOME=%h/.hermes"
@@ -286,7 +310,11 @@ in
           Service = {
             Type = "simple";
             ExecStartPre = hermesGatewayChecks;
-            ExecStart = "${agentPkgs.hermes}/bin/hermes gateway run";
+            # BOOT-002/024: see hermes-gateway's matching comment above.
+            ExecStart = singleWriterLock.wrapExecStart {
+              lockPath = "${gatewaySecondaryHermesHome}/.single-writer.lock";
+              execStart = "${agentPkgs.hermes}/bin/hermes gateway run";
+            };
             WorkingDirectory = config.profiles.hermesGatewaySecondary.workingDirectory;
             Environment = [
               "HERMES_HOME=%h/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}"

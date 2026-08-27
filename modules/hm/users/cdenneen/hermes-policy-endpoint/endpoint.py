@@ -266,6 +266,15 @@ class PolicyEndpoint:
         except json.JSONDecodeError:
             return 400, json.dumps({"error": {"message": "invalid JSON body"}}).encode()
         requested_route = parsed.get("model", "")
+        if not isinstance(requested_route, str):
+            # `model` is caller-controlled JSON and may be any type. Normalize
+            # to a string immediately so every downstream consumer (SQLite
+            # storage in state.py, digest_for, JSON error bodies) can safely
+            # assume a str - credential_ceiling.check_route_allowed will still
+            # deny it below (never matches a real allowlist entry), but it
+            # must not crash the request first trying to store/hash the raw
+            # non-string value.
+            requested_route = repr(requested_route)
 
         # #41: administratively bound route/tier ceiling - checked first,
         # before classification/economic-state/forwarding, so an out-of-
@@ -520,6 +529,8 @@ class Handler(BaseHTTPRequestHandler):
                 "trust_domain": self.endpoint.trust_domain,
                 "agent": self.endpoint.agent,
                 "workstream": self.endpoint.workstream,
+                "allowed_routes": sorted(self.endpoint.allowed_routes),
+                "max_tier": self.endpoint.max_tier,
             }).encode()
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

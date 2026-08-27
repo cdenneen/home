@@ -1152,6 +1152,35 @@ class TestCredentialBoundRouteTierCeiling(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self._endpoint(tmp, [])
 
+    def test_non_string_model_field_denies_cleanly_never_crashes(self):
+        # Independent review finding: `model` is caller-controlled JSON and
+        # may be any type - a list/dict is unhashable, so a naive
+        # `in <set>` membership test would raise TypeError instead of
+        # denying cleanly. check_route_allowed must catch this itself,
+        # not rely on a crash reaching some outer handler.
+        from credential_ceiling import RouteDenied, check_route_allowed
+        for bad_route in [["tier4-frontier"], {"model": "tier4-frontier"}, None, 42, True]:
+            with self.assertRaises(RouteDenied):
+                check_route_allowed(bad_route, frozenset(["tier2-general"]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+            endpoint.forward_normal = lambda route, body: (200, b'{}', {})
+            body = json.dumps({
+                "model": ["tier2-general"],  # malformed - a list, not a string
+                "messages": [{"role": "user", "content": "hi"}],
+            }).encode()
+            status, raw = endpoint.handle_chat_completion(Priority.P0, body)
+            self.assertEqual(status, 403)
+            self.assertEqual(json.loads(raw)["error"]["type"], "route_outside_credential_ceiling")
+
+    def test_healthz_exposes_allowed_routes_and_max_tier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier1-general", "tier2-coding"])
+            self.assertEqual(endpoint.max_tier, 2)
+            self.assertEqual(set(endpoint.allowed_routes), {"tier1-general", "tier2-coding"})
+
     def test_max_tier_derived_correctly_from_allowlist(self):
         from credential_ceiling import max_tier_of, parse_tier
         self.assertEqual(parse_tier("tier2-coding"), 2)

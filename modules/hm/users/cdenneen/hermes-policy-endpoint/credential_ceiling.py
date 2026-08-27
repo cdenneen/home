@@ -39,11 +39,22 @@ class RouteDenied(Exception):
     no substitute/fallback route to silently use instead."""
 
 
-def check_route_allowed(requested_route: str, allowed_routes) -> None:
-    """Deny-by-default: an empty/missing/malformed/unrecognized route is
-    denied exactly the same way a route that's merely outside the
+def check_route_allowed(requested_route, allowed_routes) -> None:
+    """Deny-by-default: an empty/missing/malformed/unrecognized/wrong-type
+    route is denied exactly the same way a route that's merely outside the
     allowlist is - there is no permissive default for "couldn't tell what
-    tier this is." Raises RouteDenied; never returns a substitute route."""
+    tier this is." Raises RouteDenied; never returns a substitute route,
+    and never raises anything OTHER than RouteDenied - `model` is
+    caller-controlled JSON and may be any type (list/dict/number/null),
+    not just the expected str; membership-testing an unhashable value
+    against a set would otherwise raise TypeError instead of denying
+    cleanly, which is exactly the crash-instead-of-deny failure mode this
+    module exists to avoid."""
+    if not isinstance(requested_route, str):
+        raise RouteDenied(
+            f"route must be a string, got {type(requested_route).__name__} "
+            f"({requested_route!r}) - denied, not coerced"
+        )
     if not requested_route or requested_route not in allowed_routes:
         raise RouteDenied(
             f"route {requested_route!r} is not in this credential's administratively "

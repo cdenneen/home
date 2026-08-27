@@ -11,6 +11,7 @@ let
   axisControlRoot = "${config.home.homeDirectory}/src/workspace/work/axis-control";
   hermesHome = "${axisControlRoot}/.hermes";
   workloadMetadata = import ./hermes-workload-metadata { inherit pkgs agentPkgs; };
+  singleWriterLock = import ./hermes-single-writer-lock.nix { inherit pkgs; };
   hermesGatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize ''
     try:
         import hermes_cli.commands as commands
@@ -54,6 +55,15 @@ in
     profiles.hermesSlackPlatformOverride.targets.dedicated-axis-control.homeRelativePath =
       "src/workspace/work/axis-control/.hermes/profiles/axis-control";
 
+    # BOOT-002/024: build-time half of single-writer safety - see
+    # hermes-single-writer-registry.nix.
+    profiles.hermesSingleWriterRegistry.entries = [
+      {
+        name = "hermes-axis-control-gateway";
+        hermesHome = hermesHome;
+      }
+    ];
+
     home.activation.hermesAxisControlGatewayLegacyCleanup =
       lib.hm.dag.entryBefore [ "checkLinkTargets" ]
         ''
@@ -77,7 +87,11 @@ in
       Service = {
         Type = "simple";
         ExecStartPre = hermesGatewayChecks;
-        ExecStart = "${agentPkgs.hermes}/bin/hermes --profile axis-control gateway run";
+        # BOOT-002/024: see hermes-supervisor's matching comment.
+        ExecStart = singleWriterLock.wrapExecStart {
+          lockPath = "${hermesHome}/.single-writer.lock";
+          execStart = "${agentPkgs.hermes}/bin/hermes --profile axis-control gateway run";
+        };
         WorkingDirectory = axisControlRoot;
         Environment = [
           "HERMES_HOME=${hermesHome}"
