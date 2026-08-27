@@ -114,6 +114,9 @@
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
+      # #41: mirrors this key's real LiteLLM allowlist exactly (confirmed
+      # live via /key/info, 2026-08-27) - update both together if ever changed.
+      allowedRoutes = [ "tier0-local" "tier1-general" "tier1-coding" "tier2-general" "tier2-coding" "tier2-research" "tier3-quality" ];
       erosApiKeySecret = "eros_litellm_key_ghost_default";
     };
     ghost-alpha0 = {
@@ -125,6 +128,7 @@
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
+      allowedRoutes = [ "tier2-research" "tier3-quality" ];
       erosApiKeySecret = "eros_litellm_key_ghost_alpha0";
     };
     ghost-axis-control = {
@@ -136,6 +140,7 @@
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
+      allowedRoutes = [ "tier2-coding" "tier2-general" "tier3-quality" ];
       erosApiKeySecret = "eros_litellm_key_ghost_axis_control";
     };
   };

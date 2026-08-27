@@ -510,6 +510,7 @@ class TestPolicyEndpointTrustDomainFailsClosed(unittest.TestCase):
             "state_db_path": str(Path(tmp_dir) / "state.db"),
             "emergency_credential_path": None,
             "break_glass_flag_path": str(Path(tmp_dir) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         config.update(overrides)
         return config
@@ -561,6 +562,7 @@ class TestHermesMetadataStrippedBeforeForwarding(unittest.TestCase):
             "state_db_path": str(Path(self.tmp.name) / "state.db"),
             "emergency_credential_path": None,
             "break_glass_flag_path": str(Path(self.tmp.name) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         self.endpoint = PolicyEndpoint(config)
         self.endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
@@ -644,6 +646,7 @@ class TestMetadataProvenanceAndAuthorityBoundary(unittest.TestCase):
                 "state_db_path": str(Path(tmp) / "state.db"),
                 "emergency_credential_path": None,
                 "break_glass_flag_path": str(Path(tmp) / "bg.flag"),
+                "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
             }
             endpoint = PolicyEndpoint(config)
             endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
@@ -794,6 +797,7 @@ class TestBoot028RecoveryIdempotencyEndToEnd(unittest.TestCase):
             "state_db_path": str(Path(self.tmp.name) / "state.db"),
             "emergency_credential_path": str(cred_path),
             "break_glass_flag_path": str(Path(self.tmp.name) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         self.endpoint = PolicyEndpoint(config)
         self.forward_normal_calls = []
@@ -962,6 +966,7 @@ class TestAdversarialMetadataCannotWidenAuthority(unittest.TestCase):
             "state_db_path": str(Path(tmp_dir) / "state.db"),
             "emergency_credential_path": None,
             "break_glass_flag_path": str(Path(tmp_dir) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         config.update(overrides)
         return PolicyEndpoint(config)
@@ -1052,6 +1057,121 @@ class TestAdversarialMetadataCannotWidenAuthority(unittest.TestCase):
             self.assertEqual(endpoint.actor, "test-actor")
             self.assertEqual(endpoint.agent, "nyx")
             self.assertEqual(endpoint.trust_domain, "work")
+
+
+class TestCredentialBoundRouteTierCeiling(unittest.TestCase):
+    """#41, pre-Phase-2 Bootstrap Gate requirement: every production
+    consumer credential has an administratively bound route/tier ceiling,
+    enforced at admission, that caller-supplied metadata cannot widen."""
+
+    def _endpoint(self, tmp_dir, allowed_routes):
+        from endpoint import PolicyEndpoint
+        key_path = Path(tmp_dir) / "key.txt"
+        key_path.write_text("sk-test-key\n")
+        config = {
+            "actor": "nyx-eks-like", "trust_domain": "work", "agent": "nyx", "workstream": "eks",
+            "eros_base_url": "http://127.0.0.1:1", "eros_tailscale_ip": "127.0.0.1",
+            "eros_api_key_file": str(key_path),
+            "state_db_path": str(Path(tmp_dir) / "state.db"),
+            "emergency_credential_path": None,
+            "break_glass_flag_path": str(Path(tmp_dir) / "bg.flag"),
+            "allowed_routes": allowed_routes,
+        }
+        return PolicyEndpoint(config)
+
+    def _post(self, endpoint, model, extra=None):
+        endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+        endpoint.forward_normal = lambda route, body: (200, b'{"choices": []}', {"cost_usd": 0.0})
+        body = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+        if extra:
+            body.update(extra)
+        return endpoint.handle_chat_completion(Priority.P0, json.dumps(body).encode())
+
+    def test_ordinary_key_requesting_tier4_frontier_denied_before_provider_spend(self):
+        # Mirrors real EKS/GitLab keys - tier2 ceiling, no T4 anywhere.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general", "tier2-coding"])
+            spend_calls = []
+            endpoint.forward_normal = lambda route, body: (spend_calls.append(route), (200, b'{}', {}))[1]
+            status, raw = self._post(endpoint, "tier4-frontier")
+            self.assertEqual(status, 403)
+            self.assertEqual(json.loads(raw)["error"]["type"], "route_outside_credential_ceiling")
+            self.assertEqual(spend_calls, [])  # forward_normal never called - no provider spend
+
+    def test_key_with_t2_ceiling_requesting_t3_or_t4_denied(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general", "tier2-coding"])
+            self.assertEqual(self._post(endpoint, "tier3-quality")[0], 403)
+            self.assertEqual(self._post(endpoint, "tier4-frontier")[0], 403)
+            self.assertEqual(self._post(endpoint, "tier2-coding")[0], 200)  # in-ceiling still works
+
+    def test_actor_claiming_a_different_actor_has_no_effect_on_admission(self):
+        # "key for actor A claiming actor B -> effective actor remains A."
+        # actor/agent/trust_domain are already proven unreachable from the
+        # body (TestMetadataProvenanceAndAuthorityBoundary); this confirms
+        # the SAME holds specifically in the #41 route-ceiling code path.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            status, _ = self._post(
+                endpoint, "tier2-general",
+                extra={"actor": "ghost-alpha0", "agent": "ghost", "trust_domain": "personal"},
+            )
+            self.assertEqual(status, 200)  # admitted...
+            self.assertEqual(endpoint.actor, "nyx-eks-like")  # ...still as itself, not the claimed actor
+            self.assertEqual(endpoint.trust_domain, "work")
+
+    def test_request_omitting_model_field_is_deterministically_denied_not_defaulted_permissive(self):
+        # There is no separate "requested tier" field in today's wire
+        # protocol - only the full route name (`model`). An omitted/empty
+        # model can't be verified safe, so it is denied deterministically
+        # like any other not-in-allowlist value - never defaulted to some
+        # permissive "assume the lowest tier" behavior.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()  # no "model" at all
+            endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+            endpoint.forward_normal = lambda route, body: (200, b'{}', {})
+            status, raw = endpoint.handle_chat_completion(Priority.P0, body)
+            self.assertEqual(status, 403)
+            self.assertEqual(json.loads(raw)["error"]["type"], "route_outside_credential_ceiling")
+
+    def test_body_supplied_route_override_field_is_ineffective(self):
+        # A caller cannot widen its ceiling by adding a second field
+        # claiming a different/wider allowed route - only `model` (the
+        # actual requested_route) is ever checked; anything else is inert.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            status, _ = self._post(
+                endpoint, "tier4-frontier",  # the real request
+                extra={"allowed_routes": ["tier4-frontier"], "route": "tier2-general", "tier_ceiling": "T4"},
+            )
+            self.assertEqual(status, 403)  # forged fields did not widen anything
+
+    def test_empty_allowed_routes_fails_closed_at_construction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                self._endpoint(tmp, [])
+
+    def test_max_tier_derived_correctly_from_allowlist(self):
+        from credential_ceiling import max_tier_of, parse_tier
+        self.assertEqual(parse_tier("tier2-coding"), 2)
+        self.assertEqual(parse_tier("tier10-future"), 10)
+        self.assertIsNone(parse_tier("not-a-tier-route"))
+        self.assertEqual(max_tier_of(["tier1-general", "tier2-coding", "tier0-local"]), 2)
+
+    def test_real_configured_allowlists_never_include_t4_for_todays_five_actors(self):
+        # Regression pin against the actual Eros virtual-key configuration
+        # confirmed live 2026-08-27 (LiteLLM /key/info) - none of today's 5
+        # production keys have tier4-frontier, matching BOOT-004.
+        real_allowlists = {
+            "ghost-default": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
+            "ghost-alpha0": ["tier2-research", "tier3-quality"],
+            "ghost-axis-control": ["tier2-coding", "tier2-general", "tier3-quality"],
+            "nyx-eks": ["tier1-general", "tier2-general", "tier2-research"],
+            "nyx-gitlab": ["tier1-coding", "tier2-coding", "tier2-general"],
+        }
+        for actor, routes in real_allowlists.items():
+            self.assertNotIn("tier4-frontier", routes, f"{actor} must not have T4 in its ceiling")
 
 
 if __name__ == "__main__":

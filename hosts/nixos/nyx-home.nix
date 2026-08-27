@@ -77,6 +77,9 @@ in
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
+      # #41: mirrors this key's real LiteLLM allowlist exactly (confirmed
+      # live via /key/info, 2026-08-27) - update both together if ever changed.
+      allowedRoutes = [ "tier1-general" "tier2-general" "tier2-research" ];
       erosApiKeySecret = "eros_litellm_key_nyx_eks";
     };
     nyx-gitlab = {
@@ -88,6 +91,7 @@ in
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
+      allowedRoutes = [ "tier1-coding" "tier2-coding" "tier2-general" ];
       erosApiKeySecret = "eros_litellm_key_nyx_gitlab";
     };
   };

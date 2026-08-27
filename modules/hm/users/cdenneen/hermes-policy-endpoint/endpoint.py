@@ -45,6 +45,7 @@ from action_classification import (
     effective_continuity_class,
     source_ceiling,
 )
+from credential_ceiling import RouteDenied, check_route_allowed, max_tier_of
 from metadata_attestation import attested_source_for_peer
 from classifier import OutageClassifier
 from continuity import ContinuityController, ContinuityDenied, EmergencyCredentialStore
@@ -88,6 +89,15 @@ class PolicyEndpoint:
         # more restrictive of this ceiling and the request's own
         # tool/source-derived classification; it never widens past this.
         self.continuity_class = config.get("continuity_class", "automatic-read-only")
+        # #41: administratively bound route/tier ceiling, mirroring this
+        # actor's real Eros virtual key allowlist. ATTESTED (config-only,
+        # required, no default) - never derived from the request body.
+        # Enforced here as defense in depth alongside LiteLLM's own
+        # independent model allowlist, not as a replacement for it.
+        self.allowed_routes = frozenset(config["allowed_routes"])
+        if not self.allowed_routes:
+            raise ValueError("allowed_routes must be non-empty - an actor with no allowed routes can never be admitted")
+        self.max_tier = max_tier_of(self.allowed_routes)
         self.eros_base_url = config["eros_base_url"].rstrip("/")
         # Read at process startup, not baked into the rendered config file -
         # sops-nix materializes this path at its own activation/runtime
@@ -256,6 +266,32 @@ class PolicyEndpoint:
         except json.JSONDecodeError:
             return 400, json.dumps({"error": {"message": "invalid JSON body"}}).encode()
         requested_route = parsed.get("model", "")
+
+        # #41: administratively bound route/tier ceiling - checked first,
+        # before classification/economic-state/forwarding, so an out-of-
+        # envelope request is denied before any provider spend. A caller
+        # cannot widen this by supplying a different route in the body
+        # than what it's actually asking to be admitted for - the
+        # requested_route IS the value checked, there is no separate
+        # "claimed tier" field this could disagree with. An empty/missing/
+        # unrecognized route is denied the same way an explicitly
+        # disallowed one is - never a permissive default.
+        try:
+            check_route_allowed(requested_route, self.allowed_routes)
+        except RouteDenied as exc:
+            self.state.record_admission(
+                actor=self.actor, priority=priority.value,
+                continuity_class=self.continuity_class,
+                requested_route=requested_route, decision="deny",
+                reason=f"credential ceiling: {exc}",
+                economic_state=EconomicState.NORMAL.value,
+                trust_domain=self.trust_domain, agent=self.agent,
+                workstream=self.workstream,
+                resource_project_context=self.resource_project_context,
+            )
+            return 403, json.dumps({
+                "error": {"message": str(exc), "type": "route_outside_credential_ceiling"}
+            }).encode()
 
         # Piece 1 (tool-name allowlist, unknown -> deny automatic) and
         # piece 2 (x_hermes_source, propagated via the workload-metadata
