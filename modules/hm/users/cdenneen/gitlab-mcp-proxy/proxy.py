@@ -12,9 +12,10 @@ Bearer token on every forwarded request, refreshing via the OAuth
 refresh_token grant whenever the cached access token is near expiry.
 
 Credentials (client_id/secret/access_token/refresh_token/expires_at)
-live in creds.json next to this script, mode 0600. This file is
-rewritten in place whenever a refresh happens, so restarting the proxy
-picks up the latest token automatically.
+live in creds.json in the current working directory, mode 0600 (see
+proxyRoot in default.nix). This file is rewritten in place whenever a
+refresh happens, so restarting the proxy picks up the latest token
+automatically.
 
 Usage:
     python3 proxy.py [--port 8899]
@@ -32,8 +33,11 @@ import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CREDS_PATH = os.path.join(HERE, "creds.json")
+# Not HERE = dirname(__file__): under Nix this script is copied into an
+# immutable /nix/store path with no writable sibling directory. creds.json
+# is mutable runtime state and lives in the systemd unit's WorkingDirectory
+# (proxyRoot in default.nix) instead.
+CREDS_PATH = os.path.join(os.getcwd(), "creds.json")
 LOCK = threading.Lock()
 
 
