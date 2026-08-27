@@ -31,10 +31,25 @@ descriptive-metadata feature) - but ``selftest.py``'s functional check
 (not just an attribute-identity check) is what actually catches that at
 service-start time via ExecStartPre, per the existing
 hermes-axis-control-gateway.nix precedent.
+
+Also writes a small host-local side channel (roadmap amendment #40,
+metadata_attestation.py) keyed by this process's own pid, so the policy
+endpoint can attest x_hermes_source via kernel-guaranteed peer-process
+identity (/proc) rather than trusting the request body alone. Inlined
+here (no import of hermes-policy-endpoint's code) because this file runs
+inside Hermes's own Python process/venv, a different trust/dependency
+boundary than the endpoint - the path below must match
+metadata_attestation.SHARED_PEER_SOURCE_DIR exactly. Best-effort: a
+failure here never breaks the gateway and never regresses below today's
+already-floor-safe ASSERTED-only behavior.
 """
 
 try:
+    import json
+    import os
+    import time
     from contextvars import ContextVar
+    from pathlib import Path
 
     import agent.aux_accounting as aux_accounting
     import agent.transports.chat_completions as chat_completions
@@ -42,6 +57,17 @@ try:
     _hermes_source_ctx: ContextVar[str | None] = ContextVar(
         "hermes_workload_metadata_source", default=None
     )
+
+    _PEER_SOURCE_DIR = Path.home() / ".hermes-policy" / "_peer-source"
+
+    def _write_peer_source_side_channel(source):
+        try:
+            _PEER_SOURCE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+            path = _PEER_SOURCE_DIR / f"{os.getpid()}.json"
+            path.write_text(json.dumps({"source": source, "ts": time.time()}))
+            path.chmod(0o600)
+        except OSError:
+            pass
 
     _orig_set_accounting_context = aux_accounting.set_accounting_context
     _orig_add_prompt_cache_key = chat_completions._add_prompt_cache_key
@@ -56,6 +82,7 @@ try:
         except Exception:
             pass
         _hermes_source_ctx.set(source)
+        _write_peer_source_side_channel(source)
         return _orig_set_accounting_context(session_db, session_id)
 
     def _patched_add_prompt_cache_key(api_kwargs, *, messages, tools, supports_prompt_cache_key):

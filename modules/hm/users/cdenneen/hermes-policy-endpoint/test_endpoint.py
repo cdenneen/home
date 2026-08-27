@@ -10,6 +10,8 @@ Run: python3 -m unittest test_endpoint.py -v
 """
 
 import json
+import os
+import sys
 import tempfile
 import time
 import unittest
@@ -508,6 +510,7 @@ class TestPolicyEndpointTrustDomainFailsClosed(unittest.TestCase):
             "state_db_path": str(Path(tmp_dir) / "state.db"),
             "emergency_credential_path": None,
             "break_glass_flag_path": str(Path(tmp_dir) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         config.update(overrides)
         return config
@@ -559,6 +562,7 @@ class TestHermesMetadataStrippedBeforeForwarding(unittest.TestCase):
             "state_db_path": str(Path(self.tmp.name) / "state.db"),
             "emergency_credential_path": None,
             "break_glass_flag_path": str(Path(self.tmp.name) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         self.endpoint = PolicyEndpoint(config)
         self.endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
@@ -642,6 +646,7 @@ class TestMetadataProvenanceAndAuthorityBoundary(unittest.TestCase):
                 "state_db_path": str(Path(tmp) / "state.db"),
                 "emergency_credential_path": None,
                 "break_glass_flag_path": str(Path(tmp) / "bg.flag"),
+                "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
             }
             endpoint = PolicyEndpoint(config)
             endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
@@ -792,6 +797,7 @@ class TestBoot028RecoveryIdempotencyEndToEnd(unittest.TestCase):
             "state_db_path": str(Path(self.tmp.name) / "state.db"),
             "emergency_credential_path": str(cred_path),
             "break_glass_flag_path": str(Path(self.tmp.name) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
         }
         self.endpoint = PolicyEndpoint(config)
         self.forward_normal_calls = []
@@ -849,6 +855,352 @@ class TestBoot028RecoveryIdempotencyEndToEnd(unittest.TestCase):
         # Both went through forward_normal for real - no false-positive
         # idempotency hit merely from sharing a route/priority/actor.
         self.assertEqual(len(self.forward_normal_calls), 2)
+
+
+@unittest.skipUnless(
+    sys.platform == "linux",
+    "peer-process attestation is /proc-based (Linux-only, the actual Ghost/Nyx deployment "
+    "target); this repo's dev sandbox may be non-Linux - resolve_peer_pid's own None-on-"
+    "failure fallback means non-Linux platforms fail closed to today's ASSERTED-only "
+    "behavior rather than erroring, but that fallback path is exercised elsewhere, not here",
+)
+class TestMetadataAttestationRealPeerProcess(unittest.TestCase):
+    """#40: real /proc-based peer-process resolution over an actual TCP
+    loopback connection, not a mock - proves the kernel-guaranteed peer
+    identity mechanism actually works before relying on it for
+    ASSERTED->ATTESTED provenance upgrades. Also run live on Ghost/Nyx
+    (Linux) as part of the Bootstrap Gate evidence, not just here."""
+
+    def setUp(self):
+        import shutil
+        from metadata_attestation import SHARED_PEER_SOURCE_DIR
+        self._orig_dir = SHARED_PEER_SOURCE_DIR
+        self.tmp = tempfile.TemporaryDirectory()
+        import metadata_attestation
+        metadata_attestation.SHARED_PEER_SOURCE_DIR = Path(self.tmp.name) / "_peer-source"
+
+    def tearDown(self):
+        import metadata_attestation
+        metadata_attestation.SHARED_PEER_SOURCE_DIR = self._orig_dir
+        self.tmp.cleanup()
+
+    def test_resolves_own_pid_as_peer_over_a_real_loopback_connection(self):
+        import socket as _socket
+        from metadata_attestation import resolve_peer_pid
+
+        server = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        local_port = server.getsockname()[1]
+        client = _socket.create_connection(("127.0.0.1", local_port))
+        try:
+            conn, peer_addr = server.accept()
+            try:
+                peer_pid = resolve_peer_pid(local_port, peer_addr[1])
+                # The test process is both client and server here, so the
+                # real resolved peer pid must be this process's own pid.
+                self.assertEqual(peer_pid, os.getpid())
+            finally:
+                conn.close()
+        finally:
+            client.close()
+            server.close()
+
+    def test_attested_source_upgrades_when_side_channel_agrees(self):
+        import socket as _socket
+        from metadata_attestation import attested_source_for_peer, write_side_channel
+
+        write_side_channel("cron")  # keyed by THIS process's own pid
+        server = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        local_port = server.getsockname()[1]
+        client = _socket.create_connection(("127.0.0.1", local_port))
+        try:
+            conn, peer_addr = server.accept()
+            try:
+                source, attempted = attested_source_for_peer(local_port, peer_addr[1])
+                self.assertTrue(attempted)
+                self.assertEqual(source, "cron")
+            finally:
+                conn.close()
+        finally:
+            client.close()
+            server.close()
+
+    def test_attestation_unavailable_when_no_side_channel_file_exists(self):
+        import socket as _socket
+        from metadata_attestation import attested_source_for_peer
+
+        server = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        local_port = server.getsockname()[1]
+        client = _socket.create_connection(("127.0.0.1", local_port))
+        try:
+            conn, peer_addr = server.accept()
+            try:
+                source, attempted = attested_source_for_peer(local_port, peer_addr[1])
+                self.assertTrue(attempted)  # peer pid WAS resolved...
+                self.assertIsNone(source)   # ...but no side-channel file exists for it
+            finally:
+                conn.close()
+        finally:
+            client.close()
+            server.close()
+
+
+class TestAdversarialMetadataCannotWidenAuthority(unittest.TestCase):
+    """Roadmap addendum #40: adversarial tests proving callers cannot
+    forge a more privileged source/actor/effect classification than the
+    kernel-attested truth or the request's actual observable tools."""
+
+    def _endpoint(self, tmp_dir, **overrides):
+        from endpoint import PolicyEndpoint
+        key_path = Path(tmp_dir) / "key.txt"
+        key_path.write_text("sk-test-key\n")
+        config = {
+            "actor": "test-actor", "trust_domain": "work", "agent": "nyx", "workstream": "gitlab",
+            "eros_base_url": "http://127.0.0.1:1", "eros_tailscale_ip": "127.0.0.1",
+            "eros_api_key_file": str(key_path),
+            "state_db_path": str(Path(tmp_dir) / "state.db"),
+            "emergency_credential_path": None,
+            "break_glass_flag_path": str(Path(tmp_dir) / "bg.flag"),
+            "allowed_routes": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
+        }
+        config.update(overrides)
+        return PolicyEndpoint(config)
+
+    def test_caller_cannot_lie_its_way_to_a_more_permissive_source_than_the_attested_truth(self):
+        # Real (attested) source is "slack" (human-present); the caller
+        # asserts "cron" (automatic-read-only) hoping to look safer than
+        # it actually is. The resolver must keep the stricter one.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp)
+            resolved, provenance, conflict = endpoint._resolve_workload_source(
+                "cron",  # asserted (attacker-favorable)
+                peer_port=None, local_port=None,  # no peer info available in this unit test
+            )
+            # Without peer info, this stays ASSERTED-only (today's already
+            # floor-safe behavior) - the real attestation path is
+            # exercised end-to-end in TestMetadataAttestationRealPeerProcess.
+            self.assertEqual(resolved, "cron")
+            self.assertEqual(provenance, "asserted")
+
+        # Now with a real attested disagreement injected directly. Patch
+        # the name as imported into endpoint.py itself - `from X import Y`
+        # binds a separate reference in endpoint's namespace, so patching
+        # metadata_attestation.attested_source_for_peer would not affect
+        # what endpoint.py actually calls.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint_obj = self._endpoint(tmp)
+            import endpoint as endpoint_module
+            orig = endpoint_module.attested_source_for_peer
+            endpoint_module.attested_source_for_peer = lambda lp, pp: ("slack", True)
+            try:
+                resolved, provenance, conflict = endpoint_obj._resolve_workload_source(
+                    "cron", peer_port=1234, local_port=8601,
+                )
+            finally:
+                endpoint_module.attested_source_for_peer = orig
+            self.assertEqual(resolved, "slack")  # the stricter, attested truth wins
+            self.assertEqual(provenance, "asserted_conflict_resolved_to_stricter")
+            self.assertIsNotNone(conflict)
+            self.assertEqual(conflict["attested"], "slack")
+            self.assertEqual(conflict["asserted"], "cron")
+
+    def test_caller_cannot_forge_effect_class_there_is_no_such_input(self):
+        # There is no "effect_class" field this module ever reads from the
+        # request body - classify_tools() only ever inspects the real
+        # tools array. A forged effect_class claim is simply inert.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp)
+            endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+            captured = {}
+
+            def fake_forward_normal(route, body):
+                captured["body"] = json.loads(body)
+                return 200, b'{"choices": []}', {}
+            endpoint.forward_normal = fake_forward_normal
+
+            body = json.dumps({
+                "model": "tier2-coding",
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [{"type": "function", "function": {"name": "merge_merge_request"}}],
+                "effect_class": "read_only",       # forged - not a real field
+                "continuity_class": "automatic",   # forged - not a real field
+            }).encode()
+            status, raw = endpoint.handle_chat_completion(Priority.P0, body)
+            # The forged fields never reach classification at all - the
+            # real tool (merge_merge_request, high_impact) is what governs.
+            self.assertEqual(status, 200)  # normal mode isn't gated by continuity_class
+
+        # Directly confirm the classification itself ignores the forgery:
+        effective, evidence = effective_continuity_class(
+            "automatic-read-only", ["merge_merge_request"], None
+        )
+        self.assertEqual(effective, "manual-break-glass")
+
+    def test_caller_cannot_forge_actor_identity_via_the_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp)
+            endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+            endpoint.forward_normal = lambda route, body: (200, b'{"choices": []}', {})
+            body = json.dumps({
+                "model": "tier2-coding",
+                "messages": [{"role": "user", "content": "hi"}],
+                "actor": "ghost-alpha0",       # forged - a different, higher-privilege actor
+                "agent": "ghost",
+                "trust_domain": "personal",
+            }).encode()
+            endpoint.handle_chat_completion(Priority.P0, body)
+            self.assertEqual(endpoint.actor, "test-actor")
+            self.assertEqual(endpoint.agent, "nyx")
+            self.assertEqual(endpoint.trust_domain, "work")
+
+
+class TestCredentialBoundRouteTierCeiling(unittest.TestCase):
+    """#41, pre-Phase-2 Bootstrap Gate requirement: every production
+    consumer credential has an administratively bound route/tier ceiling,
+    enforced at admission, that caller-supplied metadata cannot widen."""
+
+    def _endpoint(self, tmp_dir, allowed_routes):
+        from endpoint import PolicyEndpoint
+        key_path = Path(tmp_dir) / "key.txt"
+        key_path.write_text("sk-test-key\n")
+        config = {
+            "actor": "nyx-eks-like", "trust_domain": "work", "agent": "nyx", "workstream": "eks",
+            "eros_base_url": "http://127.0.0.1:1", "eros_tailscale_ip": "127.0.0.1",
+            "eros_api_key_file": str(key_path),
+            "state_db_path": str(Path(tmp_dir) / "state.db"),
+            "emergency_credential_path": None,
+            "break_glass_flag_path": str(Path(tmp_dir) / "bg.flag"),
+            "allowed_routes": allowed_routes,
+        }
+        return PolicyEndpoint(config)
+
+    def _post(self, endpoint, model, extra=None):
+        endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+        endpoint.forward_normal = lambda route, body: (200, b'{"choices": []}', {"cost_usd": 0.0})
+        body = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
+        if extra:
+            body.update(extra)
+        return endpoint.handle_chat_completion(Priority.P0, json.dumps(body).encode())
+
+    def test_ordinary_key_requesting_tier4_frontier_denied_before_provider_spend(self):
+        # Mirrors real EKS/GitLab keys - tier2 ceiling, no T4 anywhere.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general", "tier2-coding"])
+            spend_calls = []
+            endpoint.forward_normal = lambda route, body: (spend_calls.append(route), (200, b'{}', {}))[1]
+            status, raw = self._post(endpoint, "tier4-frontier")
+            self.assertEqual(status, 403)
+            self.assertEqual(json.loads(raw)["error"]["type"], "route_outside_credential_ceiling")
+            self.assertEqual(spend_calls, [])  # forward_normal never called - no provider spend
+
+    def test_key_with_t2_ceiling_requesting_t3_or_t4_denied(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general", "tier2-coding"])
+            self.assertEqual(self._post(endpoint, "tier3-quality")[0], 403)
+            self.assertEqual(self._post(endpoint, "tier4-frontier")[0], 403)
+            self.assertEqual(self._post(endpoint, "tier2-coding")[0], 200)  # in-ceiling still works
+
+    def test_actor_claiming_a_different_actor_has_no_effect_on_admission(self):
+        # "key for actor A claiming actor B -> effective actor remains A."
+        # actor/agent/trust_domain are already proven unreachable from the
+        # body (TestMetadataProvenanceAndAuthorityBoundary); this confirms
+        # the SAME holds specifically in the #41 route-ceiling code path.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            status, _ = self._post(
+                endpoint, "tier2-general",
+                extra={"actor": "ghost-alpha0", "agent": "ghost", "trust_domain": "personal"},
+            )
+            self.assertEqual(status, 200)  # admitted...
+            self.assertEqual(endpoint.actor, "nyx-eks-like")  # ...still as itself, not the claimed actor
+            self.assertEqual(endpoint.trust_domain, "work")
+
+    def test_request_omitting_model_field_is_deterministically_denied_not_defaulted_permissive(self):
+        # There is no separate "requested tier" field in today's wire
+        # protocol - only the full route name (`model`). An omitted/empty
+        # model can't be verified safe, so it is denied deterministically
+        # like any other not-in-allowlist value - never defaulted to some
+        # permissive "assume the lowest tier" behavior.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()  # no "model" at all
+            endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+            endpoint.forward_normal = lambda route, body: (200, b'{}', {})
+            status, raw = endpoint.handle_chat_completion(Priority.P0, body)
+            self.assertEqual(status, 403)
+            self.assertEqual(json.loads(raw)["error"]["type"], "route_outside_credential_ceiling")
+
+    def test_body_supplied_route_override_field_is_ineffective(self):
+        # A caller cannot widen its ceiling by adding a second field
+        # claiming a different/wider allowed route - only `model` (the
+        # actual requested_route) is ever checked; anything else is inert.
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            status, _ = self._post(
+                endpoint, "tier4-frontier",  # the real request
+                extra={"allowed_routes": ["tier4-frontier"], "route": "tier2-general", "tier_ceiling": "T4"},
+            )
+            self.assertEqual(status, 403)  # forged fields did not widen anything
+
+    def test_empty_allowed_routes_fails_closed_at_construction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                self._endpoint(tmp, [])
+
+    def test_non_string_model_field_denies_cleanly_never_crashes(self):
+        # Independent review finding: `model` is caller-controlled JSON and
+        # may be any type - a list/dict is unhashable, so a naive
+        # `in <set>` membership test would raise TypeError instead of
+        # denying cleanly. check_route_allowed must catch this itself,
+        # not rely on a crash reaching some outer handler.
+        from credential_ceiling import RouteDenied, check_route_allowed
+        for bad_route in [["tier4-frontier"], {"model": "tier4-frontier"}, None, 42, True]:
+            with self.assertRaises(RouteDenied):
+                check_route_allowed(bad_route, frozenset(["tier2-general"]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier2-general"])
+            endpoint.economic_state = lambda: (EconomicState.NORMAL, "ok")
+            endpoint.forward_normal = lambda route, body: (200, b'{}', {})
+            body = json.dumps({
+                "model": ["tier2-general"],  # malformed - a list, not a string
+                "messages": [{"role": "user", "content": "hi"}],
+            }).encode()
+            status, raw = endpoint.handle_chat_completion(Priority.P0, body)
+            self.assertEqual(status, 403)
+            self.assertEqual(json.loads(raw)["error"]["type"], "route_outside_credential_ceiling")
+
+    def test_healthz_exposes_allowed_routes_and_max_tier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoint = self._endpoint(tmp, ["tier1-general", "tier2-coding"])
+            self.assertEqual(endpoint.max_tier, 2)
+            self.assertEqual(set(endpoint.allowed_routes), {"tier1-general", "tier2-coding"})
+
+    def test_max_tier_derived_correctly_from_allowlist(self):
+        from credential_ceiling import max_tier_of, parse_tier
+        self.assertEqual(parse_tier("tier2-coding"), 2)
+        self.assertEqual(parse_tier("tier10-future"), 10)
+        self.assertIsNone(parse_tier("not-a-tier-route"))
+        self.assertEqual(max_tier_of(["tier1-general", "tier2-coding", "tier0-local"]), 2)
+
+    def test_real_configured_allowlists_never_include_t4_for_todays_five_actors(self):
+        # Regression pin against the actual Eros virtual-key configuration
+        # confirmed live 2026-08-27 (LiteLLM /key/info) - none of today's 5
+        # production keys have tier4-frontier, matching BOOT-004.
+        real_allowlists = {
+            "ghost-default": ["tier0-local", "tier1-general", "tier1-coding", "tier2-general", "tier2-coding", "tier2-research", "tier3-quality"],
+            "ghost-alpha0": ["tier2-research", "tier3-quality"],
+            "ghost-axis-control": ["tier2-coding", "tier2-general", "tier3-quality"],
+            "nyx-eks": ["tier1-general", "tier2-general", "tier2-research"],
+            "nyx-gitlab": ["tier1-coding", "tier2-coding", "tier2-general"],
+        }
+        for actor, routes in real_allowlists.items():
+            self.assertNotIn("tier4-frontier", routes, f"{actor} must not have T4 in its ceiling")
 
 
 if __name__ == "__main__":

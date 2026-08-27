@@ -13,8 +13,15 @@ signature change in either hook would raise a TypeError here, which a
 same-identity check would not catch.
 """
 
+import json
+import os
+import time
+from pathlib import Path
+
 import agent.aux_accounting as aux_accounting
 import agent.transports.chat_completions as chat_completions
+
+_PEER_SOURCE_DIR = Path.home() / ".hermes-policy" / "_peer-source"
 
 
 class _FakeSessionDB:
@@ -24,6 +31,9 @@ class _FakeSessionDB:
 
 
 def main() -> None:
+    side_channel_path = _PEER_SOURCE_DIR / f"{os.getpid()}.json"
+    side_channel_path.unlink(missing_ok=True)
+
     aux_accounting.set_accounting_context(_FakeSessionDB(), "selftest-session-id")
 
     api_kwargs: dict = {}
@@ -40,6 +50,20 @@ def main() -> None:
         f"expected x_hermes_source='selftest-source', got {extra_body.get('x_hermes_source')!r} "
         f"- hermes-workload-metadata sitecustomize patch is not taking effect as expected"
     )
+
+    # #40: the peer-process attestation side channel must actually be
+    # written, keyed by this process's own pid - a functional check, not
+    # just checking the extra_body injection above.
+    assert side_channel_path.exists(), (
+        f"expected {side_channel_path} to exist after set_accounting_context - "
+        f"the #40 peer-attestation side channel is not being written"
+    )
+    side_channel_data = json.loads(side_channel_path.read_text())
+    assert side_channel_data.get("source") == "selftest-source", (
+        f"side channel recorded {side_channel_data.get('source')!r}, expected 'selftest-source'"
+    )
+    assert time.time() - side_channel_data.get("ts", 0) < 10, "side channel timestamp is stale"
+    side_channel_path.unlink(missing_ok=True)
 
     aux_accounting.reset_accounting_context(
         aux_accounting.set_accounting_context(None, None)

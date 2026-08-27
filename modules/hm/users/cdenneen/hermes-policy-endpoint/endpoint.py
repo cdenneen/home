@@ -39,7 +39,14 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from action_classification import continuity_mode_permits, effective_continuity_class
+from action_classification import (
+    CONTINUITY_ORDER,
+    continuity_mode_permits,
+    effective_continuity_class,
+    source_ceiling,
+)
+from credential_ceiling import RouteDenied, check_route_allowed, max_tier_of
+from metadata_attestation import attested_source_for_peer
 from classifier import OutageClassifier
 from continuity import ContinuityController, ContinuityDenied, EmergencyCredentialStore
 from governor import (
@@ -82,6 +89,15 @@ class PolicyEndpoint:
         # more restrictive of this ceiling and the request's own
         # tool/source-derived classification; it never widens past this.
         self.continuity_class = config.get("continuity_class", "automatic-read-only")
+        # #41: administratively bound route/tier ceiling, mirroring this
+        # actor's real Eros virtual key allowlist. ATTESTED (config-only,
+        # required, no default) - never derived from the request body.
+        # Enforced here as defense in depth alongside LiteLLM's own
+        # independent model allowlist, not as a replacement for it.
+        self.allowed_routes = frozenset(config["allowed_routes"])
+        if not self.allowed_routes:
+            raise ValueError("allowed_routes must be non-empty - an actor with no allowed routes can never be admitted")
+        self.max_tier = max_tier_of(self.allowed_routes)
         self.eros_base_url = config["eros_base_url"].rstrip("/")
         # Read at process startup, not baked into the rendered config file -
         # sops-nix materializes this path at its own activation/runtime
@@ -215,12 +231,76 @@ class PolicyEndpoint:
             "cost_usd": data.get("_response_cost"),
         }
 
-    def handle_chat_completion(self, priority: Priority, body: bytes) -> tuple[int, bytes]:
+    def _resolve_workload_source(self, asserted_source, peer_port, local_port):
+        """#40: upgrade the request-body-ASSERTED x_hermes_source to
+        ATTESTED when the kernel-guaranteed TCP peer's own side channel
+        (written by the sitecustomize patch, keyed by its own pid) is
+        available and agrees. On disagreement, resolve to whichever
+        source's ceiling is more restrictive - a conflict must never
+        make the request more permissive (#39C). Returns
+        (resolved_source, provenance, conflict_evidence_or_None)."""
+        if peer_port is None or local_port is None:
+            return asserted_source, "asserted", None
+        attested, attempted = attested_source_for_peer(local_port, peer_port)
+        if not attempted or attested is None:
+            return asserted_source, "asserted", None
+        if asserted_source is None:
+            return attested, "attested", None
+        if attested == asserted_source:
+            return attested, "attested", None
+        # Disagreement: keep whichever yields the stricter ceiling.
+        stricter = (
+            attested
+            if CONTINUITY_ORDER.index(source_ceiling(attested))
+            >= CONTINUITY_ORDER.index(source_ceiling(asserted_source))
+            else asserted_source
+        )
+        conflict = {"asserted": asserted_source, "attested": attested, "resolved": stricter}
+        return stricter, "asserted_conflict_resolved_to_stricter", conflict
+
+    def handle_chat_completion(
+        self, priority: Priority, body: bytes, peer_port: int | None = None, local_port: int | None = None,
+    ) -> tuple[int, bytes]:
         try:
             parsed = json.loads(body)
         except json.JSONDecodeError:
             return 400, json.dumps({"error": {"message": "invalid JSON body"}}).encode()
         requested_route = parsed.get("model", "")
+        if not isinstance(requested_route, str):
+            # `model` is caller-controlled JSON and may be any type. Normalize
+            # to a string immediately so every downstream consumer (SQLite
+            # storage in state.py, digest_for, JSON error bodies) can safely
+            # assume a str - credential_ceiling.check_route_allowed will still
+            # deny it below (never matches a real allowlist entry), but it
+            # must not crash the request first trying to store/hash the raw
+            # non-string value.
+            requested_route = repr(requested_route)
+
+        # #41: administratively bound route/tier ceiling - checked first,
+        # before classification/economic-state/forwarding, so an out-of-
+        # envelope request is denied before any provider spend. A caller
+        # cannot widen this by supplying a different route in the body
+        # than what it's actually asking to be admitted for - the
+        # requested_route IS the value checked, there is no separate
+        # "claimed tier" field this could disagree with. An empty/missing/
+        # unrecognized route is denied the same way an explicitly
+        # disallowed one is - never a permissive default.
+        try:
+            check_route_allowed(requested_route, self.allowed_routes)
+        except RouteDenied as exc:
+            self.state.record_admission(
+                actor=self.actor, priority=priority.value,
+                continuity_class=self.continuity_class,
+                requested_route=requested_route, decision="deny",
+                reason=f"credential ceiling: {exc}",
+                economic_state=EconomicState.NORMAL.value,
+                trust_domain=self.trust_domain, agent=self.agent,
+                workstream=self.workstream,
+                resource_project_context=self.resource_project_context,
+            )
+            return 403, json.dumps({
+                "error": {"message": str(exc), "type": "route_outside_credential_ceiling"}
+            }).encode()
 
         # Piece 1 (tool-name allowlist, unknown -> deny automatic) and
         # piece 2 (x_hermes_source, propagated via the workload-metadata
@@ -232,10 +312,16 @@ class PolicyEndpoint:
             if isinstance(t, dict)
         ]
         tool_names = [name for name in tool_names if name]
-        workload_source = parsed.get("x_hermes_source")
+        asserted_source = parsed.get("x_hermes_source")
+        workload_source, source_provenance, metadata_conflict = self._resolve_workload_source(
+            asserted_source, peer_port, local_port
+        )
         effective_class, classification_evidence = effective_continuity_class(
             self.continuity_class, tool_names, workload_source
         )
+        classification_evidence["source_ceiling_provenance"] = source_provenance
+        if metadata_conflict is not None:
+            classification_evidence["metadata_conflict"] = metadata_conflict
 
         # x_hermes_* fields are for this endpoint's own classification only -
         # confirmed live (nyx-gitlab, 2026-08-27): forwarding x_hermes_source
@@ -423,7 +509,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
-        status, raw = self.endpoint.handle_chat_completion(self._priority_for_request(), body)
+        status, raw = self.endpoint.handle_chat_completion(
+            self._priority_for_request(), body,
+            peer_port=self.client_address[1], local_port=self.server.server_address[1],
+        )
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
@@ -440,6 +529,8 @@ class Handler(BaseHTTPRequestHandler):
                 "trust_domain": self.endpoint.trust_domain,
                 "agent": self.endpoint.agent,
                 "workstream": self.endpoint.workstream,
+                "allowed_routes": sorted(self.endpoint.allowed_routes),
+                "max_tier": self.endpoint.max_tier,
             }).encode()
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

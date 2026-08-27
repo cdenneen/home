@@ -39,6 +39,10 @@ let
           resource_project_context = inst.resourceProjectContext;
           priority = inst.priority;
           continuity_class = inst.continuityClass;
+          # #41: administratively bound route/tier ceiling, mirroring this
+          # actor's real Eros virtual key allowlist - enforced here too
+          # (defense in depth), never derived from the request body.
+          allowed_routes = inst.allowedRoutes;
           eros_base_url = inst.erosBaseUrl;
           eros_tailscale_ip = inst.erosTailscaleIp;
           eros_port = inst.erosPort;
@@ -133,6 +137,10 @@ let
         ];
         default = "automatic-read-only";
         description = "Orthogonal to priority - whether/how this actor's work may run outside the normal Eros control plane.";
+      };
+      allowedRoutes = lib.mkOption {
+        type = lib.types.nonEmptyListOf lib.types.str;
+        description = "Administratively bound route/tier ceiling (#41) - must mirror this actor's real Eros virtual key model allowlist exactly. Enforced at admission before any provider spend, in addition to (never instead of) LiteLLM's own independent allowlist. Required, no default - an actor cannot be admitted for anything until this is stated explicitly.";
       };
       erosBaseUrl = lib.mkOption {
         type = lib.types.str;
