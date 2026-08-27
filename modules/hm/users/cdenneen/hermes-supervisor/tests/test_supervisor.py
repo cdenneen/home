@@ -2879,6 +2879,14 @@ def test_cost_state_negative_cases_never_default_to_known_cost():
     assert cost_state_for({"cost_status": None}) == "UNKNOWN_COST"
     assert cost_state_for({"cost_status": "some-future-hermes-status"}) == "UNKNOWN_COST"
     assert cost_state_for({"cost_status": "KNOWN_COST"}) == "UNKNOWN_COST"  # case-sensitive, not coerced
+    # A malformed usage report can plausibly have a non-string cost_status
+    # (e.g. a corrupted/future-shaped write). An unhashable value like a
+    # list or dict must not be handed straight to dict.get() as the lookup
+    # key - that raises TypeError and would erase the whole ledger record
+    # instead of merely misclassifying its cost.
+    assert cost_state_for({"cost_status": ["actual"]}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": {"nested": "actual"}}) == "UNKNOWN_COST"
+    assert cost_state_for({"cost_status": 42}) == "UNKNOWN_COST"
 
 
 def test_ledger_record_carries_cost_state_for_finished_attempts_only(tmp_path: Path):

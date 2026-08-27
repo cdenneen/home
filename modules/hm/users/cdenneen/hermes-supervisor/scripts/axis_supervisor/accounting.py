@@ -64,9 +64,13 @@ def cost_state_for(usage: dict[str, Any] | None) -> str:
     never KNOWN_COST/$0."""
     if usage is None:
         return COST_STATE_UNAVAILABLE_USAGE
-    return _HERMES_COST_STATUS_TO_COST_STATE.get(
-        usage.get("cost_status"), COST_STATE_UNKNOWN_COST
-    )
+    cost_status = usage.get("cost_status")
+    if not isinstance(cost_status, str):
+        # A list/dict cost_status would be unhashable and crash a plain
+        # dict.get() lookup - malformed input must fail closed to
+        # UNKNOWN_COST, not raise and erase the whole ledger record.
+        return COST_STATE_UNKNOWN_COST
+    return _HERMES_COST_STATUS_TO_COST_STATE.get(cost_status, COST_STATE_UNKNOWN_COST)
 
 
 @dataclass(frozen=True)
