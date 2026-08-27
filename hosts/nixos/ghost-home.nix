@@ -83,4 +83,36 @@
 
   # This only deploys the canonical profile wrapper and report-only watchdog.
   # Installing or graduating the Hermes scheduler is a separate reviewed step.
+
+  # Bootstrap-tier host-local policy endpoints (deployed, healthy, NOT yet
+  # referenced by any Hermes profile's model.base_url - see
+  # modules/hm/users/cdenneen/hermes-policy-endpoint and
+  # bootstrap-gate-evidence.md). Wiring a profile to actually use one is a
+  # separate Phase 2 canary action requiring its own explicit approval.
+  profiles.hermesPolicyEndpoint.instances = {
+    ghost-default = {
+      port = 8601;
+      priority = "P1";
+      continuityClass = "human-present";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_ghost_default";
+    };
+    ghost-alpha0 = {
+      port = 8602;
+      priority = "P1";
+      continuityClass = "manual-break-glass";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_ghost_alpha0";
+    };
+    ghost-axis-control = {
+      port = 8603;
+      priority = "P1";
+      continuityClass = "manual-break-glass";
+      erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
+      erosTailscaleIp = "100.117.68.38";
+      erosApiKeySecret = "eros_litellm_key_ghost_axis_control";
+    };
+  };
 }
