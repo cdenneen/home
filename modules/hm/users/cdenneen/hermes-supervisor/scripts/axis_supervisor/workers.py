@@ -72,6 +72,27 @@ def bounded_source_context(
     return "".join(excerpts)
 
 
+def _read_and_discard_usage_file(path: Path) -> dict | None:
+    """Best-effort read of a hermes -z --usage-file report.
+
+    Mirrors hermes_cli.oneshot's own "never raises" contract for usage
+    reporting: a worker's real success/failure must never hinge on whether
+    its cost report happened to parse. Missing (process killed before
+    writing) or corrupt content both just mean no usage data this attempt,
+    not a crash.
+    """
+    try:
+        usage = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return usage if isinstance(usage, dict) else None
+
+
 def run_isolated_test(worktree: Path, command: str) -> subprocess.CompletedProcess:
     bwrap = shutil.which("bwrap")
     if not bwrap:
@@ -256,6 +277,9 @@ class HermesWorkerManager:
 
         heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
         process = None
+        usage_dir = self.root / "accounting" / "usage-tmp"
+        usage_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        usage_path = usage_dir / f"{attempt.attempt_id}.json"
         try:
             heartbeat_thread.start()
             command = [
@@ -267,6 +291,8 @@ class HermesWorkerManager:
                 model,
                 "--reasoning",
                 "medium",
+                "--usage-file",
+                str(usage_path),
             ]
             if toolsets is not None:
                 command.extend(["--toolsets", toolsets])
@@ -297,13 +323,16 @@ class HermesWorkerManager:
             self.accounting.finish(
                 attempt,
                 "failed",
+                usage=_read_and_discard_usage_file(usage_path),
                 error=f"{type(exc).__name__}: {exc}",
             )
             raise
         finally:
             stop_heartbeat.set()
             heartbeat_thread.join(timeout=5)
-        self.accounting.finish(attempt, "succeeded")
+        self.accounting.finish(
+            attempt, "succeeded", usage=_read_and_discard_usage_file(usage_path)
+        )
         return output
 
     def semantic(
