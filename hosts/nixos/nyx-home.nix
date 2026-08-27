@@ -39,6 +39,12 @@ in
     workingDirectory = "/home/cdenneen/src/workspace/gitlab";
   };
 
+  # Shared OAuth-refreshing proxy so both Hermes gateway instances above can
+  # use GitLab's native MCP server without hitting Hermes's lack of built-in
+  # OAuth-refresh support for MCP servers - see modules/hm/users/cdenneen/
+  # gitlab-mcp-proxy for details and the bootstrap steps for creds.json.
+  profiles.gitlabMcpProxy.enable = true;
+
   programs.starship.settings.palette = lib.mkForce "nyx";
 
   programs.zsh.initContent = lib.mkAfter opencodePasswordInit;

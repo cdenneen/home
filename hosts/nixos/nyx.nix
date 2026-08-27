@@ -415,12 +415,20 @@ in
   services.tailscale.permitCertUid = "caddy";
 
   # Keep resolvconf from injecting localhost DNS servers.
-  # dnsmasq is only for Tailscale split DNS on tailscale0.
+  # dnsmasq serves Tailscale split DNS on tailscale0 (for other peers routing
+  # through Nyx) AND now on loopback, so Nyx's own resolver can reach the
+  # stable Eros MagicDNS name (BOOT-001) without disturbing AP-internal/VPC
+  # resolution: *.ts.net forwards to Tailscale's resolver, everything else
+  # still forwards to the same VPC resolver Nyx always used directly.
   networking.resolvconf.useLocalResolver = false;
   networking.resolvconf.enable = false;
-  networking.nameservers = [ "10.224.0.2" ];
+  networking.nameservers = [
+    "127.0.0.1"
+    "10.224.0.2"
+  ];
   environment.etc."resolv.conf".text = ''
-    search ec2.internal
+    search ec2.internal tail0e55.ts.net
+    nameserver 127.0.0.1
     nameserver 10.224.0.2
     options edns0
   '';
@@ -436,17 +444,25 @@ in
   services.dnsmasq = {
     enable = true;
     settings = {
-      # Answer DNS queries from Tailscale clients for split DNS.
-      interface = "tailscale0";
+      # Answer DNS queries from Tailscale clients for split DNS, and now also
+      # from Nyx itself via loopback (networking.nameservers above).
+      interface = [
+        "tailscale0"
+        "lo"
+      ];
       bind-dynamic = true;
       domain-needed = true;
       bogus-priv = true;
       no-resolv = true;
-      # Route AP internal split-DNS zones to the VPC resolver.
+      # Route AP internal split-DNS zones and Tailscale MagicDNS names to
+      # their respective resolvers; default (last) server handles everything
+      # else via the same VPC resolver Nyx used directly before.
       server = [
         "/git.ap.org/10.224.0.2"
         "/associatedpress.com/10.224.0.2"
         "/apsharedservices.com/10.224.0.2"
+        "/ts.net/100.100.100.100"
+        "10.224.0.2"
       ];
     };
   };
