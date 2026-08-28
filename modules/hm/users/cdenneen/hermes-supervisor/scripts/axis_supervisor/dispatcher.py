@@ -6,6 +6,7 @@ from pathlib import Path
 from .assignment_grants import create_grant
 from .canonical_work_item import projection_for
 from .capability_graduation import read_capability_graduation
+from . import containment
 from .frontier import compatible
 from .lifecycle import is_terminal
 from .missions import read_mission_record
@@ -18,6 +19,7 @@ from .schema_registry import RecordError, read_record, write_record
 from .semantic_escalation import pending as pending_semantic_escalation
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
+MUTATION_ASSIGNMENT_TYPES = containment.MUTATION_ASSIGNMENT_TYPES
 ACTION_CONTRACT_FIELDS = {
     "engineering_purpose",
     "gate_owner",
@@ -322,6 +324,17 @@ class Dispatcher:
             if item.get("kind") == "repository-convergence"
             else "code-implementation"
         )
+        containment_state = containment.evaluate(
+            self.root, item.get("target_ref") or item.get("ref")
+        )
+        if assignment_type in READ_ONLY_ASSIGNMENT_TYPES and containment.blocks_non_mutating_dispatch(
+            containment_state
+        ):
+            return None
+        if assignment_type in MUTATION_ASSIGNMENT_TYPES and containment.blocks_mutation_dispatch(
+            containment_state
+        ):
+            return None
         mission_action, mission_reason = self._mission_action(item, graph)
         if item.get("finding_identity"):
             if mission_reason is not None:
