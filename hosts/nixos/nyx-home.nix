@@ -37,6 +37,11 @@ in
     enable = true;
     profileName = "nyx-gitlab";
     workingDirectory = "/home/cdenneen/src/workspace/gitlab";
+    # Narrowly-scoped Eros/LiteLLM virtual key for this profile specifically
+    # (not a host-generic Eros credential) - see profiles.hermesGateway's
+    # environmentFile precedent (ghost-home.nix) for the same pattern: a
+    # manually-maintained env file outside the Nix store, not sops-rendered.
+    environmentFile = "%h/.hermes/profiles/nyx-gitlab/.secrets/eros_litellm.env";
   };
 
   # Shared OAuth-refreshing proxy so both Hermes gateway instances above can
