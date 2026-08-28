@@ -19,7 +19,7 @@ from .schema_registry import RecordError, read_record, write_record
 from .semantic_escalation import pending as pending_semantic_escalation
 
 READ_ONLY_ASSIGNMENT_TYPES = {"read-only-analysis", "no-op-verification"}
-MUTATION_ASSIGNMENT_TYPES = {"code-implementation", "ci-integration-repair"}
+MUTATION_ASSIGNMENT_TYPES = containment.MUTATION_ASSIGNMENT_TYPES
 ACTION_CONTRACT_FIELDS = {
     "engineering_purpose",
     "gate_owner",
