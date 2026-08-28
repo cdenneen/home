@@ -196,6 +196,11 @@ in
     type = lib.types.str;
     description = "Hermes CLI profile name. HERMES_HOME resolves to %h/.hermes/profiles/<profileName> (see hermes profile create).";
   };
+  options.profiles.hermesGatewaySecondary.environmentFile = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = null;
+    description = "Credential environment file materialized outside the Nix store - see profiles.hermesGateway.environmentFile.";
+  };
   options.profiles.hermesGatewaySecondary.workingDirectory = lib.mkOption {
     type = lib.types.str;
     description = "cwd this instance runs from - see profiles.hermesGateway.workingDirectory for what this controls.";
@@ -334,6 +339,9 @@ in
               "HERMES_HOME=%h/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}"
               "PYTHONPATH=${hermesGatewaySitecustomize}"
             ];
+            EnvironmentFile = lib.optional (
+              config.profiles.hermesGatewaySecondary.environmentFile != null
+            ) config.profiles.hermesGatewaySecondary.environmentFile;
             Restart = "on-failure";
             RestartSec = 5;
             TimeoutStopSec = 180;

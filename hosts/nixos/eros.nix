@@ -215,10 +215,24 @@ in
           model_info:
             max_input_tokens: 28672
             max_output_tokens: 4096
+        # additional_drop_params below (tier1-general, tier2-general/coding/
+        # research): Hermes's sitecustomize patch unconditionally injects a
+        # descriptive `x_hermes_source` field into every chat-completion
+        # request. Bedrock's Converse API validates strictly and rejects
+        # unrecognized fields ("x_hermes_source: Extra inputs are not
+        # permitted") - confirmed live during the Nyx GitLab canary. The
+        # global litellm_settings.drop_params/additional_drop_params below
+        # do NOT reach this per-request field (they only filter recognized
+        # OpenAI-SDK params); it must be set on each affected model's own
+        # litellm_params to actually take effect. Applied to tier1-general
+        # defensively even though Gemini wasn't observed to reject it.
         - model_name: tier1-general
           litellm_params:
             model: gemini/gemini-2.5-flash
             api_key: os.environ/GEMINI_API_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier1-coding
           litellm_params:
             model: openai/gpt-5-mini
@@ -227,14 +241,23 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier2-coding
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier2-research
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier3-quality
           litellm_params:
             model: bedrock/global.anthropic.claude-opus-5

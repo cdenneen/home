@@ -771,6 +771,21 @@ in
     after = [ "cloudflared-credentials-opencode.service" ];
   };
 
+  sops.secrets.eros_litellm_key_nyx_gitlab = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  sops.templates."nyx-gitlab-eros.env" = {
+    content = ''
+      NYX_GITLAB_EROS_API_KEY=${config.sops.placeholder.eros_litellm_key_nyx_gitlab}
+    '';
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
+  profiles.hermesGatewaySecondary.environmentFile = config.sops.templates."nyx-gitlab-eros.env".path;
+
   sops.secrets.minio-credentials.owner = "root";
   sops.secrets.wellness_supabase_publishable_key = {
     owner = "cdenneen";
