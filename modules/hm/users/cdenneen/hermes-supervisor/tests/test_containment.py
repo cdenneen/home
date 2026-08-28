@@ -229,6 +229,76 @@ def test_read_only_reconciliation_remains_available_during_cooldown():
     assert containment.blocks_mutation_dispatch(state) is True
 
 
+def test_non_mutating_dispatch_actually_succeeds_through_real_dispatcher_during_cooldown(
+    tmp_path,
+):
+    """Same scenario as test_cooldown_prevents_worker_spawn_churn_via_dispatcher,
+    but for a non-mutating item - proves end-to-end, through the real
+    Dispatcher (not just the pure blocks_non_mutating_dispatch predicate),
+    that an active cooldown never blocks read-only/status work. This is the
+    regression test for a real bug caught in independent review: an earlier
+    version of this module wrote cooldown entries into the shared
+    quarantines.json, whose pre-existing, type-unaware read in
+    Dispatcher.dispatch() blocks ALL dispatch for a quarantined work item -
+    silently also blocking non-mutating dispatch, which cooldown must never
+    do. Enforcement now goes solely through the type-scoped checks in
+    dispatcher.py."""
+    import time as _time
+
+    from axis_supervisor.dispatcher import Dispatcher
+
+    (tmp_path / "control.json").write_text(
+        json.dumps(control(max_active_assignments=2)), encoding="utf-8"
+    )
+    assignments_dir = tmp_path / "assignments"
+    assignments_dir.mkdir()
+    recent_base = int(_time.time()) - 600
+    for i, a in enumerate(
+        _assignment(
+            ts=recent_base + i * 60,
+            assignment_type="code-implementation",
+            result_state="failed",
+            lifecycle_state="failed",
+        )
+        for i in range(4)
+    ):
+        a.update(
+            {
+                "project": "ghostspace/axis",
+                "responsibility": "axis-runtime/product",
+                "repository_ownership": {
+                    "schema": "axis.external-development-supervisor.repository-ownership-evidence",
+                    "schema_version": "1.0.0",
+                    "status": "validated",
+                    "context": "fixture",
+                    "responsibility": "axis-runtime/product",
+                    "repository": "ghostspace/axis",
+                    "canonical_repository": "ghostspace/axis",
+                    "reason": None,
+                },
+            }
+        )
+        (assignments_dir / f"prior-{i}.json").write_text(json.dumps(a), encoding="utf-8")
+
+    dispatcher = Dispatcher(tmp_path)
+    item = {
+        "ref": "semantic-decomposition:ghostspace/axis#96",
+        "target_ref": "ghostspace/axis#96",
+        "kind": "semantic-decomposition",
+        "assignment_type": "read-only-analysis",
+        "project": "ghostspace/axis",
+        "title": "reconcile state for ghostspace/axis#96 while cooling",
+        "classification": "Executable",
+        "authority": {"state": "preparation-only"},
+        "source_item": {},
+        "source_fingerprint": "reconcile",
+    }
+    graph = {"inventory_generation_id": "g1", "executable_queue": [item]}
+    created = dispatcher.dispatch(graph, "run-reconcile-during-cooldown", item)
+    assert created is not None
+    assert created["assignment_type"] == "read-only-analysis"
+
+
 def test_cooldown_prevents_worker_spawn_churn_via_dispatcher(tmp_path):
     import time as _time
 

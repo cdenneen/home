@@ -78,8 +78,6 @@ _INFRA_ERROR_MARKERS = (
 )
 
 _EVENTS_FILENAME = "containment/events.jsonl"
-_QUARANTINE_FILENAME = "quarantines.json"
-_QUARANTINE_REASON_PREFIX = "containment:"
 
 
 @dataclass(frozen=True)
@@ -146,6 +144,7 @@ def compute_state(
     non_mutating_streak = 0
     failure_streak = 0
     failure_streak_type: str | None = None
+    failure_streak_last_ts = 0
     mutation_attempt_count = 0
     last_reset_reason = "no-history"
     last_reset_epoch = 0
@@ -176,45 +175,47 @@ def compute_state(
             for threshold in MUTATION_ATTEMPT_SHADOW_THRESHOLDS:
                 if mutation_attempt_count >= threshold and threshold not in shadow_exceeded:
                     shadow_exceeded.append(threshold)
+
+            # Failure streak is scoped to mutation-type assignments only,
+            # and to a single execution strategy within them
+            # (assignment_type). A change of strategy - e.g.
+            # code-implementation repeatedly failing, then the dispatcher's
+            # own existing logic switching to ci-integration-repair - is
+            # exactly this project's own pre-existing notion of "a
+            # materially different execution plan" (dispatcher.py already
+            # reclassifies to ci-integration-repair on prior implementation
+            # failure). Without this, the real axis#96 convergence case - 3
+            # code-implementation failures followed by a repair strategy
+            # that succeeded on its 4th attempt - would have been blocked
+            # by cooldown partway through (caught by a regression test
+            # against axis#96's literal history). An intervening
+            # non-mutating dispatch (read-only-analysis/no-op-verification)
+            # deliberately does NOT touch this streak in either direction -
+            # cooldown is specifically about a failing *mutation* strategy,
+            # and axis#7-style repeated non-mutating churn is entirely
+            # escalation's concern (non_mutating_streak above), not
+            # cooldown's.
+            if _is_infra_failure(assignment):
+                # Infrastructure unavailability: neutral, not a real attempt.
+                continue
+            if assignment_type != failure_streak_type:
+                failure_streak = 0
+                failure_streak_type = assignment_type
+            if result_state == "failed":
+                failure_streak += 1
+                failure_streak_last_ts = ts
+            else:
+                failure_streak = 0
         elif assignment_type in NON_MUTATING_ASSIGNMENT_TYPES:
             non_mutating_streak += 1
         # Any other assignment_type (e.g. repository-convergence) leaves the
         # non-mutating streak untouched - it's neither a repeat of the
         # analysis-only strategy nor a mutation attempt.
 
-        if _is_infra_failure(assignment):
-            # Infrastructure unavailability: neutral. The work item was
-            # never actually attempted, so this must not look like the work
-            # itself failing, and must not silently clear a real streak either.
-            continue
-
-        # Failure streak is scoped to a single execution strategy
-        # (assignment_type). A change of strategy - e.g. code-implementation
-        # repeatedly failing, then the dispatcher's own existing logic
-        # switching to ci-integration-repair - is exactly this project's own
-        # pre-existing notion of "a materially different execution plan"
-        # (dispatcher.py already reclassifies to ci-integration-repair on
-        # prior implementation failure, treating it as a distinct repair
-        # strategy, not "more of the same"). Without this, the real axis#96
-        # convergence case - 3 code-implementation failures followed by a
-        # repair strategy that succeeded on its 4th attempt - would have been
-        # blocked by cooldown partway through, which the 2026-08-28 audit's
-        # test #15 exists specifically to catch. Repeated failures WITHIN one
-        # strategy (e.g. axis#7's 8 consecutive read-only-analysis failures)
-        # still accumulate correctly.
-        if assignment_type != failure_streak_type:
-            failure_streak = 0
-            failure_streak_type = assignment_type
-        if result_state == "failed":
-            failure_streak += 1
-        else:
-            failure_streak = 0
-
     cooldown_until: int | None = None
     cooling = False
-    if failure_streak >= FAILURE_STREAK_THRESHOLD and ordered:
-        last_ts = _timestamp(ordered[-1])
-        cooldown_until = last_ts + COOLDOWN_SECONDS
+    if failure_streak >= FAILURE_STREAK_THRESHOLD:
+        cooldown_until = failure_streak_last_ts + COOLDOWN_SECONDS
         cooling = cooldown_until > now
 
     return ContainmentState(
@@ -248,53 +249,6 @@ def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
-def _load_quarantines(root: Path) -> dict[str, Any]:
-    path = root / _QUARANTINE_FILENAME
-    if not path.exists():
-        return {"items": []}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"items": []}
-    if not isinstance(value, dict) or not isinstance(value.get("items"), list):
-        return {"items": []}
-    return value
-
-
-def _set_containment_cooldown_quarantine(
-    root: Path, work_item: str, expires_at_epoch: int | None
-) -> None:
-    """Write (or clear) this module's own cooldown entry in the shared,
-    pre-existing quarantines.json. Only ever touches entries this module
-    created (tagged by reason prefix) - any manually-added operator entries
-    for other work items or other reasons are preserved untouched.
-
-    Deliberately NOT used for the escalation case: quarantines.json blocks
-    ALL dispatch for a work item regardless of assignment type, which would
-    also block a genuine implementation attempt - exactly what escalation
-    must never do. Cooldown uses it because cooldown's whole point is to
-    pause the failing execution strategy broadly for a bounded window.
-    """
-    current = _load_quarantines(root)
-    others = [
-        item
-        for item in current["items"]
-        if not (
-            item.get("work_item") == work_item
-            and str(item.get("reason", "")).startswith(_QUARANTINE_REASON_PREFIX)
-        )
-    ]
-    if expires_at_epoch is not None:
-        others.append(
-            {
-                "work_item": work_item,
-                "expires_at_epoch": expires_at_epoch,
-                "reason": f"{_QUARANTINE_REASON_PREFIX}consecutive-failure-cooldown",
-            }
-        )
-    _atomic_write_json(root / _QUARANTINE_FILENAME, {"items": others})
-
-
 def _append_event(root: Path, event: dict[str, Any]) -> None:
     path = root / _EVENTS_FILENAME
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -307,16 +261,22 @@ def _append_event(root: Path, event: dict[str, Any]) -> None:
 
 def evaluate(root: Path, work_item: str, now: int | None = None) -> ContainmentState | None:
     """Compute containment state for a work item and durably record the
-    decision (append-only event, plus refreshing the cooldown quarantine
-    entry if applicable). Returns None (fail-open) on any unexpected error -
-    logged as its own event, never raised, so a bug here cannot block the
-    legacy dispatcher from operating.
+    decision as an append-only event. Returns None (fail-open) on any
+    unexpected error - logged as its own event, never raised, so a bug here
+    cannot block the legacy dispatcher from operating.
     """
     now = int(now if now is not None else time.time())
     try:
         assignments = load_assignments_for_work_item(root, work_item)
         state = compute_state(work_item, assignments, now=now)
-        _set_containment_cooldown_quarantine(root, work_item, state.cooldown_until_epoch)
+        # Deliberately does NOT write to the shared, pre-existing
+        # quarantines.json: that file's real semantics (per dispatcher.py's
+        # own unconditional, type-unaware read of it) are "block ALL
+        # dispatch for this work item," which would also block a genuine
+        # non-mutating (read-only/status) dispatch during cooldown - exactly
+        # what cooldown must never do. Enforcement is entirely
+        # `blocks_mutation_dispatch`/`blocks_non_mutating_dispatch`, called
+        # directly by the type-scoped checks in dispatcher.py.
         _append_event(
             root,
             {
