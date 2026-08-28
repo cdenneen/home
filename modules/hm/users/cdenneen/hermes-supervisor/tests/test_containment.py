@@ -259,6 +259,7 @@ def test_non_mutating_dispatch_actually_succeeds_through_real_dispatcher_during_
             assignment_type="code-implementation",
             result_state="failed",
             lifecycle_state="failed",
+            work_item="ghostspace/axis#96",
         )
         for i in range(4)
     ):
@@ -279,6 +280,22 @@ def test_non_mutating_dispatch_actually_succeeds_through_real_dispatcher_during_
             }
         )
         (assignments_dir / f"prior-{i}.json").write_text(json.dumps(a), encoding="utf-8")
+
+    # Establish cooling state via a standalone evaluate() call BEFORE the
+    # dispatch attempt below - this is the step that matters for this test.
+    # A single dispatch() call can't distinguish fixed from buggy code: the
+    # bug's quarantine WRITE happened partway through dispatch() itself, one
+    # step after dispatcher.py's own PRE-EXISTING quarantine-file READ (top
+    # of dispatch()), so within one call the write is always too late to
+    # affect that same call's own read. Calling evaluate() first - exactly
+    # what a real prior cron cycle would have done - reproduces the bug
+    # faithfully: against the pre-fix code this pre-populates
+    # quarantines.json, and the dispatch() call below then hits
+    # dispatcher.py's unconditional top-of-function quarantine check before
+    # ever reaching containment's own type-scoped gate.
+    from axis_supervisor import containment as _containment
+
+    _containment.evaluate(tmp_path, "ghostspace/axis#96")
 
     dispatcher = Dispatcher(tmp_path)
     item = {
