@@ -202,10 +202,42 @@ in
         # Mtok), which is *more expensive* than Sonnet 5 ($2/$10 per Mtok) despite
         # being the older model. Live traffic was silently overpaying since this
         # route went into use. See phase1-attribution-and-counterfactual.md.
+        # cache_control_injection_points added 2026-08-29: this route (bedrock/
+        # claude-sonnet-5, called by the eros-nyx-all-routing / eros-VNJTECMBCD-
+        # all-routing generic keys - a legacy coding CLI worker, not a Hermes
+        # gateway) showed the same sustained-tool-loop shape as the already-
+        # proven Nyx EKS tier2-general fix: real traffic on 2026-08-27 02:17-
+        # 02:23 grew 110,864 -> 133,689 prompt tokens across dozens of turns in
+        # ~6 minutes, $0.37-0.45/call at the uncached rate, zero cache_read/
+        # cache_creation ever recorded. Validated on a bounded test route
+        # first, including a tool-calling check tier2-general's validation
+        # didn't need: a `tools`-bearing request only cached correctly once a
+        # `location: tool_config` breakpoint was added alongside system/
+        # trailing-message - system+trailing-message alone (tier2-general's
+        # exact config) silently produced a 100% cache MISS on every call once
+        # `tools` was present, same cost as no caching, no error. Confirmed the
+        # 3-point form below handles tools-present AND tools-absent turns in
+        # the same conversation correctly. tier2-general is deliberately left
+        # untouched - its 2-point config is proven correct for its own real
+        # traffic and out of scope for alteration this slice.
+        # Reusable for any future route with this same tools-capable, repeated-
+        # prefix shape: alias *eros_cache_points_with_tools instead of retyping.
         - model_name: coding-strong
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            cache_control_injection_points: &eros_cache_points_with_tools
+              - location: tool_config
+                control:
+                  type: ephemeral
+              - location: message
+                role: system
+                control:
+                  type: ephemeral
+              - location: message
+                index: -1
+                control:
+                  type: ephemeral
 
         # --- Stable capability-tier routes (00-program-spec.md route contract) ---
         - model_name: tier0-local
