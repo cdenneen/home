@@ -1276,11 +1276,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1787945159,
-        "narHash": "sha256-nIBjsmM/pu6DUIqr2LtZlfUxwlQnKSu4gno4svDh4cU=",
+        "lastModified": 1788009048,
+        "narHash": "sha256-qOpNE/jhg6apkruGB+LJ8smtqy5SwiNlFwFWb8lQExQ=",
         "owner": "nix-community",
         "repo": "nur",
-        "rev": "75655bab3d849bee911ff5cf95ef71ac95aa462d",
+        "rev": "13a795743d2f5b9dbccaecb1605ac32c33e073d5",
         "type": "github"
       },
       "original": {
