@@ -1,10 +1,13 @@
 {
-  axis,
+  axis-mbair,
   homebrew-taps-mbair,
   lib,
   pkgs,
   ...
 }:
+let
+  axis = axis-mbair;
+in
 {
   networking.hostName = "mbair";
 

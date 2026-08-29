@@ -53,6 +53,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
+    axis-mbair = {
+      url = "git+https://gitlab.com/ghostspace/axis.git?rev=caab5254bbd8a9d01705f53c4e88e416139b05e7";
+      inputs.nixpkgs.follows = "nixpkgs-mbair";
+    };
     nixos-crostini.url = "github:aldur/nixos-crostini";
     mac-app-util.url = "github:hraban/mac-app-util";
     nix-darwin = {
