@@ -237,6 +237,22 @@ in
           litellm_params:
             model: openai/gpt-5-mini
             api_key: os.environ/OPENAI_API_KEY
+        # cache_control_injection_points added 2026-08-28: a real Nyx EKS
+        # organic session ran ~114K-token tool-loop turns that each resent
+        # the full prior history (~110-115K static prefix + a few hundred
+        # new tokens/turn), with cache_read/cache_creation always 0 despite
+        # this model reporting supports_prompt_caching:true - Eros wasn't
+        # asking Bedrock to cache anything. Validated on a bounded test route
+        # (tier2-general-cachetest, removed after validation) with a 154.8K-
+        # token synthetic 3-turn conversation before applying here: turn 1
+        # (cache write) $0.4257/3655ms, turn 2 (cache read) $0.0341/1716ms,
+        # turn 3 (cache read) $0.0342/1699ms - 92% cost cut and 53% latency
+        # cut sustained across consecutive turns, no model/capability change
+        # (same model, same output-shaping params; this only affects how an
+        # already-identical prefix is billed/served by Bedrock). Deliberately
+        # scoped to this one route only - tier2-coding/tier2-research/
+        # tier3-quality are not proven to see this usage shape and are left
+        # untouched pending their own evidence.
         - model_name: tier2-general
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
@@ -244,6 +260,15 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+            cache_control_injection_points:
+              - location: message
+                role: system
+                control:
+                  type: ephemeral
+              - location: message
+                index: -1
+                control:
+                  type: ephemeral
         - model_name: tier2-coding
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
