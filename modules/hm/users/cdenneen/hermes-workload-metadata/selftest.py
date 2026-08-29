@@ -50,6 +50,11 @@ def main() -> None:
         f"expected x_hermes_source='selftest-source', got {extra_body.get('x_hermes_source')!r} "
         f"- hermes-workload-metadata sitecustomize patch is not taking effect as expected"
     )
+    assert extra_body.get("litellm_session_id") == "selftest-session-id", (
+        f"expected litellm_session_id='selftest-session-id', got "
+        f"{extra_body.get('litellm_session_id')!r} - session_id propagation is not taking "
+        f"effect as expected"
+    )
 
     # #40: the peer-process attestation side channel must actually be
     # written, keyed by this process's own pid - a functional check, not
