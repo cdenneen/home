@@ -3,10 +3,36 @@
   axis-control,
   hermes-src,
   pkgs,
+  agentPkgs,
   ...
 }:
+let
+  # G-CONT item 1 (2026-08-31): hermes-alpha0-gateway.service is a legacy,
+  # unmanaged artifact - its definer (docs/recovery/legacy-alpha0-gateway/
+  # home-manager-module.nix) is not imported by any currently-active
+  # config, and flake.nix explicitly asserts `!(services ?
+  # hermes-alpha0-gateway)` - reintroducing a Nix-declared
+  # systemd.user.services.hermes-alpha0-gateway would violate that
+  # invariant (and is what produced a replacement unit instead of a merge
+  # when tried: there was nothing else to merge with). Extending via a
+  # systemd drop-in file instead - systemd's own native mechanism for
+  # adding to a unit without owning/replacing its base file. A disabled
+  # drop-in with this exact shape already exists on-disk
+  # (hermes-alpha0-gateway.service.d/override.conf.pre-home-manager),
+  # confirming this is the established mechanism for this unit, not a new
+  # pattern.
+  workloadMetadata = import ../../modules/hm/users/cdenneen/hermes-workload-metadata { inherit pkgs agentPkgs; };
+  governorClassification = import ../../modules/hm/users/cdenneen/hermes-governor-classification { inherit pkgs agentPkgs; };
+  hermesAlpha0GatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize governorClassification.governorClassificationPy;
+in
 {
   imports = [ alpha0.homeModules.default ];
+
+  xdg.configFile."systemd/user/hermes-alpha0-gateway.service.d/99-gcont-governor-classification.conf".text = ''
+    [Service]
+    Environment=PYTHONPATH=${hermesAlpha0GatewaySitecustomize}
+    ExecStartPre=${governorClassification.selftestCheck}
+  '';
 
   systemd.user.startServices = false;
 

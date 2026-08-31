@@ -15,6 +15,14 @@ a direct provider itself. This process:
     CONTINUITY-AUTO through a separately-provisioned emergency credential
     (continuity.py) - denying rather than falling back to a normal key if
     that credential isn't available;
+  - classifies OmniRoute's own health INDEPENDENTLY of Eros/LiteLLM's
+    health, via a second, dedicated OutageClassifier instance pointed at
+    OmniRoute's own port (G-CONT layer 2). When Eros/LiteLLM is healthy
+    but OmniRoute specifically is not, requests for OmniRoute-backed
+    routes are remapped to a capability-compatible DIRECT LiteLLM route
+    (DEGRADED_ROUTING_MAP below) rather than falling back to a new
+    credential - Eros/LiteLLM is still healthy in this failure mode, so
+    its own existing direct-provider authority is reused, not bypassed;
   - supports explicit human BREAK-GLASS activation for ambiguous cases;
   - applies Bootstrap deterministic economic-state admission
     (governor.py) - fixed seed thresholds, no adaptive learning;
@@ -23,9 +31,7 @@ a direct provider itself. This process:
     reconciled back into the EPR once Eros recovers.
 
 Not implemented in this pass (see bootstrap-gate-evidence.md): a network
-control endpoint for BREAK-GLASS (uses a local flag file instead), and
-real emergency-credential provisioning (console/IAM actions requiring
-separate explicit authorization).
+control endpoint for BREAK-GLASS (uses a local flag file instead).
 """
 
 import argparse
@@ -48,7 +54,12 @@ from action_classification import (
 from credential_ceiling import RouteDenied, check_route_allowed, max_tier_of
 from metadata_attestation import attested_source_for_peer
 from classifier import OutageClassifier
-from continuity import ContinuityController, ContinuityDenied, EmergencyCredentialStore
+from continuity import (
+    ContinuityController,
+    ContinuityDenied,
+    EmergencyCredentialStore,
+    resolve_credential_reference,
+)
 from governor import (
     DEFAULT_THRESHOLDS,
     Admission,
@@ -58,8 +69,32 @@ from governor import (
     compute_state,
 )
 from state import LocalState
+import shared_intelligence
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# G-CONT layer 2: OmniRoute's own port on Eros. Fixed across every actor/
+# instance sharing this Eros host - not actor-specific config, so it is a
+# constant here rather than a new field threaded through every actor's
+# config.json (which would require extending the third-party `alpha0`
+# module's option schema for no benefit - this value never varies).
+OMNIROUTE_PORT = 20128
+
+# G-CONT layer 2: capability-compatible DIRECT LiteLLM route to use when
+# OmniRoute is unavailable but Eros/LiteLLM itself is healthy. Populated
+# only where a real, evidence-checked direct equivalent exists in Eros's
+# current model catalog (confirmed 2026-08-31: tier2-general is the same
+# underlying bedrock/us.anthropic.claude-sonnet-5 model as tier2-research,
+# just via a direct Bedrock route instead of OmniRoute). Deliberately NOT
+# populated for tier3-quality - no direct Opus-5-equivalent route exists
+# today, and inventing a mismatched substitute would violate "do not
+# blindly remap every OmniRoute-backed request to one universal direct
+# model." tier4-frontier is never OmniRoute-backed and is never eligible
+# for automatic remapping at all (explicit-only, no auto-fallback for
+# frontier/T4) - it simply never appears in this map.
+DEGRADED_ROUTING_MAP = {
+    "tier2-research": "tier2-general",
+}
 
 
 def load_config(path: Path) -> dict:
@@ -113,6 +148,18 @@ class PolicyEndpoint:
             eros_port=int(config.get("eros_port", 4000)),
             eros_health_url=f"{self.eros_base_url}/health/liveliness",
         )
+        # G-CONT layer 2: independent health signal for OmniRoute itself -
+        # TCP-only (no HTTP status check), since OmniRoute's own health
+        # path is auth-gated and returns 401 when healthy (confirmed live,
+        # 2026-08-31) - a plain 2xx-only check would misclassify a healthy,
+        # auth-enforcing OmniRoute as down. TCP-connect success is
+        # sufficient evidence the process is up and accepting connections;
+        # connection-refused/timeout is the only signal this probe needs.
+        self.omniroute_classifier = OutageClassifier(
+            eros_ip=config["eros_tailscale_ip"],
+            eros_port=OMNIROUTE_PORT,
+            eros_health_url=None,
+        )
         self.continuity = ContinuityController(
             state=self.state,
             credential_store=EmergencyCredentialStore(
@@ -125,11 +172,14 @@ class PolicyEndpoint:
         self.frozen_routes: set[str] = set()
         self._classifier_lock = threading.Lock()
         self._last_classification = "healthy"
+        self._last_omniroute_classification = "healthy"
         self._stop = threading.Event()
         self._bg_thread = threading.Thread(target=self._background_probe_loop, daemon=True)
+        self._omni_bg_thread = threading.Thread(target=self._omniroute_probe_loop, daemon=True)
 
     def start_background_probing(self):
         self._bg_thread.start()
+        self._omni_bg_thread.start()
 
     def stop(self):
         self._stop.set()
@@ -147,14 +197,35 @@ class PolicyEndpoint:
                 print(f"[probe-loop] error: {exc}", file=sys.stderr)
             self._stop.wait(self.classifier.probe_interval_s)
 
+    def _omniroute_probe_loop(self):
+        while not self._stop.is_set():
+            try:
+                result = self.omniroute_classifier.observe()
+                with self._classifier_lock:
+                    if result in ("healthy", "qualified_outage"):
+                        self._last_omniroute_classification = result
+            except Exception as exc:  # noqa: BLE001 - probing must never crash the loop
+                print(f"[omniroute-probe-loop] error: {exc}", file=sys.stderr)
+            self._stop.wait(self.omniroute_classifier.probe_interval_s)
+
     def current_mode(self) -> str:
-        """'normal' | 'continuity_auto' | 'break_glass'"""
+        """'normal' | 'degraded_routing' | 'continuity_auto' | 'break_glass'
+
+        Priority order matters: an Eros/LiteLLM outage (continuity_auto)
+        is evaluated BEFORE OmniRoute health, since layer 2 (degraded
+        routing to a direct Eros/LiteLLM route) is only meaningful when
+        Eros/LiteLLM itself is healthy. If Eros/LiteLLM is down, layer 2
+        cannot help regardless of OmniRoute's own state - go straight to
+        layer 3 evaluation."""
         if self.continuity.break_glass_active():
             return "break_glass"
         with self._classifier_lock:
-            classification = self._last_classification
-        if classification == "qualified_outage":
+            eros_classification = self._last_classification
+            omniroute_classification = self._last_omniroute_classification
+        if eros_classification == "qualified_outage":
             return "continuity_auto"
+        if omniroute_classification == "qualified_outage":
+            return "degraded_routing"
         return "normal"
 
     # --- economic state --------------------------------------------------------
@@ -230,6 +301,128 @@ class PolicyEndpoint:
             # LiteLLM_SpendLogs rather than ever assuming $0.
             "cost_usd": data.get("_response_cost"),
         }
+
+    # G-CONT layer 3: real emergency execution, independent of LiteLLM,
+    # OmniRoute, Qdrant, Postgres, and Eros DNS/service discovery. Talks
+    # directly to OpenAI's own API using a credential resolved BY
+    # REFERENCE at call time (never duplicated, never logged). Single
+    # attempt, bounded timeout, bounded request size - no retry loop, this
+    # is deliberately not a second router.
+    _CONTINUITY_TIMEOUT_S = 30
+    _CONTINUITY_MAX_BODY_BYTES = 64 * 1024
+    # Published OpenAI per-token pricing for the continuity model, used
+    # only to compute a real cost estimate from real returned token counts.
+    # If this ever drifts from OpenAI's actual price, that's a pricing
+    # update, not a reason to report a fabricated cost - see cost_usd
+    # handling below, which reports None (never 0.0) if usage is absent.
+    _CONTINUITY_INPUT_COST_PER_TOKEN = 0.0000015
+    _CONTINUITY_OUTPUT_COST_PER_TOKEN = 0.000006
+
+    def _break_glass_credential(self):
+        return self.continuity.credential_store.load()
+
+    def _forward_continuity(self, cred, requested_route, body, priority, digest):
+        existing = self.state.idempotency_lookup(digest)
+        if existing and existing.get("completed_at"):
+            # Eros recovery / retry-after-continuity case: the same
+            # mutating request must not execute twice
+            # (execution-contract.md 10.5).
+            cached = existing["response_json"]
+            return 200, cached.encode() if isinstance(cached, str) else b"{}"
+
+        if len(body) > self._CONTINUITY_MAX_BODY_BYTES:
+            return 413, json.dumps({
+                "error": {"message": "request too large for continuity path", "type": "continuity_payload_too_large"}
+            }).encode()
+
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, json.dumps({"error": {"message": "invalid JSON body"}}).encode()
+
+        try:
+            api_key = resolve_credential_reference(cred.key_or_role)
+        except ContinuityDenied as exc:
+            self.state.record_admission(
+                actor=self.actor, priority=priority.value,
+                continuity_class=self.continuity_class,
+                requested_route=requested_route, decision="deny",
+                reason=f"continuity credential unresolvable: {exc}",
+                economic_state=EconomicState.BREAK_GLASS.value,
+                trust_domain=self.trust_domain, agent=self.agent,
+                workstream=self.workstream,
+                resource_project_context=self.resource_project_context,
+            )
+            return 503, json.dumps({
+                "error": {"message": f"continuity credential unresolvable: {exc}", "type": "continuity_credential_unavailable"}
+            }).encode()
+
+        # Bootstrap: continuity model/route is restricted to the emergency
+        # credential's own single model - never the normal tier catalog.
+        # Only the message content is forwarded from the caller's request;
+        # tool/tool_choice/stream are deliberately dropped - this path is
+        # not a general-purpose relay.
+        outbound = {
+            "model": cred.model,
+            "messages": parsed.get("messages", []),
+        }
+        self.state.idempotency_start(digest, self.actor)
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(outbound).encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        api_key = None  # never held longer than needed to build the request
+        try:
+            with urllib.request.urlopen(req, timeout=self._CONTINUITY_TIMEOUT_S) as resp:
+                raw = resp.read()
+                status = resp.status
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            status = exc.code
+        except urllib.error.URLError as exc:
+            self.state.record_spend(
+                actor=self.actor, requested_route=requested_route,
+                actual_provider=cred.provider, actual_model=cred.model,
+                cost_usd=None, input_tokens=None, output_tokens=None,
+                source="continuity", request_digest=digest,
+                trust_domain=self.trust_domain, agent=self.agent,
+                workstream=self.workstream,
+                resource_project_context=self.resource_project_context,
+            )
+            return 502, json.dumps({
+                "error": {"message": f"continuity provider unreachable: {exc}", "type": "continuity_provider_unreachable"}
+            }).encode()
+
+        attestation = self._extract_attestation(raw)
+        input_tokens = attestation.get("input_tokens")
+        output_tokens = attestation.get("output_tokens")
+        if input_tokens is not None and output_tokens is not None:
+            cost_usd = (
+                input_tokens * self._CONTINUITY_INPUT_COST_PER_TOKEN
+                + output_tokens * self._CONTINUITY_OUTPUT_COST_PER_TOKEN
+            )
+        else:
+            # Real response, but usage wasn't present/parseable - report
+            # unknown, never $0 (same rule as forward_normal's attestation).
+            cost_usd = None
+
+        if status == 200:
+            self.state.idempotency_complete(digest, raw.decode(errors="replace"))
+        self.state.record_spend(
+            actor=self.actor, requested_route=requested_route,
+            actual_provider=cred.provider, actual_model=attestation.get("actual_model") or cred.model,
+            cost_usd=cost_usd, input_tokens=input_tokens, output_tokens=output_tokens,
+            source="continuity", request_digest=digest,
+            trust_domain=self.trust_domain, agent=self.agent,
+            workstream=self.workstream,
+            resource_project_context=self.resource_project_context,
+        )
+        return status, raw
 
     def _resolve_workload_source(self, asserted_source, peer_port, local_port):
         """#40: upgrade the request-body-ASSERTED x_hermes_source to
@@ -334,11 +527,91 @@ class PolicyEndpoint:
         if hermes_meta_keys:
             sanitized = {k: v for k, v in parsed.items() if k not in hermes_meta_keys}
             body = json.dumps(sanitized).encode()
+            parsed = sanitized
+
+        # Shared AI Services MVP: reuse plane. Checked before mode/routing
+        # since a semantic-reuse hit avoids LiteLLM/OmniRoute entirely -
+        # the single biggest inference-avoidance win, and one that still
+        # applies even during continuity/degraded modes. Default
+        # ineligible (shared_intelligence.is_reuse_eligible requires an
+        # explicit metadata.reuse_scope tag) - untagged requests are
+        # completely unaffected by any of this.
+        reuse_eligible, reuse_reason = shared_intelligence.is_reuse_eligible(parsed)
+        question_text = shared_intelligence._last_user_text(parsed.get("messages", [])) if reuse_eligible else ""
+        if reuse_eligible and question_text:
+            reused_answer, reuse_evidence = shared_intelligence.check_semantic_reuse(
+                self.eros_base_url, self.eros_api_key, self.trust_domain, question_text
+            )
+            if reused_answer is not None:
+                self.state.record_admission(
+                    actor=self.actor, priority=priority.value, continuity_class=effective_class,
+                    requested_route=requested_route, decision="reuse",
+                    reason=f"semantic_result_reuse: {reuse_evidence}",
+                    economic_state=EconomicState.NORMAL.value, classification_evidence=classification_evidence,
+                    trust_domain=self.trust_domain, agent=self.agent, workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
+                )
+                self.state.record_spend(
+                    actor=self.actor, requested_route=requested_route,
+                    actual_provider=reuse_evidence.get("produced_by_model"), actual_model=reuse_evidence.get("produced_by_tier"),
+                    cost_usd=0.0, input_tokens=0, output_tokens=0, source="semantic_reuse",
+                    trust_domain=self.trust_domain, agent=self.agent, workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
+                )
+                response_body = json.dumps({
+                    "id": "semantic-reuse", "object": "chat.completion", "model": requested_route,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": reused_answer}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                }).encode()
+                return 200, response_body
+            knowledge_hits = shared_intelligence.retrieve_knowledge(
+                self.eros_base_url, self.eros_api_key, self.trust_domain, question_text
+            )
+            injection = shared_intelligence.build_context_injection(knowledge_hits)
+            if injection:
+                parsed = dict(parsed)
+                parsed["messages"] = [{"role": "system", "content": injection}] + list(parsed.get("messages", []))
+                body = json.dumps(parsed).encode()
 
         idempotency_key = parsed.get("idempotency_key")
         digest = self.state.digest_for(self.actor, requested_route, body, idempotency_key)
 
         mode = self.current_mode()
+
+        # G-CONT layer 2: OmniRoute unavailable, Eros/LiteLLM itself
+        # healthy. Remap to a capability-compatible DIRECT route on the
+        # SAME healthy Eros/LiteLLM instance rather than treating this as
+        # an Eros outage - no new credential involved, Eros's own existing
+        # direct-provider authority is reused as-is. If no direct
+        # equivalent is known for this route, fail clearly rather than
+        # inventing a mismatched substitute or silently falling through to
+        # layer 3 (which is OpenAI-only and not capability-equivalent to
+        # every OmniRoute-backed tier).
+        forward_body = body
+        degraded_target = None
+        if mode == "degraded_routing":
+            degraded_target = DEGRADED_ROUTING_MAP.get(requested_route)
+            if degraded_target is None:
+                self.state.record_admission(
+                    actor=self.actor, priority=priority.value,
+                    continuity_class=effective_class,
+                    requested_route=requested_route, decision="deny",
+                    reason="degraded_routing: OmniRoute unavailable and no capability-compatible direct route is known for this route",
+                    economic_state=EconomicState.NORMAL.value,
+                    classification_evidence=classification_evidence,
+                    trust_domain=self.trust_domain, agent=self.agent,
+                    workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
+                )
+                return 503, json.dumps({
+                    "error": {
+                        "message": f"OmniRoute is unavailable and no direct continuity candidate exists for route '{requested_route}'",
+                        "type": "degraded_routing_no_candidate",
+                    }
+                }).encode()
+            remapped = dict(parsed)
+            remapped["model"] = degraded_target
+            forward_body = json.dumps(remapped).encode()
 
         if mode in ("continuity_auto", "break_glass"):
             if priority not in (Priority.P0, Priority.P1):
@@ -404,7 +677,8 @@ class PolicyEndpoint:
                 }).encode()
             return self._forward_continuity(cred, requested_route, body, priority, digest)
 
-        # mode == "normal"
+        # mode == "normal" or "degraded_routing" (with forward_body already
+        # remapped above for the latter).
         #
         # execution-contract.md 10.5 / BOOT-028: Eros restoration must not
         # replay an in-flight or completed continuity action merely because
@@ -421,6 +695,8 @@ class PolicyEndpoint:
 
         state, reason = self.economic_state()
         decision = admission_decision(state, priority)
+        if degraded_target is not None:
+            reason = f"degraded_routing: OmniRoute unavailable, routed to direct '{degraded_target}' - {reason}"
         self.state.record_admission(
             actor=self.actor, priority=priority.value,
             continuity_class=effective_class,
@@ -440,7 +716,7 @@ class PolicyEndpoint:
                 "error": {"message": f"queued by economic state {state.value}: {reason}", "type": "economic_state_queued"}
             }).encode()
 
-        status, raw, attestation = self.forward_normal(requested_route, body)
+        status, raw, attestation = self.forward_normal(requested_route, forward_body)
         if status == 200:
             cost = attestation.get("cost_usd")
             if cost is None:
@@ -452,45 +728,31 @@ class PolicyEndpoint:
                 actor=self.actor, requested_route=requested_route,
                 actual_provider=None, actual_model=attestation.get("actual_model"),
                 cost_usd=cost, input_tokens=attestation.get("input_tokens"),
-                output_tokens=attestation.get("output_tokens"), source="eros",
+                output_tokens=attestation.get("output_tokens"),
+                source="eros",
                 trust_domain=self.trust_domain, agent=self.agent,
                 workstream=self.workstream,
                 resource_project_context=self.resource_project_context,
             )
+            # Shared AI Services MVP: promote a verified, eligible result
+            # for future semantic reuse and cross-candidate knowledge
+            # retrieval. "Verified" for this deterministic MVP means: HTTP
+            # 200 + non-empty assistant content - a stronger verification
+            # pass (e.g. explicit caller confirmation) is future work, not
+            # invented here. Only ever runs for requests already gated
+            # eligible above (reuse_eligible and question_text truthy).
+            if reuse_eligible and question_text:
+                try:
+                    answer_text = json.loads(raw)["choices"][0]["message"]["content"]
+                except Exception:
+                    answer_text = None
+                if answer_text:
+                    shared_intelligence.promote_result(
+                        self.eros_base_url, self.eros_api_key, self.trust_domain,
+                        question_text, answer_text,
+                        produced_by_model=attestation.get("actual_model"), produced_by_tier=degraded_target or requested_route,
+                    )
         return status, raw
-
-    def _break_glass_credential(self):
-        return self.continuity.credential_store.load()
-
-    def _forward_continuity(self, cred, requested_route, body, priority, digest):
-        existing = self.state.idempotency_lookup(digest)
-        if existing and existing.get("completed_at"):
-            # Eros recovery / retry-after-continuity case: the same
-            # mutating request must not execute twice
-            # (execution-contract.md 10.5).
-            cached = existing["response_json"]
-            return 200, cached.encode() if isinstance(cached, str) else b"{}"
-
-        self.state.idempotency_start(digest, self.actor)
-        # Bootstrap: continuity model/route is restricted to the emergency
-        # credential's own single model - never the normal tier catalog.
-        response_body = json.dumps({
-            "id": "continuity-bootstrap",
-            "model": cred.model,
-            "choices": [{"message": {"role": "assistant", "content": "[continuity path - stub, no live emergency credential provisioned]"}}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
-        }).encode()
-        self.state.idempotency_complete(digest, response_body.decode())
-        self.state.record_spend(
-            actor=self.actor, requested_route=requested_route,
-            actual_provider=cred.provider, actual_model=cred.model,
-            cost_usd=0.0, input_tokens=0, output_tokens=0, source="continuity",
-            request_digest=digest,
-            trust_domain=self.trust_domain, agent=self.agent,
-            workstream=self.workstream,
-            resource_project_context=self.resource_project_context,
-        )
-        return 200, response_body
 
 
 class Handler(BaseHTTPRequestHandler):
