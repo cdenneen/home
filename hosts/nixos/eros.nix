@@ -150,6 +150,17 @@ in
         ${pkgs.coreutils}/bin/tr -d '\n\r' < "$secret_file"
       }
 
+      read_secret_optional() {
+        local secret_file="$1"
+        local secret_name="$2"
+        if [ ! -r "$secret_file" ]; then
+          echo "Missing $secret_name at $secret_file - OmniRoute-backed routes will fail auth until this is bootstrapped (see scripts/eros-recovery/); other LiteLLM routes are unaffected." >&2
+          echo ""
+          return 0
+        fi
+        ${pkgs.coreutils}/bin/tr -d '\n\r' < "$secret_file"
+      }
+
       ${pkgs.coreutils}/bin/install -d -m 0700 /run/eros-litellm
       ${pkgs.coreutils}/bin/install -m 0600 /dev/null "${litellmEnvFile}"
       {
@@ -158,7 +169,7 @@ in
         printf 'DATABASE_URL=postgresql://litellm:%s@127.0.0.1:5432/litellm\n' "$(read_secret "${config.sops.secrets.eros_litellm_db_password.path}" "LiteLLM database password")"
         printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
         printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
-        printf 'OMNIROUTE_CLIENT_KEY=%s\n' "$(read_secret "${config.sops.secrets.omniroute_client_key.path}" "OmniRoute client key")"
+        printf 'OMNIROUTE_CLIENT_KEY=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key.path}" "OmniRoute client key")"
         printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
         printf 'QDRANT_VECTOR_SIZE=1024\n'
       } > "${litellmEnvFile}"
@@ -249,7 +260,7 @@ in
                 index: -1
                 control:
                   type: ephemeral
-      
+
         - model_name: g2-omniroute-openai-gpt4o-mini
           litellm_params:
             model: openai/gpt-4o-mini
