@@ -709,5 +709,30 @@ in
   networking.useDHCP = false;
   networking.interfaces.ens5.useDHCP = true;
 
+
+  # Drift guard (G-DR-PREP-1): detects when the running eros-litellm
+  # config.yaml has diverged from what the CURRENTLY DEPLOYED flake pin
+  # (/etc/nixos's flake.lock) would generate. Reuses the exact oneshot
+  # config-render logic already in this file rather than a new
+  # controller/service - this is a read-only comparison, run on demand
+  # or from a monitoring check, not a background daemon.
+  environment.systemPackages = [
+    (pkgs.writeShellScriptBin "eros-drift-check" ''
+      set -euo pipefail
+      echo "Evaluating declarative config from the deployed flake pin..." >&2
+      generated="$(${pkgs.nix}/bin/nix eval --raw path:/etc/nixos#nixosConfigurations.eros.config.systemd.services.eros-litellm-config.script \
+        | ${pkgs.gnused}/bin/sed -n '/^model_list:/,/^EOF$/p' | ${pkgs.gnused}/bin/sed '$d')"
+      live="$(${pkgs.coreutils}/bin/cat /run/eros-litellm/config.yaml)"
+      if [ "$generated" = "$live" ]; then
+        echo "OK: /run/eros-litellm/config.yaml matches the deployed declarative source."
+        exit 0
+      fi
+      echo "DRIFT DETECTED: /run/eros-litellm/config.yaml differs from what the deployed" >&2
+      echo "flake pin would generate. A reboot/rebuild would silently discard the live" >&2
+      echo "difference shown below. Persist it to hosts/nixos/eros.nix before relying on it." >&2
+      ${pkgs.diffutils}/bin/diff <(echo "$generated") <(echo "$live") || true
+      exit 1
+    '')
+  ];
   profiles.defaults.enable = true;
 }
