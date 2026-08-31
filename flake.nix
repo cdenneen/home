@@ -495,7 +495,7 @@
                     nyx.home.file.".hermes/profiles/nyx-gitlab/plugins/platforms/slack".source
                   ];
                 in
-                assert inputs.axis-control.rev == "2cfe4ae39addf09b0ce1da66b4dd464586f9e3a4";
+                assert inputs.axis-control.rev == "7916fd0f92e6b6198661e85ab74e742384df0700";
                 assert inputs.alpha0.rev == "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254";
                 assert userSystemd.startServices == false;
                 assert primary.WorkingDirectory == "%h/.hermes";
