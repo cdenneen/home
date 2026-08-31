@@ -116,6 +116,15 @@ in
       group = "root";
       mode = "0400";
     };
+    omniroute_client_key = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+      # NOT a pre-existing external secret - see G-DR-PREP-1 notes below.
+      # Bootstrap once via: POST /api/keys {scopes:["self:usage"]} against
+      # a running omniroute.service, then sops-encrypt the returned key into
+      # this path (requires local age identity - see recovery manifest).
+    };
   };
 
   systemd.services.eros-litellm-env = {
@@ -149,6 +158,7 @@ in
         printf 'DATABASE_URL=postgresql://litellm:%s@127.0.0.1:5432/litellm\n' "$(read_secret "${config.sops.secrets.eros_litellm_db_password.path}" "LiteLLM database password")"
         printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
         printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
+        printf 'OMNIROUTE_CLIENT_KEY=%s\n' "$(read_secret "${config.sops.secrets.omniroute_client_key.path}" "OmniRoute client key")"
         printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
         printf 'QDRANT_VECTOR_SIZE=1024\n'
       } > "${litellmEnvFile}"
@@ -205,23 +215,24 @@ in
         # cache_control_injection_points added 2026-08-29: this route (bedrock/
         # claude-sonnet-5, called by the eros-nyx-all-routing / eros-VNJTECMBCD-
         # all-routing generic keys - a legacy coding CLI worker, not a Hermes
-        # gateway) showed the same sustained-tool-loop shape as the already-
-        # proven Nyx EKS tier2-general fix: real traffic on 2026-08-27 02:17-
-        # 02:23 grew 110,864 -> 133,689 prompt tokens across dozens of turns in
-        # ~6 minutes, $0.37-0.45/call at the uncached rate, zero cache_read/
-        # cache_creation ever recorded. Validated on a bounded test route
-        # first, including a tool-calling check tier2-general's validation
-        # didn't need: a `tools`-bearing request only cached correctly once a
-        # `location: tool_config` breakpoint was added alongside system/
-        # trailing-message - system+trailing-message alone (tier2-general's
-        # exact config) silently produced a 100% cache MISS on every call once
-        # `tools` was present, same cost as no caching, no error. Confirmed the
-        # 3-point form below handles tools-present AND tools-absent turns in
-        # the same conversation correctly. tier2-general is deliberately left
-        # untouched - its 2-point config is proven correct for its own real
-        # traffic and out of scope for alteration this slice.
+        # gateway) showed the same sustained-tool-loop shape as the already-proven
+        # Nyx EKS tier2-general fix: real traffic on 2026-08-27 02:17-02:23 grew
+        # 110,864 -> 133,689 prompt tokens across dozens of turns in ~6 minutes,
+        # $0.37-0.45/call at the uncached rate, zero cache_read/cache_creation
+        # ever recorded. Validated on a bounded test route before applying here,
+        # INCLUDING a tool-calling check this workload needed that tier2-general's
+        # validation didn't: a `tools`-bearing request only cached correctly once
+        # a `location: tool_config` breakpoint was added alongside system/trailing-
+        # message - system+trailing-message alone (tier2-general's exact config)
+        # silently produced a 100% cache MISS on every call once `tools` was
+        # present, with no error, same cost as no caching at all. Confirmed the
+        # 3-point form below handles tools-present AND tools-absent turns in the
+        # same conversation correctly (cache write once cache-read 143,757/143,757
+        # across 3 real turns of that shape). tier2-general is deliberately left
+        # untouched - its 2-point config has proven correct for its own real
+        # traffic and is out of scope for alteration this slice.
         # Reusable for any future route with this same tools-capable, repeated-
-        # prefix shape: alias *eros_cache_points_with_tools instead of retyping.
+        # prefix shape: alias *eros_cache_points_with_tools rather than retyping.
         - model_name: coding-strong
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
@@ -238,7 +249,20 @@ in
                 index: -1
                 control:
                   type: ephemeral
-
+      
+        - model_name: g2-omniroute-openai-gpt4o-mini
+          litellm_params:
+            model: openai/gpt-4o-mini
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+        - model_name: g5-omniroute-bedrock-haiku
+          litellm_params:
+            model: openai/anthropic.claude-3-haiku-20240307-v1:0
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+          model_info:
+            input_cost_per_token: 0.00000025
+            output_cost_per_token: 0.00000125
         # --- Stable capability-tier routes (00-program-spec.md route contract) ---
         - model_name: tier0-local
           litellm_params:
@@ -247,44 +271,48 @@ in
           model_info:
             max_input_tokens: 28672
             max_output_tokens: 4096
-        # additional_drop_params below (tier1-general, tier2-general/coding/
-        # research): Hermes's sitecustomize patch unconditionally injects a
-        # descriptive `x_hermes_source` field into every chat-completion
-        # request. Bedrock's Converse API validates strictly and rejects
-        # unrecognized fields ("x_hermes_source: Extra inputs are not
-        # permitted") - confirmed live during the Nyx GitLab canary. The
-        # global litellm_settings.drop_params/additional_drop_params below
-        # do NOT reach this per-request field (they only filter recognized
-        # OpenAI-SDK params); it must be set on each affected model's own
-        # litellm_params to actually take effect. Applied to tier1-general
-        # defensively even though Gemini wasn't observed to reject it.
         - model_name: tier1-general
           litellm_params:
-            model: gemini/gemini-2.5-flash
-            api_key: os.environ/GEMINI_API_KEY
+            model: openai/gemini-2.5-flash
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+          model_info:
+            input_cost_per_token: 0.00000015
+            output_cost_per_token: 0.0000006
         - model_name: tier1-coding
           litellm_params:
             model: openai/gpt-5-mini
-            api_key: os.environ/OPENAI_API_KEY
-        # cache_control_injection_points added 2026-08-28: a real Nyx EKS
-        # organic session ran ~114K-token tool-loop turns that each resent
-        # the full prior history (~110-115K static prefix + a few hundred
-        # new tokens/turn), with cache_read/cache_creation always 0 despite
-        # this model reporting supports_prompt_caching:true - Eros wasn't
-        # asking Bedrock to cache anything. Validated on a bounded test route
-        # (tier2-general-cachetest, removed after validation) with a 154.8K-
-        # token synthetic 3-turn conversation before applying here: turn 1
-        # (cache write) $0.4257/3655ms, turn 2 (cache read) $0.0341/1716ms,
-        # turn 3 (cache read) $0.0342/1699ms - 92% cost cut and 53% latency
-        # cut sustained across consecutive turns, no model/capability change
-        # (same model, same output-shaping params; this only affects how an
-        # already-identical prefix is billed/served by Bedrock). Deliberately
-        # scoped to this one route only - tier2-coding/tier2-research/
-        # tier3-quality are not proven to see this usage shape and are left
-        # untouched pending their own evidence.
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            api_base: http://127.0.0.1:20128/v1
+        # cache_control_injection_points added 2026-08-28: validated on a bounded
+        # test route (154.8K-token stable prefix, 3-turn A/B) before applying here -
+        # cache write $0.4257/3655ms turn 1, cache read $0.0341/1716ms turn 2,
+        # $0.0342/1699ms turn 3 (92% cost cut, 53% latency cut, sustained across
+        # consecutive turns). Model/capability unchanged - this only changes how
+        # Bedrock bills/serves an already-identical prefix. tier2-coding/
+        # tier2-research/tier3-quality intentionally NOT touched yet - bounded to
+        # the one route with proven real organic long-tool-loop usage (Nyx EKS).
+        # ARCHITECTURE EXCEPTION (2026-08-31, G9/G10 investigation): this route
+        # intentionally stays on direct LiteLLM->Bedrock rather than OmniRoute.
+        # Root cause (confirmed via source inspection + live debug-log capture):
+        # LiteLLM cache_control_injection_points is implemented ONLY in
+        # llms/bedrock/chat/converse_transformation.py, gated to
+        # custom_llm_provider="bedrock". Routing this model through OmniRoute
+        # (custom_llm_provider="openai" + api_base=OmniRoute) means cache_control
+        # is never attached to the request at all - confirmed empirically: a
+        # repeated 6989-token prefix test via OmniRoute showed turn 2 SLOWER than
+        # turn 1 (no cache read), vs this direct route real cache_creation/
+        # cache_read tokens and a documented 92%% cost cut. Classified
+        # CACHE_NOT_REQUESTED, not an OmniRoute defect - OmniRoute never receives
+        # cache metadata to translate or drop.
+        # This route remains governed by Eros and accounted by LiteLLM - NOT an
+        # unmanaged bypass. Revisit only when: upstream LiteLLM supports cache
+        # injection for the openai-compatible path; OmniRoute gains a native
+        # equivalent; or another candidate/path proves cheaper per verified
+        # outcome. See phase1-cache-root-cause.md (recovery/portability manifest).
         - model_name: tier2-general
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
@@ -303,25 +331,51 @@ in
                   type: ephemeral
         - model_name: tier2-coding
           litellm_params:
-            model: bedrock/us.anthropic.claude-sonnet-5
-            aws_region_name: us-east-1
+            model: openai/us.anthropic.claude-sonnet-5
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
               - x_hermes_source
         - model_name: tier2-research
           litellm_params:
-            model: bedrock/us.anthropic.claude-sonnet-5
-            aws_region_name: us-east-1
+            model: openai/us.anthropic.claude-sonnet-5
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
               - x_hermes_source
         - model_name: tier3-quality
           litellm_params:
-            model: bedrock/global.anthropic.claude-opus-5
-            aws_region_name: us-east-1
+            model: openai/global.anthropic.claude-opus-5
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
         # tier4-frontier deliberately has no fallback and is not part of any
         # fallback chain below - explicit-only, separate key at the governor
         # layer (00-program-spec.md: "explicit only; no automatic fallback").
+        - model_name: gpt-5.4
+          litellm_params:
+            model: openai/gpt-5.4
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: gpt-5.6-terra
+          litellm_params:
+            model: openai/gpt-5.6-terra
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: axis-claude-sonnet-4-6
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-4-6
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier4-frontier
           litellm_params:
             model: openai/gpt-5.6-sol
@@ -336,6 +390,8 @@ in
         # by disabling caching outright until 07's adoption sequence is run.
         cache: false
         drop_params: true
+        additional_drop_params:
+          - x_hermes_source
       router_settings:
         cache_responses: false
         # No cross-tier fallbacks: 01-eros-inference-fabric.md prohibits generic
