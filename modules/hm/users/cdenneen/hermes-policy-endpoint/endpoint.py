@@ -507,9 +507,15 @@ class PolicyEndpoint:
             # Only the message content is forwarded from the caller's request;
             # tool/tool_choice/stream are deliberately dropped - this path is
             # not a general-purpose relay.
+            # Greptile P1 (PR #735, round 5): bounds the worst case a
+            # single continuity call can cost - without this, an
+            # unbounded output could exceed the $0.50 safety margin
+            # above by an arbitrary amount. 2000 output tokens at this
+            # model's rate is ~$0.012, comfortably inside the margin.
             outbound = {
                 "model": cred.model,
                 "messages": parsed.get("messages", []),
+                "max_tokens": 2000,
             }
             self.state.idempotency_start(digest, self.actor)
             req = urllib.request.Request(
