@@ -502,16 +502,18 @@ in
   };
 
   systemd.services.tailscale-serve-eros = {
-    description = "Expose LiteLLM and OmniRoute over Tailscale";
+    description = "Expose LiteLLM, OmniRoute, and Qdrant over Tailscale";
     after = [
       "tailscaled.service"
       "podman-litellm.service"
       "omniroute.service"
+      "podman-qdrant.service"
     ];
     requires = [
       "tailscaled.service"
       "podman-litellm.service"
       "omniroute.service"
+      "podman-qdrant.service"
     ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig.Type = "oneshot";
@@ -524,6 +526,13 @@ in
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
+      # Shared AI Services MVP: policy-endpoint instances on Ghost/Nyx need
+      # to reach Qdrant for shared-reuse retrieval/promotion
+      # (shared_intelligence.py) - previously loopback-only, undiscovered
+      # until the first real cross-host retrieval attempt hung on
+      # POST/PUT (GET happened to work locally-only in prior testing; this
+      # is the first time it's been reached from another host at all).
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantPort} 127.0.0.1:${toString qdrantPort}
     '';
   };
 
