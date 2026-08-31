@@ -20,6 +20,71 @@ let
   axisWebSessionSecretFile = config.sops.secrets.axis_web_session_secret.path;
   axisWebTokenFile = "/run/axis-web/token";
   axisApiBearerTokenFile = config.sops.secrets.axis_remote_client_token.path;
+  axisSlackBotTokenFile = config.sops.secrets.jarvis_slack_bot_token.path;
+  axisSlackSigningSecretFile = config.sops.secrets.jarvis_slack_signing_secret.path;
+  axisSlackTeamId = "T0B7QDWFLJ3";
+  axisSlackProductOwnerId = "U0B7ZGP6M43";
+  axisSlackIdentitySecretName = "provider.slack.identity.${
+    builtins.substring 0 32 (
+      builtins.hashString "sha256" "${axisSlackTeamId}${builtins.fromJSON ''"\u001f"''}${axisSlackProductOwnerId}"
+    )
+  }";
+  axisSlackCapabilitySetup = pkgs.writeShellScript "axis-slack-capability-setup" ''
+    set -euo pipefail
+
+    contexts_file="/var/lib/axis/client/contexts.json"
+    if [ ! -r "$contexts_file" ]; then
+      echo "axis Slack identity binding: client contexts are not readable" >&2
+      exit 1
+    fi
+
+    binding="$(${pkgs.jq}/bin/jq -cer '
+      .active_context as $active
+      | select(($active | type) == "string" and ($active | length) > 0)
+      | .contexts[$active]
+      | select(type == "object")
+      | {
+          active: true,
+          principal_id: (.principal_id | select(type == "string" and length > 0)),
+          access_token: (.auth_token | select(type == "string" and length > 0))
+        }
+    ' "$contexts_file")" || {
+      echo "axis Slack identity binding: active context principal or token is missing" >&2
+      exit 1
+    }
+
+    for secret_file in "${axisSlackBotTokenFile}" "${axisSlackSigningSecretFile}"; do
+      if [ ! -s "$secret_file" ]; then
+        echo "axis Slack capability setup: required secret file is missing or empty" >&2
+        exit 1
+      fi
+    done
+
+    ${pkgs.coreutils}/bin/cat "${axisSlackBotTokenFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.slack.bot-token \
+        --secret-name provider.slack.bot_token \
+        --scope axis_vault \
+        --display-name "Slack bot token" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/cat "${axisSlackSigningSecretFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.slack.signing-secret \
+        --secret-name provider.slack.signing_secret \
+        --scope axis_vault \
+        --display-name "Slack signing secret" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/printf '%s' "$binding" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.slack.identity.product-owner \
+        --secret-name ${axisSlackIdentitySecretName} \
+        --scope axis_vault \
+        --display-name "Slack Product Owner identity" \
+        --secret-stdin \
+        > /dev/null
+  '';
   axisRevision = axis.rev or "unknown";
   supervisorRevision =
     if config.system.configurationRevision != null then
@@ -54,27 +119,31 @@ let
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     TOKEN_FILE = ${builtins.toJSON axisApiBearerTokenFile}
+    SLACK_HOST = "slack.denneen.net"
+    SLACK_CALLBACK_PATH = "/callbacks/slack"
+    MAX_SLACK_CALLBACK_BYTES = 1_048_576
 
     class Handler(BaseHTTPRequestHandler):
-        def _proxy(self):
-            with open(TOKEN_FILE, "r", encoding="utf-8") as handle:
-                expected = handle.read().strip()
-            supplied = self.headers.get("Authorization", "")
-            if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
-                self.send_response(401)
-                self.send_header("WWW-Authenticate", "Bearer")
-                self.end_headers()
-                return
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            body = self.rfile.read(length) if length else None
+        def _read_slack_body(self):
+            if self.headers.get("Transfer-Encoding"):
+                self.send_error(400)
+                return None
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                self.send_error(400)
+                return None
+            if length < 0:
+                self.send_error(400)
+                return None
+            if length > MAX_SLACK_CALLBACK_BYTES:
+                self.send_error(413)
+                return None
+            return self.rfile.read(length) if length else b""
+
+        def _forward(self, body, headers):
             upstream = http.client.HTTPConnection("127.0.0.1", 8780, timeout=30)
-            headers = {
-                key: value
-                for key, value in self.headers.items()
-                if key.lower() not in {"host", "content-length", "connection"}
-            }
-            upstream_path = self.path[4:] if self.path.startswith("/api") else self.path
-            upstream.request(self.command, upstream_path or "/", body=body, headers=headers)
+            upstream.request(self.command, self.path, body=body, headers=headers)
             response = upstream.getresponse()
             payload = response.read()
             self.send_response(response.status)
@@ -86,11 +155,63 @@ let
             self.wfile.write(payload)
             upstream.close()
 
+        def _slack_callback(self):
+            body = self._read_slack_body()
+            if body is None:
+                return
+            headers = {
+                key: value
+                for key, value in self.headers.items()
+                if key.lower() not in {"host", "connection", "transfer-encoding"}
+            }
+            self._forward(body, headers)
+
+        def _authenticated_proxy(self):
+            with open(TOKEN_FILE, "r", encoding="utf-8") as handle:
+                expected = handle.read().strip()
+            supplied = self.headers.get("Authorization", "")
+            if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", "Bearer")
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length else None
+            headers = {
+                key: value
+                for key, value in self.headers.items()
+                if key.lower() not in {"host", "content-length", "connection"}
+            }
+            upstream_path = self.path[4:] if self.path.startswith("/api") else self.path
+            original_path, self.path = self.path, upstream_path or "/"
+            try:
+                self._forward(body, headers)
+            finally:
+                self.path = original_path
+
+        def _proxy(self):
+            if self.headers.get("Host", "").split(":", 1)[0].lower() == SLACK_HOST:
+                if self.path != SLACK_CALLBACK_PATH:
+                    self.send_error(404)
+                elif self.command != "POST":
+                    self.send_response(405)
+                    self.send_header("Allow", "POST")
+                    self.end_headers()
+                else:
+                    self._slack_callback()
+                return
+            self._authenticated_proxy()
+
         do_GET = _proxy
         do_POST = _proxy
         do_PUT = _proxy
         do_PATCH = _proxy
         do_DELETE = _proxy
+
+        def __getattr__(self, name):
+            if name.startswith("do_"):
+                return self._proxy
+            raise AttributeError(name)
 
         def log_message(self, format, *args):
             return
@@ -365,6 +486,7 @@ in
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
           "ai-dev.denneen.net" = "http://127.0.0.1:3000";
           "ai.denneen.net" = "http://127.0.0.1:3001";
+          "slack.denneen.net" = "http://127.0.0.1:8001";
         };
         default = "http_status:404";
         originRequest = {
@@ -469,6 +591,20 @@ in
     group = "axis";
     mode = "0440";
     restartUnits = [ "axis-api-auth-proxy.service" ];
+  };
+  sops.secrets.jarvis_slack_bot_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
+  sops.secrets.jarvis_slack_signing_secret = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
   };
   sops.secrets."alpha0/audit-key" = {
     sopsFile = alpha0SecretsFile;
@@ -696,6 +832,14 @@ in
       NoNewPrivileges = true;
       PrivateTmp = true;
     };
+  };
+
+  systemd.services.axis = {
+    unitConfig.RequiresMountsFor = [
+      axisSlackBotTokenFile
+      axisSlackSigningSecretFile
+    ];
+    preStart = lib.mkBefore "${axisSlackCapabilitySetup}";
   };
 
   systemd.services.axis-deployment-identity = {

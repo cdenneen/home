@@ -45,6 +45,15 @@ in
       };
     };
 
+    slack-events = route {
+      hostname = "slack.denneen.net";
+      path = "^/callbacks/slack$";
+      owner = "ghost";
+      serviceByTunnel = {
+        ghost = "http://localhost:8001";
+      };
+    };
+
     opensync = route {
       hostname = "opensync.denneen.net";
       owner = "nyx";

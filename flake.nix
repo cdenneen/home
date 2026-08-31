@@ -309,7 +309,8 @@
             tokensave = pkgs.callPackage ./pkgs/tokensave.nix { };
             pi-agent = pkgs.callPackage ./pkgs/pi-agent.nix { };
             pi-plugins = pkgs.callPackage ./pkgs/pi-plugins.nix { };
-          } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          }
+          // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             phase-b-tooling = pkgs.callPackage ./pkgs/phase-b-tooling.nix { };
           };
 
@@ -464,6 +465,87 @@
               };
               axis-control-package = inputs.axis-control.checks.${system}.package;
               axis-control-home-module = inputs.axis-control.checks.${system}.home-module;
+              axis-slack-ingress =
+                let
+                  ghost = configurations.nixosConfigurations.ghost.config;
+                  proxyCommand = ghost.systemd.services.axis-api-auth-proxy.serviceConfig.ExecStart;
+                  proxy = builtins.elemAt (splitString " " proxyCommand) 1;
+                  axisPreStart = ghost.systemd.services.axis.preStart;
+                  axisCapabilitySetup = builtins.readFile (builtins.head (splitString "\n" axisPreStart));
+                in
+                assert inputs.axis.rev == "40b28f398754c316eae7027d6ae50f218c9f727c";
+                assert hasPrefix "/nix/store/" proxy;
+                assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
+                  axisCapabilitySetup;
+                assert !(hasInfix "provider.slack.identity.U0B7ZGP6M43" axisCapabilitySetup);
+                pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+                  ${pkgs.python3}/bin/python ${proxy} &
+                  proxy_pid=$!
+                  trap '${pkgs.coreutils}/bin/kill "$proxy_pid"' EXIT
+                  ${pkgs.python3}/bin/python - <<'PY'
+                  import http.client
+                  import threading
+                  import time
+                  from http.server import BaseHTTPRequestHandler, HTTPServer
+
+                  received = {}
+
+                  class Upstream(BaseHTTPRequestHandler):
+                      def do_POST(self):
+                          received["body"] = self.rfile.read(int(self.headers["Content-Length"]))
+                          received["signature"] = self.headers["X-Slack-Signature"]
+                          received["timestamp"] = self.headers["X-Slack-Request-Timestamp"]
+                          received["content_type"] = self.headers["Content-Type"]
+                          self.send_response(200)
+                          self.end_headers()
+
+                      def log_message(self, format, *args):
+                          return
+
+                  upstream = HTTPServer(("127.0.0.1", 8780), Upstream)
+                  threading.Thread(target=upstream.serve_forever, daemon=True).start()
+
+                  def request(method, path, body=None, **headers):
+                      for _ in range(20):
+                          try:
+                              connection = http.client.HTTPConnection("127.0.0.1", 8001, timeout=1)
+                              connection.request(method, path, body=body, headers={"Host": "slack.denneen.net", **headers})
+                              status = connection.getresponse().status
+                              connection.close()
+                              return status
+                          except ConnectionRefusedError:
+                              time.sleep(0.1)
+                      raise AssertionError("AXIS API proxy did not start")
+
+                  assert request("POST", "/") == 404
+                  assert request("GET", "/callbacks/slack") == 405
+                  assert request("POST", "/callbacks/slack?unexpected=query") == 404
+                  assert request("OPTIONS", "/callbacks/slack") == 405
+                  assert request("POST", "/api/health") == 401
+                  assert request("POST", "/callbacks/slack", **{"Content-Length": "1048577"}) == 413
+                  assert request(
+                      "POST",
+                      "/callbacks/slack",
+                      body=b"{}",
+                      **{
+                          "Content-Type": "application/json",
+                          "X-Slack-Request-Timestamp": "1",
+                          "X-Slack-Signature": "v0=test",
+                      },
+                  ) == 200
+                  assert received == {
+                      "body": b"{}",
+                      "content_type": "application/json",
+                      "signature": "v0=test",
+                      "timestamp": "1",
+                  }
+                  upstream.shutdown()
+                  PY
+                  ${pkgs.coreutils}/bin/kill "$proxy_pid"
+                  wait "$proxy_pid" || true
+                  trap - EXIT
+                  touch "$out"
+                '';
               hermes-gateway-roles =
                 let
                   ghost = configurations.homeConfigurations."cdenneen@ghost".config;
