@@ -42,9 +42,11 @@ established).
 """
 
 import json
+import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 QDRANT_BASE = "http://100.117.68.38:6333"
 EMBED_MODEL = "local-embed"
@@ -53,8 +55,34 @@ KNOWLEDGE_COLLECTION = "shared_knowledge"
 MEMORY_COLLECTION = "shared_memory"
 
 SEMANTIC_REUSE_SCORE_THRESHOLD = 0.93
-KNOWLEDGE_SCORE_THRESHOLD = 0.75
+# Tuned from a real measurement (2026-08-31): a declarative statement vs
+# an interrogative question about the same fact, via the local
+# qwen3-embedding:0.6b model, scored 0.733 cosine - a small local
+# embedding model has a narrower discriminative range than a large one,
+# so a threshold copied from large-model intuition (0.85+) was too
+# strict and silently dropped a real, on-topic match. Adjust again from
+# further real outcomes, not from more guessing.
+KNOWLEDGE_SCORE_THRESHOLD = 0.70
 DISQUALIFYING_METADATA_FLAGS = ("mutation", "live_state", "session_specific", "no_store")
+
+# Deterministic, bounded "verified" heuristic for this MVP: HTTP 200 +
+# non-empty content is necessary but not sufficient - a model's own
+# refusal/uncertainty response is a real 200 with real non-empty content
+# that must never be promoted as a reusable verified answer (confirmed
+# live: a refusal answer got cached and then replayed verbatim to an
+# unrelated later question). Bounded lexical check, not a second model
+# call to "judge" the answer - that would be a much larger, unbounded
+# verification system, out of scope for this pass.
+_REFUSAL_MARKERS = (
+    "i don't have", "i do not have", "i can't confirm", "i cannot confirm",
+    "i don't know", "i do not know", "i'm not able to", "i am not able to",
+    "unable to verify", "cannot verify", "no verified information",
+)
+
+
+def _looks_like_refusal(answer_text: str) -> bool:
+    lowered = answer_text.lower()
+    return any(marker in lowered for marker in _REFUSAL_MARKERS)
 
 
 def is_reuse_eligible(parsed_body: dict) -> tuple[bool, str]:
@@ -111,7 +139,11 @@ def _qdrant_request(method: str, path: str, body: dict) -> "dict | None":
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
-    except Exception:
+    except urllib.error.HTTPError as exc:
+        print(f"[shared_intelligence] qdrant {method} {path} -> HTTP {exc.code}: {exc.read()[:300]}", file=sys.stderr)
+        return None
+    except Exception as exc:
+        print(f"[shared_intelligence] qdrant {method} {path} -> {type(exc).__name__}: {exc}", file=sys.stderr)
         return None
 
 
@@ -184,10 +216,16 @@ def retrieve_knowledge(eros_base_url, eros_api_key, trust_domain, question_text)
 def build_context_injection(hits: list) -> "str | None":
     if not hits:
         return None
-    lines = ["Relevant prior verified information (may help answer this request):"]
+    # Plain RAG-style context, zero meta-commentary about trust/
+    # verification/authority - confirmed live that asserting "trust this"
+    # explicitly triggers a safety-trained model's anti-injection
+    # skepticism regardless of how the claim is framed, which defeats
+    # the retrieval's purpose. The content is already filtered to this
+    # requester's own trust_domain before this function ever sees it;
+    # it doesn't need to re-assert that in-band.
+    lines = ["Context:"]
     for collection, payload, score in hits:
-        kind = "memory" if collection == MEMORY_COLLECTION else "knowledge"
-        lines.append(f"- [{kind}, produced by {payload.get('produced_by_tier', 'unknown')}] {payload.get('content', '')}")
+        lines.append(f"- {payload.get('content', '')}")
     return "\n".join(lines)
 
 
@@ -199,12 +237,18 @@ def promote_result(
     and separately as retrievable knowledge/memory. cost 2 embedding calls
     + 2 upserts - only ever called for already-eligible, already-successful
     responses (see is_reuse_eligible + caller's own success check)."""
+    if _looks_like_refusal(answer_text):
+        return False
     vector = embed_text(eros_base_url, eros_api_key, question_text)
     if vector is None:
         return False
-    point_id = f"{trust_domain}-{int(time.time() * 1000)}"
+    # Qdrant point IDs must be an unsigned int or a UUID - a decorated
+    # string (e.g. f"{trust_domain}-{ts}") is neither and fails with a
+    # silent-looking 400 the caller never sees without inspecting the
+    # HTTP response directly. trust_domain/timestamp live in the payload
+    # instead, where they're actually queryable.
     ok1 = qdrant_upsert(
-        SEMANTIC_CACHE_COLLECTION, point_id, vector,
+        SEMANTIC_CACHE_COLLECTION, str(uuid.uuid4()), vector,
         {
             "trust_domain": trust_domain, "answer": answer_text, "verified": True,
             "produced_by_model": produced_by_model, "produced_by_tier": produced_by_tier,
@@ -219,5 +263,5 @@ def promote_result(
     }
     if memory_type:
         payload["memory_type"] = memory_type
-    ok2 = qdrant_upsert(collection, point_id + "-k", vector, payload)
+    ok2 = qdrant_upsert(collection, str(uuid.uuid4()), vector, payload)
     return ok1 and ok2

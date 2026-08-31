@@ -96,6 +96,18 @@ DEGRADED_ROUTING_MAP = {
     "tier2-research": "tier2-general",
 }
 
+# Greptile P1 (PR #735): the routes below are the only ones actually
+# backed by OmniRoute (api_base -> 127.0.0.1:20128 in the real Eros
+# config, confirmed 2026-08-31). A route NOT in this set (tier0-local,
+# tier2-general, tier4-frontier, and any future direct exception) never
+# depends on OmniRoute at all - OmniRoute being down must be a complete
+# no-op for it, not a 503. Only a route that IS OmniRoute-backed AND has
+# no entry in DEGRADED_ROUTING_MAP hits the "no candidate" denial.
+OMNIROUTE_BACKED_ROUTES = {
+    "tier1-general", "tier1-coding", "tier2-coding", "tier2-research", "tier3-quality",
+    "gpt-5.4", "gpt-5.6-terra",
+}
+
 
 def load_config(path: Path) -> dict:
     with open(path) as f:
@@ -357,6 +369,36 @@ class PolicyEndpoint:
                 "error": {"message": f"continuity credential unresolvable: {exc}", "type": "continuity_credential_unavailable"}
             }).encode()
 
+        # Greptile P1 (PR #735): the emergency credential declares
+        # daily_cap_usd/monthly_cap_usd but nothing enforced them - a
+        # prolonged outage could spend past the credential's own bounds.
+        # Reuses the same burn_since() the normal economic_state() path
+        # already uses (source="continuity" spend_events, not a new
+        # subsystem). Unknown-cost entries in the window are treated the
+        # same as everywhere else in this file - conservative, deny,
+        # never assumed to be $0.
+        now = time.time()
+        day_burn = self.state.burn_since(self.actor, now - 86400)
+        month_burn = self.state.burn_since(self.actor, now - 30 * 86400)
+        cap_reason = None
+        if day_burn["unknown_count"] > 0 or month_burn["unknown_count"] > 0:
+            cap_reason = "continuity burn window has unknown-cost entries; treating conservatively"
+        elif day_burn["known_cost"] >= cred.daily_cap_usd:
+            cap_reason = f"continuity daily cap reached: {day_burn['known_cost']:.4f} >= {cred.daily_cap_usd}"
+        elif month_burn["known_cost"] >= cred.monthly_cap_usd:
+            cap_reason = f"continuity monthly cap reached: {month_burn['known_cost']:.4f} >= {cred.monthly_cap_usd}"
+        if cap_reason is not None:
+            self.state.record_admission(
+                actor=self.actor, priority=priority.value, continuity_class=self.continuity_class,
+                requested_route=requested_route, decision="deny", reason=cap_reason,
+                economic_state=EconomicState.BREAK_GLASS.value,
+                trust_domain=self.trust_domain, agent=self.agent, workstream=self.workstream,
+                resource_project_context=self.resource_project_context,
+            )
+            return 429, json.dumps({
+                "error": {"message": cap_reason, "type": "continuity_cap_exceeded"}
+            }).encode()
+
         # Bootstrap: continuity model/route is restricted to the emergency
         # credential's own single model - never the normal tier catalog.
         # Only the message content is forwarded from the caller's request;
@@ -572,6 +614,10 @@ class PolicyEndpoint:
                 parsed = dict(parsed)
                 parsed["messages"] = [{"role": "system", "content": injection}] + list(parsed.get("messages", []))
                 body = json.dumps(parsed).encode()
+                classification_evidence["knowledge_retrieval"] = {
+                    "hit_count": len(knowledge_hits),
+                    "scores": [round(score, 4) for _, _, score in knowledge_hits],
+                }
 
         idempotency_key = parsed.get("idempotency_key")
         digest = self.state.digest_for(self.actor, requested_route, body, idempotency_key)
@@ -589,7 +635,7 @@ class PolicyEndpoint:
         # every OmniRoute-backed tier).
         forward_body = body
         degraded_target = None
-        if mode == "degraded_routing":
+        if mode == "degraded_routing" and requested_route in OMNIROUTE_BACKED_ROUTES:
             degraded_target = DEGRADED_ROUTING_MAP.get(requested_route)
             if degraded_target is None:
                 self.state.record_admission(
