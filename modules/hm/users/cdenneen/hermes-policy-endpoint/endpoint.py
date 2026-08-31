@@ -35,6 +35,8 @@ control endpoint for BREAK-GLASS (uses a local flag file instead).
 """
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import sys
@@ -71,6 +73,26 @@ from continuity import (
 # for any actor as of this writing) would make this shared tracking
 # unnecessary for that actor.
 SHARED_DEFAULT_CREDENTIAL_STATE_PATH = Path.home() / ".hermes-policy" / "_shared-continuity" / "state.db"
+# Greptile P1 (PR #735, round 4): threading.Lock only serializes within
+# ONE process - separate actor endpoint processes (ghost-alpha0,
+# ghost-default, ghost-axis-control) are separate OS processes and each
+# has its own Lock instance, so it didn't stop two of them from both
+# reading a below-cap shared-state snapshot before either recorded its
+# charge. A flock on a file every such process opens closes this for
+# real, cross-process, using only the stdlib.
+SHARED_DEFAULT_CREDENTIAL_LOCK_PATH = SHARED_DEFAULT_CREDENTIAL_STATE_PATH.with_suffix(".lock")
+
+
+@contextlib.contextmanager
+def _cross_process_lock(lock_path: Path):
+    lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = open(lock_path, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        fd.close()
 from governor import (
     DEFAULT_THRESHOLDS,
     Admission,
@@ -366,6 +388,17 @@ class PolicyEndpoint:
     # handling below, which reports None (never 0.0) if usage is absent.
     _CONTINUITY_INPUT_COST_PER_TOKEN = 0.0000015
     _CONTINUITY_OUTPUT_COST_PER_TOKEN = 0.000006
+    # Greptile P1 (PR #735, round 4): the cap check reads only historical
+    # spend - the CURRENT request's own cost is unknown until after the
+    # provider responds, so a request starting just under the cap can
+    # still push it over by its own cost. A worst-case single request
+    # here is bounded (_CONTINUITY_MAX_BODY_BYTES input + a few thousand
+    # output tokens), so a fixed conservative margin - not a second
+    # token-counting subsystem - keeps the overshoot bounded and small
+    # relative to the $5/$50 bootstrap caps rather than eliminating it
+    # (eliminating it entirely would require knowing cost before calling
+    # the provider, which no cost-control system can do exactly).
+    _CONTINUITY_CAP_SAFETY_MARGIN_USD = 0.50
 
     def _break_glass_credential(self):
         return self.continuity.credential_store.load()
@@ -432,9 +465,14 @@ class PolicyEndpoint:
         # can't both pass the check before either's cost lands - see
         # constructor comment. Continuity is rare/bounded by design, so
         # serializing here has no real throughput cost.
-        with self._continuity_cap_lock:
+        using_shared_cap_state = is_shared_default_credential(cred)
+        cross_process_ctx = (
+            _cross_process_lock(SHARED_DEFAULT_CREDENTIAL_LOCK_PATH)
+            if using_shared_cap_state
+            else contextlib.nullcontext()
+        )
+        with self._continuity_cap_lock, cross_process_ctx:
             cap_state = self._cap_tracking_state(cred)
-            using_shared_cap_state = is_shared_default_credential(cred)
             now = time.time()
             if using_shared_cap_state:
                 # Aggregate across every actor sharing this same
@@ -448,10 +486,10 @@ class PolicyEndpoint:
             cap_reason = None
             if day_burn["unknown_count"] > 0 or month_burn["unknown_count"] > 0:
                 cap_reason = "continuity burn window has unknown-cost entries; treating conservatively"
-            elif day_burn["known_cost"] >= cred.daily_cap_usd:
-                cap_reason = f"continuity daily cap reached: {day_burn['known_cost']:.4f} >= {cred.daily_cap_usd}"
-            elif month_burn["known_cost"] >= cred.monthly_cap_usd:
-                cap_reason = f"continuity monthly cap reached: {month_burn['known_cost']:.4f} >= {cred.monthly_cap_usd}"
+            elif day_burn["known_cost"] + self._CONTINUITY_CAP_SAFETY_MARGIN_USD >= cred.daily_cap_usd:
+                cap_reason = f"continuity daily cap reached: {day_burn['known_cost']:.4f} + margin >= {cred.daily_cap_usd}"
+            elif month_burn["known_cost"] + self._CONTINUITY_CAP_SAFETY_MARGIN_USD >= cred.monthly_cap_usd:
+                cap_reason = f"continuity monthly cap reached: {month_burn['known_cost']:.4f} + margin >= {cred.monthly_cap_usd}"
             if cap_reason is not None:
                 self.state.record_admission(
                     actor=self.actor, priority=priority.value, continuity_class=self.continuity_class,
