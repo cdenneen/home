@@ -183,6 +183,14 @@ class PolicyEndpoint:
         )
         self.frozen_routes: set[str] = set()
         self._classifier_lock = threading.Lock()
+        # Greptile P1 (PR #735, round 2): ThreadingHTTPServer means two
+        # concurrent continuity requests could both read a below-cap burn
+        # snapshot and both call OpenAI before either's spend is recorded
+        # (classic check-then-act race). Continuity is a rare, bounded
+        # emergency path by design, not a hot path - serializing the
+        # cap-check-through-spend-record sequence with a plain lock is a
+        # correct, adequate fix; it does not need per-request concurrency.
+        self._continuity_cap_lock = threading.Lock()
         self._last_classification = "healthy"
         self._last_omniroute_classification = "healthy"
         self._stop = threading.Event()
@@ -377,93 +385,99 @@ class PolicyEndpoint:
         # subsystem). Unknown-cost entries in the window are treated the
         # same as everywhere else in this file - conservative, deny,
         # never assumed to be $0.
-        now = time.time()
-        day_burn = self.state.burn_since(self.actor, now - 86400)
-        month_burn = self.state.burn_since(self.actor, now - 30 * 86400)
-        cap_reason = None
-        if day_burn["unknown_count"] > 0 or month_burn["unknown_count"] > 0:
-            cap_reason = "continuity burn window has unknown-cost entries; treating conservatively"
-        elif day_burn["known_cost"] >= cred.daily_cap_usd:
-            cap_reason = f"continuity daily cap reached: {day_burn['known_cost']:.4f} >= {cred.daily_cap_usd}"
-        elif month_burn["known_cost"] >= cred.monthly_cap_usd:
-            cap_reason = f"continuity monthly cap reached: {month_burn['known_cost']:.4f} >= {cred.monthly_cap_usd}"
-        if cap_reason is not None:
-            self.state.record_admission(
-                actor=self.actor, priority=priority.value, continuity_class=self.continuity_class,
-                requested_route=requested_route, decision="deny", reason=cap_reason,
-                economic_state=EconomicState.BREAK_GLASS.value,
-                trust_domain=self.trust_domain, agent=self.agent, workstream=self.workstream,
-                resource_project_context=self.resource_project_context,
-            )
-            return 429, json.dumps({
-                "error": {"message": cap_reason, "type": "continuity_cap_exceeded"}
-            }).encode()
+        # Greptile P1 (PR #735, round 2): holds across the check AND the
+        # eventual spend-record so two concurrent continuity requests
+        # can't both pass the check before either's cost lands - see
+        # constructor comment. Continuity is rare/bounded by design, so
+        # serializing here has no real throughput cost.
+        with self._continuity_cap_lock:
+            now = time.time()
+            day_burn = self.state.burn_since(self.actor, now - 86400)
+            month_burn = self.state.burn_since(self.actor, now - 30 * 86400)
+            cap_reason = None
+            if day_burn["unknown_count"] > 0 or month_burn["unknown_count"] > 0:
+                cap_reason = "continuity burn window has unknown-cost entries; treating conservatively"
+            elif day_burn["known_cost"] >= cred.daily_cap_usd:
+                cap_reason = f"continuity daily cap reached: {day_burn['known_cost']:.4f} >= {cred.daily_cap_usd}"
+            elif month_burn["known_cost"] >= cred.monthly_cap_usd:
+                cap_reason = f"continuity monthly cap reached: {month_burn['known_cost']:.4f} >= {cred.monthly_cap_usd}"
+            if cap_reason is not None:
+                self.state.record_admission(
+                    actor=self.actor, priority=priority.value, continuity_class=self.continuity_class,
+                    requested_route=requested_route, decision="deny", reason=cap_reason,
+                    economic_state=EconomicState.BREAK_GLASS.value,
+                    trust_domain=self.trust_domain, agent=self.agent, workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
+                )
+                return 429, json.dumps({
+                    "error": {"message": cap_reason, "type": "continuity_cap_exceeded"}
+                }).encode()
 
-        # Bootstrap: continuity model/route is restricted to the emergency
-        # credential's own single model - never the normal tier catalog.
-        # Only the message content is forwarded from the caller's request;
-        # tool/tool_choice/stream are deliberately dropped - this path is
-        # not a general-purpose relay.
-        outbound = {
-            "model": cred.model,
-            "messages": parsed.get("messages", []),
-        }
-        self.state.idempotency_start(digest, self.actor)
-        req = urllib.request.Request(
-            "https://api.openai.com/v1/chat/completions",
-            data=json.dumps(outbound).encode(),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        api_key = None  # never held longer than needed to build the request
-        try:
-            with urllib.request.urlopen(req, timeout=self._CONTINUITY_TIMEOUT_S) as resp:
-                raw = resp.read()
-                status = resp.status
-        except urllib.error.HTTPError as exc:
-            raw = exc.read()
-            status = exc.code
-        except urllib.error.URLError as exc:
+            # Bootstrap: continuity model/route is restricted to the emergency
+            # credential's own single model - never the normal tier catalog.
+            # Only the message content is forwarded from the caller's request;
+            # tool/tool_choice/stream are deliberately dropped - this path is
+            # not a general-purpose relay.
+            outbound = {
+                "model": cred.model,
+                "messages": parsed.get("messages", []),
+            }
+            self.state.idempotency_start(digest, self.actor)
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/chat/completions",
+                data=json.dumps(outbound).encode(),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            api_key = None  # never held longer than needed to build the request
+            try:
+                with urllib.request.urlopen(req, timeout=self._CONTINUITY_TIMEOUT_S) as resp:
+                    raw = resp.read()
+                    status = resp.status
+            except urllib.error.HTTPError as exc:
+                raw = exc.read()
+                status = exc.code
+            except urllib.error.URLError as exc:
+                self.state.record_spend(
+                    actor=self.actor, requested_route=requested_route,
+                    actual_provider=cred.provider, actual_model=cred.model,
+                    cost_usd=None, input_tokens=None, output_tokens=None,
+                    source="continuity", request_digest=digest,
+                    trust_domain=self.trust_domain, agent=self.agent,
+                    workstream=self.workstream,
+                    resource_project_context=self.resource_project_context,
+                )
+                return 502, json.dumps({
+                    "error": {"message": f"continuity provider unreachable: {exc}", "type": "continuity_provider_unreachable"}
+                }).encode()
+
+            attestation = self._extract_attestation(raw)
+            input_tokens = attestation.get("input_tokens")
+            output_tokens = attestation.get("output_tokens")
+            if input_tokens is not None and output_tokens is not None:
+                cost_usd = (
+                    input_tokens * self._CONTINUITY_INPUT_COST_PER_TOKEN
+                    + output_tokens * self._CONTINUITY_OUTPUT_COST_PER_TOKEN
+                )
+            else:
+                # Real response, but usage wasn't present/parseable - report
+                # unknown, never $0 (same rule as forward_normal's attestation).
+                cost_usd = None
+
+            if status == 200:
+                self.state.idempotency_complete(digest, raw.decode(errors="replace"))
             self.state.record_spend(
                 actor=self.actor, requested_route=requested_route,
-                actual_provider=cred.provider, actual_model=cred.model,
-                cost_usd=None, input_tokens=None, output_tokens=None,
+                actual_provider=cred.provider, actual_model=attestation.get("actual_model") or cred.model,
+                cost_usd=cost_usd, input_tokens=input_tokens, output_tokens=output_tokens,
                 source="continuity", request_digest=digest,
                 trust_domain=self.trust_domain, agent=self.agent,
                 workstream=self.workstream,
                 resource_project_context=self.resource_project_context,
             )
-            return 502, json.dumps({
-                "error": {"message": f"continuity provider unreachable: {exc}", "type": "continuity_provider_unreachable"}
-            }).encode()
-
-        attestation = self._extract_attestation(raw)
-        input_tokens = attestation.get("input_tokens")
-        output_tokens = attestation.get("output_tokens")
-        if input_tokens is not None and output_tokens is not None:
-            cost_usd = (
-                input_tokens * self._CONTINUITY_INPUT_COST_PER_TOKEN
-                + output_tokens * self._CONTINUITY_OUTPUT_COST_PER_TOKEN
-            )
-        else:
-            # Real response, but usage wasn't present/parseable - report
-            # unknown, never $0 (same rule as forward_normal's attestation).
-            cost_usd = None
-
-        if status == 200:
-            self.state.idempotency_complete(digest, raw.decode(errors="replace"))
-        self.state.record_spend(
-            actor=self.actor, requested_route=requested_route,
-            actual_provider=cred.provider, actual_model=attestation.get("actual_model") or cred.model,
-            cost_usd=cost_usd, input_tokens=input_tokens, output_tokens=output_tokens,
-            source="continuity", request_digest=digest,
-            trust_domain=self.trust_domain, agent=self.agent,
-            workstream=self.workstream,
-            resource_project_context=self.resource_project_context,
-        )
         return status, raw
 
     def _resolve_workload_source(self, asserted_source, peer_port, local_port):
