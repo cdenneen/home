@@ -223,6 +223,28 @@ class LocalState:
             "total_count": row["total_count"],
         }
 
+    def burn_since_all_actors(self, since_ts: float) -> dict:
+        """Same as burn_since but aggregated across every actor recorded
+        in THIS state.db - only meaningful when this LocalState instance
+        is the shared cross-actor file for a credential multiple actors
+        fall back to (endpoint.py's SHARED_DEFAULT_CREDENTIAL_STATE_PATH),
+        where a single actor's own burn is not the relevant cap-check
+        quantity."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT "
+                "  COALESCE(SUM(cost_usd), 0.0) AS known_cost, "
+                "  COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS unknown_count, "
+                "  COUNT(*) AS total_count "
+                "FROM spend_events WHERE ts >= ?",
+                (since_ts,),
+            ).fetchone()
+        return {
+            "known_cost": row["known_cost"],
+            "unknown_count": row["unknown_count"],
+            "total_count": row["total_count"],
+        }
+
     # --- continuity episodes ---------------------------------------------
 
     def start_continuity_episode(self, *, mode: str, reason: str, evidence: dict) -> int:
