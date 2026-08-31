@@ -123,11 +123,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788144165,
-        "narHash": "sha256-m/3crHkT9i2lPT0vVpn1jMsGO2orndzSygHAJXS/aF4=",
+        "lastModified": 1788186597,
+        "narHash": "sha256-87NuXMKk3Y8yw9F4g0lMhlELuj6rl+OLRIJdQkPUb+s=",
         "owner": "ghostspace-com",
         "repo": "axis-control",
-        "rev": "cb84ac26eb0fa25d46a7d0715495a110e4cc22b5",
+        "rev": "2cfe4ae39addf09b0ce1da66b4dd464586f9e3a4",
         "type": "github"
       },
       "original": {
