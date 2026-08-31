@@ -58,8 +58,19 @@ from continuity import (
     ContinuityController,
     ContinuityDenied,
     EmergencyCredentialStore,
+    is_shared_default_credential,
     resolve_credential_reference,
 )
+
+# Greptile P1 (PR #735, round 3): path shared by every actor instance on
+# this host, used ONLY when continuity resolves to the shared default
+# reference credential (continuity.is_shared_default_credential) - a
+# per-actor cap check against a per-actor database can't see other
+# actors' usage of the SAME underlying OPENAI_API_KEY. A dedicated,
+# sops-provisioned per-actor emergency credential (not yet provisioned
+# for any actor as of this writing) would make this shared tracking
+# unnecessary for that actor.
+SHARED_DEFAULT_CREDENTIAL_STATE_PATH = Path.home() / ".hermes-policy" / "_shared-continuity" / "state.db"
 from governor import (
     DEFAULT_THRESHOLDS,
     Admission,
@@ -92,6 +103,17 @@ OMNIROUTE_PORT = 20128
 # model." tier4-frontier is never OmniRoute-backed and is never eligible
 # for automatic remapping at all (explicit-only, no auto-fallback for
 # frontier/T4) - it simply never appears in this map.
+#
+# Greptile P1 (PR #735, round 3): every substitution TARGET here must
+# also be present in the model list of every actor whose allowed_routes
+# includes the corresponding SOURCE key, or the degraded-routing call
+# itself gets rejected with a 403 model_access_denied from LiteLLM
+# instead of preserving service - defeating the entire point of this
+# map. Confirmed live 2026-08-31: all three current actors' keys
+# (ghost-alpha0, ghost-default, ghost-axis-control) already include
+# tier2-general. When adding a new actor or a new map entry, verify this
+# explicitly (`/key/info` on the actor's LiteLLM key) - it is not
+# enforced automatically by this code.
 DEGRADED_ROUTING_MAP = {
     "tier2-research": "tier2-general",
 }
@@ -191,6 +213,13 @@ class PolicyEndpoint:
         # cap-check-through-spend-record sequence with a plain lock is a
         # correct, adequate fix; it does not need per-request concurrency.
         self._continuity_cap_lock = threading.Lock()
+        # Cross-process shared cap tracking for the shared default
+        # credential (see SHARED_DEFAULT_CREDENTIAL_STATE_PATH comment
+        # above) - SQLite's own file locking handles the cross-process
+        # part; self._continuity_cap_lock above only serializes within
+        # this one process. Lazily created so an actor that never hits
+        # continuity mode never touches this shared file at all.
+        self._shared_default_credential_state = None
         self._last_classification = "healthy"
         self._last_omniroute_classification = "healthy"
         self._stop = threading.Event()
@@ -341,6 +370,19 @@ class PolicyEndpoint:
     def _break_glass_credential(self):
         return self.continuity.credential_store.load()
 
+    def _cap_tracking_state(self, cred) -> LocalState:
+        """Per-actor state.db normally; the cross-process shared state.db
+        when this actor is currently using the shared default reference
+        credential (see is_shared_default_credential / module docstring
+        above) - every other actor using that same credential shares this
+        same file, so aggregate usage is visible regardless of which
+        actor's process is checking."""
+        if not is_shared_default_credential(cred):
+            return self.state
+        if self._shared_default_credential_state is None:
+            self._shared_default_credential_state = LocalState(SHARED_DEFAULT_CREDENTIAL_STATE_PATH)
+        return self._shared_default_credential_state
+
     def _forward_continuity(self, cred, requested_route, body, priority, digest):
         existing = self.state.idempotency_lookup(digest)
         if existing and existing.get("completed_at"):
@@ -391,9 +433,18 @@ class PolicyEndpoint:
         # constructor comment. Continuity is rare/bounded by design, so
         # serializing here has no real throughput cost.
         with self._continuity_cap_lock:
+            cap_state = self._cap_tracking_state(cred)
+            using_shared_cap_state = is_shared_default_credential(cred)
             now = time.time()
-            day_burn = self.state.burn_since(self.actor, now - 86400)
-            month_burn = self.state.burn_since(self.actor, now - 30 * 86400)
+            if using_shared_cap_state:
+                # Aggregate across every actor sharing this same
+                # credential, not just this actor's own usage - see
+                # module-level SHARED_DEFAULT_CREDENTIAL_STATE_PATH comment.
+                day_burn = cap_state.burn_since_all_actors(now - 86400)
+                month_burn = cap_state.burn_since_all_actors(now - 30 * 86400)
+            else:
+                day_burn = cap_state.burn_since(self.actor, now - 86400)
+                month_burn = cap_state.burn_since(self.actor, now - 30 * 86400)
             cap_reason = None
             if day_burn["unknown_count"] > 0 or month_burn["unknown_count"] > 0:
                 cap_reason = "continuity burn window has unknown-cost entries; treating conservatively"
@@ -441,7 +492,11 @@ class PolicyEndpoint:
                 raw = exc.read()
                 status = exc.code
             except urllib.error.URLError as exc:
-                self.state.record_spend(
+                # Recorded into cap_state, not always self.state - when
+                # this actor is on the shared default credential, this
+                # spend must land in the SAME file the aggregate cap
+                # check above just read from.
+                cap_state.record_spend(
                     actor=self.actor, requested_route=requested_route,
                     actual_provider=cred.provider, actual_model=cred.model,
                     cost_usd=None, input_tokens=None, output_tokens=None,
@@ -469,7 +524,7 @@ class PolicyEndpoint:
 
             if status == 200:
                 self.state.idempotency_complete(digest, raw.decode(errors="replace"))
-            self.state.record_spend(
+            cap_state.record_spend(
                 actor=self.actor, requested_route=requested_route,
                 actual_provider=cred.provider, actual_model=attestation.get("actual_model") or cred.model,
                 cost_usd=cost_usd, input_tokens=input_tokens, output_tokens=output_tokens,

@@ -43,6 +43,17 @@ class EmergencyCredential:
 # same failure dependency this exists to route around).
 _DEFAULT_REFERENCE_ENV_FILE = Path.home() / ".hermes" / ".env"
 _DEFAULT_REFERENCE_ENV_VAR = "OPENAI_API_KEY"
+DEFAULT_REFERENCE_KEY_OR_ROLE = f"env_file:{_DEFAULT_REFERENCE_ENV_FILE}#{_DEFAULT_REFERENCE_ENV_VAR}"
+
+# Greptile P1 (PR #735, round 3): every actor instance on this host falls
+# back to this SAME default reference credential (there is only one
+# OPENAI_API_KEY on Ghost) - if two+ actors entered continuity at once,
+# each checking its own per-actor state.db would under-count the
+# credential's true aggregate usage. Callers must check this and, when
+# true, track burn in a SHARED state store (see endpoint.py's
+# _shared_default_credential_state), not the per-actor one.
+def is_shared_default_credential(cred: "EmergencyCredential") -> bool:
+    return cred.key_or_role == DEFAULT_REFERENCE_KEY_OR_ROLE
 _DEFAULT_REFERENCE_MODEL = "gpt-5.6-sol"
 # Deliberately small - this path exists to keep essential background
 # work moving, not to fund normal-priced usage. Well below the actor's
@@ -69,7 +80,7 @@ def _default_reference_credential() -> "EmergencyCredential | None":
     return EmergencyCredential(
         provider="openai",
         model=_DEFAULT_REFERENCE_MODEL,
-        key_or_role=f"env_file:{_DEFAULT_REFERENCE_ENV_FILE}#{_DEFAULT_REFERENCE_ENV_VAR}",
+        key_or_role=DEFAULT_REFERENCE_KEY_OR_ROLE,
         daily_cap_usd=_DEFAULT_REFERENCE_DAILY_CAP_USD,
         monthly_cap_usd=_DEFAULT_REFERENCE_MONTHLY_CAP_USD,
     )
