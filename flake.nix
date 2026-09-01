@@ -159,6 +159,16 @@
           };
           overlays = [
             (final: prev: {
+              # Compatibility shim: upstream modules in some pinned inputs still
+              # read deprecated aliases (`pkgs.system`, `stdenv.isLinux`,
+              # `stdenv.isDarwin`). Re-export them as plain values to keep
+              # evaluation warning-free until those inputs update.
+              system = prev.stdenv.hostPlatform.system;
+              stdenv = prev.stdenv // {
+                isLinux = prev.stdenv.hostPlatform.isLinux;
+                isDarwin = prev.stdenv.hostPlatform.isDarwin;
+              };
+
               # nixpkgs kept nixfmt-rfc-style as an alias for a while and emits a warning
               # when it is evaluated. Some tooling (eg treefmt-nix defaults) still refers
               # to that name. Override it to the canonical package to avoid the warning.
