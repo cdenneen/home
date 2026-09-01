@@ -100,11 +100,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785985074,
-        "narHash": "sha256-TeZGXgiw2H22QVovffKyivqhmu/riLPFJGS30y0fo+A=",
+        "lastModified": 1788217164,
+        "narHash": "sha256-O3my8NAUUO46NdiTwV3HYqZcKwMX+QHOynDjrt+4qoA=",
         "ref": "refs/heads/main",
-        "rev": "9b10d809e13799fb1bc6c008e0b4c167366b054b",
-        "revCount": 396,
+        "rev": "40b28f398754c316eae7027d6ae50f218c9f727c",
+        "revCount": 545,
         "type": "git",
         "url": "https://gitlab.com/ghostspace/axis.git"
       },
