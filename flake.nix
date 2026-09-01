@@ -478,6 +478,7 @@
                   );
                 in
                 assert inputs.axis.rev == "40b28f398754c316eae7027d6ae50f218c9f727c";
+                assert builtins.length axisCapabilitySetups == 2;
                 assert hasPrefix "/nix/store/" proxy;
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
                   axisSlackCapabilitySetup;
@@ -486,6 +487,8 @@
                 assert hasInfix "active principal is not the deployment owner" axisSlackCapabilitySetup;
                 assert hasInfix "provider.openai-compatible.eros.api-key" axisErosCapabilitySetup;
                 assert hasInfix "provider.openai-compatible.eros.base-url" axisErosCapabilitySetup;
+                assert hasInfix "provider.openai-compatible.eros.api_key" axisErosCapabilitySetup;
+                assert hasInfix "provider.openai-compatible.eros.base_url" axisErosCapabilitySetup;
                 assert hasInfix "--scope axis_vault" axisErosCapabilitySetup;
                 pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
                   if ${pkgs.jq}/bin/jq -e --arg principal_id principal.not-owner '
