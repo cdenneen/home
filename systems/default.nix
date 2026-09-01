@@ -49,6 +49,7 @@ let
 
   sharedHomeModulesFor =
     {
+      enableAxisControl ? true,
       enableCatppuccin ? true,
       enableNixIndex ? true,
       enableNur ? true,
@@ -65,10 +66,8 @@ let
     ]
     ++ nixpkgs.lib.optional enableNixIndex nix-index-database.homeModules.nix-index
     ++ nixpkgs.lib.optional enableNur nur.modules.homeManager.default
-    ++ [
-      axis-control.homeModules.default
-      self.homeModules.default
-    ]
+    ++ nixpkgs.lib.optional enableAxisControl axis-control.homeModules.default
+    ++ [ self.homeModules.default ]
     ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
     ++ [ sopsNix.homeManagerModules.sops ];
 
@@ -186,6 +185,7 @@ let
       sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
       homeStateVersion = if legacyBigSur then "25.05" else "26.05";
       hostHomeModules = sharedHomeModulesFor {
+        enableAxisControl = !legacyBigSur;
         enableCatppuccin = !legacyBigSur;
         enableNixIndex = !legacyBigSur;
         enableNur = !legacyBigSur;
@@ -261,6 +261,7 @@ let
       sopsNixInput = if legacyBigSur then inputs.sops-nix-mbair else sops-nix;
       homeStateVersion = if legacyBigSur then "25.05" else "26.05";
       hostHomeModules = sharedHomeModulesFor {
+        enableAxisControl = !legacyBigSur;
         enableCatppuccin = !legacyBigSur;
         enableNixIndex = !legacyBigSur;
         enableNur = !legacyBigSur;
