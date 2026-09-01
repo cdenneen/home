@@ -45,6 +45,18 @@ let
     pi-plugins = self.packages.${system}.pi-plugins;
   };
 
+  stdenvCompatOverlay = final: prev: {
+    system = prev.stdenv.hostPlatform.system;
+    stdenv = prev.stdenv // {
+      isLinux = prev.stdenv.hostPlatform.isLinux;
+      isDarwin = prev.stdenv.hostPlatform.isDarwin;
+    };
+  };
+
+  hmStdenvCompatModule = {
+    nixpkgs.overlays = [ stdenvCompatOverlay ];
+  };
+
   hostCatalog = import ../hosts;
 
   sharedHomeModulesFor =
@@ -157,7 +169,7 @@ let
         {
           home-manager = {
             extraSpecialArgs = specialArgs;
-            sharedModules = sharedHomeModulesIntegrated;
+            sharedModules = [ hmStdenvCompatModule ] ++ sharedHomeModulesIntegrated;
           };
         }
         {
@@ -282,7 +294,7 @@ let
           homeStateVersion
           ;
       };
-      modules = homeModules ++ hostHomeModules;
+      modules = [ hmStdenvCompatModule ] ++ homeModules ++ hostHomeModules;
     };
 
   lib = {
