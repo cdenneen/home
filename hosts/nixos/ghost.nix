@@ -24,6 +24,7 @@ let
   axisSlackSigningSecretFile = config.sops.secrets.jarvis_slack_signing_secret.path;
   axisErosApiKeyFile = config.sops.secrets.axis_eros_api_key.path;
   axisErosBaseUrlFile = config.sops.secrets.axis_eros_base_url.path;
+  axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
   axisSlackProductOwnerId = "U0B7ZGP6M43";
   axisSlackIdentitySecretName = "provider.slack.identity.${
@@ -138,6 +139,23 @@ let
         --secret-name provider.openai-compatible.eros.base_url \
         --scope axis_vault \
         --display-name "AXIS Eros OpenAI-compatible base URL" \
+        --secret-stdin \
+        > /dev/null
+  '';
+  axisGitlabCapabilitySetup = pkgs.writeShellScript "axis-gitlab-capability-setup" ''
+    set -euo pipefail
+
+    if [ ! -s "${axisGitlabReadApiTokenFile}" ]; then
+      echo "axis GitLab capability setup: required secret file is missing or empty" >&2
+      exit 1
+    fi
+
+    ${pkgs.coreutils}/bin/cat "${axisGitlabReadApiTokenFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.gitlab.axis.read-api-token \
+        --secret-name provider.gitlab.axis.read_api_token \
+        --scope axis_vault \
+        --display-name "AXIS GitLab read_api token (ghostspace/axis)" \
         --secret-stdin \
         > /dev/null
   '';
@@ -676,6 +694,13 @@ in
     mode = "0400";
     restartUnits = [ "axis.service" ];
   };
+  sops.secrets.axis_gitlab_read_api_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
   sops.secrets."alpha0/audit-key" = {
     sopsFile = alpha0SecretsFile;
     key = "alpha0_audit_key";
@@ -910,8 +935,9 @@ in
       axisSlackSigningSecretFile
       axisErosApiKeyFile
       axisErosBaseUrlFile
+      axisGitlabReadApiTokenFile
     ];
-    preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisErosCapabilitySetup}";
+    preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisErosCapabilitySetup} && ${axisGitlabCapabilitySetup}";
   };
 
   systemd.services.axis-deployment-identity = {
