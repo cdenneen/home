@@ -22,6 +22,8 @@ let
   axisApiBearerTokenFile = config.sops.secrets.axis_remote_client_token.path;
   axisSlackBotTokenFile = config.sops.secrets.jarvis_slack_bot_token.path;
   axisSlackSigningSecretFile = config.sops.secrets.jarvis_slack_signing_secret.path;
+  axisErosApiKeyFile = config.sops.secrets.axis_eros_api_key.path;
+  axisErosBaseUrlFile = config.sops.secrets.axis_eros_base_url.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
   axisSlackProductOwnerId = "U0B7ZGP6M43";
   axisSlackIdentitySecretName = "provider.slack.identity.${
@@ -109,6 +111,33 @@ let
         --secret-name ${axisSlackIdentitySecretName} \
         --scope axis_vault \
         --display-name "Slack Product Owner identity" \
+        --secret-stdin \
+        > /dev/null
+  '';
+  axisErosCapabilitySetup = pkgs.writeShellScript "axis-eros-capability-setup" ''
+    set -euo pipefail
+
+    for secret_file in "${axisErosApiKeyFile}" "${axisErosBaseUrlFile}"; do
+      if [ ! -s "$secret_file" ]; then
+        echo "axis Eros capability setup: required secret file is missing or empty" >&2
+        exit 1
+      fi
+    done
+
+    ${pkgs.coreutils}/bin/cat "${axisErosApiKeyFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.openai-compatible.eros.api-key \
+        --secret-name provider.openai-compatible.eros.api_key \
+        --scope axis_vault \
+        --display-name "AXIS Eros OpenAI-compatible API key" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/cat "${axisErosBaseUrlFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.openai-compatible.eros.base-url \
+        --secret-name provider.openai-compatible.eros.base_url \
+        --scope axis_vault \
+        --display-name "AXIS Eros OpenAI-compatible base URL" \
         --secret-stdin \
         > /dev/null
   '';
@@ -633,6 +662,20 @@ in
     mode = "0400";
     restartUnits = [ "axis.service" ];
   };
+  sops.secrets.axis_eros_api_key = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
+  sops.secrets.axis_eros_base_url = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
   sops.secrets."alpha0/audit-key" = {
     sopsFile = alpha0SecretsFile;
     key = "alpha0_audit_key";
@@ -865,8 +908,13 @@ in
     unitConfig.RequiresMountsFor = [
       axisSlackBotTokenFile
       axisSlackSigningSecretFile
+      axisErosApiKeyFile
+      axisErosBaseUrlFile
     ];
-    preStart = lib.mkBefore "${axisSlackCapabilitySetup}";
+    preStart = lib.mkBefore ''
+      ${axisSlackCapabilitySetup}
+      ${axisErosCapabilitySetup}
+    '';
   };
 
   systemd.services.axis-deployment-identity = {
