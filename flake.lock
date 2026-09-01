@@ -897,11 +897,11 @@
         "nixpkgs": "nixpkgs_7"
       },
       "locked": {
-        "lastModified": 1785678421,
-        "narHash": "sha256-l8avyRaAonZE0kx2YyrQ3u8DsCfKIFRUQwaD5/0jOvw=",
+        "lastModified": 1788111306,
+        "narHash": "sha256-HCkPdlAxCdM3j1XQzGPW12ml1IEFZgRCocOpzeBdhcA=",
         "owner": "aldur",
         "repo": "nixos-crostini",
-        "rev": "8d6353492d812411b2e78086bdc66d8a9dde173d",
+        "rev": "9452876ab48c11e78ba71ab21c79e63431b47f4c",
         "type": "github"
       },
       "original": {
