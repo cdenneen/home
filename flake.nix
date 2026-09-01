@@ -477,7 +477,7 @@
                     builtins.head (splitString "\n" (builtins.elemAt axisCapabilitySetups 1))
                   );
                 in
-                assert inputs.axis.rev == "40b28f398754c316eae7027d6ae50f218c9f727c";
+                assert inputs.axis.rev == "3fbf4c93de97d72a8463c12eb0ac6a7a25decf49";
                 assert builtins.length axisCapabilitySetups == 2;
                 assert hasPrefix "/nix/store/" proxy;
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
