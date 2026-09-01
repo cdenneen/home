@@ -220,7 +220,7 @@ in
     openFirewall = true;
   };
 
-  environment.systemPackages = lib.mkAfter [ axis.packages.${pkgs.system}.axis ];
+  environment.systemPackages = lib.mkAfter [ axis.packages.${pkgs.stdenv.hostPlatform.system}.axis ];
 
   sops.secrets.axis_remote_client_token = {
     sopsFile = ../../secrets/axis.yaml;

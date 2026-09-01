@@ -31,7 +31,7 @@ let
   colors = palettes.${theme};
 in
 {
-  config = lib.mkIf (pkgs.stdenv.isLinux && config.profiles.gui.enable) {
+  config = lib.mkIf (pkgs.stdenv.hostPlatform.isLinux && config.profiles.gui.enable) {
     home.packages = with pkgs; [
       cliphist
       fuzzel

@@ -16,7 +16,7 @@ let
   # runtime-dir paths (/run/user/$UID) that may be missing on a headless host
   # with no active login session.
   sopsSecretsDir =
-    if pkgs.stdenv.isDarwin then
+    if pkgs.stdenv.hostPlatform.isDarwin then
       "${config.home.homeDirectory}/.config/sops-nix/secrets"
     else
       "${config.home.homeDirectory}/.local/share/sops-nix/secrets";

@@ -19,7 +19,7 @@ let
   enableLinuxLemonadeServer = false;
 
   erosRemoteForwards =
-    if pkgs.stdenv.isDarwin then
+    if pkgs.stdenv.hostPlatform.isDarwin then
       [
         {
           bind.port = 2489;
@@ -44,8 +44,8 @@ let
       [ ];
 
   identityConfig = {
-    identitiesOnly = true;
-    identityFile = [
+    IdentitiesOnly = true;
+    IdentityFile = [
       "${sshDir}/fortress_rsa"
       "${sshDir}/cdenneen_ed25519_2024"
       "${sshDir}/codecommit_rsa"
@@ -115,18 +115,18 @@ in
   home.packages =
     hmCorePackages
     ++ lib.optionals (!isGhost) hmHeavyPackages
-    ++ lib.optionals pkgs.stdenv.isLinux [
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
       pkgs.netcat-openbsd
     ]
-    ++ lib.optionals (pkgs.stdenv.isLinux && !isGhost) [
+    ++ lib.optionals (pkgs.stdenv.hostPlatform.isLinux && !isGhost) [
       pkgs.xsel
     ]
-    ++ lib.optionals (pkgs.stdenv.isLinux && hostName == "nyx") [
+    ++ lib.optionals (pkgs.stdenv.hostPlatform.isLinux && hostName == "nyx") [
       pkgs.chromium
       pkgs.firefox
     ];
 
-  home.sessionPath = lib.optionals (pkgs.stdenv.isDarwin && hostName == "VNJTECMBCD") [
+  home.sessionPath = lib.optionals (pkgs.stdenv.hostPlatform.isDarwin && hostName == "VNJTECMBCD") [
     "${config.home.homeDirectory}/.lmstudio/bin"
   ];
 
@@ -137,12 +137,12 @@ in
   };
 
   home.sessionVariables = lib.mkMerge [
-    (lib.mkIf (pkgs.stdenv.isLinux && !isWsl) {
+    (lib.mkIf (pkgs.stdenv.hostPlatform.isLinux && !isWsl) {
       LEMONADE_SERVER = "127.0.0.1:2489";
     })
   ];
 
-  launchd.agents.lemonade = lib.mkIf pkgs.stdenv.isDarwin {
+  launchd.agents.lemonade = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     enable = true;
     config = {
       ProgramArguments = [
@@ -157,7 +157,7 @@ in
     };
   };
 
-  launchd.agents.opencode-serve = lib.mkIf pkgs.stdenv.isDarwin {
+  launchd.agents.opencode-serve = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     enable = true;
     config = {
       ProgramArguments = [
@@ -180,7 +180,7 @@ in
     };
   };
 
-  launchd.agents.omniroute = lib.mkIf (pkgs.stdenv.isDarwin && hostName == "VNJTECMBCD") {
+  launchd.agents.omniroute = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && hostName == "VNJTECMBCD") {
     enable = true;
     config = {
       ProgramArguments = [
@@ -202,7 +202,7 @@ in
     };
   };
 
-  launchd.agents.oci-ghost-autostart = lib.mkIf (pkgs.stdenv.isDarwin && enableOciGhostAutostart) {
+  launchd.agents.oci-ghost-autostart = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && enableOciGhostAutostart) {
     enable = true;
     config = {
       ProgramArguments = [
@@ -221,7 +221,7 @@ in
     };
   };
 
-  launchd.agents.peps-service = lib.mkIf pkgs.stdenv.isDarwin {
+  launchd.agents.peps-service = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     enable = true;
     config = {
       ProgramArguments = [
@@ -299,7 +299,7 @@ in
 
   services.syncthing = {
     enable = true;
-    tray.enable = pkgs.stdenv.isLinux;
+    tray.enable = pkgs.stdenv.hostPlatform.isLinux;
     overrideDevices = false;
     overrideFolders = false;
     settings = {
@@ -331,78 +331,78 @@ in
 
   programs.ssh = {
     enable = true;
-    matchBlocks = {
+    settings = {
       "i-* m-*" = {
-        proxyCommand = ssmProxyCommand;
+        ProxyCommand = ssmProxyCommand;
       };
 
       c9 = identityConfig // {
-        proxyCommand = ssmProxyCommand;
-        user = "ubuntu";
-        hostname = "i-085b4f08b56c8b914";
+        ProxyCommand = ssmProxyCommand;
+        User = "ubuntu";
+        HostName = "i-085b4f08b56c8b914";
       };
 
       "eros-ssm" = identityConfig // {
-        proxyCommand = ssmProxyCommand;
-        user = "cdenneen";
-        hostname = "i-0a3e1df60bde023ad";
-        remoteForwards = erosRemoteForwards;
+        ProxyCommand = ssmProxyCommand;
+        User = "cdenneen";
+        HostName = "i-0a3e1df60bde023ad";
+        RemoteForward = erosRemoteForwards;
       };
 
       eros = identityConfig // {
-        user = "cdenneen";
-        hostname = "10.224.11.147";
-        remoteForwards = erosRemoteForwards;
+        User = "cdenneen";
+        HostName = "10.224.11.147";
+        RemoteForward = erosRemoteForwards;
       };
 
       nyx = identityConfig // {
-        user = "cdenneen";
-        hostname = "100.80.58.4";
-        remoteForwards = erosRemoteForwards;
+        User = "cdenneen";
+        HostName = "100.80.58.4";
+        RemoteForward = erosRemoteForwards;
       };
 
       ghost = identityConfig // {
-        user = "cdenneen";
-        hostname = "150.136.97.147";
+        User = "cdenneen";
+        HostName = "150.136.97.147";
       };
 
       "nyx-ssm" = identityConfig // {
-        proxyCommand = ssmProxyCommand;
-        user = "cdenneen";
-        hostname = "i-052cb7906e89d224a";
-        remoteForwards = erosRemoteForwards;
+        ProxyCommand = ssmProxyCommand;
+        User = "cdenneen";
+        HostName = "i-052cb7906e89d224a";
+        RemoteForward = erosRemoteForwards;
       };
 
       nix = {
-        user = "root";
-        hostname = "10.224.11.140";
-        identityFile = "~/.ssh/cdenneen_winlaptop.pem";
-        extraOptions.RequestTTY = "no";
+        User = "root";
+        HostName = "10.224.11.140";
+        IdentityFile = "~/.ssh/cdenneen_winlaptop.pem";
+        RequestTTY = "no";
       };
 
       "git-codecommit.*.amazonaws.com" = identityConfig // {
-        user = "APKA4GUE2SGMGTPZB44D";
+        User = "APKA4GUE2SGMGTPZB44D";
       };
 
       puppet = identityConfig // {
-        user = "root";
-        hostname = "ctcpmaster01.ap.org";
+        User = "root";
+        HostName = "ctcpmaster01.ap.org";
       };
 
       "github.com" = {
-        user = "git";
-        identitiesOnly = true;
-        identityFile = [ "${sshDir}/github_ed25519" ];
+        User = "git";
+        IdentitiesOnly = true;
+        IdentityFile = [ "${sshDir}/github_ed25519" ];
       };
 
       "gitlab.com" = {
-        identitiesOnly = true;
-        identityFile = [ "${sshDir}/cdenneen_ed25519_2024" ];
-        user = "git";
+        IdentitiesOnly = true;
+        IdentityFile = [ "${sshDir}/cdenneen_ed25519_2024" ];
+        User = "git";
       };
       "git.ap.org" = identityConfig // {
-        identitiesOnly = true;
-        identityFile = [ "~/.ssh/id_ed25519" ];
+        IdentitiesOnly = true;
+        IdentityFile = [ "~/.ssh/id_ed25519" ];
       };
     };
   };

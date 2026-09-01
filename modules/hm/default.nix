@@ -19,7 +19,7 @@ in
       defaultSopsFile = ../../secrets/secrets.yaml;
       age = {
         keyFile =
-          if pkgs.stdenv.isLinux then
+          if pkgs.stdenv.hostPlatform.isLinux then
             hostKeyFile
           else
             "${config.home.homeDirectory}/Library/Application Support/sops/age/keys.txt";

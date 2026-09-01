@@ -7,7 +7,7 @@
   ...
 }:
 let
-  packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
+  packageAvailable = pkgs.stdenv.hostPlatform.isLinux && agentPkgs != null && agentPkgs ? hermes;
   watchdogEnabled = config.profiles.hermesWatchdog.enable && packageAvailable;
   runtimeRoot = "${config.home.homeDirectory}/.hermes/supervisor/axis-development-watchdog";
   watchdogPython = pkgs.python3;

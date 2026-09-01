@@ -18,8 +18,8 @@ in
     pkgs.pnpm
     pkgs.podman
     pkgs.uv
-    axis.packages.${pkgs.system}.axis
-    axis.packages.${pkgs.system}.axis-desktop
+    axis.packages.${pkgs.stdenv.hostPlatform.system}.axis
+    axis.packages.${pkgs.stdenv.hostPlatform.system}.axis-desktop
   ];
 
   sops.secrets.axis_remote_client_token = {

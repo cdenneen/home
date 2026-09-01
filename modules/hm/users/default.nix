@@ -56,7 +56,7 @@ in
           "/opt/homebrew/bin"
           "/opt/homebrew/sbin"
         ]
-        ++ lib.optionals pkgs.stdenv.isDarwin [
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           "/System/Cryptexes/App/usr/bin"
         ]
         ++ [
@@ -69,7 +69,7 @@ in
           "/usr/local/games"
           "/usr/games"
         ]
-        ++ lib.optionals pkgs.stdenv.isDarwin [
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin"
           "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin"
           "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin"
@@ -81,7 +81,7 @@ in
     # must live at the system level (NixOS / nix-darwin).
     # XDG config files managed by Home Manager
     xdg.configFile = { };
-    home.file.".bin/pnpm" = lib.mkIf pkgs.stdenv.isDarwin {
+    home.file.".bin/pnpm" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       source = lib.getExe pkgs.pnpm;
       executable = true;
     };
@@ -245,15 +245,16 @@ in
     ++ lib.optionals (agentPkgs != null && agentPkgs ? pi) [
       agentPkgs.pi
     ]
-    ++ lib.optionals pkgs.stdenv.isLinux [
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
       pkgs.pinentry-curses
       pkgs.clang
     ];
-    services.easyeffects = lib.mkIf (pkgs.stdenv.isLinux && cfg.gui.enable) {
+    services.easyeffects = lib.mkIf (pkgs.stdenv.hostPlatform.isLinux && cfg.gui.enable) {
       enable = true;
     };
     catppuccin = {
       enable = true;
+      autoEnable = true;
       flavor = lib.mkDefault "mocha";
       accent = lib.mkDefault "red";
     };

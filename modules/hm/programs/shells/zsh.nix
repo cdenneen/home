@@ -47,7 +47,7 @@ in
         unset IFS
       '';
     };
-    home.file.".hushlogin" = lib.mkIf pkgs.stdenv.isDarwin {
+    home.file.".hushlogin" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       text = "";
     };
   };

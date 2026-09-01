@@ -53,7 +53,7 @@
       catppuccin.tmux.enable = lib.mkForce false;
       programs.starship.enable = lib.mkForce false;
       # cdenneen/programs.nix sets `services.syncthing.tray.enable =
-      # pkgs.stdenv.isLinux;` unconditionally -- that pulls in syncthingtray
+      # pkgs.stdenv.hostPlatform.isLinux;` unconditionally -- that pulls in syncthingtray
       # (a Qt6 GUI tray icon: qtbase/qtdeclarative/qtsvg/qttools/qtwayland),
       # a genuinely heavy, genuinely unnecessary dependency on a headless VM
       # with no desktop to sync files with in the first place. Unlike the

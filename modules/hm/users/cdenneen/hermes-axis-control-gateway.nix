@@ -7,7 +7,7 @@
 }:
 let
   cfg = config.profiles.hermesAxisControlGateway;
-  packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
+  packageAvailable = pkgs.stdenv.hostPlatform.isLinux && agentPkgs != null && agentPkgs ? hermes;
   axisControlRoot = "${config.home.homeDirectory}/src/workspace/work/axis-control";
   hermesHome = "${axisControlRoot}/.hermes";
   workloadMetadata = import ./hermes-workload-metadata { inherit pkgs agentPkgs; };

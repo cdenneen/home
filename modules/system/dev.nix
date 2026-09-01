@@ -78,7 +78,7 @@ in
         ++ lib.optionals cfg.gui.enable [
           jetbrains-toolbox
         ]
-        ++ lib.optionals stdenv.isLinux [
+        ++ lib.optionals stdenv.hostPlatform.isLinux [
           gcc
           clang
         ]

@@ -18,8 +18,8 @@ let
       builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
   isGhost = hostName == "ghost";
-  isDarwin = pkgs.stdenv.isDarwin;
-  isLinux = pkgs.stdenv.isLinux;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
   erosLitellmKeyName = lib.attrByPath [ hostName ] null {
     VNJTECMBCD = "eros_litellm_api_key_vnjtecmbcd";
     ghost = "eros_litellm_api_key_ghost";
@@ -506,12 +506,12 @@ in
     fi
   '';
 
-  home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.isDarwin (
+  home.activation.fixDarwinActivationPath = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
     lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
     ''
   );
-  home.activation.fixDarwinSopsSecretsDir = lib.mkIf pkgs.stdenv.isDarwin (
+  home.activation.fixDarwinSopsSecretsDir = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
     lib.hm.dag.entryBefore [ "sops-nix" ] ''
       set -euo pipefail
 
@@ -526,7 +526,7 @@ in
     ''
   );
 
-  home.activation.materializeDarwinSopsSecrets = lib.mkIf pkgs.stdenv.isDarwin (
+  home.activation.materializeDarwinSopsSecrets = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin (
     lib.hm.dag.entryAfter [ "sops-nix" ] ''
       set -euo pipefail
 
@@ -547,7 +547,7 @@ in
   # $XDG_RUNTIME_DIR are missing). sops-nix relies on XDG_RUNTIME_DIR to mount
   # secrets, so provide a fallback under $HOME and materialize once during
   # activation.
-  home.activation.materializeLinuxSopsSecrets = lib.mkIf pkgs.stdenv.isLinux (
+  home.activation.materializeLinuxSopsSecrets = lib.mkIf pkgs.stdenv.hostPlatform.isLinux (
     lib.hm.dag.entryAfter [ "sops-nix" ] ''
       set -euo pipefail
 
@@ -571,7 +571,7 @@ in
       (
         [ "linkGeneration" ]
         ++ (
-          if pkgs.stdenv.isDarwin then
+          if pkgs.stdenv.hostPlatform.isDarwin then
             [ "materializeDarwinSopsSecrets" ]
           else
             [ "materializeLinuxSopsSecrets" ]
@@ -615,7 +615,7 @@ in
 
   home.activation.materializeOciFiles =
     lib.hm.dag.entryAfter
-      (if pkgs.stdenv.isDarwin then [ "materializeDarwinSopsSecrets" ] else [ "sops-nix" ])
+      (if pkgs.stdenv.hostPlatform.isDarwin then [ "materializeDarwinSopsSecrets" ] else [ "sops-nix" ])
       ''
         set -euo pipefail
 
@@ -645,7 +645,7 @@ in
   home.activation.materializeGhHosts =
     lib.hm.dag.entryAfter
       (
-        if pkgs.stdenv.isDarwin then
+        if pkgs.stdenv.hostPlatform.isDarwin then
           [ "materializeDarwinSopsSecrets" ]
         else
           [ "materializeLinuxSopsSecrets" ]
@@ -753,7 +753,7 @@ in
       };
     }
 
-    (lib.mkIf pkgs.stdenv.isDarwin {
+    (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
       ".config/sops" = {
         source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/Library/Application Support/sops";
         force = true;

@@ -30,7 +30,7 @@ in
   };
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
-    home.file.".hyper.js" = lib.mkIf pkgs.stdenv.isDarwin { text = cfg.config_file; };
-    xdg.configFile."Hyper/.hyper.js" = lib.mkIf pkgs.stdenv.isLinux { text = cfg.config_file; };
+    home.file.".hyper.js" = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin { text = cfg.config_file; };
+    xdg.configFile."Hyper/.hyper.js" = lib.mkIf pkgs.stdenv.hostPlatform.isLinux { text = cfg.config_file; };
   };
 }

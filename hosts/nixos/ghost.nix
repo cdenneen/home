@@ -15,7 +15,7 @@ let
   );
   ghostTunnelId = "1481e71c-a53f-4fe0-8983-468a3e0fffdf";
   ghostCloudflareCredFile = "/var/lib/cloudflared/ghost.json";
-  axisWebPackage = axis.packages.${pkgs.system}.axis-web;
+  axisWebPackage = axis.packages.${pkgs.stdenv.hostPlatform.system}.axis-web;
   axisWebDashboardPasswordFile = config.sops.secrets.axis_web_dashboard_password.path;
   axisWebSessionSecretFile = config.sops.secrets.axis_web_session_secret.path;
   axisWebTokenFile = "/run/axis-web/token";
@@ -88,7 +88,7 @@ let
     done
 
     ${pkgs.coreutils}/bin/cat "${axisSlackBotTokenFile}" \
-      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+      | ${axis.packages.${pkgs.stdenv.hostPlatform.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
         --capability-id provider.slack.bot-token \
         --secret-name provider.slack.bot_token \
         --scope axis_vault \
@@ -96,7 +96,7 @@ let
         --secret-stdin \
         > /dev/null
     ${pkgs.coreutils}/bin/cat "${axisSlackSigningSecretFile}" \
-      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+      | ${axis.packages.${pkgs.stdenv.hostPlatform.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
         --capability-id provider.slack.signing-secret \
         --secret-name provider.slack.signing_secret \
         --scope axis_vault \
@@ -104,7 +104,7 @@ let
         --secret-stdin \
         > /dev/null
     ${pkgs.coreutils}/bin/printf '%s' "$binding" \
-      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+      | ${axis.packages.${pkgs.stdenv.hostPlatform.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
         --capability-id provider.slack.identity.product-owner \
         --secret-name ${axisSlackIdentitySecretName} \
         --scope axis_vault \
@@ -929,7 +929,7 @@ in
       install -d -m 0750 -o axis -g axis "$stage/axis-owned"
       ${pkgs.util-linux}/bin/runuser -u axis -- ${pkgs.bash}/bin/bash -c \
         "${pkgs.coreutils}/bin/cat ${config.sops.secrets.ghost_axis_dr_export_passphrase.path} | ${
-          axis.packages.${pkgs.system}.axis
+          axis.packages.${pkgs.stdenv.hostPlatform.system}.axis
         }/bin/axis --data-root /var/lib/axis export --output '$stage/axis-owned/axis-export.tar' --passphrase-stdin"
 
       echo "[axis-dr-backup] dumping neo4j (brief clean stop/start)..."
