@@ -53,6 +53,33 @@ let
       exit 1
     }
 
+    principal_id="$(${pkgs.jq}/bin/jq -er '.principal_id' <<<"$binding")"
+    profile_db="/var/lib/axis/profile.db"
+    if [ ! -r "$profile_db" ]; then
+      echo "axis Slack identity binding: canonical profile database is not readable" >&2
+      exit 1
+    fi
+    profile_payload="$(${pkgs.sqlite}/bin/sqlite3 -readonly "$profile_db" \
+      'SELECT payload FROM profile_state WHERE singleton = 1;')" || {
+      echo "axis Slack identity binding: canonical profile payload is unavailable" >&2
+      exit 1
+    }
+    if ! ${pkgs.coreutils}/bin/printf '%s' "$profile_payload" | ${pkgs.jq}/bin/jq -e \
+      --arg principal_id "$principal_id" '
+        .principals
+        | select(type == "array")
+        | any(
+            .[];
+            type == "object"
+            and .principal_id == $principal_id
+            and .relationship == "owner"
+            and (.role_ids | if type == "array" then index("deployment-owner") != null else false end)
+          )
+      ' > /dev/null; then
+      echo "axis Slack identity binding: active principal is not the deployment owner" >&2
+      exit 1
+    fi
+
     for secret_file in "${axisSlackBotTokenFile}" "${axisSlackSigningSecretFile}"; do
       if [ ! -s "$secret_file" ]; then
         echo "axis Slack capability setup: required secret file is missing or empty" >&2

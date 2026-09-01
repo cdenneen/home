@@ -478,8 +478,33 @@
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
                   axisCapabilitySetup;
                 assert !(hasInfix "provider.slack.identity.U0B7ZGP6M43" axisCapabilitySetup);
-                pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-                  ${pkgs.python3}/bin/python ${proxy} &
+                assert hasInfix "canonical profile database is not readable" axisCapabilitySetup;
+                assert hasInfix "active principal is not the deployment owner" axisCapabilitySetup;
+                pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
+                  if ${pkgs.jq}/bin/jq -e --arg principal_id principal.not-owner '
+                    .principals
+                    | select(type == "array")
+                    | any(
+                        .[];
+                        type == "object"
+                        and .principal_id == $principal_id
+                        and .relationship == "owner"
+                        and (.role_ids | if type == "array" then index("deployment-owner") != null else false end)
+                      )
+                  ' > /dev/null <<'JSON'
+                  {"principals":[{"principal_id":"principal.not-owner","relationship":"collaborator","role_ids":["deployment-owner"]}]}
+                  JSON
+                  then
+                    echo "non-owner AXIS context passed Slack identity authorization" >&2
+                    exit 1
+                  fi
+                  ${pkgs.gnused}/bin/sed \
+                    -e 's/"127.0.0.1", 8780/"127.0.0.1", 18780/' \
+                    -e 's/("127.0.0.1", 8001)/("127.0.0.1", 18001)/' \
+                    -e 's|TOKEN_FILE = ".*"|TOKEN_FILE = "axis-api-auth-proxy-token"|' \
+                    ${proxy} > axis-api-auth-proxy.py
+                  ${pkgs.coreutils}/bin/printf 'test-token' > axis-api-auth-proxy-token
+                  ${pkgs.python3}/bin/python axis-api-auth-proxy.py &
                   proxy_pid=$!
                   trap '${pkgs.coreutils}/bin/kill "$proxy_pid"' EXIT
                   ${pkgs.python3}/bin/python - <<'PY'
@@ -502,13 +527,13 @@
                       def log_message(self, format, *args):
                           return
 
-                  upstream = HTTPServer(("127.0.0.1", 8780), Upstream)
+                  upstream = HTTPServer(("127.0.0.1", 18780), Upstream)
                   threading.Thread(target=upstream.serve_forever, daemon=True).start()
 
                   def request(method, path, body=None, **headers):
                       for _ in range(20):
                           try:
-                              connection = http.client.HTTPConnection("127.0.0.1", 8001, timeout=1)
+                              connection = http.client.HTTPConnection("127.0.0.1", 18001, timeout=1)
                               connection.request(method, path, body=body, headers={"Host": "slack.denneen.net", **headers})
                               status = connection.getresponse().status
                               connection.close()
@@ -521,7 +546,7 @@
                   assert request("GET", "/callbacks/slack") == 405
                   assert request("POST", "/callbacks/slack?unexpected=query") == 404
                   assert request("OPTIONS", "/callbacks/slack") == 405
-                  assert request("POST", "/api/health") == 401
+                  assert request("POST", "/api/health", Host="axis.denneen.net") == 401
                   assert request("POST", "/callbacks/slack", **{"Content-Length": "1048577"}) == 413
                   assert request(
                       "POST",
