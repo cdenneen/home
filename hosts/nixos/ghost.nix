@@ -911,10 +911,7 @@ in
       axisErosApiKeyFile
       axisErosBaseUrlFile
     ];
-    preStart = lib.mkBefore ''
-      ${axisSlackCapabilitySetup}
-      ${axisErosCapabilitySetup}
-    '';
+    preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisErosCapabilitySetup}";
   };
 
   systemd.services.axis-deployment-identity = {
