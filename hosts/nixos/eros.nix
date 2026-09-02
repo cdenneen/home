@@ -361,13 +361,13 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
-        # Consolidated quality-coding tier (2026-09-02): additive alongside
-        # tier2-coding/tier2-research above. Same-tier redundancy across
-        # paths, NOT the "generic 429/error fallback" this file's
-        # router_settings comment below still correctly bans - see that
-        # comment for the incident (coding-strong -> coding-gemini silently
-        # collapsing Claude-tier onto Gemini Flash) this must never repeat.
-        # Every candidate in `auto`'s own fallback chain is the same
+        # Consolidated quality-coding tier (2026-09-02, revised 2026-09-02):
+        # additive alongside tier2-coding/tier2-research above. Same-tier
+        # redundancy across paths, NOT the "generic 429/error fallback" this
+        # file's router_settings comment below still correctly bans - see
+        # that comment for the incident (coding-strong -> coding-gemini
+        # silently collapsing Claude-tier onto Gemini Flash) this must never
+        # repeat. Every candidate in `auto`'s own fallback chain is the same
         # Sonnet-5/GPT-5.4 quality class; nothing here ever drops to mini.
         #
         # Named `auto`, not `coding-strong` - `coding-strong` already exists
@@ -378,24 +378,32 @@ in
         # sometimes bypass the existing tool-aware cache. Caught by review
         # before merge, not discovered live.
         #
-        # Motivating evidence (2026-08-25..09-01, OmniRoute call_logs): Sonnet
-        # traffic through OmniRoute (tier2-coding/tier2-research) ran ~57%
-        # success over 7 days; 74%% of the failures were OmniRoute's own
-        # local request-queue timeout (resilienceSettings.requestQueue.
-        # maxWaitMs), not a Bedrock/upstream problem. This chain gives that
-        # traffic somewhere real to go instead of failing outright - falling
-        # through to the *existing* `coding-strong` (not a new duplicate) as
-        # the final, most-reliable rung.
+        # Evidence (2026-08-25..09-02, OmniRoute call_logs): Sonnet traffic
+        # through OmniRoute (tier2-coding/tier2-research) ran ~57-81%%
+        # success depending on window; the large majority of failures were
+        # OmniRoute's own local request-queue timeout on its Bedrock
+        # connection specifically (resilienceSettings.requestQueue.
+        # maxWaitMs), not a Bedrock/upstream problem. Checked the SAME 7-day
+        # window across every other OmniRoute connection (gemini, openai,
+        # cerebras, deepinfra, deepseek, mistral, pollinations) - all >=98%%
+        # success. The unreliable hop is specifically OmniRoute's path to
+        # Bedrock, not OmniRoute itself.
+        #
+        # Because of that, `auto`'s primary is direct Bedrock (identical
+        # litellm_params to `coding-strong` above - same instance-profile
+        # auth, same tool-aware cache), not OmniRoute->Bedrock: routing
+        # through OmniRoute to reach the exact same AWS backend adds a real
+        # unreliability layer for no redundancy benefit, since if Bedrock
+        # itself is down, OmniRoute->Bedrock fails too. The one fallback
+        # rung that IS worth having is gpt-5.4 via OmniRoute - genuine
+        # cross-provider diversity if AWS/Bedrock has an actual outage,
+        # which OmniRoute's other connections handle just fine per the
+        # evidence above.
         - model_name: auto
           litellm_params:
-            model: openai/bedrock/us.anthropic.claude-sonnet-5
-            # co-located on eros today; if omniroute ever moves to its own
-            # host, this becomes http://eros.tail0e55.ts.net:20128/v1
-            api_base: http://127.0.0.1:20128/v1
-            api_key: os.environ/OMNIROUTE_CLIENT_KEY
-            drop_params: true
-            additional_drop_params:
-              - x_hermes_source
+            model: bedrock/us.anthropic.claude-sonnet-5
+            aws_region_name: us-east-1
+            cache_control_injection_points: *eros_cache_points_with_tools
         - model_name: tier2-research
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
@@ -470,21 +478,21 @@ in
         #
         # What's below is narrower and different in kind: same-tier
         # redundancy across paths for one named model, not a downgrade path.
-        # `auto` only ever falls back to gpt-5.4 (same quality class,
-        # different provider) or the *existing* `coding-strong` (the literal
-        # same Sonnet-5, direct-Bedrock, already-proven tool-aware-cache
-        # path) - see the comment on `auto` above for the OmniRoute-
-        # reliability evidence motivating this, and why it isn't itself
-        # named `coding-strong`. `mini` only falls back to tier1-coding,
-        # itself a cheap/fast-tier model, not a downgrade from mini's own
-        # tier. tier4-frontier/coding-strong/quality getting no entry at all
-        # would already mean no fallback (litellm only fires a fallback for
-        # a model that has one) - the explicit empty lists below are just
-        # that intent written down, so a future generic/wildcard entry can't
-        # silently start catching them without someone having to touch these
-        # lines first.
+        # `auto` only falls back to gpt-5.4 - genuine cross-provider
+        # diversity (different backend, not just a different route to the
+        # same one) if Bedrock/AWS itself is actually down. Its primary is
+        # already direct Bedrock (see the comment on `auto` above for why
+        # that isn't itself named `coding-strong`), so there's no separate
+        # "fall through to coding-strong" rung needed. `mini` only falls
+        # back to tier1-coding, itself a cheap/fast-tier model, not a
+        # downgrade from mini's own tier. tier4-frontier/coding-strong/
+        # quality getting no entry at all would already mean no fallback
+        # (litellm only fires a fallback for a model that has one) - the
+        # explicit empty lists below are just that intent written down, so a
+        # future generic/wildcard entry can't silently start catching them
+        # without someone having to touch these lines first.
         fallbacks:
-          - auto: [gpt-5.4, coding-strong]
+          - auto: [gpt-5.4]
           - mini: [tier1-coding]
           - tier4-frontier: []
           - coding-strong: []
