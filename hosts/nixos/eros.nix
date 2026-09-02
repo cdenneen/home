@@ -367,16 +367,26 @@ in
         # router_settings comment below still correctly bans - see that
         # comment for the incident (coding-strong -> coding-gemini silently
         # collapsing Claude-tier onto Gemini Flash) this must never repeat.
-        # Every candidate in `coding-strong`'s own fallback chain is the same
+        # Every candidate in `auto`'s own fallback chain is the same
         # Sonnet-5/GPT-5.4 quality class; nothing here ever drops to mini.
+        #
+        # Named `auto`, not `coding-strong` - `coding-strong` already exists
+        # above (direct Bedrock, 3-point tool-aware cache, real legacy CLI
+        # worker traffic) and reusing that name here would have registered a
+        # second deployment under the same model_name, letting litellm's
+        # router pick between them outside this fallback chain entirely and
+        # sometimes bypass the existing tool-aware cache. Caught by review
+        # before merge, not discovered live.
         #
         # Motivating evidence (2026-08-25..09-01, OmniRoute call_logs): Sonnet
         # traffic through OmniRoute (tier2-coding/tier2-research) ran ~57%
         # success over 7 days; 74%% of the failures were OmniRoute's own
         # local request-queue timeout (resilienceSettings.requestQueue.
         # maxWaitMs), not a Bedrock/upstream problem. This chain gives that
-        # traffic somewhere real to go instead of failing outright.
-        - model_name: coding-strong
+        # traffic somewhere real to go instead of failing outright - falling
+        # through to the *existing* `coding-strong` (not a new duplicate) as
+        # the final, most-reliable rung.
+        - model_name: auto
           litellm_params:
             model: openai/bedrock/us.anthropic.claude-sonnet-5
             # co-located on eros today; if omniroute ever moves to its own
@@ -460,23 +470,24 @@ in
         #
         # What's below is narrower and different in kind: same-tier
         # redundancy across paths for one named model, not a downgrade path.
-        # `coding-strong` only ever falls back to gpt-5.4 (same quality
-        # class, different provider) or tier2-general (the literal same
-        # Sonnet-5, direct-Bedrock path instead of via OmniRoute) - see the
-        # comment on `coding-strong` above for the OmniRoute-reliability
-        # evidence motivating this. `mini` only falls back to tier1-coding,
+        # `auto` only ever falls back to gpt-5.4 (same quality class,
+        # different provider) or the *existing* `coding-strong` (the literal
+        # same Sonnet-5, direct-Bedrock, already-proven tool-aware-cache
+        # path) - see the comment on `auto` above for the OmniRoute-
+        # reliability evidence motivating this, and why it isn't itself
+        # named `coding-strong`. `mini` only falls back to tier1-coding,
         # itself a cheap/fast-tier model, not a downgrade from mini's own
-        # tier. tier4-frontier/tier2-general/quality getting no entry at all
+        # tier. tier4-frontier/coding-strong/quality getting no entry at all
         # would already mean no fallback (litellm only fires a fallback for
         # a model that has one) - the explicit empty lists below are just
         # that intent written down, so a future generic/wildcard entry can't
         # silently start catching them without someone having to touch these
         # lines first.
         fallbacks:
-          - coding-strong: [gpt-5.4, tier2-general]
+          - auto: [gpt-5.4, coding-strong]
           - mini: [tier1-coding]
           - tier4-frontier: []
-          - tier2-general: []
+          - coding-strong: []
           - quality: []
         num_retries: 1
         timeout: 90
