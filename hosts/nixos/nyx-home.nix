@@ -100,4 +100,26 @@ in
       erosApiKeySecret = "eros_litellm_key_nyx_gitlab";
     };
   };
+
+  # auto/mini/quality migration (2026-09-02): both profiles' auxiliary
+  # functions move off the old tier1-* names onto mini, and their primary
+  # model.default moves off tier2-* onto auto (#747).
+  profiles.hermesProfileModel.profiles = {
+    nyx-eks = {
+      configHomeRelativePath = ".hermes/config.yaml";
+      modelOverrides = {
+        "model.default" = "auto";
+        "auxiliary.compression.model" = "mini";
+        "auxiliary.title_generation.model" = "mini";
+      };
+    };
+    nyx-gitlab = {
+      configHomeRelativePath = ".hermes/profiles/nyx-gitlab/config.yaml";
+      modelOverrides = {
+        "model.default" = "auto";
+        "auxiliary.compression.model" = "mini";
+        "auxiliary.title_generation.model" = "mini";
+      };
+    };
+  };
 }

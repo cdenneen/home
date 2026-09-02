@@ -170,4 +170,17 @@ in
       erosApiKeySecret = "eros_litellm_key_ghost_axis_control";
     };
   };
+
+  # auto/mini/quality migration (2026-09-02): ghost-alpha0's auxiliary
+  # functions move off the old tier2-research name onto the consolidated
+  # mini combo (#747). model.default is deliberately left unpinned here -
+  # it stays on tier4-frontier, an explicit-only frontier grant, not part
+  # of this migration.
+  profiles.hermesProfileModel.profiles.ghost-alpha0 = {
+    configHomeRelativePath = ".local/share/alpha0/hermes/profiles/alpha0/config.yaml";
+    modelOverrides = {
+      "auxiliary.compression.model" = "mini";
+      "auxiliary.title_generation.model" = "mini";
+    };
+  };
 }

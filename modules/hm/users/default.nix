@@ -20,6 +20,7 @@ in
     ./cdenneen/gitlab-mcp-proxy/default.nix
     ./cdenneen/hermes-axis-control-gateway.nix
     ./cdenneen/hermes-policy-endpoint/default.nix
+    ./cdenneen/hermes-profile-model/default.nix
     ./cdenneen/hermes-single-writer-registry.nix
     ./cdenneen/hermes-slack-platform
     ./cdenneen/hermes-supervisor/default.nix
