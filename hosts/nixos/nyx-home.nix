@@ -84,7 +84,7 @@ in
       erosTailscaleIp = "100.117.68.38";
       # #41: mirrors this key's real LiteLLM allowlist exactly (confirmed
       # live via /key/info, 2026-08-27) - update both together if ever changed.
-      allowedRoutes = [ "tier1-general" "tier2-general" "tier2-research" ];
+      allowedRoutes = [ "tier1-general" "tier2-general" "tier2-research" "auto" "mini" ];
       erosApiKeySecret = "eros_litellm_key_nyx_eks";
     };
     nyx-gitlab = {

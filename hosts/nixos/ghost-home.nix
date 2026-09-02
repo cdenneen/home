@@ -154,7 +154,7 @@ in
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
-      allowedRoutes = [ "tier2-research" "tier3-quality" ];
+      allowedRoutes = [ "tier2-research" "tier3-quality" "mini" ];
       erosApiKeySecret = "eros_litellm_key_ghost_alpha0";
     };
     ghost-axis-control = {
