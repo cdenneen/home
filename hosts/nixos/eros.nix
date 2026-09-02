@@ -298,6 +298,19 @@ in
             model: openai/gpt-5-mini
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             api_base: http://127.0.0.1:20128/v1
+        # Consolidated cheap/fast tier (2026-09-02): additive alongside
+        # tier1-general/tier1-coding above, not a replacement yet. Once every
+        # consumer requests `mini` instead of tier1-general/tier1-coding
+        # directly, those two entries retire - see `mini`'s fallback below,
+        # which reuses tier1-coding rather than duplicating it.
+        - model_name: mini
+          litellm_params:
+            model: openai/gemini-2.5-flash
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         # cache_control_injection_points added 2026-08-28: validated on a bounded
         # test route (154.8K-token stable prefix, 3-turn A/B) before applying here -
         # cache write $0.4257/3655ms turn 1, cache read $0.0341/1716ms turn 2,
@@ -348,6 +361,31 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+        # Consolidated quality-coding tier (2026-09-02): additive alongside
+        # tier2-coding/tier2-research above. Same-tier redundancy across
+        # paths, NOT the "generic 429/error fallback" this file's
+        # router_settings comment below still correctly bans - see that
+        # comment for the incident (coding-strong -> coding-gemini silently
+        # collapsing Claude-tier onto Gemini Flash) this must never repeat.
+        # Every candidate in `coding-strong`'s own fallback chain is the same
+        # Sonnet-5/GPT-5.4 quality class; nothing here ever drops to mini.
+        #
+        # Motivating evidence (2026-08-25..09-01, OmniRoute call_logs): Sonnet
+        # traffic through OmniRoute (tier2-coding/tier2-research) ran ~57%
+        # success over 7 days; 74%% of the failures were OmniRoute's own
+        # local request-queue timeout (resilienceSettings.requestQueue.
+        # maxWaitMs), not a Bedrock/upstream problem. This chain gives that
+        # traffic somewhere real to go instead of failing outright.
+        - model_name: coding-strong
+          litellm_params:
+            model: openai/bedrock/us.anthropic.claude-sonnet-5
+            # co-located on eros today; if omniroute ever moves to its own
+            # host, this becomes http://eros.tail0e55.ts.net:20128/v1
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier2-research
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
@@ -357,6 +395,15 @@ in
             additional_drop_params:
               - x_hermes_source
         - model_name: tier3-quality
+          litellm_params:
+            model: openai/global.anthropic.claude-opus-5
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+        # `quality` (2026-09-02): additive alias for tier3-quality's exact
+        # model. No fallback, same as tier3-quality itself - Opus is its own
+        # capability class; failure must reject, never silently become
+        # coding-strong's Sonnet-5.
+        - model_name: quality
           litellm_params:
             model: openai/global.anthropic.claude-opus-5
             api_base: http://127.0.0.1:20128/v1
@@ -405,13 +452,32 @@ in
           - x_hermes_source
       router_settings:
         cache_responses: false
-        # No cross-tier fallbacks: 01-eros-inference-fabric.md prohibits generic
-        # fallback ("Generic 429/error fallback is prohibited"), and the previous
-        # `coding-strong: [coding-gemini]` entry silently collapsed a Claude-tier
-        # request onto Gemini Flash on failure - undetectable capability
-        # downgrade. Routing rejects rather than silently downgrades; the
-        # host-local policy endpoint / continuity controller owns any approved
-        # continuity path, not the LiteLLM router.
+        # Cross-tier/generic fallback is still banned - 01-eros-inference-
+        # fabric.md's rule stands, and the incident that produced it is real:
+        # an earlier `coding-strong: [coding-gemini]` entry once silently
+        # collapsed a Claude-tier request onto Gemini Flash on failure -
+        # undetectable capability downgrade. That must never happen again.
+        #
+        # What's below is narrower and different in kind: same-tier
+        # redundancy across paths for one named model, not a downgrade path.
+        # `coding-strong` only ever falls back to gpt-5.4 (same quality
+        # class, different provider) or tier2-general (the literal same
+        # Sonnet-5, direct-Bedrock path instead of via OmniRoute) - see the
+        # comment on `coding-strong` above for the OmniRoute-reliability
+        # evidence motivating this. `mini` only falls back to tier1-coding,
+        # itself a cheap/fast-tier model, not a downgrade from mini's own
+        # tier. tier4-frontier/tier2-general/quality getting no entry at all
+        # would already mean no fallback (litellm only fires a fallback for
+        # a model that has one) - the explicit empty lists below are just
+        # that intent written down, so a future generic/wildcard entry can't
+        # silently start catching them without someone having to touch these
+        # lines first.
+        fallbacks:
+          - coding-strong: [gpt-5.4, tier2-general]
+          - mini: [tier1-coding]
+          - tier4-frontier: []
+          - tier2-general: []
+          - quality: []
         num_retries: 1
         timeout: 90
       EOF
