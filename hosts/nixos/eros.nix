@@ -566,6 +566,14 @@ in
       HOSTNAME = "127.0.0.1";
       PORT = toString omniroutePort;
       DATA_DIR = "${config.users.users.cdenneen.home}/.omniroute";
+      # Temporary diagnostic (2026-09-02): captures full request/response
+      # pipeline bytes to request_detail_logs for the anthropic-compatible/
+      # bedrock-runtime empty-response investigation. The dashboard's
+      # call_log_pipeline_enabled setting cannot toggle this in practice -
+      # this env var is the only thing isDetailedLoggingEnabled() honors.
+      # Revert once that investigation concludes; verbose and not meant to
+      # run long-term.
+      ENABLE_REQUEST_LOGS = "true";
     };
     serviceConfig = {
       Type = "simple";
