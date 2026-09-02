@@ -476,9 +476,10 @@
                   axisErosCapabilitySetup = builtins.readFile (
                     builtins.head (splitString "\n" (builtins.elemAt axisCapabilitySetups 1))
                   );
+                  axisGitlabCapabilitySetup = builtins.readFile (builtins.elemAt axisCapabilitySetups 2);
                 in
                 assert inputs.axis.rev == "3fbf4c93de97d72a8463c12eb0ac6a7a25decf49";
-                assert builtins.length axisCapabilitySetups == 2;
+                assert builtins.length axisCapabilitySetups == 3;
                 assert hasPrefix "/nix/store/" proxy;
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
                   axisSlackCapabilitySetup;
@@ -490,6 +491,9 @@
                 assert hasInfix "provider.openai-compatible.eros.api_key" axisErosCapabilitySetup;
                 assert hasInfix "provider.openai-compatible.eros.base_url" axisErosCapabilitySetup;
                 assert hasInfix "--scope axis_vault" axisErosCapabilitySetup;
+                assert hasInfix "provider.gitlab.axis.read-api-token" axisGitlabCapabilitySetup;
+                assert hasInfix "provider.gitlab.axis.read_api_token" axisGitlabCapabilitySetup;
+                assert hasInfix "--scope axis_vault" axisGitlabCapabilitySetup;
                 pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
                   if ${pkgs.jq}/bin/jq -e --arg principal_id principal.not-owner '
                     .principals
