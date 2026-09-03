@@ -248,6 +248,9 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
             cache_control_injection_points: &eros_cache_points_with_tools
               - location: tool_config
                 control:
@@ -298,6 +301,9 @@ in
             model: openai/gpt-5-mini
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             api_base: http://127.0.0.1:20128/v1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         # Consolidated cheap/fast tier (2026-09-02): additive alongside
         # tier1-general/tier1-coding above, not a replacement yet. Once every
         # consumer requests `mini` instead of tier1-general/tier1-coding
