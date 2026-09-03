@@ -96,7 +96,7 @@ in
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
-      allowedRoutes = [ "tier1-coding" "tier2-coding" "tier2-general" ];
+      allowedRoutes = [ "tier1-coding" "tier2-coding" "tier2-general" "auto" "mini" ];
       erosApiKeySecret = "eros_litellm_key_nyx_gitlab";
     };
   };
