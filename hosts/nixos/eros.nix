@@ -125,6 +125,19 @@ in
       # a running omniroute.service, then sops-encrypt the returned key into
       # this path (requires local age identity - see recovery manifest).
     };
+    # personal/work (2026-09-03): same bootstrap process as omniroute_client_key
+    # above, one key per trust domain - see the `personal`/`work` model_list
+    # entries' comment for why this isn't one shared key.
+    omniroute_client_key_personal = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+    omniroute_client_key_work = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
   };
 
   systemd.services.eros-litellm-env = {
@@ -170,6 +183,8 @@ in
         printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
         printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
         printf 'OMNIROUTE_CLIENT_KEY=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key.path}" "OmniRoute client key")"
+        printf 'OMNIROUTE_CLIENT_KEY_PERSONAL=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key_personal.path}" "OmniRoute personal client key")"
+        printf 'OMNIROUTE_CLIENT_KEY_WORK=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key_work.path}" "OmniRoute work client key")"
         printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
         printf 'QDRANT_VECTOR_SIZE=1024\n'
       } > "${litellmEnvFile}"
@@ -454,6 +469,33 @@ in
           litellm_params:
             model: openai/gpt-5.6-sol
             api_key: os.environ/OPENAI_API_KEY
+        # personal/work (2026-09-03): single entry point per trust domain,
+        # forwarding to OmniRoute's native combo/reasoning_routing_rules
+        # engine (combo: ai-auto) - see hermes-profile-model migration.
+        # Two separate OmniRoute client keys (not one shared key) so that
+        # OmniRoute-side per-key scoping (memory/cache isolation, group
+        # model permissions) can eventually track the same personal/work
+        # trust-domain boundary already enforced elsewhere, rather than
+        # collapsing every consumer into one shared OmniRoute identity.
+        # Old tier0-4/auto/mini/quality/coding-* entries above are left in
+        # place until consumer traffic is proven flowing through these two
+        # and they can be retired.
+        - model_name: personal
+          litellm_params:
+            model: openai/ai-auto
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY_PERSONAL
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: work
+          litellm_params:
+            model: openai/ai-auto
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY_WORK
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
       general_settings:
         master_key: os.environ/LITELLM_MASTER_KEY
         database_url: os.environ/DATABASE_URL
@@ -492,6 +534,8 @@ in
         fallbacks:
           - auto: [gpt-5.4, coding-strong]
           - mini: [tier1-coding]
+          - personal: [coding-strong]
+          - work: [coding-strong]
           - tier4-frontier: []
           - coding-strong: []
           - quality: []
