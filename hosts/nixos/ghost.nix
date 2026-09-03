@@ -22,8 +22,14 @@ let
   axisApiBearerTokenFile = config.sops.secrets.axis_remote_client_token.path;
   axisSlackBotTokenFile = config.sops.secrets.jarvis_slack_bot_token.path;
   axisSlackSigningSecretFile = config.sops.secrets.jarvis_slack_signing_secret.path;
-  axisErosApiKeyFile = config.sops.secrets.axis_eros_api_key.path;
-  axisErosBaseUrlFile = config.sops.secrets.axis_eros_base_url.path;
+  # "eros" is only the current shared-AI-infra hostname, not a permanent
+  # identity - AXIS may eventually point at its own LiteLLM/OmniRoute/etc
+  # instead, per axis#140's generic-by-provider-name adapter design. These
+  # nix-facing names stay hostname-agnostic; `key` keeps the actual sops
+  # yaml entries (still named axis_eros_*) untouched, no re-encryption.
+  axisSharedAiApiKeyFile = config.sops.secrets.axis_shared_ai_api_key.path;
+  axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
+  axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
   axisSlackProductOwnerId = "U0B7ZGP6M43";
@@ -115,17 +121,23 @@ let
         --secret-stdin \
         > /dev/null
   '';
-  axisErosCapabilitySetup = pkgs.writeShellScript "axis-eros-capability-setup" ''
+  # Shared AI infra workflow: wires the OpenAI-compatible endpoint AXIS's
+  # cognition attachment currently points at. "eros" below names the
+  # runtime's *current* provider attachment (axis#124/axis-governance#278),
+  # not this setup's identity - swapping to LiteLLM/OmniRoute/a self-hosted
+  # router later only changes the capability-id/secret-name literals, per
+  # axis#140's generic-by-provider-name adapter design.
+  axisSharedAiCapabilitySetup = pkgs.writeShellScript "axis-shared-ai-capability-setup" ''
     set -euo pipefail
 
-    for secret_file in "${axisErosApiKeyFile}" "${axisErosBaseUrlFile}"; do
+    for secret_file in "${axisSharedAiApiKeyFile}" "${axisSharedAiBaseUrlFile}"; do
       if [ ! -s "$secret_file" ]; then
-        echo "axis Eros capability setup: required secret file is missing or empty" >&2
+        echo "axis shared AI infra capability setup: required secret file is missing or empty" >&2
         exit 1
       fi
     done
 
-    ${pkgs.coreutils}/bin/cat "${axisErosApiKeyFile}" \
+    ${pkgs.coreutils}/bin/cat "${axisSharedAiApiKeyFile}" \
       | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
         --capability-id provider.openai-compatible.eros.api-key \
         --secret-name provider.openai-compatible.eros.api_key \
@@ -133,12 +145,20 @@ let
         --display-name "AXIS Eros OpenAI-compatible API key" \
         --secret-stdin \
         > /dev/null
-    ${pkgs.coreutils}/bin/cat "${axisErosBaseUrlFile}" \
+    ${pkgs.coreutils}/bin/cat "${axisSharedAiBaseUrlFile}" \
       | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
         --capability-id provider.openai-compatible.eros.base-url \
         --secret-name provider.openai-compatible.eros.base_url \
         --scope axis_vault \
         --display-name "AXIS Eros OpenAI-compatible base URL" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/echo -n "${axisSharedAiDefaultModel}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.openai-compatible.eros.default-model \
+        --secret-name provider.openai-compatible.eros.default_model \
+        --scope axis_vault \
+        --display-name "AXIS Eros OpenAI-compatible default model" \
         --secret-stdin \
         > /dev/null
   '';
@@ -680,14 +700,16 @@ in
     mode = "0400";
     restartUnits = [ "axis.service" ];
   };
-  sops.secrets.axis_eros_api_key = {
+  sops.secrets.axis_shared_ai_api_key = {
+    key = "axis_eros_api_key"; # underlying yaml entry unrenamed - no re-encryption needed
     sopsFile = ../../secrets/axis.yaml;
     owner = "axis";
     group = "axis";
     mode = "0400";
     restartUnits = [ "axis.service" ];
   };
-  sops.secrets.axis_eros_base_url = {
+  sops.secrets.axis_shared_ai_base_url = {
+    key = "axis_eros_base_url"; # underlying yaml entry unrenamed - no re-encryption needed
     sopsFile = ../../secrets/axis.yaml;
     owner = "axis";
     group = "axis";
@@ -933,11 +955,11 @@ in
     unitConfig.RequiresMountsFor = [
       axisSlackBotTokenFile
       axisSlackSigningSecretFile
-      axisErosApiKeyFile
-      axisErosBaseUrlFile
+      axisSharedAiApiKeyFile
+      axisSharedAiBaseUrlFile
       axisGitlabReadApiTokenFile
     ];
-    preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisErosCapabilitySetup} && ${axisGitlabCapabilitySetup}";
+    preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisSharedAiCapabilitySetup} && ${axisGitlabCapabilitySetup}";
   };
 
   systemd.services.axis-deployment-identity = {
