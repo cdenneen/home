@@ -19,7 +19,10 @@ let
       config_file=${lib.escapeShellArg configPath}
       if [ -f "$config_file" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
         config_tmp="$(${pkgs.coreutils}/bin/mktemp "$config_file.XXXXXX")"
-        ${pkgs.yq-go}/bin/yq '${yqFilter}' "$config_file" > "$config_tmp"
+        if ! ${pkgs.yq-go}/bin/yq '${yqFilter}' "$config_file" > "$config_tmp"; then
+          ${pkgs.coreutils}/bin/rm -f "$config_tmp"
+          exit 1
+        fi
         if ! ${pkgs.diffutils}/bin/cmp -s "$config_tmp" "$config_file" \
           || [ "$(${pkgs.coreutils}/bin/stat -c %a "$config_file")" != 600 ]; then
           ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$config_file"
