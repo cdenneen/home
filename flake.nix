@@ -478,7 +478,7 @@
                   );
                   axisGitlabCapabilitySetup = builtins.readFile (builtins.elemAt axisCapabilitySetups 2);
                 in
-                assert inputs.axis.rev == "4c1c76aef79aa0d890d8e3b38af4879304f77aae";
+                assert inputs.axis.rev == "ff583ef4ab2c256af5a1069cb5acc894b83d2c58";
                 assert builtins.length axisCapabilitySetups == 3;
                 assert hasPrefix "/nix/store/" proxy;
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
