@@ -960,17 +960,6 @@ in
       axisGitlabReadApiTokenFile
     ];
     preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisSharedAiCapabilitySetup} && ${axisGitlabCapabilitySetup}";
-    # TEMPORARY (axis-governance#280): round 2 of the controlled PoA repair
-    # dogfood proof, 2026-09-04. Remove once the proof is recorded.
-    # AXIS_POA_REPO_ROOT is a fresh isolated clone
-    # (/var/lib/axis/poa-dogfood-round2), never the deployment's own Nix
-    # closure.
-    environment = {
-      AXIS_POA_ADAPTER_ID = "poa-v1";
-      AXIS_POA_REPO_ROOT = "/var/lib/axis/poa-dogfood-round2";
-      AXIS_POA_REF = "poa-dogfood-round2/2026-09-04";
-      AXIS_POA_POLL_SECONDS = "30";
-    };
   };
 
   systemd.services.axis-deployment-identity = {
