@@ -960,6 +960,33 @@ in
       axisGitlabReadApiTokenFile
     ];
     preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisSharedAiCapabilitySetup} && ${axisGitlabCapabilitySetup}";
+    # Active-development deployment channel (self-SDLC dogfood): points at a
+    # stable `nix profile` path instead of `${cfg.package}` (the flake-pinned
+    # store path baked in at host-build time), so ordinary AXIS application
+    # revisions update via `nix profile install --profile
+    # /nix/var/nix/profiles/axis-app <ref> && systemctl restart axis` alone -
+    # no nixos-rebuild per AXIS SHA. The flake pin (`inputs.axis.rev`, see
+    # `axisRevision` above) remains the eventual graduation target once a
+    # dev-profile SHA is qualified; nixos-upgrade.timer only ever rebuilds
+    # from that pin, never touches this profile path, so it cannot downgrade
+    # an actively-deployed dev revision. One-time host change; not expected
+    # to need another host switch for future AXIS revisions.
+    serviceConfig.ExecStart = lib.mkForce (
+      lib.escapeShellArgs [
+        "/nix/var/nix/profiles/axis-app/bin/axis"
+        "--data-root"
+        "/var/lib/axis"
+        "service"
+        "start"
+        "--foreground"
+        "--host"
+        "127.0.0.1"
+        "--port"
+        "8780"
+        "--host-mode"
+        "systemd"
+      ]
+    );
   };
 
   systemd.services.axis-deployment-identity = {
