@@ -28,6 +28,12 @@ in
     XDG_CACHE_HOME = "${config.home.homeDirectory}/.cache";
     AWS_SHARED_CREDENTIALS_FILE = "$HOME/.aws/credentials";
     AWS_CONFIG_FILE = "$HOME/.aws/config";
+    # pi-litellm's model-sync extension unconditionally appends "/v1/models"
+    # to this value, so it must NOT include a "/v1" suffix (unlike
+    # EROS_LITELLM_BASE_URL below, which pi's own core client expects to
+    # already include /v1). Without this, `pi models`/chat via the litellm
+    # provider 404s on a doubled /v1/v1/models path.
+    LITELLM_BASE_URL = "http://100.117.68.38:4000";
     OCI_CLI_CONFIG_FILE = "$HOME/.oci/config";
     # Pin glab to the XDG config dir so macOS legacy paths do not cause
     # duplicate-config warnings.
