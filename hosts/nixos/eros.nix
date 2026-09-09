@@ -604,6 +604,21 @@ in
           - tier4-frontier: []
           - coding-strong: []
           - quality: []
+          # AXIS-only models (2026-09-09). general-core/coding-core get a
+          # real fallback (same rationale as auto/mini above - redundancy,
+          # not a downgrade path). The rest are explicit no-fallback by
+          # design, per Chris: review-strong (preserve reviewer quality/
+          # independence), multimodal-long (no equivalent video + 1M-context
+          # route), embedding-core (never mix embedding spaces),
+          # research-candidate/reasoning-candidate (keep candidate
+          # measurements uncontaminated).
+          - general-core: [multimodal-long]
+          - coding-core: [review-strong]
+          - review-strong: []
+          - multimodal-long: []
+          - embedding-core: []
+          - research-candidate: []
+          - reasoning-candidate: []
         num_retries: 1
         timeout: 90
       EOF
