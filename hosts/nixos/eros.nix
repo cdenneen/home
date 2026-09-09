@@ -495,6 +495,45 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+        # multimodal-long (2026-09-09): amazon.nova-2-lite is INFERENCE_PROFILE-
+        # only (no ON_DEMAND support) - the us. cross-region inference
+        # profile, not the bare foundation-model id. Required an AWS
+        # Organizations SCP change (Allow-Listing-AWS-Bedrock-Models,
+        # p-znpv8ugv) to add an inference-profile/us.amazon.nova-* allowlist
+        # entry - the existing amazon.nova-* wildcard only covered the
+        # foundation-model/ ARN pattern, not inference-profile/.
+        - model_name: multimodal-long
+          litellm_params:
+            model: bedrock/us.amazon.nova-2-lite-v1:0
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: review-strong
+          litellm_params:
+            model: bedrock/zai.glm-5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: research-candidate
+          litellm_params:
+            model: bedrock/moonshotai.kimi-k2.5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: reasoning-candidate
+          litellm_params:
+            model: bedrock/deepseek.v3.2
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: embedding-core
+          litellm_params:
+            model: bedrock/amazon.titan-embed-text-v2:0
+            aws_region_name: us-east-1
         # personal/work (2026-09-03): single entry point per trust domain,
         # forwarding to OmniRoute's native combo/reasoning_routing_rules
         # engine (combo: ai-auto) - see hermes-profile-model migration.
