@@ -495,6 +495,45 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+        # multimodal-long (2026-09-09): amazon.nova-2-lite is INFERENCE_PROFILE-
+        # only (no ON_DEMAND support) - the us. cross-region inference
+        # profile, not the bare foundation-model id. Required an AWS
+        # Organizations SCP change (Allow-Listing-AWS-Bedrock-Models,
+        # p-znpv8ugv) to add an inference-profile/us.amazon.nova-* allowlist
+        # entry - the existing amazon.nova-* wildcard only covered the
+        # foundation-model/ ARN pattern, not inference-profile/.
+        - model_name: multimodal-long
+          litellm_params:
+            model: bedrock/us.amazon.nova-2-lite-v1:0
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: review-strong
+          litellm_params:
+            model: bedrock/zai.glm-5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: research-candidate
+          litellm_params:
+            model: bedrock/moonshotai.kimi-k2.5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: reasoning-candidate
+          litellm_params:
+            model: bedrock/deepseek.v3.2
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: embedding-core
+          litellm_params:
+            model: bedrock/amazon.titan-embed-text-v2:0
+            aws_region_name: us-east-1
         # personal/work (2026-09-03): single entry point per trust domain,
         # forwarding to OmniRoute's native combo/reasoning_routing_rules
         # engine (combo: ai-auto) - see hermes-profile-model migration.
@@ -525,6 +564,17 @@ in
       general_settings:
         master_key: os.environ/LITELLM_MASTER_KEY
         database_url: os.environ/DATABASE_URL
+        # Fallback targets must also be in the calling key'''s own allowlist,
+        # not just the primary model - closes a gap where a key restricted
+        # to model X could silently reach fallback Y via a fallback chain
+        # without Y ever being explicitly granted. Same credential-bound-
+        # ceiling principle as #41 (Bootstrap Gate), just applied to
+        # fallback targets specifically. Every key with a fallback-bearing
+        # primary model (auto/mini for ghost-alpha0-policy-endpoint/nyx-eks/
+        # nyx-gitlab/axis) was additively updated to include its fallback
+        # targets before this was enabled, so no consumer's fallback
+        # behavior changes - this only prevents that gap from reopening.
+        enforce_fallback_model_access: true
       litellm_settings:
         # Bootstrap default is cache bypass everywhere (01-eros-inference-fabric.md).
         # Previously cache:true + router_settings.cache_responses:false were both
@@ -565,6 +615,21 @@ in
           - tier4-frontier: []
           - coding-strong: []
           - quality: []
+          # AXIS-only models (2026-09-09). general-core/coding-core get a
+          # real fallback (same rationale as auto/mini above - redundancy,
+          # not a downgrade path). The rest are explicit no-fallback by
+          # design, per Chris: review-strong (preserve reviewer quality/
+          # independence), multimodal-long (no equivalent video + 1M-context
+          # route), embedding-core (never mix embedding spaces),
+          # research-candidate/reasoning-candidate (keep candidate
+          # measurements uncontaminated).
+          - general-core: [multimodal-long]
+          - coding-core: [review-strong]
+          - review-strong: []
+          - multimodal-long: []
+          - embedding-core: []
+          - research-candidate: []
+          - reasoning-candidate: []
         num_retries: 1
         timeout: 90
       EOF
