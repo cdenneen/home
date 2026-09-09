@@ -469,6 +469,32 @@ in
           litellm_params:
             model: openai/gpt-5.6-sol
             api_key: os.environ/OPENAI_API_KEY
+        # AXIS-only core models (2026-09-09): direct native Bedrock, instance
+        # profile (no explicit api_key, same pattern as coding-strong above).
+        # Deliberately NOT added to any consumer key's allowlist except axis -
+        # see /key/update done alongside this PR. multimodal-long (nova-2-lite)
+        # is NOT wired here: amazon.nova-2-lite-v1:0 (both the us. and global.
+        # cross-region inference profiles) is blocked by an explicit deny in
+        # an AWS Organizations SCP (arn:...policy/o-l5977bt4h1/.../p-znpv8ugv)
+        # on this instance profile - confirmed via direct bedrock-runtime
+        # converse calls, not a LiteLLM/OmniRoute-side issue. Needs an AWS
+        # Organizations admin to adjust the SCP, or a different credential
+        # path (e.g. a Bedrock Mantle API key under a different account) -
+        # neither set up yet.
+        - model_name: general-core
+          litellm_params:
+            model: bedrock/qwen.qwen3-next-80b-a3b
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: coding-core
+          litellm_params:
+            model: bedrock/qwen.qwen3-coder-next
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         # personal/work (2026-09-03): single entry point per trust domain,
         # forwarding to OmniRoute's native combo/reasoning_routing_rules
         # engine (combo: ai-auto) - see hermes-profile-model migration.
