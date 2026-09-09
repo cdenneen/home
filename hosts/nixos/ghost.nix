@@ -786,6 +786,18 @@ in
     group = "users";
     mode = "0400";
   };
+  # Dedicated Eros LiteLLM virtual key for Alpha0's primary (tier4-frontier)
+  # gateway route, scoped to tier2-research/tier3-quality/tier4-frontier only.
+  # Was previously (incorrectly) wired to the shared openai_api_key secret,
+  # which LiteLLM rejects since it never issued that raw value - see
+  # HTTP 401 token_not_found_in_db on hermes-alpha0-gateway.service.
+  sops.secrets."alpha0/litellm-key" = {
+    sopsFile = ../../secrets/alpha0.yaml;
+    key = "ghost_alpha0_litellm_key";
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
   sops.templates."alpha0-hermes-default.env" = {
     content = ''
       SLACK_BOT_TOKEN=${config.sops.placeholder."alpha0/slack-bot-token"}
@@ -801,7 +813,7 @@ in
   };
   sops.templates."alpha0-hermes-profile-alpha0.env" = {
     content = ''
-      OPENAI_API_KEY=${config.sops.placeholder.openai_api_key}
+      OPENAI_API_KEY=${config.sops.placeholder."alpha0/litellm-key"}
     '';
     owner = "cdenneen";
     group = "users";
