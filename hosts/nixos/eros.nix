@@ -564,6 +564,17 @@ in
       general_settings:
         master_key: os.environ/LITELLM_MASTER_KEY
         database_url: os.environ/DATABASE_URL
+        # Fallback targets must also be in the calling key'''s own allowlist,
+        # not just the primary model - closes a gap where a key restricted
+        # to model X could silently reach fallback Y via a fallback chain
+        # without Y ever being explicitly granted. Same credential-bound-
+        # ceiling principle as #41 (Bootstrap Gate), just applied to
+        # fallback targets specifically. Every key with a fallback-bearing
+        # primary model (auto/mini for ghost-alpha0-policy-endpoint/nyx-eks/
+        # nyx-gitlab/axis) was additively updated to include its fallback
+        # targets before this was enabled, so no consumer's fallback
+        # behavior changes - this only prevents that gap from reopening.
+        enforce_fallback_model_access: true
       litellm_settings:
         # Bootstrap default is cache bypass everywhere (01-eros-inference-fabric.md).
         # Previously cache:true + router_settings.cache_responses:false were both
