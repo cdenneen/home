@@ -74,7 +74,9 @@ in
       upgrade = lib.mkForce false;
       cleanup = lib.mkForce "none";
     };
-    taps = lib.mkForce [ "cdenneen/taps" ];
+    # nix-homebrew already provides this immutable tap; repeating it here makes
+    # `brew bundle` try to clone into a read-only Taps env during activation.
+    taps = lib.mkForce [ ];
     casks = lib.mkForce [
       "cdenneen/taps/1password8-big-sur"
       "cdenneen/taps/brave-browser-big-sur"
