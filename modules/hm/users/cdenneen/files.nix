@@ -443,6 +443,71 @@ in
   home.file.".hermes/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
   home.file.".pi/agent/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
+  # Shared pi-agent LiteLLM provider config. baseUrl/apiKey are resolved at
+  # pi runtime via $ENV_VAR interpolation (see pi docs/models.md) from
+  # EROS_LITELLM_BASE_URL/EROS_LITELLM_API_KEY, which every host already
+  # exports identically (see shellSecretExports in secrets.nix) regardless
+  # of which per-host sops secret backs the key. No host-specific values
+  # belong in this file; keep it a plain static config.
+  #
+  # modelOverrides come from the eros LiteLLM proxy's own /model/info
+  # (max_output_tokens/max_input_tokens per alias), not guesses -- pi's
+  # default keyword-based maxTokens inference (pi-litellm's litellm-sync.ts)
+  # is wrong for generic proxy aliases like "coding-strong".
+  home.file.".pi/agent/models.json".text = builtins.toJSON {
+    providers.litellm = {
+      baseUrl = "$EROS_LITELLM_BASE_URL";
+      api = "openai-completions";
+      apiKey = "$EROS_LITELLM_API_KEY";
+      modelOverrides = {
+        coding-strong = {
+          maxTokens = 128000;
+          contextWindow = 1000000;
+        };
+        coding-core = {
+          maxTokens = 8192;
+          contextWindow = 262144;
+        };
+        coding = {
+          maxTokens = 4096;
+          contextWindow = 28672;
+        };
+        coding-openai = {
+          maxTokens = 128000;
+          contextWindow = 272000;
+        };
+        coding-gemini = {
+          maxTokens = 65535;
+          contextWindow = 1048576;
+        };
+        coding-haiku = {
+          maxTokens = 64000;
+          contextWindow = 200000;
+        };
+        review-strong = {
+          maxTokens = 128000;
+          contextWindow = 200000;
+        };
+        general-core = {
+          maxTokens = 8192;
+          contextWindow = 128000;
+        };
+        multimodal-long = {
+          maxTokens = 64000;
+          contextWindow = 1000000;
+        };
+        research-candidate = {
+          maxTokens = 262144;
+          contextWindow = 262144;
+        };
+        reasoning-candidate = {
+          maxTokens = 163840;
+          contextWindow = 163840;
+        };
+      };
+    };
+  };
+
   home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
     mcpServers = {
       recallium = {
