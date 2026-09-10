@@ -459,6 +459,36 @@ in
   home.file.".hermes/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
   home.file.".pi/agent/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
 
+  # Symlink pi packages from the pi-plugins Nix store package to ~/.pi/agent/npm/node_modules/
+  # Only create symlinks when piPluginsPkg is available (i.e., when agentPkgs is set)
+  home.file.".pi/agent/npm/node_modules/pi-mcp-adapter" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-mcp-adapter";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-subagents" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-subagents";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-simplify" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-simplify";
+  };
+  home.file.".pi/agent/npm/node_modules/@narumitw/pi-goal" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/@narumitw/pi-goal";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-hermes-memory" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-hermes-memory";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-litellm" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-litellm";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-goal-list-loop-audit" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-list-loop-audit";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-rtk-optimizer" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-rtk-optimizer";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-codex-goal" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-codex-goal";
+  };
+
   # The LiteLLM key must be rendered from SOPS: pi-litellm reads this file
   # directly, before pi's normal $ENV_VAR interpolation path.
   #
