@@ -21,6 +21,19 @@ let
   recalliumUiBaseUrl = "http://${recalliumHost}:${toString recalliumUiPort}";
   recalliumImage = "docker.io/recalliumai/recallium:0.8.488@sha256:241bf1034df6e953f088d42b1d0a36d2689fc9cde305f506268c9cfbdbc2257a";
   terraformMcpImage = "hashicorp/terraform-mcp-server:0.4.0";
+  graphifyPort = 18108;
+  graphifySource = pkgs.fetchFromGitHub {
+    owner = "Ibrohim-Bxone";
+    repo = "graphify-mcp";
+    rev = "73363649720779e81a073384f53dcda6af5e58d6";
+    hash = "sha256-CpJTbODS3HHnu8ZcfH18x7Wt3EtBiJutLzE04JG4UZs=";
+  };
+  graphifyPython = pkgs.python313.withPackages (pythonPackages: [
+    pythonPackages.chromadb
+    pythonPackages.flask
+    pythonPackages.mcp
+    pythonPackages.numpy
+  ]);
   nyxMcpWarmPackages = [
     "supergateway"
     "@zereight/mcp-gitlab"
@@ -218,6 +231,21 @@ in
   services.tailscale = {
     enable = true;
     openFirewall = true;
+  };
+
+  systemd.services.tailscale-serve-graphify = {
+    description = "Expose Graphify MCP via Tailscale Serve";
+    after = [ "tailscaled.service" ];
+    wants = [ "tailscaled.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      ${pkgs.tailscale}/bin/tailscale status >/dev/null
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString graphifyPort} 127.0.0.1:${toString graphifyPort}
+    '';
   };
 
   environment.systemPackages = lib.mkAfter [ axis.packages.${pkgs.stdenv.hostPlatform.system}.axis ];
@@ -833,6 +861,38 @@ in
       ExecStart = "${config.users.users.cdenneen.home}/.local/bin/herdr server";
       Restart = "on-failure";
       RestartSec = "5s";
+    };
+  };
+
+  systemd.user.services.nyx-mcp-graphify = {
+    description = "Shared Graphify MCP server";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "default.target" ];
+    restartIfChanged = true;
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = pkgs.writeShellScript "nyx-mcp-graphify" ''
+        set -euo pipefail
+
+        app_dir="$HOME/.local/share/graphify/app"
+        ${pkgs.coreutils}/bin/mkdir -p "$app_dir" "$HOME/.local/share/graphify/shared"
+        ${pkgs.coreutils}/bin/cp -f ${graphifySource}/*.py "$app_dir/"
+        cd "$HOME/.local/share/graphify/shared"
+
+        export PYTHONPATH="$app_dir"
+        exec ${graphifyPython}/bin/python -c '
+        import server
+        server.mcp.settings.port = ${toString graphifyPort}
+        server.mcp.settings.transport_security.allowed_hosts.append("${convexHost}:*")
+        server.mcp.run(transport="streamable-http")
+        '
+      '';
+      Restart = "always";
+      RestartSec = 10;
+      MemoryAccounting = true;
+      MemoryHigh = "1536M";
+      MemoryMax = "2G";
     };
   };
 

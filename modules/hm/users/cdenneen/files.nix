@@ -81,6 +81,7 @@ let
   useSharedNyxMcp = isDarwin || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
+  graphifyMcpUrl = nyxSharedMcpUrl 18108;
 
   writableRoots = [
     "/Users/cdenneen/code/workspace"
@@ -270,6 +271,12 @@ let
           url = nyxSharedMcpUrl 18001;
           required = false;
           startup_timeout_sec = 20;
+          tool_timeout_sec = 180;
+        };
+        graphify = {
+          url = graphifyMcpUrl;
+          required = false;
+          startup_timeout_sec = 30;
           tool_timeout_sec = 180;
         };
         supabase = {
@@ -726,6 +733,25 @@ in
         fi
     ''
   );
+
+  home.activation.piMcpConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+
+    dst="$HOME/.pi/agent/mcp.json"
+    $DRY_RUN_CMD mkdir -p "$HOME/.pi/agent"
+    if [ -f "$dst" ]; then
+      current="$(${pkgs.coreutils}/bin/cat "$dst")"
+    else
+      current='{}'
+    fi
+
+    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.pi/agent/mcp.json.XXXXXX")"
+    printf '%s' "$current" | ${pkgs.jq}/bin/jq \
+      --arg url ${lib.escapeShellArg graphifyMcpUrl} \
+      '.mcpServers.graphify = {type: "http", url: $url, directTools: true}' > "$tmp"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+  '';
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail
