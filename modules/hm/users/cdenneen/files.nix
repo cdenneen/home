@@ -461,27 +461,29 @@ in
 
   # Symlink pi packages from the pi-plugins Nix store package to ~/.pi/agent/npm/node_modules/
   # Only create symlinks when piPluginsPkg is available (i.e., when agentPkgs is set)
-  home.file = lib.mkIf (piPluginsPkg != null) {
-    ".pi/agent/npm/node_modules/pi-mcp-adapter".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-mcp-adapter";
-    ".pi/agent/npm/node_modules/pi-subagents".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-subagents";
-    ".pi/agent/npm/node_modules/pi-simplify".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-simplify";
-    ".pi/agent/npm/node_modules/@narumitw/pi-goal".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/@narumitw/pi-goal";
-    ".pi/agent/npm/node_modules/pi-hermes-memory".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-hermes-memory";
-    ".pi/agent/npm/node_modules/pi-litellm".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-litellm";
-    # These disabled packages have empty extensions arrays
-    ".pi/agent/npm/node_modules/pi-goal-list-loop-audit" = {
-      source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-list-loop-audit";
-      extensions = [];
-    };
-    ".pi/agent/npm/node_modules/pi-rtk-optimizer" = {
-      source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-rtk-optimizer";
-      extensions = [];
-    };
-    ".pi/agent/npm/node_modules/pi-codex-goal" = {
-      source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-codex-goal";
-      extensions = [];
-    };
-  };
+  home.file = lib.mkMerge [
+    (lib.mkIf (piPluginsPkg != null) {
+      ".pi/agent/npm/node_modules/pi-mcp-adapter".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-mcp-adapter";
+      ".pi/agent/npm/node_modules/pi-subagents".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-subagents";
+      ".pi/agent/npm/node_modules/pi-simplify".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-simplify";
+      ".pi/agent/npm/node_modules/@narumitw/pi-goal".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/@narumitw/pi-goal";
+      ".pi/agent/npm/node_modules/pi-hermes-memory".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-hermes-memory";
+      ".pi/agent/npm/node_modules/pi-litellm".source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-litellm";
+      # These disabled packages have empty extensions arrays
+      ".pi/agent/npm/node_modules/pi-goal-list-loop-audit" = {
+        source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-list-loop-audit";
+        extensions = [];
+      };
+      ".pi/agent/npm/node_modules/pi-rtk-optimizer" = {
+        source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-rtk-optimizer";
+        extensions = [];
+      };
+      ".pi/agent/npm/node_modules/pi-codex-goal" = {
+        source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-codex-goal";
+        extensions = [];
+      };
+    })
+  ];
 
   # The LiteLLM key must be rendered from SOPS: pi-litellm reads this file
   # directly, before pi's normal $ENV_VAR interpolation path.
