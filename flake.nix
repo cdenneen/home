@@ -471,15 +471,29 @@
                   proxyCommand = ghost.systemd.services.axis-api-auth-proxy.serviceConfig.ExecStart;
                   proxy = builtins.elemAt (splitString " " proxyCommand) 1;
                   axisPreStart = ghost.systemd.services.axis.preStart;
-                  axisCapabilitySetup = builtins.readFile (builtins.head (splitString "\n" axisPreStart));
+                  axisCapabilitySetups = splitString " && " axisPreStart;
+                  axisSlackCapabilitySetup = builtins.readFile (builtins.head axisCapabilitySetups);
+                  axisErosCapabilitySetup = builtins.readFile (
+                    builtins.head (splitString "\n" (builtins.elemAt axisCapabilitySetups 1))
+                  );
+                  axisGitlabCapabilitySetup = builtins.readFile (builtins.elemAt axisCapabilitySetups 2);
                 in
-                assert inputs.axis.rev == "40b28f398754c316eae7027d6ae50f218c9f727c";
+                assert inputs.axis.rev == "1afe32e9169703896a68a3910065e1ad30084753";
+                assert builtins.length axisCapabilitySetups == 3;
                 assert hasPrefix "/nix/store/" proxy;
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
-                  axisCapabilitySetup;
-                assert !(hasInfix "provider.slack.identity.U0B7ZGP6M43" axisCapabilitySetup);
-                assert hasInfix "canonical profile database is not readable" axisCapabilitySetup;
-                assert hasInfix "active principal is not the deployment owner" axisCapabilitySetup;
+                  axisSlackCapabilitySetup;
+                assert !(hasInfix "provider.slack.identity.U0B7ZGP6M43" axisSlackCapabilitySetup);
+                assert hasInfix "canonical profile database is not readable" axisSlackCapabilitySetup;
+                assert hasInfix "active principal is not the deployment owner" axisSlackCapabilitySetup;
+                assert hasInfix "provider.openai-compatible.eros.api-key" axisErosCapabilitySetup;
+                assert hasInfix "provider.openai-compatible.eros.base-url" axisErosCapabilitySetup;
+                assert hasInfix "provider.openai-compatible.eros.api_key" axisErosCapabilitySetup;
+                assert hasInfix "provider.openai-compatible.eros.base_url" axisErosCapabilitySetup;
+                assert hasInfix "--scope axis_vault" axisErosCapabilitySetup;
+                assert hasInfix "provider.gitlab.axis.read-api-token" axisGitlabCapabilitySetup;
+                assert hasInfix "provider.gitlab.axis.read_api_token" axisGitlabCapabilitySetup;
+                assert hasInfix "--scope axis_vault" axisGitlabCapabilitySetup;
                 pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
                   if ${pkgs.jq}/bin/jq -e --arg principal_id principal.not-owner '
                     .principals

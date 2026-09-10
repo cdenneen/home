@@ -125,6 +125,19 @@ in
       # a running omniroute.service, then sops-encrypt the returned key into
       # this path (requires local age identity - see recovery manifest).
     };
+    # personal/work (2026-09-03): same bootstrap process as omniroute_client_key
+    # above, one key per trust domain - see the `personal`/`work` model_list
+    # entries' comment for why this isn't one shared key.
+    omniroute_client_key_personal = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
+    omniroute_client_key_work = {
+      owner = "root";
+      group = "root";
+      mode = "0400";
+    };
   };
 
   systemd.services.eros-litellm-env = {
@@ -170,6 +183,8 @@ in
         printf 'OPENAI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.openai_api_key.path}" "OpenAI key")"
         printf 'GEMINI_API_KEY=%s\n' "$(read_secret "${config.sops.secrets.gemini_api_key.path}" "Gemini key")"
         printf 'OMNIROUTE_CLIENT_KEY=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key.path}" "OmniRoute client key")"
+        printf 'OMNIROUTE_CLIENT_KEY_PERSONAL=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key_personal.path}" "OmniRoute personal client key")"
+        printf 'OMNIROUTE_CLIENT_KEY_WORK=%s\n' "$(read_secret_optional "${config.sops.secrets.omniroute_client_key_work.path}" "OmniRoute work client key")"
         printf 'QDRANT_API_BASE=http://127.0.0.1:%s\n' "${toString qdrantPort}"
         printf 'QDRANT_VECTOR_SIZE=1024\n'
       } > "${litellmEnvFile}"
@@ -248,6 +263,9 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
             cache_control_injection_points: &eros_cache_points_with_tools
               - location: tool_config
                 control:
@@ -298,6 +316,22 @@ in
             model: openai/gpt-5-mini
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             api_base: http://127.0.0.1:20128/v1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        # Consolidated cheap/fast tier (2026-09-02): additive alongside
+        # tier1-general/tier1-coding above, not a replacement yet. Once every
+        # consumer requests `mini` instead of tier1-general/tier1-coding
+        # directly, those two entries retire - see `mini`'s fallback below,
+        # which reuses tier1-coding rather than duplicating it.
+        - model_name: mini
+          litellm_params:
+            model: openai/gemini-2.5-flash
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         # cache_control_injection_points added 2026-08-28: validated on a bounded
         # test route (154.8K-token stable prefix, 3-turn A/B) before applying here -
         # cache write $0.4257/3655ms turn 1, cache read $0.0341/1716ms turn 2,
@@ -348,6 +382,41 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+        # Consolidated quality-coding tier (2026-09-02): additive alongside
+        # tier2-coding/tier2-research above. Same-tier redundancy across
+        # paths, NOT the "generic 429/error fallback" this file's
+        # router_settings comment below still correctly bans - see that
+        # comment for the incident (coding-strong -> coding-gemini silently
+        # collapsing Claude-tier onto Gemini Flash) this must never repeat.
+        # Every candidate in `auto`'s own fallback chain is the same
+        # Sonnet-5/GPT-5.4 quality class; nothing here ever drops to mini.
+        #
+        # Named `auto`, not `coding-strong` - `coding-strong` already exists
+        # above (direct Bedrock, 3-point tool-aware cache, real legacy CLI
+        # worker traffic) and reusing that name here would have registered a
+        # second deployment under the same model_name, letting litellm's
+        # router pick between them outside this fallback chain entirely and
+        # sometimes bypass the existing tool-aware cache. Caught by review
+        # before merge, not discovered live.
+        #
+        # Motivating evidence (2026-08-25..09-01, OmniRoute call_logs): Sonnet
+        # traffic through OmniRoute (tier2-coding/tier2-research) ran ~57%
+        # success over 7 days; 74%% of the failures were OmniRoute's own
+        # local request-queue timeout (resilienceSettings.requestQueue.
+        # maxWaitMs), not a Bedrock/upstream problem. This chain gives that
+        # traffic somewhere real to go instead of failing outright - falling
+        # through to the *existing* `coding-strong` (not a new duplicate) as
+        # the final, most-reliable rung.
+        - model_name: auto
+          litellm_params:
+            model: openai/bedrock/us.anthropic.claude-sonnet-5
+            # co-located on eros today; if omniroute ever moves to its own
+            # host, this becomes http://eros.tail0e55.ts.net:20128/v1
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier2-research
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
@@ -357,6 +426,15 @@ in
             additional_drop_params:
               - x_hermes_source
         - model_name: tier3-quality
+          litellm_params:
+            model: openai/global.anthropic.claude-opus-5
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+        # `quality` (2026-09-02): additive alias for tier3-quality's exact
+        # model. No fallback, same as tier3-quality itself - Opus is its own
+        # capability class; failure must reject, never silently become
+        # coding-strong's Sonnet-5.
+        - model_name: quality
           litellm_params:
             model: openai/global.anthropic.claude-opus-5
             api_base: http://127.0.0.1:20128/v1
@@ -391,9 +469,112 @@ in
           litellm_params:
             model: openai/gpt-5.6-sol
             api_key: os.environ/OPENAI_API_KEY
+        # AXIS-only core models (2026-09-09): direct native Bedrock, instance
+        # profile (no explicit api_key, same pattern as coding-strong above).
+        # Deliberately NOT added to any consumer key's allowlist except axis -
+        # see /key/update done alongside this PR. multimodal-long (nova-2-lite)
+        # is NOT wired here: amazon.nova-2-lite-v1:0 (both the us. and global.
+        # cross-region inference profiles) is blocked by an explicit deny in
+        # an AWS Organizations SCP (arn:...policy/o-l5977bt4h1/.../p-znpv8ugv)
+        # on this instance profile - confirmed via direct bedrock-runtime
+        # converse calls, not a LiteLLM/OmniRoute-side issue. Needs an AWS
+        # Organizations admin to adjust the SCP, or a different credential
+        # path (e.g. a Bedrock Mantle API key under a different account) -
+        # neither set up yet.
+        - model_name: general-core
+          litellm_params:
+            model: bedrock/qwen.qwen3-next-80b-a3b
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: coding-core
+          litellm_params:
+            model: bedrock/qwen.qwen3-coder-next
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        # multimodal-long (2026-09-09): amazon.nova-2-lite is INFERENCE_PROFILE-
+        # only (no ON_DEMAND support) - the us. cross-region inference
+        # profile, not the bare foundation-model id. Required an AWS
+        # Organizations SCP change (Allow-Listing-AWS-Bedrock-Models,
+        # p-znpv8ugv) to add an inference-profile/us.amazon.nova-* allowlist
+        # entry - the existing amazon.nova-* wildcard only covered the
+        # foundation-model/ ARN pattern, not inference-profile/.
+        - model_name: multimodal-long
+          litellm_params:
+            model: bedrock/us.amazon.nova-2-lite-v1:0
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: review-strong
+          litellm_params:
+            model: bedrock/zai.glm-5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: research-candidate
+          litellm_params:
+            model: bedrock/moonshotai.kimi-k2.5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: reasoning-candidate
+          litellm_params:
+            model: bedrock/deepseek.v3.2
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: embedding-core
+          litellm_params:
+            model: bedrock/amazon.titan-embed-text-v2:0
+            aws_region_name: us-east-1
+        # personal/work (2026-09-03): single entry point per trust domain,
+        # forwarding to OmniRoute's native combo/reasoning_routing_rules
+        # engine (combo: ai-auto) - see hermes-profile-model migration.
+        # Two separate OmniRoute client keys (not one shared key) so that
+        # OmniRoute-side per-key scoping (memory/cache isolation, group
+        # model permissions) can eventually track the same personal/work
+        # trust-domain boundary already enforced elsewhere, rather than
+        # collapsing every consumer into one shared OmniRoute identity.
+        # Old tier0-4/auto/mini/quality/coding-* entries above are left in
+        # place until consumer traffic is proven flowing through these two
+        # and they can be retired.
+        - model_name: personal
+          litellm_params:
+            model: openai/ai-auto
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY_PERSONAL
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: work
+          litellm_params:
+            model: openai/ai-auto
+            api_base: http://127.0.0.1:20128/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY_WORK
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
       general_settings:
         master_key: os.environ/LITELLM_MASTER_KEY
         database_url: os.environ/DATABASE_URL
+        # Fallback targets must also be in the calling key'''s own allowlist,
+        # not just the primary model - closes a gap where a key restricted
+        # to model X could silently reach fallback Y via a fallback chain
+        # without Y ever being explicitly granted. Same credential-bound-
+        # ceiling principle as #41 (Bootstrap Gate), just applied to
+        # fallback targets specifically. Every key with a fallback-bearing
+        # primary model (auto/mini for ghost-alpha0-policy-endpoint/nyx-eks/
+        # nyx-gitlab/axis) was additively updated to include its fallback
+        # targets before this was enabled, so no consumer's fallback
+        # behavior changes - this only prevents that gap from reopening.
+        enforce_fallback_model_access: true
       litellm_settings:
         # Bootstrap default is cache bypass everywhere (01-eros-inference-fabric.md).
         # Previously cache:true + router_settings.cache_responses:false were both
@@ -405,13 +586,50 @@ in
           - x_hermes_source
       router_settings:
         cache_responses: false
-        # No cross-tier fallbacks: 01-eros-inference-fabric.md prohibits generic
-        # fallback ("Generic 429/error fallback is prohibited"), and the previous
-        # `coding-strong: [coding-gemini]` entry silently collapsed a Claude-tier
-        # request onto Gemini Flash on failure - undetectable capability
-        # downgrade. Routing rejects rather than silently downgrades; the
-        # host-local policy endpoint / continuity controller owns any approved
-        # continuity path, not the LiteLLM router.
+        # Cross-tier/generic fallback is still banned - 01-eros-inference-
+        # fabric.md's rule stands, and the incident that produced it is real:
+        # an earlier `coding-strong: [coding-gemini]` entry once silently
+        # collapsed a Claude-tier request onto Gemini Flash on failure -
+        # undetectable capability downgrade. That must never happen again.
+        #
+        # What's below is narrower and different in kind: same-tier
+        # redundancy across paths for one named model, not a downgrade path.
+        # `auto` only ever falls back to gpt-5.4 (same quality class,
+        # different provider) or the *existing* `coding-strong` (the literal
+        # same Sonnet-5, direct-Bedrock, already-proven tool-aware-cache
+        # path) - see the comment on `auto` above for the OmniRoute-
+        # reliability evidence motivating this, and why it isn't itself
+        # named `coding-strong`. `mini` only falls back to tier1-coding,
+        # itself a cheap/fast-tier model, not a downgrade from mini's own
+        # tier. tier4-frontier/coding-strong/quality getting no entry at all
+        # would already mean no fallback (litellm only fires a fallback for
+        # a model that has one) - the explicit empty lists below are just
+        # that intent written down, so a future generic/wildcard entry can't
+        # silently start catching them without someone having to touch these
+        # lines first.
+        fallbacks:
+          - auto: [gpt-5.4, coding-strong]
+          - mini: [tier1-coding]
+          - personal: [coding-strong]
+          - work: [coding-strong]
+          - tier4-frontier: []
+          - coding-strong: []
+          - quality: []
+          # AXIS-only models (2026-09-09). general-core/coding-core get a
+          # real fallback (same rationale as auto/mini above - redundancy,
+          # not a downgrade path). The rest are explicit no-fallback by
+          # design, per Chris: review-strong (preserve reviewer quality/
+          # independence), multimodal-long (no equivalent video + 1M-context
+          # route), embedding-core (never mix embedding spaces),
+          # research-candidate/reasoning-candidate (keep candidate
+          # measurements uncontaminated).
+          - general-core: [multimodal-long]
+          - coding-core: [review-strong]
+          - review-strong: []
+          - multimodal-long: []
+          - embedding-core: []
+          - research-candidate: []
+          - reasoning-candidate: []
         num_retries: 1
         timeout: 90
       EOF
@@ -489,6 +707,14 @@ in
       HOSTNAME = "127.0.0.1";
       PORT = toString omniroutePort;
       DATA_DIR = "${config.users.users.cdenneen.home}/.omniroute";
+      # Temporary diagnostic (2026-09-02): captures full request/response
+      # pipeline bytes to request_detail_logs for the anthropic-compatible/
+      # bedrock-runtime empty-response investigation. The dashboard's
+      # call_log_pipeline_enabled setting cannot toggle this in practice -
+      # this env var is the only thing isDetailedLoggingEnabled() honors.
+      # Revert once that investigation concludes; verbose and not meant to
+      # run long-term.
+      ENABLE_REQUEST_LOGS = "true";
     };
     serviceConfig = {
       Type = "simple";

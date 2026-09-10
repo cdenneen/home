@@ -22,6 +22,15 @@ let
   axisApiBearerTokenFile = config.sops.secrets.axis_remote_client_token.path;
   axisSlackBotTokenFile = config.sops.secrets.jarvis_slack_bot_token.path;
   axisSlackSigningSecretFile = config.sops.secrets.jarvis_slack_signing_secret.path;
+  # "eros" is only the current shared-AI-infra hostname, not a permanent
+  # identity - AXIS may eventually point at its own LiteLLM/OmniRoute/etc
+  # instead, per axis#140's generic-by-provider-name adapter design. These
+  # nix-facing names stay hostname-agnostic; `key` keeps the actual sops
+  # yaml entries (still named axis_eros_*) untouched, no re-encryption.
+  axisSharedAiApiKeyFile = config.sops.secrets.axis_shared_ai_api_key.path;
+  axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
+  axisSharedAiDefaultModel = "auto";
+  axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
   axisSlackProductOwnerId = "U0B7ZGP6M43";
   axisSlackIdentitySecretName = "provider.slack.identity.${
@@ -109,6 +118,64 @@ let
         --secret-name ${axisSlackIdentitySecretName} \
         --scope axis_vault \
         --display-name "Slack Product Owner identity" \
+        --secret-stdin \
+        > /dev/null
+  '';
+  # Shared AI infra workflow: wires the OpenAI-compatible endpoint AXIS's
+  # cognition attachment currently points at. "eros" below names the
+  # runtime's *current* provider attachment (axis#124/axis-governance#278),
+  # not this setup's identity - swapping to LiteLLM/OmniRoute/a self-hosted
+  # router later only changes the capability-id/secret-name literals, per
+  # axis#140's generic-by-provider-name adapter design.
+  axisSharedAiCapabilitySetup = pkgs.writeShellScript "axis-shared-ai-capability-setup" ''
+    set -euo pipefail
+
+    for secret_file in "${axisSharedAiApiKeyFile}" "${axisSharedAiBaseUrlFile}"; do
+      if [ ! -s "$secret_file" ]; then
+        echo "axis shared AI infra capability setup: required secret file is missing or empty" >&2
+        exit 1
+      fi
+    done
+
+    ${pkgs.coreutils}/bin/cat "${axisSharedAiApiKeyFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.openai-compatible.eros.api-key \
+        --secret-name provider.openai-compatible.eros.api_key \
+        --scope axis_vault \
+        --display-name "AXIS Eros OpenAI-compatible API key" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/cat "${axisSharedAiBaseUrlFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.openai-compatible.eros.base-url \
+        --secret-name provider.openai-compatible.eros.base_url \
+        --scope axis_vault \
+        --display-name "AXIS Eros OpenAI-compatible base URL" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/echo -n "${axisSharedAiDefaultModel}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.openai-compatible.eros.default-model \
+        --secret-name provider.openai-compatible.eros.default_model \
+        --scope axis_vault \
+        --display-name "AXIS Eros OpenAI-compatible default model" \
+        --secret-stdin \
+        > /dev/null
+  '';
+  axisGitlabCapabilitySetup = pkgs.writeShellScript "axis-gitlab-capability-setup" ''
+    set -euo pipefail
+
+    if [ ! -s "${axisGitlabReadApiTokenFile}" ]; then
+      echo "axis GitLab capability setup: required secret file is missing or empty" >&2
+      exit 1
+    fi
+
+    ${pkgs.coreutils}/bin/cat "${axisGitlabReadApiTokenFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.gitlab.axis.read-api-token \
+        --secret-name provider.gitlab.axis.read_api_token \
+        --scope axis_vault \
+        --display-name "AXIS GitLab read_api token (ghostspace/axis)" \
         --secret-stdin \
         > /dev/null
   '';
@@ -633,6 +700,29 @@ in
     mode = "0400";
     restartUnits = [ "axis.service" ];
   };
+  sops.secrets.axis_shared_ai_api_key = {
+    key = "axis_eros_api_key"; # underlying yaml entry unrenamed - no re-encryption needed
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
+  sops.secrets.axis_shared_ai_base_url = {
+    key = "axis_eros_base_url"; # underlying yaml entry unrenamed - no re-encryption needed
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
+  sops.secrets.axis_gitlab_read_api_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
   sops.secrets."alpha0/audit-key" = {
     sopsFile = alpha0SecretsFile;
     key = "alpha0_audit_key";
@@ -696,6 +786,18 @@ in
     group = "users";
     mode = "0400";
   };
+  # Dedicated Eros LiteLLM virtual key for Alpha0's primary (tier4-frontier)
+  # gateway route, scoped to tier2-research/tier3-quality/tier4-frontier only.
+  # Was previously (incorrectly) wired to the shared openai_api_key secret,
+  # which LiteLLM rejects since it never issued that raw value - see
+  # HTTP 401 token_not_found_in_db on hermes-alpha0-gateway.service.
+  sops.secrets."alpha0/litellm-key" = {
+    sopsFile = ../../secrets/alpha0.yaml;
+    key = "ghost_alpha0_litellm_key";
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
   sops.templates."alpha0-hermes-default.env" = {
     content = ''
       SLACK_BOT_TOKEN=${config.sops.placeholder."alpha0/slack-bot-token"}
@@ -711,7 +813,7 @@ in
   };
   sops.templates."alpha0-hermes-profile-alpha0.env" = {
     content = ''
-      OPENAI_API_KEY=${config.sops.placeholder.openai_api_key}
+      OPENAI_API_KEY=${config.sops.placeholder."alpha0/litellm-key"}
     '';
     owner = "cdenneen";
     group = "users";
@@ -865,8 +967,38 @@ in
     unitConfig.RequiresMountsFor = [
       axisSlackBotTokenFile
       axisSlackSigningSecretFile
+      axisSharedAiApiKeyFile
+      axisSharedAiBaseUrlFile
+      axisGitlabReadApiTokenFile
     ];
-    preStart = lib.mkBefore "${axisSlackCapabilitySetup}";
+    preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisSharedAiCapabilitySetup} && ${axisGitlabCapabilitySetup}";
+    # Active-development deployment channel (self-SDLC dogfood): points at a
+    # stable `nix profile` path instead of `${cfg.package}` (the flake-pinned
+    # store path baked in at host-build time), so ordinary AXIS application
+    # revisions update via `nix profile install --profile
+    # /nix/var/nix/profiles/axis-app <ref> && systemctl restart axis` alone -
+    # no nixos-rebuild per AXIS SHA. The flake pin (`inputs.axis.rev`, see
+    # `axisRevision` above) remains the eventual graduation target once a
+    # dev-profile SHA is qualified; nixos-upgrade.timer only ever rebuilds
+    # from that pin, never touches this profile path, so it cannot downgrade
+    # an actively-deployed dev revision. One-time host change; not expected
+    # to need another host switch for future AXIS revisions.
+    serviceConfig.ExecStart = lib.mkForce (
+      lib.escapeShellArgs [
+        "/nix/var/nix/profiles/axis-app/bin/axis"
+        "--data-root"
+        "/var/lib/axis"
+        "service"
+        "start"
+        "--foreground"
+        "--host"
+        "127.0.0.1"
+        "--port"
+        "8780"
+        "--host-mode"
+        "systemd"
+      ]
+    );
   };
 
   systemd.services.axis-deployment-identity = {

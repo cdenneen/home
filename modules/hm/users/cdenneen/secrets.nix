@@ -252,7 +252,11 @@ let
 
     ${lib.optionalString (erosLitellmKeyName != null) ''
       if [ -r "${config.sops.secrets.eros_litellm_api_key.path}" ]; then
-        export EROS_LITELLM_BASE_URL="http://100.117.68.38:4000/v1"
+        # No /v1 suffix: clients that build their own "/v1/..." paths on top
+        # of this (e.g. pi-litellm's model-sync extension) would otherwise
+        # hit a doubled /v1/v1/... 404. Clients that need the versioned
+        # prefix already include it themselves.
+        export EROS_LITELLM_BASE_URL="http://100.117.68.38:4000"
         export EROS_LITELLM_API_KEY="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.eros_litellm_api_key.path}")"
       fi
     ''}

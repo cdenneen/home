@@ -154,7 +154,7 @@ in
       continuityClass = "automatic-read-only";
       erosBaseUrl = "http://eros.tail0e55.ts.net:4000";
       erosTailscaleIp = "100.117.68.38";
-      allowedRoutes = [ "tier2-research" "tier3-quality" ];
+      allowedRoutes = [ "tier2-research" "tier3-quality" "mini" ];
       erosApiKeySecret = "eros_litellm_key_ghost_alpha0";
     };
     ghost-axis-control = {
@@ -168,6 +168,19 @@ in
       erosTailscaleIp = "100.117.68.38";
       allowedRoutes = [ "tier2-coding" "tier2-general" "tier3-quality" ];
       erosApiKeySecret = "eros_litellm_key_ghost_axis_control";
+    };
+  };
+
+  # auto/mini/quality migration (2026-09-02): ghost-alpha0's auxiliary
+  # functions move off the old tier2-research name onto the consolidated
+  # mini combo (#747). model.default is deliberately left unpinned here -
+  # it stays on tier4-frontier, an explicit-only frontier grant, not part
+  # of this migration.
+  profiles.hermesProfileModel.profiles.ghost-alpha0 = {
+    configHomeRelativePath = ".local/share/alpha0/hermes/profiles/alpha0/config.yaml";
+    modelOverrides = {
+      "auxiliary.compression.model" = "mini";
+      "auxiliary.title_generation.model" = "mini";
     };
   };
 }
