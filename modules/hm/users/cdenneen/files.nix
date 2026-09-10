@@ -479,18 +479,14 @@ in
   home.file.".pi/agent/npm/node_modules/pi-litellm" = lib.mkIf (piPluginsPkg != null) {
     source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-litellm";
   };
-  # These disabled packages have empty extensions arrays
   home.file.".pi/agent/npm/node_modules/pi-goal-list-loop-audit" = lib.mkIf (piPluginsPkg != null) {
     source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-list-loop-audit";
-    extensions = [];
   };
   home.file.".pi/agent/npm/node_modules/pi-rtk-optimizer" = lib.mkIf (piPluginsPkg != null) {
     source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-rtk-optimizer";
-    extensions = [];
   };
   home.file.".pi/agent/npm/node_modules/pi-codex-goal" = lib.mkIf (piPluginsPkg != null) {
     source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-codex-goal";
-    extensions = [];
   };
 
   # The LiteLLM key must be rendered from SOPS: pi-litellm reads this file
