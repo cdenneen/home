@@ -170,6 +170,12 @@ let
         enabled = true;
         timeout = 60000;
       };
+      graphify = {
+        type = "remote";
+        url = nyxSharedMcpUrl 18108;
+        enabled = true;
+        timeout = 60000;
+      };
       supabase = {
         type = "remote";
         url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";

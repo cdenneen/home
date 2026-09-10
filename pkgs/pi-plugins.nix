@@ -40,6 +40,7 @@
     test -f "$out/lib/pi-plugins/node_modules/pi-mcp-adapter/package.json"
     test -f "$out/lib/pi-plugins/node_modules/pi-subagents/package.json"
     test -f "$out/lib/pi-plugins/node_modules/pi-hermes-memory/package.json"
+    test -f "$out/lib/pi-plugins/node_modules/pi-litellm/package.json"
     ${nodejs_24}/bin/node -e '
       const Database = require(process.argv[1]);
       const db = new Database(":memory:");

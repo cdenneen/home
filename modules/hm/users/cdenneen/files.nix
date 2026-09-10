@@ -27,6 +27,7 @@ let
     "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-simplify"
     "${piPluginsPkg}/lib/pi-plugins/node_modules/@narumitw/pi-goal"
     "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-hermes-memory"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-litellm"
     # Keep alternate goal implementations packaged but disabled to avoid
     # duplicate /goal command registration.
     {
@@ -59,6 +60,7 @@ let
     "npm:@narumitw/pi-goal"
     "npm:pi-goal-list-loop-audit"
     "npm:pi-hermes-memory"
+    "npm:pi-litellm"
     "npm:pi-rtk-optimizer"
     "npm:pi-codex-goal"
     "git:github.com/DietrichGebert/ponytail"
@@ -81,6 +83,7 @@ let
   useSharedNyxMcp = isDarwin || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
+  graphifyMcpUrl = nyxSharedMcpUrl 18108;
 
   writableRoots = [
     "/Users/cdenneen/code/workspace"
@@ -272,6 +275,12 @@ let
           startup_timeout_sec = 20;
           tool_timeout_sec = 180;
         };
+        graphify = {
+          url = graphifyMcpUrl;
+          required = false;
+          startup_timeout_sec = 30;
+          tool_timeout_sec = 180;
+        };
         supabase = {
           url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
           required = false;
@@ -443,22 +452,25 @@ in
   home.file.".hermes/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
   home.file.".pi/agent/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
-  # Shared pi-agent LiteLLM provider config. baseUrl/apiKey are resolved at
-  # pi runtime via $ENV_VAR interpolation (see pi docs/models.md) from
-  # EROS_LITELLM_BASE_URL/EROS_LITELLM_API_KEY, which every host already
-  # exports identically (see shellSecretExports in secrets.nix) regardless
-  # of which per-host sops secret backs the key. No host-specific values
-  # belong in this file; keep it a plain static config.
+  home.file.".codex/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
+  home.file.".agents/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
+  home.file.".opencode/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
+  home.file.".claude/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
+  home.file.".hermes/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
+  home.file.".pi/agent/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
+
+  # The LiteLLM key must be rendered from SOPS: pi-litellm reads this file
+  # directly, before pi's normal $ENV_VAR interpolation path.
   #
   # modelOverrides come from the eros LiteLLM proxy's own /model/info
   # (max_output_tokens/max_input_tokens per alias), not guesses -- pi's
   # default keyword-based maxTokens inference (pi-litellm's litellm-sync.ts)
   # is wrong for generic proxy aliases like "coding-strong".
-  home.file.".pi/agent/models.json".text = builtins.toJSON {
+  home.file.".pi/agent/models.json.tmpl".text = builtins.toJSON {
     providers.litellm = {
-      baseUrl = "$EROS_LITELLM_BASE_URL";
+      baseUrl = null;
       api = "openai-completions";
-      apiKey = "$EROS_LITELLM_API_KEY";
+      apiKey = null;
       modelOverrides = {
         coding-strong = {
           maxTokens = 128000;
@@ -513,6 +525,10 @@ in
       recallium = {
         type = "http";
         url = nyxSharedMcpUrl 18001;
+      };
+      graphify = {
+        type = "http";
+        url = graphifyMcpUrl;
       };
       context7 = {
         type = "http";
@@ -791,6 +807,98 @@ in
         fi
     ''
   );
+
+  home.activation.piModelsWrite = lib.mkIf (config.sops.secrets ? eros_litellm_api_key) (
+    lib.hm.dag.entryAfter
+      [
+        (if isDarwin then "materializeDarwinSopsSecrets" else "materializeLinuxSopsSecrets")
+      ]
+      ''
+        set -euo pipefail
+
+        template="$HOME/.pi/agent/models.json.tmpl"
+        secret="${config.sops.secrets.eros_litellm_api_key.path}"
+        dst="$HOME/.pi/agent/models.json"
+
+        if [ -n "''${DRY_RUN_CMD:-}" ]; then
+          echo "Would render $dst from SOPS"
+        else
+          if [ ! -s "$template" ]; then
+            echo "Missing pi model template: $template" >&2
+            exit 1
+          fi
+          if [ ! -s "$secret" ]; then
+            echo "Missing Eros LiteLLM SOPS secret: $secret" >&2
+            exit 1
+          fi
+
+          tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.pi/agent/models.json.XXXXXX")"
+          ${pkgs.jq}/bin/jq \
+            --arg baseUrl "http://100.117.68.38:4000/v1" \
+            --rawfile apiKey "$secret" \
+            '($apiKey | sub("[\\r\\n]+$"; "")) as $key
+             | if $key == "" then error("empty Eros LiteLLM key")
+               else .providers.litellm.baseUrl = $baseUrl
+               | .providers.litellm.apiKey = $key
+               end' \
+            "$template" > "$tmp"
+          ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+          ${pkgs.coreutils}/bin/rm -f "$tmp"
+        fi
+      ''
+  );
+
+  home.activation.piMcpConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+
+    dst="$HOME/.pi/agent/mcp.json"
+    $DRY_RUN_CMD mkdir -p "$HOME/.pi/agent"
+    if [ -f "$dst" ]; then
+      current="$(${pkgs.coreutils}/bin/cat "$dst")"
+    else
+      current='{}'
+    fi
+
+    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.pi/agent/mcp.json.XXXXXX")"
+    printf '%s' "$current" | ${pkgs.jq}/bin/jq \
+      --arg recalliumUrl ${lib.escapeShellArg (nyxSharedMcpUrl 18001)} \
+      --arg graphifyUrl ${lib.escapeShellArg graphifyMcpUrl} \
+      '.mcpServers.recallium = {type: "http", url: $recalliumUrl, directTools: true}
+       | .mcpServers.graphify = {type: "http", url: $graphifyUrl, directTools: true}' > "$tmp"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+  '';
+
+  home.activation.graphifyHermesConfig =
+    lib.hm.dag.entryAfter
+      [
+        "gitlabMcpProxyHermesConfig"
+        "hermesGatewayBootstrapConfig"
+      ]
+      ''
+        configure_graphify() {
+          local hermes_config="$1"
+          if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
+            local tmp
+            tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-graphify.XXXXXX)"
+            ${pkgs.yq-go}/bin/yq '
+              .mcp_servers.graphify.url = "${graphifyMcpUrl}"
+              | .mcp_servers.graphify.timeout = 180
+              | .mcp_servers.graphify.connect_timeout = 30
+            ' "$hermes_config" > "$tmp"
+            if ! ${pkgs.diffutils}/bin/cmp -s "$tmp" "$hermes_config" \
+              || [ "$(${pkgs.coreutils}/bin/stat -c %a "$hermes_config")" != 600 ]; then
+              ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$hermes_config"
+            fi
+            ${pkgs.coreutils}/bin/rm -f "$tmp"
+          fi
+        }
+
+        configure_graphify "$HOME/.hermes/config.yaml"
+        ${lib.optionalString config.profiles.hermesGatewaySecondary.enable ''
+          configure_graphify "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}/config.yaml"
+        ''}
+      '';
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail
