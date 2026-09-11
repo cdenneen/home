@@ -40,6 +40,7 @@ in
       };
       catppuccin = rec {
         enable = true;
+        autoEnable = true;
         flavor = "frappe";
         accent = "red";
         gtk.icon.enable = lib.mkDefault false;

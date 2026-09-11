@@ -7,7 +7,7 @@
 }:
 let
   cfg = config.userPresets;
-  homePath = if pkgs.stdenv.isDarwin then "/Users" else "/home";
+  homePath = if pkgs.stdenv.hostPlatform.isDarwin then "/Users" else "/home";
   enableGui = config.profiles.gui.enable;
 in
 {
@@ -32,7 +32,7 @@ in
             shell = pkgs.zsh;
           }
 
-          (lib.mkIf pkgs.stdenv.isLinux {
+          (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
             isNormalUser = true;
             # Linux-only: nix-darwin does not manage user passwords
             initialHashedPassword = "$6$110Kl1BJUnU6QXEO$u7Ij2S63bEmwNj/J..rhKZ1kuBWs8/mPWwOMvDjoajuQPxUDcE8ld81RsC69lZGyHlogyajFU0V.nvJAeGx16.";
@@ -45,7 +45,7 @@ in
           })
         ];
 
-        users.groups.${cfg.cdenneen.name} = lib.mkIf pkgs.stdenv.isLinux { };
+        users.groups.${cfg.cdenneen.name} = lib.mkIf pkgs.stdenv.hostPlatform.isLinux { };
 
         nix.settings.trusted-users = [ cfg.cdenneen.name ];
 
@@ -64,7 +64,7 @@ in
 
       }
 
-      (lib.mkIf pkgs.stdenv.isLinux {
+      (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
         users.groups.sops = { };
       })
     ]

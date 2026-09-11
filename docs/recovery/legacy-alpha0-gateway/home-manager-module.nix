@@ -7,7 +7,7 @@
 }:
 let
   cfg = config.profiles.hermesAlpha0Gateway;
-  packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
+  packageAvailable = pkgs.stdenv.hostPlatform.isLinux && agentPkgs != null && agentPkgs ? hermes;
   hermesHome = "${config.home.homeDirectory}/.local/share/alpha0/hermes";
   rootConfig = "${hermesHome}/config.yaml";
   profileConfig = "${hermesHome}/profiles/alpha0/config.yaml";

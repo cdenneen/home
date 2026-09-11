@@ -42,6 +42,11 @@ in
   # intentionally produce no configuration or packages.
   options.catppuccin = {
     enable = lib.mkEnableOption "the no-op Catppuccin compatibility module";
+    autoEnable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Whether Catppuccin integrations are enabled automatically.";
+    };
     flavor = lib.mkOption {
       type = flavorType;
       default = "mocha";

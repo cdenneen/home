@@ -9,6 +9,7 @@
 
   catppuccin = {
     enable = lib.mkForce false;
+    autoEnable = lib.mkForce false;
     bat.enable = lib.mkForce false;
     fzf.enable = lib.mkForce false;
     starship.enable = lib.mkForce false;
