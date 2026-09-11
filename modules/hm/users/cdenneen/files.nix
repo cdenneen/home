@@ -84,6 +84,13 @@ let
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
   graphifyMcpUrl = nyxSharedMcpUrl 18108;
+  # LiteLLM /mcp gateway MVP (2026-09-11): registered on eros as mcp_servers.
+  # Same 9 plain-HTTP servers as the direct nyxSharedMcpUrl entries above,
+  # proxied through Eros for centralized auth/budget/tool-search. Header
+  # confirmed live against v1.94.0: "Authorization: Bearer <key>" - NOT
+  # "x-litellm-api-key" (that form 401s with "Malformed API Key... Ensure
+  # Key has `Bearer ` prefix").
+  erosLitellmMcpUrl = name: "http://eros.tail0e55.ts.net:4000/mcp/${name}/mcp";
 
   writableRoots = [
     "/Users/cdenneen/code/workspace"
@@ -552,21 +559,54 @@ in
 
   home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
     mcpServers = {
+      # MVP set (2026-09-11): routed through Eros LiteLLM's /mcp gateway
+      # instead of directly at nyx, for centralized auth/budget/tool-search.
+      # Placeholder substituted with the real eros-claude-clients key by
+      # claudeMcpSettingsWrite below.
       recallium = {
         type = "http";
-        url = nyxSharedMcpUrl 18001;
+        url = erosLitellmMcpUrl "recallium";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
       };
       graphify = {
         type = "http";
-        url = graphifyMcpUrl;
+        url = erosLitellmMcpUrl "graphify";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
       };
       context7 = {
         type = "http";
-        url = nyxSharedMcpUrl 18106;
+        url = erosLitellmMcpUrl "context7";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
       };
       playwright = {
         type = "http";
-        url = nyxSharedMcpUrl 18107;
+        url = erosLitellmMcpUrl "playwright";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
+      };
+      kubernetes = {
+        type = "http";
+        url = erosLitellmMcpUrl "kubernetes";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
+      };
+      aws = {
+        type = "http";
+        url = erosLitellmMcpUrl "aws";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
+      };
+      terraform = {
+        type = "http";
+        url = erosLitellmMcpUrl "terraform";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
+      };
+      duckduckgo = {
+        type = "http";
+        url = erosLitellmMcpUrl "duckduckgo";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
+      };
+      gitlab = {
+        type = "http";
+        url = erosLitellmMcpUrl "gitlab";
+        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
       };
       cocoindex-code = {
         command = cocoindexCodeExe;
@@ -691,6 +731,25 @@ in
         ${pkgs.gnused}/bin/sed "s|__CLOUDFLARE_API_TOKEN_PLACEHOLDER__|Bearer $cf_token|g")"
     fi
 
+    # Substitute the eros-claude-clients LiteLLM key for the MCP gateway
+    # entries at activation time, same pattern as cf_token above.
+    eros_key=""
+    for _eros_candidate in \
+      /run/user/1000/secrets.d/*/eros_litellm_key_claude_clients \
+      "$HOME/.local/share/sops-nix/secrets/eros_litellm_key_claude_clients" \
+      "$HOME/.config/sops-nix/secrets/eros_litellm_key_claude_clients"
+    do
+      if [ -r "$_eros_candidate" ]; then
+        eros_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_eros_candidate")"
+        break
+      fi
+    done
+
+    if [ -n "$eros_key" ]; then
+      mcp_json="$(printf '%s' "$mcp_json" | \
+        ${pkgs.gnused}/bin/sed "s|__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__|Bearer $eros_key|g")"
+    fi
+
     if [ -f "$dst" ]; then
       merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" -)"
     else
@@ -790,6 +849,65 @@ in
       fi
     ''
   );
+
+  # Claude Code env: point at Eros LiteLLM instead of direct Bedrock
+  # (2026-09-11). Ordered after ponytailPluginState since both read-modify-
+  # write ~/.claude/settings.json - real clobber risk otherwise. del() on an
+  # already-absent key is a no-op, so this is safe on hosts whose env block
+  # never had AWS_PROFILE/model overrides (e.g. nyx) as well as hosts that did.
+  home.activation.claudeSettingsEnvWrite = lib.hm.dag.entryAfter [ "ponytailPluginState" ] ''
+    set -euo pipefail
+
+    claude_dir="$HOME/.claude"
+    settings="$claude_dir/settings.json"
+    mkdir -p "$claude_dir"
+
+    token=""
+    for _c in \
+      /run/user/1000/secrets.d/*/eros_litellm_key_claude_clients \
+      "$HOME/.local/share/sops-nix/secrets/eros_litellm_key_claude_clients" \
+      "$HOME/.config/sops-nix/secrets/eros_litellm_key_claude_clients"
+    do
+      if [ -r "$_c" ]; then
+        token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_c")"
+        break
+      fi
+    done
+
+    if [ -z "$token" ]; then
+      echo "warning: eros_litellm_key_claude_clients missing, skipping Claude Code env rewrite" >&2
+      exit 0
+    fi
+
+    if [ -f "$settings" ]; then
+      settings_json="$(${pkgs.coreutils}/bin/cat "$settings")"
+    else
+      settings_json='{}'
+    fi
+
+    # One-time backup before the first destructive env rewrite, so rollback
+    # is a straight file copy rather than a re-derivation.
+    backup="$claude_dir/settings.json.pre-eros-migration.bak"
+    if [ ! -e "$backup" ] && [ -f "$settings" ]; then
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp "$settings" "$backup"
+    fi
+
+    tmp="$(${pkgs.coreutils}/bin/mktemp "$claude_dir/settings.json.XXXXXX")"
+    printf '%s' "$settings_json" | ${pkgs.jq}/bin/jq \
+      --arg baseUrl "http://eros.tail0e55.ts.net:4000" \
+      --arg token "$token" \
+      '.env.ANTHROPIC_BASE_URL = $baseUrl
+       | .env.ANTHROPIC_AUTH_TOKEN = $token
+       | .env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1"
+       | del(.env.CLAUDE_CODE_USE_BEDROCK)
+       | del(.env.AWS_PROFILE)
+       | del(.env.AWS_REGION)
+       | del(.env.ANTHROPIC_DEFAULT_HAIKU_MODEL)
+       | del(.env.ANTHROPIC_DEFAULT_SONNET_MODEL)
+       | del(.env.ANTHROPIC_DEFAULT_OPUS_MODEL)' > "$tmp"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
+    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+  '';
 
   home.activation.piSettingsWrite = lib.mkIf enableAgentPlugins (
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
