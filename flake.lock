@@ -1238,11 +1238,11 @@
         "nixpkgs": "nixpkgs_11"
       },
       "locked": {
-        "lastModified": 1789042746,
-        "narHash": "sha256-bJ56lS2JZHy6JHnTJl/B/ABauYdDg9fcUJAcxFcN7jw=",
+        "lastModified": 1789129048,
+        "narHash": "sha256-vFkSlMKaXtrdWbtVtqRlTCqua8BcqANR25kNUFMY4VA=",
         "owner": "nix-community",
         "repo": "nur",
-        "rev": "63137fcaae4bf581c77c544a859c1c48bee61f54",
+        "rev": "6d20e5a8589b5a117aaf88d4f4024edde11d9fa8",
         "type": "github"
       },
       "original": {
