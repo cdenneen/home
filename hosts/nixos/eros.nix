@@ -279,6 +279,44 @@ in
                 control:
                   type: ephemeral
 
+        # --- Claude Code / Claude Desktop client-facing aliases (2026-09-11) ---
+        # Net-new, parallel to coding-strong/tier2-general (not a rename/reuse):
+        # those routes' existing consumers (eros-*-all-routing keys, Nyx EKS
+        # traffic) are tuned/validated separately, and Claude Code's gateway
+        # model-discovery (CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1)
+        # requires "claude"/"anthropic" literally in model_name, which no
+        # existing alias has. Underlying Bedrock deployments are shared with
+        # existing routes where the model is identical - this only adds
+        # routing-layer aliases, not new Bedrock calls.
+        - model_name: claude-haiku-4-5
+          litellm_params:
+            model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+            aws_region_name: us-east-1
+            cache_control_injection_points: *eros_cache_points_with_tools
+        - model_name: claude-sonnet-5
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-5
+            aws_region_name: us-east-1
+            cache_control_injection_points: *eros_cache_points_with_tools
+          model_info:
+            # UNVERIFIED: max_input_tokens only changes what LiteLLM reports
+            # to clients, it does not itself request extended context from
+            # Bedrock. Confirm against the live Bedrock model card / a real
+            # >200K-token test call before trusting this in practice.
+            max_input_tokens: 1000000
+        - model_name: claude-opus-5
+          litellm_params:
+            # global. prefix matches tier3-quality/quality's model ID exactly
+            # but via direct bedrock/ instead of openai/+OmniRoute, for
+            # cache_control_injection_points support. No existing direct-
+            # bedrock route uses global. yet - verify this resolves correctly
+            # before relying on it.
+            model: bedrock/global.anthropic.claude-opus-5
+            aws_region_name: us-east-1
+            cache_control_injection_points: *eros_cache_points_with_tools
+          model_info:
+            max_input_tokens: 1000000
+
         - model_name: g2-omniroute-openai-gpt4o-mini
           litellm_params:
             model: openai/gpt-4o-mini
@@ -575,6 +613,10 @@ in
         # targets before this was enabled, so no consumer's fallback
         # behavior changes - this only prevents that gap from reopening.
         enforce_fallback_model_access: true
+        # Enables Claude Code's context-compaction feature. Points at
+        # claude-sonnet-5, not coding-strong, so this doesn't retroactively
+        # change coding-strong's contract for its existing callers.
+        context_management_summary_model: claude-sonnet-5
       litellm_settings:
         # Bootstrap default is cache bypass everywhere (01-eros-inference-fabric.md).
         # Previously cache:true + router_settings.cache_responses:false were both
@@ -586,6 +628,13 @@ in
           - x_hermes_source
       router_settings:
         cache_responses: false
+        # Added for Claude Code/Desktop migration: multiple deployments of
+        # bedrock/us.anthropic.claude-sonnet-5 now exist across aliases
+        # (coding-strong, tier2-general, claude-sonnet-5) - this makes the
+        # router prefer whichever deployment most recently served a matching
+        # prompt prefix, for cache hits across alias boundaries. Independent
+        # of litellm_settings.cache (response cache, stays false above).
+        optional_pre_call_checks: ["prompt_caching"]
         # Cross-tier/generic fallback is still banned - 01-eros-inference-
         # fabric.md's rule stands, and the incident that produced it is real:
         # an earlier `coding-strong: [coding-gemini]` entry once silently
@@ -632,6 +681,40 @@ in
           - reasoning-candidate: []
         num_retries: 1
         timeout: 90
+      mcp_servers:
+        # MVP set (2026-09-11): plain-HTTP servers only, no OAuth. Excludes
+        # github/supabase/cloudflare (need LiteLLM oauth2 auth_type,
+        # unverified against this version) and does not touch Hermes's
+        # separate GitLab OAuth-refresh proxy on 127.0.0.1:8899. Auth header
+        # for clients hitting these paths: verify x-litellm-api-key vs
+        # Authorization against the live instance before wiring clients.
+        recallium:
+          url: "http://nyx.tail0e55.ts.net:18001/mcp"
+          transport: "http"
+        graphify:
+          url: "http://nyx.tail0e55.ts.net:18108/mcp"
+          transport: "http"
+        context7:
+          url: "http://nyx.tail0e55.ts.net:18106/mcp"
+          transport: "http"
+        playwright:
+          url: "http://nyx.tail0e55.ts.net:18107/mcp"
+          transport: "http"
+        kubernetes:
+          url: "http://nyx.tail0e55.ts.net:18102/mcp"
+          transport: "http"
+        aws:
+          url: "http://nyx.tail0e55.ts.net:18103/mcp"
+          transport: "http"
+        terraform:
+          url: "http://nyx.tail0e55.ts.net:18104/mcp"
+          transport: "http"
+        duckduckgo:
+          url: "http://nyx.tail0e55.ts.net:18105/mcp"
+          transport: "http"
+        gitlab:
+          url: "http://nyx.tail0e55.ts.net:18101/mcp"
+          transport: "http"
       EOF
       ${pkgs.coreutils}/bin/chmod 0600 "${litellmConfigFile}"
     '';
