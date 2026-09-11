@@ -6,6 +6,17 @@
 }:
 let
   litellmPort = 4000;
+  # Real HTTPS termination (not the --tcp passthrough below) for clients
+  # that hard-require TLS and can't be pointed at a plain-HTTP base URL -
+  # e.g. Claude Desktop's Bring-your-own-Bedrock "Gateway" connection type
+  # (2026-09-11): it attempts a TLS handshake against whatever URL/port is
+  # configured regardless of scheme, so litellmPort's plain-HTTP --tcp
+  # passthrough 400s with ERR_SSL_PROTOCOL_ERROR for that specific client.
+  # Tailscale itself terminates TLS here (real, publicly-trusted Let's
+  # Encrypt cert via Tailscale's ACME integration - not self-signed) and
+  # reverse-proxies to the same plain-HTTP litellmPort backend. Every
+  # existing consumer keeps using plain HTTP on litellmPort unchanged.
+  litellmHttpsPort = 8443;
   litellmEnvFile = "/run/eros-litellm/env";
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   omniroutePort = 20128;
@@ -834,6 +845,7 @@ in
         exit 0
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=${toString litellmHttpsPort} http://127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
       # Shared AI Services MVP: policy-endpoint instances on Ghost/Nyx need
       # to reach Qdrant for shared-reuse retrieval/promotion
