@@ -7,7 +7,7 @@
   ...
 }:
 let
-  packageAvailable = pkgs.stdenv.isLinux && agentPkgs != null && agentPkgs ? hermes;
+  packageAvailable = pkgs.stdenv.hostPlatform.isLinux && agentPkgs != null && agentPkgs ? hermes;
   workloadMetadata = import ../hermes-workload-metadata { inherit pkgs agentPkgs; };
   singleWriterLock = import ../hermes-single-writer-lock.nix { inherit pkgs; };
   gatewayHermesHome = "${config.home.homeDirectory}/.hermes";

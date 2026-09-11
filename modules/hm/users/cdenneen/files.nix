@@ -78,7 +78,7 @@ let
       builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
   isGhost = hostName == "ghost";
-  isDarwin = pkgs.stdenv.isDarwin;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   hostSystem = pkgs.stdenv.hostPlatform.system;
   useSharedNyxMcp = isDarwin || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";

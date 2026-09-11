@@ -171,7 +171,7 @@
               inetutils = prev.inetutils.overrideAttrs (old: {
                 NIX_CFLAGS_COMPILE =
                   (old.NIX_CFLAGS_COMPILE or [ ])
-                  ++ prev.lib.optionals prev.stdenv.isDarwin [
+                  ++ prev.lib.optionals prev.stdenv.hostPlatform.isDarwin [
                     "-Wno-error=format-security"
                     "-Wno-format-security"
                   ];
@@ -186,7 +186,7 @@
               # ships a fixed expression.
               direnv = prev.direnv.overrideAttrs (
                 old:
-                prev.lib.optionalAttrs prev.stdenv.isDarwin {
+                prev.lib.optionalAttrs prev.stdenv.hostPlatform.isDarwin {
                   env = (old.env or { }) // {
                     CGO_ENABLED = "1";
                   };
@@ -248,7 +248,7 @@
         }:
         let
           direnvForShell =
-            if pkgs.stdenv.isDarwin then
+            if pkgs.stdenv.hostPlatform.isDarwin then
               pkgs.direnv.overrideAttrs (old: {
                 env = (old.env or { }) // {
                   CGO_ENABLED = "1";

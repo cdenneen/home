@@ -47,13 +47,14 @@
       programs.home-manager.enable = true;
       programs.zsh.enable = true;
       catppuccin.enable = lib.mkForce false;
+      catppuccin.autoEnable = lib.mkForce false;
       catppuccin.starship.enable = lib.mkForce false;
       catppuccin.bat.enable = lib.mkForce false;
       catppuccin.fzf.enable = lib.mkForce false;
       catppuccin.tmux.enable = lib.mkForce false;
       programs.starship.enable = lib.mkForce false;
       # cdenneen/programs.nix sets `services.syncthing.tray.enable =
-      # pkgs.stdenv.isLinux;` unconditionally -- that pulls in syncthingtray
+      # pkgs.stdenv.hostPlatform.isLinux;` unconditionally -- that pulls in syncthingtray
       # (a Qt6 GUI tray icon: qtbase/qtdeclarative/qtsvg/qttools/qtwayland),
       # a genuinely heavy, genuinely unnecessary dependency on a headless VM
       # with no desktop to sync files with in the first place. Unlike the

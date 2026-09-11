@@ -1,7 +1,7 @@
 { pkgs, lib, ... }:
 let
-  isDarwin = pkgs.stdenv.isDarwin;
-  isLinux = pkgs.stdenv.isLinux;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
   programs.zsh.enable = true;
