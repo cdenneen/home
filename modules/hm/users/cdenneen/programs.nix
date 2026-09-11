@@ -2,6 +2,7 @@
   config,
   lib,
   osConfig ? null,
+  options,
   pkgs,
   ...
 }:
@@ -329,9 +330,9 @@ in
     # glab config is managed explicitly via home.file
   };
 
-  programs.ssh = {
-    enable = true;
-    settings = {
+  programs.ssh =
+    let
+      sshSettings = {
       "i-* m-*" = {
         ProxyCommand = ssmProxyCommand;
       };
@@ -420,8 +421,38 @@ in
         IdentitiesOnly = true;
         IdentityFile = [ "~/.ssh/id_ed25519" ];
       };
+      };
+      legacySshSettings = lib.mapAttrs (
+        _:
+        hostSettings:
+        lib.mapAttrs' (
+          name: value:
+          lib.nameValuePair {
+            ProxyCommand = "proxyCommand";
+            IdentitiesOnly = "identitiesOnly";
+            IdentityFile = "identityFile";
+            User = "user";
+            HostName = "hostname";
+            RemoteForward = "remoteForwards";
+          }.${name} or name value
+        ) (lib.filterAttrs (name: _: name != "RequestTTY") hostSettings)
+      ) sshSettings;
+    in
+    {
+      enable = true;
+    }
+    // lib.optionalAttrs (options.programs.ssh ? settings) {
+      settings = sshSettings;
+    }
+    // lib.optionalAttrs (!(options.programs.ssh ? settings)) {
+      matchBlocks = legacySshSettings // {
+        nix = legacySshSettings.nix // {
+          extraOptions = {
+            RequestTTY = sshSettings.nix.RequestTTY;
+          };
+        };
+      };
     };
-  };
 
   # glab config is sourced from SOPS secret `glab_cli_config` and written to
   # ~/.config/glab-cli/config.yml with mode 0600.
