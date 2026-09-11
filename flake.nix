@@ -268,7 +268,10 @@
                 # Avoid nixpkgs warning about nixfmt-rfc-style aliasing.
                 package = pkgs.nixfmt;
               };
-              prettier.enable = true;
+              prettier = {
+                enable = true;
+                package = pkgs.prettier;
+              };
             };
 
             # Do not let formatters rewrite encrypted SOPS files.
