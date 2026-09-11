@@ -9,6 +9,7 @@
 let
   cfg = config.programs.ssh;
   hasSshAgentService = homeStateVersion != "25.05" && options.services ? ssh-agent;
+  hasSshSettings = options.programs.ssh ? settings;
   needsShellAgent = !hasSshAgentService && !pkgs.stdenv.hostPlatform.isDarwin;
   shellInit = ''
     # Use ssh-agent; only start one if there is no usable socket.
@@ -45,7 +46,7 @@ in
       }
       // {
         ssh =
-          if options.programs.ssh ? enableDefaultConfig then
+          if hasSshSettings then
             {
               enableDefaultConfig = false;
               settings."*" = {
@@ -84,29 +85,23 @@ in
                   UseKeychain yes
                 ''}
               '';
-              settings."*" = {
-                ForwardAgent = false;
-                Compression = false;
-                ServerAliveInterval = 0;
-                ServerAliveCountMax = 3;
-                HashKnownHosts = false;
-                UserKnownHostsFile = "~/.ssh/known_hosts ~/.ssh/known_hosts.d/git-hosts ~/.ssh/known_hosts.d/internal-hosts";
-              }
-              // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-                AddKeysToAgent = "yes";
-                UseKeychain = "yes";
+              matchBlocks."*" = {
+                forwardAgent = false;
+                compression = false;
+                serverAliveInterval = 0;
+                serverAliveCountMax = 3;
               };
               # GCE ephemeral IPs -- update hostname here once each host's
               # tailscale identity is authenticated and stable.
-              settings.savage = {
-                HostName = "136.117.81.52";
-                User = "cdenneen";
-                IdentityFile = "~/.ssh/cdenneen_ed25519_2024";
+              matchBlocks.savage = {
+                hostname = "136.117.81.52";
+                user = "cdenneen";
+                identityFile = "~/.ssh/cdenneen_ed25519_2024";
               };
-              settings.flash = {
-                HostName = "34.171.198.11";
-                User = "cdenneen";
-                IdentityFile = "~/.ssh/cdenneen_ed25519_2024";
+              matchBlocks.flash = {
+                hostname = "34.171.198.11";
+                user = "cdenneen";
+                identityFile = "~/.ssh/cdenneen_ed25519_2024";
               };
             };
       };
