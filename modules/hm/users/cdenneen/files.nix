@@ -855,7 +855,10 @@ in
   # write ~/.claude/settings.json - real clobber risk otherwise. del() on an
   # already-absent key is a no-op, so this is safe on hosts whose env block
   # never had AWS_PROFILE/model overrides (e.g. nyx) as well as hosts that did.
-  home.activation.claudeSettingsEnvWrite = lib.hm.dag.entryAfter [ "ponytailPluginState" ] ''
+  home.activation.claudeSettingsEnvWrite = lib.hm.dag.entryAfter [
+    "ponytailPluginState"
+    (if isDarwin then "materializeDarwinSopsSecrets" else "materializeLinuxSopsSecrets")
+  ] ''
     set -euo pipefail
 
     claude_dir="$HOME/.claude"
@@ -908,6 +911,98 @@ in
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
   '';
+
+  home.file.".claude-desktop-mcp-settings.source" = lib.mkIf isDarwin {
+    text = builtins.toJSON {
+      mcpServers = {
+        recallium = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "recallium") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        graphify = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "graphify") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        context7 = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "context7") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        playwright = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "playwright") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        kubernetes = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "kubernetes") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        aws = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "aws") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        terraform = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "terraform") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        duckduckgo = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "duckduckgo") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+        gitlab = {
+          command = "npx";
+          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "gitlab") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+        };
+      };
+    };
+  };
+
+  home.activation.claudeDesktopMcpSettingsWrite = lib.mkIf isDarwin (
+    lib.hm.dag.entryAfter [
+      "materializeDarwinSopsSecrets"
+    ] ''
+      set -euo pipefail
+
+      mcp_src="$HOME/.claude-desktop-mcp-settings.source"
+      dst="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+
+      if [ ! -f "$mcp_src" ]; then
+        exit 0
+      fi
+      mkdir -p "$HOME/Library/Application Support/Claude"
+
+      mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
+
+      eros_key=""
+      for _eros_candidate in \
+        /run/user/1000/secrets.d/*/eros_litellm_key_claude_clients \
+        "$HOME/.local/share/sops-nix/secrets/eros_litellm_key_claude_clients" \
+        "$HOME/.config/sops-nix/secrets/eros_litellm_key_claude_clients"
+      do
+        if [ -r "$_eros_candidate" ]; then
+          eros_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_eros_candidate")"
+          break
+        fi
+      done
+
+      if [ -z "$eros_key" ]; then
+        echo "warning: eros_litellm_key_claude_clients missing, skipping Claude Desktop MCP rewrite" >&2
+        exit 0
+      fi
+
+      mcp_json="$(printf '%s' "$mcp_json" | \
+        ${pkgs.gnused}/bin/sed "s|__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__|Bearer $eros_key|g")"
+
+      if [ -f "$dst" ]; then
+        merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[1] + {mcpServers: .[0].mcpServers}' - "$dst")"
+      else
+        merged="$mcp_json"
+      fi
+
+      tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/Library/Application Support/Claude/claude_desktop_config.json.XXXXXX")"
+      printf '%s\n' "$merged" > "$tmp"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+    ''
+  );
 
   home.activation.piSettingsWrite = lib.mkIf enableAgentPlugins (
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
