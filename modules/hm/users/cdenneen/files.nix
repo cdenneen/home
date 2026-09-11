@@ -90,7 +90,14 @@ let
   # confirmed live against v1.94.0: "Authorization: Bearer <key>" - NOT
   # "x-litellm-api-key" (that form 401s with "Malformed API Key... Ensure
   # Key has `Bearer ` prefix").
-  erosLitellmMcpUrl = name: "http://eros.tail0e55.ts.net:4000/mcp/${name}/mcp";
+  #
+  # Path is /mcp/<name> with NO trailing /mcp: LiteLLM registers its MCP
+  # inference routes as "/mcp/{subpath}", a SINGLE path segment. A
+  # two-segment "/mcp/<name>/mcp" misses that allowlist, falls through to
+  # the admin-only branch, and 401s with "Only proxy admin can be used to
+  # generate..." for any virtual key. The master key bypasses route checks
+  # entirely, so it succeeds on both forms - don't use it to validate this.
+  erosLitellmMcpUrl = name: "http://eros.tail0e55.ts.net:4000/mcp/${name}";
 
   writableRoots = [
     "/Users/cdenneen/code/workspace"
