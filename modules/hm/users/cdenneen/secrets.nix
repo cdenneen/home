@@ -324,6 +324,10 @@ in
     };
 
     openai_api_key.mode = "0400";
+    # Claude Code / Claude Desktop dedicated LiteLLM virtual key - purpose-
+    # scoped (not per-host); same value on every machine. Not under
+    # isGhost/isNyx - must decrypt on every host including Darwin.
+    eros_litellm_key_claude_clients.mode = "0400";
     github-token = {
       mode = "0400";
       path = "${sopsSecretsDir}/github-token";
