@@ -7,9 +7,9 @@
 
 let
   cacheRoot =
-    if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/cache" else "/home/cdenneen/src/cache";
+    if pkgs.stdenv.hostPlatform.isDarwin then "/Users/cdenneen/code/cache" else "/home/cdenneen/src/cache";
   workspaceRoot =
-    if pkgs.stdenv.isDarwin then "/Users/cdenneen/code/workspace" else "/home/cdenneen/src/workspace";
+    if pkgs.stdenv.hostPlatform.isDarwin then "/Users/cdenneen/code/workspace" else "/home/cdenneen/src/workspace";
 in
 
 {

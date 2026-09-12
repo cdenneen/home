@@ -9,6 +9,10 @@ in
 {
   networking.hostName = "VNJTECMBCD";
 
+  environment.etc."resolver/tail0e55.ts.net".text = ''
+    nameserver 100.100.100.100
+  '';
+
   system.stateVersion = 6;
   system.primaryUser = "cdenneen";
 

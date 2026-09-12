@@ -8,7 +8,7 @@ let
   cfg = config.profiles;
 in
 {
-  config = lib.mkIf (cfg.defaults.enable && cfg.gui.enable && pkgs.stdenv.isLinux) {
+  config = lib.mkIf (cfg.defaults.enable && cfg.gui.enable && pkgs.stdenv.hostPlatform.isLinux) {
     xdg.enable = true;
     gtk = {
       enable = true;

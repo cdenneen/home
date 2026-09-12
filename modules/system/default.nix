@@ -130,7 +130,7 @@ in
       sops = {
         defaultSopsFile = ../../secrets/secrets.yaml;
         age.keyFile =
-          if pkgs.stdenv.isDarwin then
+          if pkgs.stdenv.hostPlatform.isDarwin then
             "${config.users.users.${config.userPresets.cdenneen.name}.home}/.config/sops/age/keys.txt"
           else
             "/var/sops/age/keys.txt";
@@ -140,7 +140,7 @@ in
         mode = "0400";
       };
       nix.extraOptions = lib.mkAfter (
-        lib.optionalString pkgs.stdenv.isLinux ''
+        lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
           !include /etc/nix/nix.conf.d/90-access-tokens.conf
         ''
       );
@@ -160,7 +160,7 @@ in
         netrc_file="/etc/nix/netrc"
         netrc_tmp="$netrc_file.tmp"
 
-        ${lib.optionalString pkgs.stdenv.isDarwin ''
+        ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
           if [ -z "$gitlab_token" ]; then
             sops_file="${config.sops.defaultSopsFile}"
             age_key="${config.sops.age.keyFile}"
@@ -177,7 +177,7 @@ in
           fi
         ''}
 
-        ${lib.optionalString pkgs.stdenv.isDarwin ''
+        ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
           conf_file="/etc/nix/nix.custom.conf"
           tmp_file="$conf_file.tmp"
           ${pkgs.coreutils}/bin/install -d -m 0755 /etc/nix
@@ -198,7 +198,7 @@ in
           ${pkgs.coreutils}/bin/install -m 0644 "$tmp_file" "$conf_file"
           ${pkgs.coreutils}/bin/rm -f "$tmp_file"
         ''}
-        ${lib.optionalString pkgs.stdenv.isLinux ''
+        ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
           conf_dir="/etc/nix/nix.conf.d"
           conf_file="$conf_dir/90-access-tokens.conf"
 
@@ -239,7 +239,7 @@ in
     })
 
     (lib.mkIf
-      (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.isLinux)
+      (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.hostPlatform.isLinux)
       {
         nix.gc.dates = "weekly";
       }
