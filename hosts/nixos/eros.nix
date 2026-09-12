@@ -583,6 +583,71 @@ in
           litellm_params:
             model: bedrock/amazon.titan-embed-text-v2:0
             aws_region_name: us-east-1
+
+        # --- Real-model-name aliases for Hermes agents (2026-09-12) ---
+        # Additive routing-layer aliases only: same Bedrock deployments as the
+        # semantic routes above (coding-core, review-strong, ...), named after
+        # the actual model so Hermes's model picker is self-describing. The
+        # semantic names stay for their existing AXIS consumers - nothing is
+        # renamed or repointed. claude-sonnet-5/-haiku-4-5/-opus-5 already have
+        # explicit names above and are deliberately NOT duplicated here.
+        # NOTE: this widens the AXIS-only boundary noted at the general-core
+        # comment above - the eros-hermes-agents key is granted these aliases
+        # per explicit user request for "all the bedrock models we wired up".
+        - model_name: claude-sonnet-4-6
+          litellm_params:
+            model: bedrock/us.anthropic.claude-sonnet-4-6
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: qwen3-coder-next
+          litellm_params:
+            model: bedrock/qwen.qwen3-coder-next
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: qwen3-next-80b-a3b
+          litellm_params:
+            model: bedrock/qwen.qwen3-next-80b-a3b
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: deepseek-v3.2
+          litellm_params:
+            model: bedrock/deepseek.v3.2
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: kimi-k2.5
+          litellm_params:
+            model: bedrock/moonshotai.kimi-k2.5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: glm-5
+          litellm_params:
+            model: bedrock/zai.glm-5
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: nova-2-lite
+          litellm_params:
+            model: bedrock/us.amazon.nova-2-lite-v1:0
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: titan-embed-text-v2
+          litellm_params:
+            model: bedrock/amazon.titan-embed-text-v2:0
+            aws_region_name: us-east-1
+
         # personal/work (2026-09-03): single entry point per trust domain,
         # forwarding to OmniRoute's native combo/reasoning_routing_rules
         # engine (combo: ai-auto) - see hermes-profile-model migration.
