@@ -21,6 +21,19 @@ let
   recalliumUiBaseUrl = "http://${recalliumHost}:${toString recalliumUiPort}";
   recalliumImage = "docker.io/recalliumai/recallium:0.8.488@sha256:241bf1034df6e953f088d42b1d0a36d2689fc9cde305f506268c9cfbdbc2257a";
   terraformMcpImage = "hashicorp/terraform-mcp-server:0.4.0";
+  graphifyPort = 18108;
+  graphifySource = pkgs.fetchFromGitHub {
+    owner = "Ibrohim-Bxone";
+    repo = "graphify-mcp";
+    rev = "73363649720779e81a073384f53dcda6af5e58d6";
+    hash = "sha256-CpJTbODS3HHnu8ZcfH18x7Wt3EtBiJutLzE04JG4UZs=";
+  };
+  graphifyPython = pkgs.python313.withPackages (pythonPackages: [
+    pythonPackages.chromadb
+    pythonPackages.flask
+    pythonPackages.mcp
+    pythonPackages.numpy
+  ]);
   nyxMcpWarmPackages = [
     "supergateway"
     "@zereight/mcp-gitlab"
@@ -892,6 +905,47 @@ in
   systemd.user.services.nyx-mcp-duckduckgo = mkNyxMcpGatewayService "duckduckgo" nyxSharedMcpServers.duckduckgo;
   systemd.user.services.nyx-mcp-context7 = mkNyxMcpGatewayService "context7" nyxSharedMcpServers.context7;
   systemd.user.services.nyx-mcp-playwright = mkNyxMcpGatewayService "playwright" nyxSharedMcpServers.playwright;
+
+  # Graphify is not a mkNyxMcpGatewayService: those wrap a stdio binary in
+  # supergateway, whereas graphify-mcp speaks streamable-http natively via
+  # FastMCP. It binds 0.0.0.0 (FastMCP defaults to 127.0.0.1) so the tailnet
+  # address is directly reachable, same as supergateway's "*:PORT" bind -
+  # networking.firewall.trustedInterfaces includes tailscale0, so no per-port
+  # rule or `tailscale serve` indirection is needed. An earlier unmerged
+  # attempt used `tailscale serve --tcp`, which terminates TLS-over-TCP and
+  # therefore cannot serve the plain-http:// URL every consumer uses.
+  systemd.user.services.nyx-mcp-graphify = {
+    description = "Shared MCP graphify gateway";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "default.target" ];
+    restartIfChanged = true;
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = pkgs.writeShellScript "nyx-mcp-graphify" ''
+        set -euo pipefail
+
+        app_dir="$HOME/.local/share/graphify/app"
+        ${pkgs.coreutils}/bin/mkdir -p "$app_dir" "$HOME/.local/share/graphify/shared"
+        ${pkgs.coreutils}/bin/cp -f ${graphifySource}/*.py "$app_dir/"
+        cd "$HOME/.local/share/graphify/shared"
+
+        export PYTHONPATH="$app_dir"
+        exec ${graphifyPython}/bin/python -c '
+        import server
+        server.mcp.settings.host = "0.0.0.0"
+        server.mcp.settings.port = ${toString graphifyPort}
+        server.mcp.settings.transport_security.allowed_hosts.append("${convexHost}:*")
+        server.mcp.run(transport="streamable-http")
+        '
+      '';
+      Restart = "always";
+      RestartSec = 10;
+      MemoryAccounting = true;
+      MemoryHigh = "1536M";
+      MemoryMax = "2G";
+    };
+  };
 
   systemd.user.timers.nyx-mcp-warm-cache = {
     description = "Run nyx MCP cache warmup after boot";
