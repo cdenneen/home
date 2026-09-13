@@ -69,7 +69,12 @@ let
   };
   mkNamedMeshProfile =
     name: model: secretsCommand: extraOverrides:
-    (mkMeshProfile model secretsCommand extraOverrides)
+    (mkMeshProfile model secretsCommand (
+      {
+        "platforms.api_server.enabled" = false;
+      }
+      // extraOverrides
+    ))
     // {
       configHomeRelativePath = ".hermes/profiles/${name}/config.yaml";
     };
