@@ -444,6 +444,7 @@ in
 
   networking = {
     firewall.trustedInterfaces = lib.mkAfter [ "podman0" ];
+    firewall.interfaces.tailscale0.allowedTCPPorts = [ 8642 ];
     nftables.tables.shared-container-nat = {
       family = "ip";
       content = ''
