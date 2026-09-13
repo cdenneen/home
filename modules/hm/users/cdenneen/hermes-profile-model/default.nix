@@ -53,19 +53,12 @@ in
             description = "Path to this Hermes profile's config.yaml, relative to the Home Manager user's home directory.";
           };
           modelOverrides = lib.mkOption {
-            type = lib.types.attrsOf (
-              lib.types.oneOf [
-                lib.types.str
-                lib.types.bool
-                lib.types.int
-              ]
-            );
+            type = lib.types.attrsOf lib.types.anything;
             default = { };
             description = ''
-              Dotted yq paths (e.g. "model.default", "auxiliary.compression.model")
-              pinned idempotently to a value on every home-manager switch. Fields not
-              listed here are left untouched - e.g. a profile kept on tier4-frontier
-              intentionally omits "model.default" rather than pinning it.
+              Dotted yq paths (e.g. "model.default" or "mcp_servers") pinned
+              idempotently to JSON-compatible values on every Home Manager switch.
+              Fields not listed here are left untouched.
             '';
           };
         };
@@ -84,8 +77,6 @@ in
     home.activation.hermesProfileModelConfig = lib.hm.dag.entryAfter [
       "retireLegacyHermes"
       "writeBoundary"
-    ] (
-      lib.concatStringsSep "\n" (lib.mapAttrsToList mkPatch cfg.profiles)
-    );
+    ] (lib.concatStringsSep "\n" (lib.mapAttrsToList mkPatch cfg.profiles));
   };
 }

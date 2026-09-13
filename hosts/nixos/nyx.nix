@@ -366,6 +366,7 @@ in
   networking.firewall.interfaces.tailscale0.allowedTCPPorts = [
     53
     8080
+    8642
   ];
   networking.firewall.interfaces.tailscale0.allowedUDPPorts = [ 53 ];
 

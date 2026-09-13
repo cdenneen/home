@@ -497,103 +497,114 @@
                 assert hasInfix "provider.gitlab.axis.read-api-token" axisGitlabCapabilitySetup;
                 assert hasInfix "provider.gitlab.axis.read_api_token" axisGitlabCapabilitySetup;
                 assert hasInfix "--scope axis_vault" axisGitlabCapabilitySetup;
-                pkgs.runCommand "axis-slack-ingress-check" { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
-                  if ${pkgs.jq}/bin/jq -e --arg principal_id principal.not-owner '
-                    .principals
-                    | select(type == "array")
-                    | any(
-                        .[];
-                        type == "object"
-                        and .principal_id == $principal_id
-                        and .relationship == "owner"
-                        and (.role_ids | if type == "array" then index("deployment-owner") != null else false end)
-                      )
-                  ' > /dev/null <<'JSON'
-                  {"principals":[{"principal_id":"principal.not-owner","relationship":"collaborator","role_ids":["deployment-owner"]}]}
-                  JSON
-                  then
-                    echo "non-owner AXIS context passed Slack identity authorization" >&2
-                    exit 1
-                  fi
-                  ${pkgs.gnused}/bin/sed \
-                    -e 's/"127.0.0.1", 8780/"127.0.0.1", 18780/' \
-                    -e 's/("127.0.0.1", 8001)/("127.0.0.1", 18001)/' \
-                    -e 's|TOKEN_FILE = ".*"|TOKEN_FILE = "axis-api-auth-proxy-token"|' \
-                    ${proxy} > axis-api-auth-proxy.py
-                  ${pkgs.coreutils}/bin/printf 'test-token' > axis-api-auth-proxy-token
-                  ${pkgs.python3}/bin/python axis-api-auth-proxy.py &
-                  proxy_pid=$!
-                  trap '${pkgs.coreutils}/bin/kill "$proxy_pid"' EXIT
-                  ${pkgs.python3}/bin/python - <<'PY'
-                  import http.client
-                  import threading
-                  import time
-                  from http.server import BaseHTTPRequestHandler, HTTPServer
-
-                  received = {}
-
-                  class Upstream(BaseHTTPRequestHandler):
-                      def do_POST(self):
-                          received["body"] = self.rfile.read(int(self.headers["Content-Length"]))
-                          received["signature"] = self.headers["X-Slack-Signature"]
-                          received["timestamp"] = self.headers["X-Slack-Request-Timestamp"]
-                          received["content_type"] = self.headers["Content-Type"]
-                          self.send_response(200)
-                          self.end_headers()
-
-                      def log_message(self, format, *args):
-                          return
-
-                  upstream = HTTPServer(("127.0.0.1", 18780), Upstream)
-                  threading.Thread(target=upstream.serve_forever, daemon=True).start()
-
-                  def request(method, path, body=None, **headers):
-                      for _ in range(20):
-                          try:
-                              connection = http.client.HTTPConnection("127.0.0.1", 18001, timeout=1)
-                              connection.request(method, path, body=body, headers={"Host": "slack.denneen.net", **headers})
-                              status = connection.getresponse().status
-                              connection.close()
-                              return status
-                          except ConnectionRefusedError:
-                              time.sleep(0.1)
-                      raise AssertionError("AXIS API proxy did not start")
-
-                  assert request("POST", "/") == 404
-                  assert request("GET", "/callbacks/slack") == 405
-                  assert request("POST", "/callbacks/slack?unexpected=query") == 404
-                  assert request("OPTIONS", "/callbacks/slack") == 405
-                  assert request("POST", "/api/health", Host="axis.denneen.net") == 401
-                  assert request("POST", "/callbacks/slack", **{"Content-Length": "1048577"}) == 413
-                  assert request(
-                      "POST",
-                      "/callbacks/slack",
-                      body=b"{}",
-                      **{
-                          "Content-Type": "application/json",
-                          "X-Slack-Request-Timestamp": "1",
-                          "X-Slack-Signature": "v0=test",
-                      },
-                  ) == 200
-                  assert received == {
-                      "body": b"{}",
-                      "content_type": "application/json",
-                      "signature": "v0=test",
-                      "timestamp": "1",
+                pkgs.runCommand "axis-slack-ingress-check"
+                  {
+                    nativeBuildInputs = [
+                      pkgs.jq
+                      pkgs.python3
+                    ];
                   }
-                  upstream.shutdown()
-                  PY
-                  ${pkgs.coreutils}/bin/kill "$proxy_pid"
-                  wait "$proxy_pid" || true
-                  trap - EXIT
-                  touch "$out"
-                '';
+                  ''
+                    if ${pkgs.jq}/bin/jq -e --arg principal_id principal.not-owner '
+                      .principals
+                      | select(type == "array")
+                      | any(
+                          .[];
+                          type == "object"
+                          and .principal_id == $principal_id
+                          and .relationship == "owner"
+                          and (.role_ids | if type == "array" then index("deployment-owner") != null else false end)
+                        )
+                    ' > /dev/null <<'JSON'
+                    {"principals":[{"principal_id":"principal.not-owner","relationship":"collaborator","role_ids":["deployment-owner"]}]}
+                    JSON
+                    then
+                      echo "non-owner AXIS context passed Slack identity authorization" >&2
+                      exit 1
+                    fi
+                    ${pkgs.gnused}/bin/sed \
+                      -e 's/"127.0.0.1", 8780/"127.0.0.1", 18780/' \
+                      -e 's/("127.0.0.1", 8001)/("127.0.0.1", 18001)/' \
+                      -e 's|TOKEN_FILE = ".*"|TOKEN_FILE = "axis-api-auth-proxy-token"|' \
+                      ${proxy} > axis-api-auth-proxy.py
+                    ${pkgs.coreutils}/bin/printf 'test-token' > axis-api-auth-proxy-token
+                    ${pkgs.python3}/bin/python axis-api-auth-proxy.py &
+                    proxy_pid=$!
+                    trap '${pkgs.coreutils}/bin/kill "$proxy_pid"' EXIT
+                    ${pkgs.python3}/bin/python - <<'PY'
+                    import http.client
+                    import threading
+                    import time
+                    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+                    received = {}
+
+                    class Upstream(BaseHTTPRequestHandler):
+                        def do_POST(self):
+                            received["body"] = self.rfile.read(int(self.headers["Content-Length"]))
+                            received["signature"] = self.headers["X-Slack-Signature"]
+                            received["timestamp"] = self.headers["X-Slack-Request-Timestamp"]
+                            received["content_type"] = self.headers["Content-Type"]
+                            self.send_response(200)
+                            self.end_headers()
+
+                        def log_message(self, format, *args):
+                            return
+
+                    upstream = HTTPServer(("127.0.0.1", 18780), Upstream)
+                    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+
+                    def request(method, path, body=None, **headers):
+                        for _ in range(20):
+                            try:
+                                connection = http.client.HTTPConnection("127.0.0.1", 18001, timeout=1)
+                                connection.request(method, path, body=body, headers={"Host": "slack.denneen.net", **headers})
+                                status = connection.getresponse().status
+                                connection.close()
+                                return status
+                            except ConnectionRefusedError:
+                                time.sleep(0.1)
+                        raise AssertionError("AXIS API proxy did not start")
+
+                    assert request("POST", "/") == 404
+                    assert request("GET", "/callbacks/slack") == 405
+                    assert request("POST", "/callbacks/slack?unexpected=query") == 404
+                    assert request("OPTIONS", "/callbacks/slack") == 405
+                    assert request("POST", "/api/health", Host="axis.denneen.net") == 401
+                    assert request("POST", "/callbacks/slack", **{"Content-Length": "1048577"}) == 413
+                    assert request(
+                        "POST",
+                        "/callbacks/slack",
+                        body=b"{}",
+                        **{
+                            "Content-Type": "application/json",
+                            "X-Slack-Request-Timestamp": "1",
+                            "X-Slack-Signature": "v0=test",
+                        },
+                    ) == 200
+                    assert received == {
+                        "body": b"{}",
+                        "content_type": "application/json",
+                        "signature": "v0=test",
+                        "timestamp": "1",
+                    }
+                    upstream.shutdown()
+                    PY
+                    ${pkgs.coreutils}/bin/kill "$proxy_pid"
+                    wait "$proxy_pid" || true
+                    trap - EXIT
+                    touch "$out"
+                  '';
               hermes-gateway-roles =
                 let
                   ghost = configurations.homeConfigurations."cdenneen@ghost".config;
                   nyx = configurations.homeConfigurations."cdenneen@nyx".config;
                   ghostProfiles = ghost.profiles.hermesProfileModel.profiles;
                   nyxProfiles = nyx.profiles.hermesProfileModel.profiles;
+                  ghostRoleProfiles = removeAttrs ghostProfiles [ "gateway-router" ];
+                  nyxRoleProfiles = removeAttrs nyxProfiles [ "gateway-router" ];
+                  ghostRouter = ghostProfiles.gateway-router.modelOverrides;
+                  nyxRouter = nyxProfiles.gateway-router.modelOverrides;
                   ghostRetirement = ghost.home.activation.retireLegacyHermes.data;
                   nyxRetirement = nyx.home.activation.retireLegacyHermes.data;
                   expectedGhostModels = {
@@ -662,10 +673,44 @@
                       (profile.modelOverrides."auxiliary.title_generation.provider" == "main")
                     ];
                 in
-                assert profileModels ghostProfiles == expectedGhostModels;
-                assert profileModels nyxProfiles == expectedNyxModels;
+                assert profileModels ghostRoleProfiles == expectedGhostModels;
+                assert profileModels nyxRoleProfiles == expectedNyxModels;
                 assert all validProfile (builtins.attrValues ghostProfiles);
                 assert all validProfile (builtins.attrValues nyxProfiles);
+                assert ghost.profiles.hermesMesh.enable;
+                assert nyx.profiles.hermesMesh.enable;
+                assert builtins.hasAttr "hermes-mesh-gateway" ghost.systemd.user.services;
+                assert builtins.hasAttr "hermes-mesh-gateway" nyx.systemd.user.services;
+                assert ghostRouter."gateway.multiplex_profiles";
+                assert nyxRouter."gateway.multiplex_profiles";
+                assert
+                  ghostRouter."gateway.multiplex_profile_allowlist" == [
+                    "chief-of-staff"
+                    "researcher"
+                    "architect"
+                    "coder"
+                    "tester"
+                    "reviewer"
+                    "ops"
+                  ];
+                assert
+                  nyxRouter."gateway.multiplex_profile_allowlist" == [
+                    "coder"
+                    "tester"
+                    "reviewer"
+                    "ops"
+                  ];
+                assert ghostRouter."platforms.api_server.extra.host" == "100.114.242.29";
+                assert nyxRouter."platforms.api_server.extra.host" == "100.80.58.4";
+                assert ghostRouter."platforms.api_server.extra.port" == 8642;
+                assert nyxRouter."platforms.api_server.extra.port" == 8642;
+                assert ghostRouter."plugins.enabled" == [ "platforms/slack" ];
+                assert nyxRouter."plugins.enabled" == [ "platforms/slack" ];
+                assert ghostProfiles.chief-of-staff.modelOverrides."platforms.slack.enabled";
+                assert nyxProfiles.coder.modelOverrides."platforms.slack.enabled";
+                assert nyxProfiles.ops.modelOverrides."platforms.slack.enabled";
+                assert builtins.attrNames ghost.profiles.hermesMesh.souls == builtins.attrNames expectedGhostModels;
+                assert builtins.attrNames nyx.profiles.hermesMesh.souls == builtins.attrNames expectedNyxModels;
                 assert legacyFeaturesDisabled ghost;
                 assert legacyFeaturesDisabled nyx;
                 assert !ghost.services.axis-control-observer.enable;
@@ -694,6 +739,13 @@
                 assert nyx.profiles.hermesPolicyEndpoint.instances == { };
                 assert ghost.sops.secrets.eros_litellm_key_hermes_agents.mode == "0400";
                 assert nyx.sops.secrets.eros_litellm_key_hermes_agents.mode == "0400";
+                assert ghost.sops.secrets.hermes_mesh_api_key_ghost.mode == "0400";
+                assert ghost.sops.secrets.hermes_mesh_api_key_nyx.mode == "0400";
+                assert nyx.sops.secrets.hermes_mesh_api_key_ghost.mode == "0400";
+                assert nyx.sops.secrets.hermes_mesh_api_key_nyx.mode == "0400";
+                assert ghost.sops.secrets.hermes_slack_env_ghost_chief.mode == "0400";
+                assert nyx.sops.secrets.hermes_slack_env_nyx_coder.mode == "0400";
+                assert nyx.sops.secrets.hermes_slack_env_nyx_ops.mode == "0400";
                 pkgs.runCommand "hermes-gateway-roles-check" { } ''
                   touch "$out"
                 '';
