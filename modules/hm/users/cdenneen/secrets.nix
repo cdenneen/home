@@ -350,6 +350,9 @@ in
 
     oci_private_key.mode = "0600";
   }
+  // lib.optionalAttrs (isGhost || isNyx) {
+    eros_litellm_key_hermes_agents.mode = "0400";
+  }
   // lib.optionalAttrs isNyx {
     opencode_telegram_notify_ts.mode = "0600";
   }
@@ -358,18 +361,6 @@ in
       key = erosLitellmKeyName;
       mode = "0400";
     };
-  }
-  // lib.optionalAttrs isGhost {
-    # Dedicated per-actor Eros virtual keys for the hermes-policy-endpoint
-    # Bootstrap instances (see hosts/nixos/ghost-home.nix) - distinct from
-    # the coarser per-host eros_litellm_api_key above.
-    eros_litellm_key_ghost_default.mode = "0400";
-    eros_litellm_key_ghost_alpha0.mode = "0400";
-    eros_litellm_key_ghost_axis_control.mode = "0400";
-  }
-  // lib.optionalAttrs isNyx {
-    eros_litellm_key_nyx_eks.mode = "0400";
-    eros_litellm_key_nyx_gitlab.mode = "0400";
   };
 
   home.activation.backupAndEnsureSshDir = lib.hm.dag.entryBefore [ "checkLinkTargets" ] ''

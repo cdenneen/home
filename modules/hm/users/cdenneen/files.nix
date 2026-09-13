@@ -1119,7 +1119,9 @@ in
     $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
   '';
 
-  home.activation.graphifyHermesConfig =
+  home.activation.graphifyHermesConfig = lib.mkIf (
+    config.profiles.hermesGateway.enable || config.profiles.hermesGatewaySecondary.enable
+  ) (
     lib.hm.dag.entryAfter
       [
         "gitlabMcpProxyHermesConfig"
@@ -1148,7 +1150,8 @@ in
         ${lib.optionalString config.profiles.hermesGatewaySecondary.enable ''
           configure_graphify "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}/config.yaml"
         ''}
-      '';
+      ''
+  );
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail
