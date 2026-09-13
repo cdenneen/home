@@ -12,11 +12,18 @@ let
     let
       configPath = "${config.home.homeDirectory}/${prof.configHomeRelativePath}";
       yqFilter = lib.concatStringsSep " | " (
-        lib.mapAttrsToList (path: value: ''.${path} = "${value}"'') prof.modelOverrides
+        lib.mapAttrsToList (path: value: ".${path} = ${builtins.toJSON value}") prof.modelOverrides
       );
     in
     ''
       config_file=${lib.escapeShellArg configPath}
+      if [ ${lib.boolToString prof.createIfMissing} = true ] && [ ! -e "$config_file" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
+        ${pkgs.coreutils}/bin/install -d -m 700 "$(${pkgs.coreutils}/bin/dirname "$config_file")"
+        config_tmp="$(${pkgs.coreutils}/bin/mktemp "$config_file.XXXXXX")"
+        ${pkgs.coreutils}/bin/printf '{}\n' > "$config_tmp"
+        ${pkgs.coreutils}/bin/install -m 600 -T "$config_tmp" "$config_file"
+        ${pkgs.coreutils}/bin/rm -f "$config_tmp"
+      fi
       if [ -f "$config_file" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
         config_tmp="$(${pkgs.coreutils}/bin/mktemp "$config_file.XXXXXX")"
         if ! ${pkgs.yq-go}/bin/yq '${yqFilter}' "$config_file" > "$config_tmp"; then
@@ -36,12 +43,23 @@ in
     type = lib.types.attrsOf (
       lib.types.submodule {
         options = {
+          createIfMissing = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = "Create a minimal profile config before applying declared overrides.";
+          };
           configHomeRelativePath = lib.mkOption {
             type = lib.types.str;
             description = "Path to this Hermes profile's config.yaml, relative to the Home Manager user's home directory.";
           };
           modelOverrides = lib.mkOption {
-            type = lib.types.attrsOf lib.types.str;
+            type = lib.types.attrsOf (
+              lib.types.oneOf [
+                lib.types.str
+                lib.types.bool
+                lib.types.int
+              ]
+            );
             default = { };
             description = ''
               Dotted yq paths (e.g. "model.default", "auxiliary.compression.model")
@@ -63,7 +81,10 @@ in
   };
 
   config = lib.mkIf (cfg.profiles != { }) {
-    home.activation.hermesProfileModelConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] (
+    home.activation.hermesProfileModelConfig = lib.hm.dag.entryAfter [
+      "retireLegacyHermes"
+      "writeBoundary"
+    ] (
       lib.concatStringsSep "\n" (lib.mapAttrsToList mkPatch cfg.profiles)
     );
   };

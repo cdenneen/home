@@ -94,7 +94,7 @@
       flake = false;
     };
     hermes-src = {
-      url = "github:NousResearch/hermes-agent/f5be9236e00ddf2f2a412697f267078fc4ee068e";
+      url = "github:NousResearch/hermes-agent/939e45c91d751fadd94dcd1b873ac3cb44846213";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
     alpha0 = {
@@ -592,119 +592,109 @@
                 let
                   ghost = configurations.homeConfigurations."cdenneen@ghost".config;
                   nyx = configurations.homeConfigurations."cdenneen@nyx".config;
-                  nyxIntegrated = configurations.nixosConfigurations.nyx.config.home-manager.users.cdenneen;
-                  userSystemd = ghost.systemd.user;
-                  services = userSystemd.services;
-                  timers = userSystemd.timers;
-                  primary = services.hermes-gateway.Service;
-                  axisControlPackage = ghost.services.axis-control-observer.package;
-                  axisControlWatchdog = services.axis-control-watchdog;
-                  watchdogCommand = builtins.concatStringsSep "\n" axisControlWatchdog.Service.ExecStart;
-                  profileWrapperActivation = ghost.home.activation.axisControlProfileWrapper.data;
-                  gatewayBootstrapActivation = ghost.home.activation.hermesGatewayBootstrapConfig.data;
-                  slackPluginActivation = ghost.home.activation.hermesSlackPlatformConfig.data;
-                  primaryCommand = builtins.concatStringsSep "\n" primary.ExecStart;
-                  nyxPrimaryCommand = builtins.concatStringsSep "\n" (
-                    nyx.systemd.user.services.hermes-gateway.Service.ExecStart
-                  );
-                  nyxIntegratedPrimaryCommand = builtins.concatStringsSep "\n" (
-                    nyxIntegrated.systemd.user.services.hermes-gateway.Service.ExecStart
-                  );
-                  slackPluginTargets = [
-                    ghost.home.file.".hermes/plugins/platforms/slack".source
-                    ghost.home.file.".hermes/profiles/axis-control/plugins/platforms/slack".source
-                    ghost.home.file.".local/share/alpha0/hermes/plugins/platforms/slack".source
-                    ghost.home.file."src/workspace/work/axis-control/.hermes/profiles/axis-control/plugins/platforms/slack".source
-                    nyx.home.file.".hermes/plugins/platforms/slack".source
-                    nyx.home.file.".hermes/profiles/nyx-gitlab/plugins/platforms/slack".source
+                  ghostProfiles = ghost.profiles.hermesProfileModel.profiles;
+                  nyxProfiles = nyx.profiles.hermesProfileModel.profiles;
+                  ghostRetirement = ghost.home.activation.retireLegacyHermes.data;
+                  nyxRetirement = nyx.home.activation.retireLegacyHermes.data;
+                  expectedGhostModels = {
+                    architect = "claude-opus-5";
+                    chief-of-staff = "claude-sonnet-5";
+                    coder = "qwen3-coder-next";
+                    ops = "claude-sonnet-4-6";
+                    researcher = "kimi-k2.5";
+                    reviewer = "claude-sonnet-5";
+                    tester = "deepseek-v3.2";
+                  };
+                  expectedNyxModels = {
+                    coder = "qwen3-coder-next";
+                    ops = "claude-sonnet-4-6";
+                    reviewer = "claude-sonnet-5";
+                    tester = "deepseek-v3.2";
+                  };
+                  profileModels = profiles: mapAttrs (_: profile: profile.modelOverrides."model.default") profiles;
+                  legacyUnits = [
+                    "alpha0-gitlab-nyx-relay"
+                    "axis-control-observe"
+                    "axis-control-watchdog"
+                    "axis-development-watchdog-backup"
+                    "axis-development-watchdog-monitor"
+                    "gitlab-mcp-proxy"
+                    "hermes-alpha0-gateway"
+                    "hermes-axis-control-scheduler-watchdog"
+                    "hermes-axis-control-gateway"
+                    "hermes-gateway"
+                    "hermes-gateway-secondary"
+                    "hermes-policy-endpoint-ghost-alpha0"
+                    "hermes-policy-endpoint-ghost-axis-control"
+                    "hermes-policy-endpoint-ghost-default"
+                    "hermes-policy-endpoint-nyx-eks"
+                    "hermes-policy-endpoint-nyx-gitlab"
+                    "hermes-stuck-cron-watchdog"
+                    "hermes-supervisor-cron"
+                    "hermes-watchdog-cron"
+                    "hermes-watchdog-cutover"
                   ];
+                  legacyServicesAbsent =
+                    host: all (name: !(builtins.hasAttr name host.systemd.user.services)) legacyUnits;
+                  legacyTimersAbsent =
+                    host: all (name: !(builtins.hasAttr name host.systemd.user.timers)) legacyUnits;
+                  legacyFeaturesDisabled =
+                    host:
+                    all (enabled: !enabled) [
+                      host.profiles.hermesGateway.enable
+                      host.profiles.hermesGatewaySecondary.enable
+                      host.profiles.hermesSupervisor.enable
+                      host.profiles.hermesWatchdog.enable
+                      host.profiles.gitlabMcpProxy.enable
+                    ];
+                  validProfile =
+                    profile:
+                    all (valid: valid) [
+                      profile.createIfMissing
+                      (profile.modelOverrides."model.provider" == "custom")
+                      (profile.modelOverrides."model.base_url" == "http://eros.tail0e55.ts.net:4000/v1")
+                      (profile.modelOverrides."model.api_key" == "$" + "{EROS_HERMES_AGENTS_KEY}")
+                      (profile.modelOverrides."model.api_mode" == "chat_completions")
+                      profile.modelOverrides."secrets.command.enabled"
+                      (profile.modelOverrides."auxiliary.compression.model" == "nova-2-lite")
+                      (profile.modelOverrides."auxiliary.compression.provider" == "main")
+                      (profile.modelOverrides."auxiliary.title_generation.model" == "nova-2-lite")
+                      (profile.modelOverrides."auxiliary.title_generation.provider" == "main")
+                    ];
                 in
-                assert inputs.axis-control.rev == "7916fd0f92e6b6198661e85ab74e742384df0700";
-                assert inputs.alpha0.rev == "c6dc926e8e3622ca5f9e9ac6f3dbc78cf43c9254";
-                assert userSystemd.startServices == false;
-                assert primary.WorkingDirectory == "%h/.hermes";
-                assert builtins.elem "HERMES_HOME=%h/.hermes" primary.Environment;
-                assert primary.EnvironmentFile == [ "%h/.hermes/.env" ];
-                assert lib.hasInfix
-                  ''if [ ! -e "$HOME/.hermes/config.yaml" ] && [ ! -L "$HOME/.hermes/config.yaml" ]; then''
-                  gatewayBootstrapActivation;
-                assert lib.hasInfix ''"$HOME/.hermes/config.yaml"'' gatewayBootstrapActivation;
-                assert lib.hasInfix "install -D -m 600 -T" gatewayBootstrapActivation;
-                assert !(lib.hasInfix "--profile" primaryCommand);
-                assert ghost.profiles.hermesAxisControlGateway.enable == false;
-                assert ghost.profiles.hermesSupervisor.enable == false;
-                assert ghost.services.axis-control-observer.enable;
-                assert !(services ? hermes-axis-control-gateway);
-                assert !(lib.hasInfix "/src/workspace/work/axis-control" (builtins.toJSON services));
-                assert !(ghost.home.activation ? hermesAxisControlGatewayLegacyCleanup);
-                assert !(services ? hermes-supervisor-cron);
-                assert !(ghost.home.activation ? hermesSupervisorState);
-                assert !(ghost.home.file ? ".hermes/supervisor/axis-development-supervisor/worker-prompt.txt");
-                assert
-                  axisControlWatchdog.Service.ExecStart == [
-                    "${axisControlPackage}/bin/axis-control watchdog --hermes-home /home/cdenneen/.hermes --profile axis-control"
-                  ];
-                assert !(axisControlWatchdog ? Install);
-                assert lib.hasPrefix "/nix/store/" watchdogCommand;
-                assert lib.hasInfix "/nix/store/" profileWrapperActivation;
-                assert !(lib.hasInfix "/src/workspace/work/axis-control" profileWrapperActivation);
-                assert !(services ? axis-control-observe);
-                assert !(timers ? axis-control-observe);
-                assert !(timers ? axis-control-watchdog);
-                assert ghost.services.alpha0.enableCore == false;
-                assert ghost.services.alpha0.enableGateway == false;
-                assert ghost.services.alpha0.dataHome == "/home/cdenneen/.local/share/alpha0";
-                assert !(services ? alpha0-core);
-                assert !(services ? hermes-alpha0-gateway);
-                assert lib.all (source: source == builtins.head slackPluginTargets) slackPluginTargets;
-                assert lib.all (target: target.recursive == false) [
-                  ghost.home.file.".hermes/plugins/platforms/slack"
-                  ghost.home.file.".hermes/profiles/axis-control/plugins/platforms/slack"
-                  ghost.home.file.".local/share/alpha0/hermes/plugins/platforms/slack"
-                  ghost.home.file."src/workspace/work/axis-control/.hermes/profiles/axis-control/plugins/platforms/slack"
-                  nyx.home.file.".hermes/plugins/platforms/slack"
-                  nyx.home.file.".hermes/profiles/nyx-gitlab/plugins/platforms/slack"
+                assert profileModels ghostProfiles == expectedGhostModels;
+                assert profileModels nyxProfiles == expectedNyxModels;
+                assert all validProfile (builtins.attrValues ghostProfiles);
+                assert all validProfile (builtins.attrValues nyxProfiles);
+                assert legacyFeaturesDisabled ghost;
+                assert legacyFeaturesDisabled nyx;
+                assert !ghost.services.axis-control-observer.enable;
+                assert legacyServicesAbsent ghost;
+                assert legacyServicesAbsent nyx;
+                assert legacyTimersAbsent ghost;
+                assert legacyTimersAbsent nyx;
+                assert all (name: hasInfix name ghostRetirement) [
+                  "alpha0"
+                  "axis-control"
+                  "hermes-axis-control-scheduler-watchdog.timer"
                 ];
-                assert lib.hasInfix "version: 1.0.2" (
-                  builtins.readFile (builtins.head slackPluginTargets + "/plugin.yaml")
-                );
-                assert lib.all (configPath: lib.hasInfix configPath slackPluginActivation) [
-                  "/home/cdenneen/.hermes/config.yaml"
-                  "/home/cdenneen/.hermes/profiles/axis-control/config.yaml"
-                  "/home/cdenneen/.local/share/alpha0/hermes/config.yaml"
-                  "/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/config.yaml"
+                assert all (name: hasInfix name nyxRetirement) [
+                  "nyx-gitlab"
+                  "gitlab-mcp-proxy.service"
                 ];
-                assert lib.hasInfix ".plugins.enabled" slackPluginActivation;
-                assert lib.hasInfix "map(select(. != \"slack-platform\"))" slackPluginActivation;
-                assert nyxPrimaryCommand == nyxIntegratedPrimaryCommand;
-                pkgs.runCommand "hermes-gateway-roles-check" { nativeBuildInputs = [ pkgs.yq-go ]; } ''
-                  export DRY_RUN_CMD=
-                  export HOME="$TMPDIR/home"
-
-                  ${gatewayBootstrapActivation}
-                  test "$(stat -c %a "$HOME/.hermes/config.yaml")" = 600
-                  test "$(yq -o=json -I=0 '.plugins.enabled' "$HOME/.hermes/config.yaml")" = '["platforms/slack"]'
-                  cp "$HOME/.hermes/config.yaml" "$TMPDIR/original.yaml"
-                  ${gatewayBootstrapActivation}
-                  cmp "$TMPDIR/original.yaml" "$HOME/.hermes/config.yaml"
-
-                  yq -i '
-                    .plugins.enabled = ["slack-platform", "platforms/slack", "slack-platform"]
-                    | .plugins.disabled = ["slack-platform", "platforms/slack", "other"]
-                  ' "$HOME/.hermes/config.yaml"
-                  cat > "$TMPDIR/slack-activation" <<'EOF'
-                  ${slackPluginActivation}
-                  EOF
-                  substituteInPlace "$TMPDIR/slack-activation" --replace-fail /home/cdenneen "$HOME"
-                  bash "$TMPDIR/slack-activation"
-                  test "$(yq -o=json -I=0 '.plugins.enabled' "$HOME/.hermes/config.yaml")" = '["platforms/slack"]'
-                  test "$(yq -o=json -I=0 '.plugins.disabled' "$HOME/.hermes/config.yaml")" = '["other"]'
-
-                  export HOME="$TMPDIR/dangling"
-                  mkdir -p "$HOME/.hermes"
-                  ln -s "$HOME/missing" "$HOME/.hermes/config.yaml"
-                  ${gatewayBootstrapActivation}
-                  test -L "$HOME/.hermes/config.yaml"
+                assert hasInfix ".hermes-retired/pre-mesh-20260912" ghostRetirement;
+                assert hasInfix ".hermes-retired/pre-mesh-20260912" nyxRetirement;
+                assert hasInfix "hermes-home" ghostRetirement;
+                assert hasInfix "hermes-home" nyxRetirement;
+                assert builtins.elem "retireLegacyHermes" ghost.home.activation.hermesProfileModelConfig.after;
+                assert builtins.elem "retireLegacyHermes" nyx.home.activation.hermesProfileModelConfig.after;
+                assert builtins.elem "writeBoundary" ghost.home.activation.hermesProfileModelConfig.after;
+                assert builtins.elem "writeBoundary" nyx.home.activation.hermesProfileModelConfig.after;
+                assert ghost.profiles.hermesPolicyEndpoint.instances == { };
+                assert nyx.profiles.hermesPolicyEndpoint.instances == { };
+                assert ghost.sops.secrets.eros_litellm_key_hermes_agents.mode == "0400";
+                assert nyx.sops.secrets.eros_litellm_key_hermes_agents.mode == "0400";
+                pkgs.runCommand "hermes-gateway-roles-check" { } ''
                   touch "$out"
                 '';
             };
