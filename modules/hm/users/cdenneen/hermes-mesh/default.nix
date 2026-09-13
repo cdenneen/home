@@ -64,8 +64,14 @@ in
     systemd.user.services.hermes-mesh-gateway = {
       Unit = {
         Description = "Hermes multiplexed agent mesh gateway";
-        After = [ "network-online.target" ];
-        Wants = [ "network-online.target" ];
+        After = [
+          "network-online.target"
+          "sops-nix.service"
+        ];
+        Wants = [
+          "network-online.target"
+          "sops-nix.service"
+        ];
         StartLimitIntervalSec = 60;
         StartLimitBurst = 5;
       };
