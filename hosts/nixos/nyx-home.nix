@@ -142,7 +142,15 @@ in
   };
 
   profiles.hermesKanbanSync.installCollector = true;
-  profiles.hermesAssistant.work.enable = true;
+  profiles.hermesAssistant = {
+    work.enable = true;
+    automation = {
+      enable = true;
+      slackEnvFile = config.sops.secrets.hermes_slack_env_nyx_coder.path;
+      slackChannel = "D0BQPKL47EH";
+      briefCalendar = "Mon..Fri *-*-* 08:00:00 America/New_York";
+    };
+  };
 
   home.activation.retireLegacyHermes = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
     if [ -z "''${DRY_RUN_CMD:-}" ]; then
