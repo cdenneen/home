@@ -11,10 +11,13 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+from itertools import pairwise
 from pathlib import Path
 
 UTC = dt.timezone.utc
 SOAK_HOURS = 48
+SOAK_MAX_GAP_SECONDS = 90 * 60
+SOAK_MIN_OBSERVATIONS = 44
 
 
 def now_utc() -> dt.datetime:
@@ -119,6 +122,51 @@ def append_history(path: Path, value: dict[str, object]) -> None:
         path.chmod(0o600)
 
 
+def soak_evidence(
+    path: Path, started: dt.datetime, timestamp: dt.datetime, status: str
+) -> dict[str, int]:
+    timestamps: list[dt.datetime] = []
+    failures = 0
+    invalid_records = 0
+    started_text = started.isoformat()
+
+    if path.exists():
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            lines = []
+            invalid_records += 1
+        for line in lines:
+            try:
+                record = json.loads(line)
+                if not isinstance(record, dict) or record.get("soak_started_at") != started_text:
+                    continue
+                checked_at = record.get("checked_at")
+                if not isinstance(checked_at, str):
+                    raise TypeError
+                timestamps.append(dt.datetime.fromisoformat(checked_at))
+                failures += record.get("status") != "ok"
+            except (json.JSONDecodeError, TypeError, ValueError):
+                invalid_records += 1
+
+    timestamps.append(timestamp)
+    failures += status != "ok"
+    continuity_points = sorted([started, *timestamps])
+    maximum_gap = max(
+        (
+            int((current - previous).total_seconds())
+            for previous, current in pairwise(continuity_points)
+        ),
+        default=0,
+    )
+    return {
+        "soak_observations": len(timestamps),
+        "soak_failures": failures,
+        "soak_invalid_records": invalid_records,
+        "soak_max_gap_seconds": maximum_gap,
+    }
+
+
 def slack_post(text: str) -> None:
     token = os.environ.get("SLACK_BOT_TOKEN", "")
     channel = os.environ.get("HERMES_ASSISTANT_SLACK_CHANNEL") or os.environ.get("SLACK_HOME_CHANNEL", "")
@@ -151,6 +199,15 @@ def record_health(kind: str, checks: dict[str, str] | None, error: str | None) -
         started = timestamp
     deadline = started + dt.timedelta(hours=SOAK_HOURS)
     status = "ok" if error is None else "failed"
+    evidence = soak_evidence(history_path, started, timestamp, status)
+    soak_complete = timestamp >= deadline
+    soak_accepted = (
+        soak_complete
+        and evidence["soak_failures"] == 0
+        and evidence["soak_invalid_records"] == 0
+        and evidence["soak_max_gap_seconds"] <= SOAK_MAX_GAP_SECONDS
+        and evidence["soak_observations"] >= SOAK_MIN_OBSERVATIONS
+    )
     current: dict[str, object] = {
         "schema": "hermes.assistant.health.v1",
         "host": os.uname().nodename,
@@ -161,7 +218,10 @@ def record_health(kind: str, checks: dict[str, str] | None, error: str | None) -
         "checked_at": timestamp.isoformat(),
         "soak_started_at": started.isoformat(),
         "soak_deadline": deadline.isoformat(),
-        "soak_complete": timestamp >= deadline,
+        "soak_complete": soak_complete,
+        "soak_accepted": soak_accepted,
+        "soak_reported": previous.get("soak_reported") is True,
+        **evidence,
     }
     atomic_write_json(state_path, current)
     append_history(history_path, current)
@@ -174,6 +234,19 @@ def record_health(kind: str, checks: dict[str, str] | None, error: str | None) -
             f"{icon} {label} Hermes assistant 48-hour read-only soak started; "
             f"hourly health is {status}. Daily briefing schedule is enabled."
         )
+    elif soak_complete and not current["soak_reported"]:
+        result = "accepted" if soak_accepted else "requires review"
+        icon = ":white_check_mark:" if soak_accepted else ":warning:"
+        slack_post(
+            f"{icon} {label} Hermes assistant 48-hour read-only soak {result}: "
+            f"{evidence['soak_observations']} observations, "
+            f"{evidence['soak_failures']} failed checks, "
+            f"{evidence['soak_invalid_records']} invalid records, "
+            f"maximum gap {evidence['soak_max_gap_seconds']} seconds. "
+            "No mail, calendar, or Teams write authority is granted."
+        )
+        current["soak_reported"] = True
+        atomic_write_json(state_path, current)
     elif previous_status != status:
         icon = ":white_check_mark:" if status == "ok" else ":warning:"
         slack_post(f"{icon} {label} Hermes assistant health changed: {previous_status} -> {status}.")
