@@ -23,6 +23,7 @@ in
     ./cdenneen/hermes-kanban-sync/default.nix
     ./cdenneen/hermes-policy-endpoint/default.nix
     ./cdenneen/hermes-mesh/default.nix
+    ./cdenneen/hermes-peer-dispatch/default.nix
     ./cdenneen/hermes-profile-model/default.nix
     ./cdenneen/hermes-single-writer-registry.nix
     ./cdenneen/hermes-slack-platform

@@ -94,7 +94,7 @@
       flake = false;
     };
     hermes-src = {
-      url = "github:NousResearch/hermes-agent/939e45c91d751fadd94dcd1b873ac3cb44846213";
+      url = "github:NousResearch/hermes-agent/345cd2b057a452236de401d3534b8502a7465e8d";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
     alpha0 = {
@@ -732,6 +732,12 @@
                 assert builtins.hasAttr "hermes-mesh-gateway" nyx.systemd.user.services;
                 assert builtins.hasAttr "hermes-kanban-sync" ghost.systemd.user.services;
                 assert builtins.hasAttr "hermes-kanban-sync" ghost.systemd.user.timers;
+                assert ghost.profiles.hermesPeerDispatch.enable;
+                assert !nyx.profiles.hermesPeerDispatch.enable;
+                assert builtins.hasAttr "hermes-peer-dispatch" ghost.systemd.user.services;
+                assert builtins.hasAttr "hermes-peer-dispatch" ghost.systemd.user.timers;
+                assert !(builtins.hasAttr "hermes-peer-dispatch" nyx.systemd.user.services);
+                assert !(builtins.hasAttr "hermes-peer-dispatch" nyx.systemd.user.timers);
                 assert !(builtins.hasAttr "hermes-kanban-sync" nyx.systemd.user.services);
                 assert !(builtins.hasAttr "hermes-kanban-sync" nyx.systemd.user.timers);
                 assert ghost.systemd.user.timers.hermes-kanban-sync.Timer.Persistent;
@@ -778,6 +784,9 @@
                 assert hasInfix "never invent work to fill the shortlist"
                   ghost.profiles.hermesMesh.souls.chief-of-staff;
                 assert hasInfix "production-change authority" ghost.profiles.hermesMesh.souls.chief-of-staff;
+                assert hasInfix "hermes-peer-dispatch start" ghost.profiles.hermesMesh.souls.chief-of-staff;
+                assert hasInfix "Do not auto-approve" ghost.profiles.hermesMesh.souls.chief-of-staff;
+                assert hasInfix "Do not use `hermes peer dm`" ghost.profiles.hermesMesh.souls.chief-of-staff;
                 assert legacyFeaturesDisabled ghost;
                 assert legacyFeaturesDisabled nyx;
                 assert !ghost.services.axis-control-observer.enable;
