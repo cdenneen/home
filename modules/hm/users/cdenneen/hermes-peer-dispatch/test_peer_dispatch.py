@@ -45,9 +45,33 @@ class PeerDispatchTest(unittest.TestCase):
                 peer_dispatch.start(args, {}, connection)
 
             self.assertEqual(api_request.call_args.args[4], {"input": "inspect only"})
+            self.assertEqual(api_request.call_count, 1)
             self.assertNotIn("session_id", api_request.call_args.args[4])
             self.assertEqual(connection.execute("SELECT count(*) FROM runs").fetchone()[0], 1)
             self.assertEqual(markers, ["[peer-run:run_1:started]"])
+            connection.close()
+
+    def test_start_rejects_reused_key_with_different_message(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            connection = peer_dispatch.connect(Path(temporary))
+            args = SimpleNamespace(
+                target="nyx/ops",
+                idempotency_key="task-1",
+                board="work",
+                task="t_1",
+                message="inspect only",
+            )
+            accepted = {"run_id": "run_1", "status": "started", "replayed": False}
+
+            with patch.object(peer_dispatch, "run_hermes", return_value="{}"), patch.object(
+                peer_dispatch, "request", return_value=accepted
+            ) as api_request, patch.object(peer_dispatch, "comment_once"), redirect_stdout(io.StringIO()):
+                peer_dispatch.start(args, {}, connection)
+                args.message = "change the task"
+                with self.assertRaisesRegex(RuntimeError, "different message"):
+                    peer_dispatch.start(args, {}, connection)
+
+            self.assertEqual(api_request.call_count, 1)
             connection.close()
 
     def test_terminal_result_is_recorded_and_commented_once(self):
@@ -55,8 +79,13 @@ class PeerDispatchTest(unittest.TestCase):
             state_dir = Path(temporary)
             connection = peer_dispatch.connect(state_dir)
             connection.execute(
-                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)",
-                ("run_1", "nyx/ops", "task-1", "work", "t_1", "running", 1, 1),
+                """
+                INSERT INTO runs (
+                  run_id, target, idempotency_key, request_sha256, board, task_id,
+                  status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("run_1", "nyx/ops", "task-1", "hash", "work", "t_1", "running", 1, 1),
             )
             connection.commit()
             status = {"run_id": "run_1", "status": "completed", "output": "done"}
