@@ -773,6 +773,11 @@
                 assert nyxProfiles.ops.modelOverrides."platforms.slack.enabled";
                 assert builtins.attrNames ghost.profiles.hermesMesh.souls == builtins.attrNames expectedGhostModels;
                 assert builtins.attrNames nyx.profiles.hermesMesh.souls == builtins.attrNames expectedNyxModels;
+                assert hasInfix "up to five next actionable items per project"
+                  ghost.profiles.hermesMesh.souls.chief-of-staff;
+                assert hasInfix "never invent work to fill the shortlist"
+                  ghost.profiles.hermesMesh.souls.chief-of-staff;
+                assert hasInfix "production-change authority" ghost.profiles.hermesMesh.souls.chief-of-staff;
                 assert legacyFeaturesDisabled ghost;
                 assert legacyFeaturesDisabled nyx;
                 assert !ghost.services.axis-control-observer.enable;
