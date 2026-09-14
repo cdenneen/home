@@ -384,6 +384,21 @@
                     pytest -q source/tests
                     touch "$out"
                   '';
+              hermes-kanban-sync =
+                pkgs.runCommand "hermes-kanban-sync-check"
+                  {
+                    nativeBuildInputs = [
+                      pkgs.python3
+                      pkgs.ruff
+                    ];
+                  }
+                  ''
+                    cp -R ${./modules/hm/users/cdenneen/hermes-kanban-sync} source
+                    chmod -R u+w source
+                    ruff check source
+                    python -m unittest source/test_backlog_sync.py
+                    touch "$out"
+                  '';
               hermes-supervisor =
                 pkgs.runCommand "hermes-supervisor-check"
                   {
@@ -679,10 +694,21 @@
                 assert all validProfile (builtins.attrValues nyxProfiles);
                 assert ghost.profiles.hermesMesh.enable;
                 assert nyx.profiles.hermesMesh.enable;
+                assert ghost.profiles.hermesKanbanSync.enable;
+                assert ghost.profiles.hermesKanbanSync.outboundEnabled;
+                assert !nyx.profiles.hermesKanbanSync.enable;
+                assert nyx.profiles.hermesKanbanSync.installCollector;
                 assert builtins.hasAttr "hermes-mesh-gateway" ghost.systemd.user.services;
                 assert builtins.hasAttr "hermes-mesh-gateway" nyx.systemd.user.services;
+                assert builtins.hasAttr "hermes-kanban-sync" ghost.systemd.user.services;
+                assert builtins.hasAttr "hermes-kanban-sync" ghost.systemd.user.timers;
+                assert !(builtins.hasAttr "hermes-kanban-sync" nyx.systemd.user.services);
+                assert !(builtins.hasAttr "hermes-kanban-sync" nyx.systemd.user.timers);
+                assert ghost.systemd.user.timers.hermes-kanban-sync.Timer.Persistent;
+                assert ghost.systemd.user.timers.hermes-kanban-sync.Timer.OnUnitActiveSec == "1h";
                 assert ghostRouter."gateway.multiplex_profiles";
                 assert nyxRouter."gateway.multiplex_profiles";
+                assert ghostRouter."kanban.default_assignee" == "";
                 assert
                   ghostRouter."gateway.multiplex_profile_allowlist" == [
                     "chief-of-staff"
@@ -707,6 +733,10 @@
                 assert ghostRouter."plugins.enabled" == [ "platforms/slack" ];
                 assert nyxRouter."plugins.enabled" == [ "platforms/slack" ];
                 assert ghostProfiles.chief-of-staff.modelOverrides."platforms.slack.enabled";
+                assert builtins.hasAttr "gitlab_com" ghostProfiles.chief-of-staff.modelOverrides.mcp_servers;
+                assert
+                  ghostProfiles.chief-of-staff.modelOverrides.mcp_servers.gitlab_corp.url
+                  == "http://100.80.58.4:18101/mcp";
                 assert nyxProfiles.coder.modelOverrides."platforms.slack.enabled";
                 assert nyxProfiles.ops.modelOverrides."platforms.slack.enabled";
                 assert builtins.attrNames ghost.profiles.hermesMesh.souls == builtins.attrNames expectedGhostModels;

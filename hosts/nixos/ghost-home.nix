@@ -47,9 +47,19 @@ let
     connect_timeout = 30;
     timeout = 180;
   };
-  gitlabSaasMcp = pkgs.writeShellScript "hermes-gitlab-saas-mcp" ''
+  gitlabComMcp = pkgs.writeShellScript "hermes-gitlab-com-mcp" ''
     set -euo pipefail
-    token="$(${pkgs.glab}/bin/glab auth token -h gitlab.com)"
+    config="''${GLAB_CONFIG_FILE:-$HOME/.config/glab-cli/config.yml}"
+    token="$(${pkgs.gawk}/bin/awk '
+      /^hosts:/ { in_hosts=1; next }
+      in_hosts && /^[^[:space:]]/ { in_hosts=0 }
+      in_hosts && /^    [^[:space:]].*:$/ {
+        host=$1; sub(/:$/,"",host); in_target=(host=="gitlab.com"); next
+      }
+      in_hosts && in_target && /^        token:/ {
+        sub(/^        token: */,""); print; exit
+      }
+    ' "$config")"
     [ -n "$token" ]
     export GITLAB_API_URL="https://gitlab.com/api/v4"
     export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
@@ -90,6 +100,7 @@ let
       "gateway.multiplex_profiles" = true;
       "gateway.multiplex_profile_allowlist" = roleNames;
       "gateway.max_concurrent_sessions" = 4;
+      "kanban.default_assignee" = "";
       "platforms.api_server.enabled" = true;
       "platforms.api_server.extra.host" = "100.114.242.29";
       "platforms.api_server.extra.port" = 8642;
@@ -159,6 +170,120 @@ in
     };
   };
 
+  profiles.hermesKanbanSync = {
+    enable = true;
+    outboundEnabled = true;
+    settings = {
+      logical_projects = [
+        {
+          slug = "personal-axis";
+          name = "Personal AXIS";
+          board = "personal-axis";
+          description = "GitLab.com Free backlog projection; labels provide epic, roadmap, milestone, and workflow semantics.";
+          folders = [
+            "/home/cdenneen/src/workspace/personal/work/axis"
+            "/home/cdenneen/src/workspace/personal/work/axis-governance"
+            "/home/cdenneen/src/workspace/personal/work/axis-lab"
+          ];
+          primary = "/home/cdenneen/src/workspace/personal/work/axis";
+        }
+        {
+          slug = "personal-nix";
+          name = "Personal Nix Flake";
+          board = "personal-nix";
+          description = "Native Hermes-authoritative backlog for github.com/cdenneen/home.";
+          folders = [ "/home/cdenneen/src/workspace/nix/home" ];
+          primary = "/home/cdenneen/src/workspace/nix/home";
+        }
+        {
+          slug = "work-eks-platform";
+          name = "Work EKS Platform";
+          board = "work-eks-platform";
+          description = "git.ap.org Premium backlog projection; native group boards, epics, and milestones are authoritative.";
+          folders = [ ];
+        }
+        {
+          slug = "work-gitlab";
+          name = "Work GitLab";
+          board = "work-gitlab";
+          description = "git.ap.org Premium backlog projection; native group boards, epics, and milestones are authoritative.";
+          folders = [ ];
+        }
+      ];
+      sources = [
+        {
+          id = "gitlab-com-axis";
+          host = "gitlab.com";
+          planning_mode = "labels";
+          workflow_scheme = "personal-labels";
+          transport = "local";
+          projects =
+            map
+              (path: {
+                inherit path;
+                logical_project = "personal-axis";
+              })
+              [
+                "ghostspace/axis"
+                "ghostspace/axis-governance"
+                "ghostspace/axis-lab"
+              ];
+        }
+        {
+          id = "gitlab-ap-eks";
+          host = "git.ap.org";
+          planning_mode = "native";
+          workflow_scheme = "work-native";
+          transport = "ssh";
+          ssh_host = "nyx";
+          groups = [
+            {
+              path = "gitops/infra/eks-platform";
+              logical_project = "work-eks-platform";
+            }
+          ];
+          projects =
+            map
+              (path: {
+                inherit path;
+                logical_project = "work-eks-platform";
+              })
+              [
+                "gitops/infra/eks-platform/eks-platform-governance"
+                "gitops/infra/eks-platform/fleet-v2"
+                "gitops/infra/eks-platform/infra-oci"
+                "gitops/infra/eks-platform/workloads-oci"
+                "gitops/infra/eks-platform/addons-oci"
+              ];
+        }
+        {
+          id = "gitlab-ap-gitlab";
+          host = "git.ap.org";
+          planning_mode = "native";
+          workflow_scheme = "work-native";
+          transport = "ssh";
+          ssh_host = "nyx";
+          groups = [
+            {
+              path = "gitops/infra/gitlab";
+              logical_project = "work-gitlab";
+            }
+          ];
+          projects =
+            map
+              (path: {
+                inherit path;
+                logical_project = "work-gitlab";
+              })
+              [
+                "gitops/infra/gitlab/gitlab-governance"
+                "gitops/infra/gitlab/gitlab-infra-tf"
+              ];
+        }
+      ];
+    };
+  };
+
   home.activation.retireLegacyHermes = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
     if [ -z "''${DRY_RUN_CMD:-}" ]; then
       ${pkgs.systemd}/bin/systemctl --user disable --now \
@@ -215,8 +340,13 @@ in
         recallium = erosMcp "recallium";
         duckduckgo = erosMcp "duckduckgo";
         context7 = erosMcp "context7";
-        gitlab_saas = {
-          command = toString gitlabSaasMcp;
+        gitlab_com = {
+          command = toString gitlabComMcp;
+          connect_timeout = 30;
+          timeout = 180;
+        };
+        gitlab_corp = {
+          url = "http://100.80.58.4:18101/mcp";
           connect_timeout = 30;
           timeout = 180;
         };
