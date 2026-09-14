@@ -52,6 +52,7 @@ def connect(state_dir: Path) -> sqlite3.Connection:
           run_id TEXT PRIMARY KEY,
           target TEXT NOT NULL,
           idempotency_key TEXT NOT NULL UNIQUE,
+          request_sha256 TEXT,
           board TEXT NOT NULL,
           task_id TEXT NOT NULL,
           status TEXT NOT NULL,
@@ -64,6 +65,9 @@ def connect(state_dir: Path) -> sqlite3.Connection:
         )
         """
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+    if "request_sha256" not in columns:
+        connection.execute("ALTER TABLE runs ADD COLUMN request_sha256 TEXT")
     return connection
 
 
@@ -176,25 +180,46 @@ def start(args: argparse.Namespace, config: dict[str, Any], connection: sqlite3.
     message = args.message.strip()
     if not message:
         raise RuntimeError("message cannot be empty")
+    request_sha256 = hashlib.sha256(message.encode()).hexdigest()
+    existing = connection.execute(
+        "SELECT run_id, target, board, task_id, status, request_sha256 FROM runs WHERE idempotency_key = ?",
+        (key,),
+    ).fetchone()
+    if existing:
+        if (existing["target"], existing["board"], existing["task_id"]) != (
+            args.target,
+            args.board,
+            args.task,
+        ):
+            raise RuntimeError("idempotency key is already bound to a different dispatch")
+        if existing["request_sha256"] not in (None, request_sha256):
+            raise RuntimeError("idempotency key is already bound to a different message")
+        print(json.dumps({"run_id": existing["run_id"], "status": existing["status"], "replayed": True}))
+        return
     run_hermes(config, args.board, ["show", args.task, "--json"])
     response = request(config, args.target, "POST", "/v1/runs", {"input": message}, key)
     run_id = str(response.get("run_id") or "")
     if not run_id:
         raise RuntimeError("peer did not return a run ID")
     now = int(time.time())
-    existing = connection.execute(
-        "SELECT run_id, target, board, task_id FROM runs WHERE idempotency_key = ?", (key,)
-    ).fetchone()
-    if existing and tuple(existing) != (run_id, args.target, args.board, args.task):
-        raise RuntimeError("idempotency key is already bound to a different dispatch")
     connection.execute(
         """
         INSERT INTO runs (
-          run_id, target, idempotency_key, board, task_id, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          run_id, target, idempotency_key, request_sha256, board, task_id, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(run_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
         """,
-        (run_id, args.target, key, args.board, args.task, str(response.get("status") or "started"), now, now),
+        (
+            run_id,
+            args.target,
+            key,
+            request_sha256,
+            args.board,
+            args.task,
+            str(response.get("status") or "started"),
+            now,
+            now,
+        ),
     )
     connection.commit()
     comment_once(
