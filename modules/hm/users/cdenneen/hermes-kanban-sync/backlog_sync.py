@@ -459,7 +459,7 @@ def run(command: list[str], *, input_text: str | None = None) -> subprocess.Comp
 
 def remote_command(source: dict[str, Any], action: str, payload: dict[str, Any]) -> Any:
     executable = source.get(
-        "remote_executable", "/etc/profiles/per-user/cdenneen/bin/hermes-gitlab-sync"
+        "remote_executable", "$HOME/.nix-profile/bin/hermes-gitlab-sync"
     )
     result = run(
         [
