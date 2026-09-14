@@ -42,32 +42,82 @@ class AssistantAutomationTests(unittest.TestCase):
     def test_health_state_tracks_48_hour_soak(self):
         with tempfile.TemporaryDirectory() as directory:
             start = dt.datetime(2026, 9, 14, 12, tzinfo=dt.timezone.utc)
+            timestamps = [start + dt.timedelta(hours=hour) for hour in range(49)]
             with (
                 mock.patch.object(AUTOMATION, "state_directory", return_value=Path(directory)),
                 mock.patch.object(AUTOMATION, "slack_post") as slack_post,
-                mock.patch.object(AUTOMATION, "now_utc", return_value=start),
+                mock.patch.object(AUTOMATION, "now_utc", side_effect=timestamps),
             ):
                 first = AUTOMATION.record_health("personal", {"mail": "ok"}, None)
+                for _ in timestamps[1:]:
+                    final = AUTOMATION.record_health("personal", {"mail": "ok"}, None)
+
             self.assertFalse(first["soak_complete"])
             self.assertEqual(first["scope"], "personal")
-            slack_post.assert_called_once()
+            self.assertTrue(final["soak_complete"])
+            self.assertTrue(final["soak_accepted"])
+            self.assertTrue(final["soak_reported"])
+            self.assertEqual(final["soak_observations"], 49)
+            self.assertEqual(final["soak_failures"], 0)
+            self.assertEqual(final["soak_invalid_records"], 0)
+            self.assertEqual(final["soak_max_gap_seconds"], 3600)
+            self.assertEqual(slack_post.call_count, 2)
+            self.assertIn("48-hour read-only soak accepted", slack_post.call_args.args[0])
             status_path = Path(directory) / "status.json"
             self.assertEqual(stat.S_IMODE(status_path.stat().st_mode), 0o600)
-
-            complete_at = start + dt.timedelta(hours=49)
-            with (
-                mock.patch.object(AUTOMATION, "state_directory", return_value=Path(directory)),
-                mock.patch.object(AUTOMATION, "slack_post") as second_slack_post,
-                mock.patch.object(AUTOMATION, "now_utc", return_value=complete_at),
-            ):
-                second = AUTOMATION.record_health("personal", {"mail": "ok"}, None)
-            self.assertTrue(second["soak_complete"])
-            second_slack_post.assert_not_called()
             self.assertEqual(json.loads(status_path.read_text())["status"], "ok")
 
     def test_clean_brief_removes_session_identifier(self):
         value = AUTOMATION.clean_brief("Calendar: none\nSession ID: abc123\nActions: none")
         self.assertEqual(value, "Calendar: none\nActions: none")
+
+    def test_soak_completion_rejects_missing_hourly_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            start = dt.datetime(2026, 9, 14, 12, tzinfo=dt.timezone.utc)
+            with (
+                mock.patch.object(AUTOMATION, "state_directory", return_value=Path(directory)),
+                mock.patch.object(AUTOMATION, "slack_post") as slack_post,
+                mock.patch.object(
+                    AUTOMATION,
+                    "now_utc",
+                    side_effect=[start, start + dt.timedelta(hours=48)],
+                ),
+            ):
+                AUTOMATION.record_health("work", {"mail": "ok"}, None)
+                final = AUTOMATION.record_health("work", {"mail": "ok"}, None)
+
+            self.assertTrue(final["soak_complete"])
+            self.assertFalse(final["soak_accepted"])
+            self.assertEqual(final["soak_observations"], 2)
+            self.assertIn("requires review", slack_post.call_args.args[0])
+
+    def test_soak_completion_report_retries_after_delivery_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            start = dt.datetime(2026, 9, 14, 12, tzinfo=dt.timezone.utc)
+            with (
+                mock.patch.object(AUTOMATION, "state_directory", return_value=Path(directory)),
+                mock.patch.object(
+                    AUTOMATION,
+                    "slack_post",
+                    side_effect=[None, RuntimeError("down"), None],
+                ) as slack_post,
+                mock.patch.object(
+                    AUTOMATION,
+                    "now_utc",
+                    side_effect=[
+                        start,
+                        start + dt.timedelta(hours=48),
+                        start + dt.timedelta(hours=49),
+                    ],
+                ),
+            ):
+                AUTOMATION.record_health("work", {"mail": "ok"}, None)
+                with self.assertRaisesRegex(RuntimeError, "down"):
+                    AUTOMATION.record_health("work", {"mail": "ok"}, None)
+                final = AUTOMATION.record_health("work", {"mail": "ok"}, None)
+
+            self.assertTrue(final["soak_reported"])
+            self.assertEqual(slack_post.call_count, 3)
 
     def test_failed_health_is_recorded_once(self):
         recorded = {"status": "failed"}
