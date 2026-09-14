@@ -622,7 +622,10 @@
                   nyxRouter = nyxProfiles.gateway-router.modelOverrides;
                   ghostRetirement = ghost.home.activation.retireLegacyHermes.data;
                   nyxRetirement = nyx.home.activation.retireLegacyHermes.data;
+                  ghostAssistantOauth = ghost.home.activation.hermesAssistantOauth.data;
+                  nyxAssistantOauth = nyx.home.activation.hermesAssistantOauth.data;
                   expectedGhostModels = {
+                    assistant = "claude-sonnet-4-6";
                     architect = "claude-opus-5";
                     chief-of-staff = "claude-sonnet-5";
                     coder = "qwen3-coder-next";
@@ -632,6 +635,7 @@
                     tester = "deepseek-v3.2";
                   };
                   expectedNyxModels = {
+                    assistant = "claude-sonnet-4-6";
                     coder = "qwen3-coder-next";
                     ops = "claude-sonnet-4-6";
                     reviewer = "claude-sonnet-5";
@@ -694,6 +698,10 @@
                 assert all validProfile (builtins.attrValues nyxProfiles);
                 assert ghost.profiles.hermesMesh.enable;
                 assert nyx.profiles.hermesMesh.enable;
+                assert ghost.profiles.hermesAssistant.personal.enable;
+                assert !ghost.profiles.hermesAssistant.work.enable;
+                assert !nyx.profiles.hermesAssistant.personal.enable;
+                assert nyx.profiles.hermesAssistant.work.enable;
                 assert ghost.profiles.hermesKanbanSync.enable;
                 assert ghost.profiles.hermesKanbanSync.outboundEnabled;
                 assert !nyx.profiles.hermesKanbanSync.enable;
@@ -712,6 +720,7 @@
                 assert
                   ghostRouter."gateway.multiplex_profile_allowlist" == [
                     "chief-of-staff"
+                    "assistant"
                     "researcher"
                     "architect"
                     "coder"
@@ -721,6 +730,7 @@
                   ];
                 assert
                   nyxRouter."gateway.multiplex_profile_allowlist" == [
+                    "assistant"
                     "coder"
                     "tester"
                     "reviewer"
@@ -774,8 +784,13 @@
                 assert nyx.sops.secrets.hermes_mesh_api_key_ghost.mode == "0400";
                 assert nyx.sops.secrets.hermes_mesh_api_key_nyx.mode == "0400";
                 assert ghost.sops.secrets.hermes_slack_env_ghost_chief.mode == "0400";
+                assert ghost.sops.secrets.hermes_assistant_google_oauth_ghost.mode == "0400";
+                assert nyx.sops.secrets.hermes_assistant_msgraph_oauth_nyx.mode == "0400";
                 assert nyx.sops.secrets.hermes_slack_env_nyx_coder.mode == "0400";
                 assert nyx.sops.secrets.hermes_slack_env_nyx_ops.mode == "0400";
+                assert hasInfix "if [ ! -e \"$target_path\" ]" ghostAssistantOauth;
+                assert hasInfix ".hermes/profiles/assistant/google_token.json" ghostAssistantOauth;
+                assert hasInfix ".hermes/profiles/assistant/msgraph_token_cache.json" nyxAssistantOauth;
                 pkgs.runCommand "hermes-gateway-roles-check" { } ''
                   touch "$out"
                 '';
