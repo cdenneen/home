@@ -19,6 +19,7 @@ in
     ./cdenneen/default.nix
     ./cdenneen/gitlab-mcp-proxy/default.nix
     ./cdenneen/hermes-axis-control-gateway.nix
+    ./cdenneen/hermes-assistant/default.nix
     ./cdenneen/hermes-kanban-sync/default.nix
     ./cdenneen/hermes-policy-endpoint/default.nix
     ./cdenneen/hermes-mesh/default.nix

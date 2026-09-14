@@ -7,6 +7,7 @@
 let
   roleNames = [
     "chief-of-staff"
+    "assistant"
     "researcher"
     "architect"
     "coder"
@@ -130,6 +131,11 @@ in
     enable = true;
     workingDirectory = "/home/cdenneen/src/workspace";
     souls = {
+      assistant = commonSoul + ''
+        # Role: Personal Assistant
+
+        Handle personal Gmail and Google Calendar on Ghost using only the read-only `personal-google-assistant` skill. Summarize, search, prepare briefs, identify conflicts, and surface action items. Never send or modify mail, labels, or calendar events. Never disclose personal message or calendar content to Nyx; share only the minimum task metadata Chief of Staff needs for coordination.
+      '';
       chief-of-staff = commonSoul + ''
         # Role: Chief of Staff
 
@@ -169,6 +175,8 @@ in
       '';
     };
   };
+
+  profiles.hermesAssistant.personal.enable = true;
 
   profiles.hermesKanbanSync = {
     enable = true;
@@ -334,6 +342,7 @@ in
 
   profiles.hermesProfileModel.profiles = {
     gateway-router = gatewayProfile;
+    assistant = mkNamedMeshProfile "assistant" "claude-sonnet-4-6" baseSecretsCommand { };
     chief-of-staff = mkNamedMeshProfile "chief-of-staff" "claude-sonnet-5" chiefSecretsCommand {
       "platforms.slack.enabled" = true;
       mcp_servers = {

@@ -356,9 +356,11 @@ in
     hermes_mesh_api_key_nyx.mode = "0400";
   }
   // lib.optionalAttrs isGhost {
+    hermes_assistant_google_oauth_ghost.mode = "0400";
     hermes_slack_env_ghost_chief.mode = "0400";
   }
   // lib.optionalAttrs isNyx {
+    hermes_assistant_msgraph_oauth_nyx.mode = "0400";
     hermes_slack_env_nyx_coder.mode = "0400";
     hermes_slack_env_nyx_ops.mode = "0400";
     opencode_telegram_notify_ts.mode = "0600";

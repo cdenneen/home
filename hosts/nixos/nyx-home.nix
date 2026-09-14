@@ -6,6 +6,7 @@
 }:
 let
   roleNames = [
+    "assistant"
     "coder"
     "tester"
     "reviewer"
@@ -112,6 +113,11 @@ in
     enable = true;
     workingDirectory = "/home/cdenneen/src/workspace";
     souls = {
+      assistant = commonSoul + ''
+        # Role: Work Assistant
+
+        Handle Outlook Mail, Outlook Calendar, and Teams on Nyx through the approved custom Microsoft enterprise app and the read-only `work-microsoft-assistant` skill. Summarize, search, prepare briefs, identify conflicts, and surface action items. Never use Hermes native Microsoft Enterprise Apps or Teams bot registration. Never send, move, delete, categorize, schedule, edit, or post. Keep corporate content on Nyx and send Chief of Staff only minimum coordination metadata.
+      '';
       coder = commonSoul + ''
         # Role: Work Coder
 
@@ -136,6 +142,7 @@ in
   };
 
   profiles.hermesKanbanSync.installCollector = true;
+  profiles.hermesAssistant.work.enable = true;
 
   home.activation.retireLegacyHermes = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
     if [ -z "''${DRY_RUN_CMD:-}" ]; then
@@ -179,6 +186,7 @@ in
 
   profiles.hermesProfileModel.profiles = {
     gateway-router = gatewayProfile;
+    assistant = mkNamedMeshProfile "assistant" "claude-sonnet-4-6" baseSecretsCommand { };
     coder = mkNamedMeshProfile "coder" "qwen3-coder-next" coderSecretsCommand {
       "platforms.slack.enabled" = true;
       mcp_servers = {
