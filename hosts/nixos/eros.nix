@@ -317,12 +317,15 @@ in
             max_input_tokens: 1000000
         - model_name: claude-opus-5
           litellm_params:
-            # global. prefix matches tier3-quality/quality's model ID exactly
-            # but via direct bedrock/ instead of openai/+OmniRoute, for
-            # cache_control_injection_points support. No existing direct-
-            # bedrock route uses global. yet - verify this resolves correctly
-            # before relying on it.
-            model: bedrock/global.anthropic.claude-opus-5
+            # REGIONAL (us.), not the global. cross-region profile (2026-09-14).
+            # Bedrock prompt caches are region-scoped: under global. AWS may
+            # route consecutive invocations to different regions, so a cache
+            # written on call N is unreachable on call N+1. Observed live on
+            # ghost: 3 Claude Code turns wrote 87393/127295/134318 cache tokens
+            # with cache_read_input_tokens: 0 every time - ~$2.20 in 19s, ~99%
+            # of it cache-write. Regional pins the cache so reads can land.
+            # Do not revert to global. without re-proving cache reads.
+            model: bedrock/us.anthropic.claude-opus-5
             aws_region_name: us-east-1
             cache_control_injection_points: *eros_cache_points_with_tools
           model_info:
