@@ -126,7 +126,7 @@ class BacklogSyncTests(unittest.TestCase):
         self.assertEqual(copied["projects"][0]["known_iids"], [3])
         self.assertEqual(copied["projects"][1]["known_iids"], [])
 
-    def test_remote_collector_uses_home_manager_profile(self) -> None:
+    def test_remote_collector_uses_remote_path(self) -> None:
         completed = mock.Mock(stdout='{"items": []}')
         with mock.patch.object(sync, "run", return_value=completed) as run:
             result = sync.remote_command(
@@ -137,7 +137,7 @@ class BacklogSyncTests(unittest.TestCase):
         self.assertEqual(result, {"items": []})
         self.assertEqual(
             run.call_args.args[0][-3:],
-            ["$HOME/.nix-profile/bin/hermes-gitlab-sync", "snapshot", "--json-stdin"],
+            ["hermes-gitlab-sync", "snapshot", "--json-stdin"],
         )
 
     def test_externally_active_card_gets_a_typed_sticky_block(self) -> None:
