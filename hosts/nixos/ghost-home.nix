@@ -176,7 +176,15 @@ in
     };
   };
 
-  profiles.hermesAssistant.personal.enable = true;
+  profiles.hermesAssistant = {
+    personal.enable = true;
+    automation = {
+      enable = true;
+      slackEnvFile = config.sops.secrets.hermes_slack_env_ghost_chief.path;
+      slackChannel = "C0BHLUXQ4EB";
+      briefCalendar = "*-*-* 07:30:00 America/New_York";
+    };
+  };
 
   profiles.hermesKanbanSync = {
     enable = true;

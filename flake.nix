@@ -624,6 +624,10 @@
                   nyxRetirement = nyx.home.activation.retireLegacyHermes.data;
                   ghostAssistantOauth = ghost.home.activation.hermesAssistantOauth.data;
                   nyxAssistantOauth = nyx.home.activation.hermesAssistantOauth.data;
+                  ghostAssistantHealth = ghost.systemd.user.services.hermes-assistant-health.Service;
+                  nyxAssistantHealth = nyx.systemd.user.services.hermes-assistant-health.Service;
+                  ghostAssistantBrief = ghost.systemd.user.timers.hermes-assistant-brief.Timer;
+                  nyxAssistantBrief = nyx.systemd.user.timers.hermes-assistant-brief.Timer;
                   expectedGhostModels = {
                     assistant = "claude-sonnet-4-6";
                     architect = "claude-opus-5";
@@ -702,6 +706,24 @@
                 assert !ghost.profiles.hermesAssistant.work.enable;
                 assert !nyx.profiles.hermesAssistant.personal.enable;
                 assert nyx.profiles.hermesAssistant.work.enable;
+                assert ghost.profiles.hermesAssistant.automation.enable;
+                assert nyx.profiles.hermesAssistant.automation.enable;
+                assert builtins.hasAttr "hermes-assistant-health" ghost.systemd.user.services;
+                assert builtins.hasAttr "hermes-assistant-health" nyx.systemd.user.services;
+                assert builtins.hasAttr "hermes-assistant-brief" ghost.systemd.user.services;
+                assert builtins.hasAttr "hermes-assistant-brief" nyx.systemd.user.services;
+                assert builtins.hasAttr "hermes-assistant-health" ghost.systemd.user.timers;
+                assert builtins.hasAttr "hermes-assistant-health" nyx.systemd.user.timers;
+                assert builtins.hasAttr "hermes-assistant-brief" ghost.systemd.user.timers;
+                assert builtins.hasAttr "hermes-assistant-brief" nyx.systemd.user.timers;
+                assert ghostAssistantBrief.OnCalendar == "*-*-* 07:30:00 America/New_York";
+                assert nyxAssistantBrief.OnCalendar == "Mon..Fri *-*-* 08:00:00 America/New_York";
+                assert ghostAssistantBrief.Persistent;
+                assert nyxAssistantBrief.Persistent;
+                assert ghostAssistantHealth.EnvironmentFile == ghost.sops.secrets.hermes_slack_env_ghost_chief.path;
+                assert nyxAssistantHealth.EnvironmentFile == nyx.sops.secrets.hermes_slack_env_nyx_coder.path;
+                assert builtins.elem "HERMES_ASSISTANT_KIND=personal" ghostAssistantHealth.Environment;
+                assert builtins.elem "HERMES_ASSISTANT_KIND=work" nyxAssistantHealth.Environment;
                 assert ghost.profiles.hermesKanbanSync.enable;
                 assert ghost.profiles.hermesKanbanSync.outboundEnabled;
                 assert !nyx.profiles.hermesKanbanSync.enable;
