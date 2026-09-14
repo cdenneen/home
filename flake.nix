@@ -789,6 +789,8 @@
                 assert nyx.sops.secrets.hermes_slack_env_nyx_coder.mode == "0400";
                 assert nyx.sops.secrets.hermes_slack_env_nyx_ops.mode == "0400";
                 assert hasInfix "if [ ! -e \"$target_path\" ]" ghostAssistantOauth;
+                assert hasInfix "sops-nix-user" ghostAssistantOauth;
+                assert hasInfix "sops-nix-user" nyxAssistantOauth;
                 assert hasInfix ".hermes/profiles/assistant/google_token.json" ghostAssistantOauth;
                 assert hasInfix ".hermes/profiles/assistant/msgraph_token_cache.json" nyxAssistantOauth;
                 pkgs.runCommand "hermes-gateway-roles-check" { } ''
