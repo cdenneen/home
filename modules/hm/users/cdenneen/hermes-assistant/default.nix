@@ -8,6 +8,7 @@
 let
   cfg = config.profiles.hermesAssistant;
   profileHome = "${config.home.homeDirectory}/.hermes/profiles/assistant";
+  sopsNixProgram = config.systemd.user.services.sops-nix.Service.ExecStart;
   assistantPython = pkgs.python3.withPackages (pythonPackages: [
     pythonPackages.msal
     pythonPackages.requests
@@ -62,38 +63,41 @@ in
           "materializeLinuxSopsSecrets"
         ]
         ''
-          set -euo pipefail
+              set -euo pipefail
 
           seed_oauth() {
             source_path="$1"
             target_path="$2"
 
             if [ ! -r "$source_path" ]; then
-              echo "error: Hermes assistant OAuth seed is missing: $source_path" >&2
-              exit 1
+              $DRY_RUN_CMD ${lib.escapeShellArg sopsNixProgram}
             fi
+            if [ ! -r "$source_path" ]; then
+                  echo "error: Hermes assistant OAuth seed is missing: $source_path" >&2
+                  exit 1
+                fi
 
-            $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -d -m 700 "$(${pkgs.coreutils}/bin/dirname "$target_path")"
-            if [ ! -e "$target_path" ]; then
-              $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$source_path" "$target_path"
-            elif [ ! -f "$target_path" ]; then
-              echo "error: Hermes assistant OAuth target is not a regular file: $target_path" >&2
-              exit 1
-            else
-              $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 600 "$target_path"
-            fi
-          }
+                $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -d -m 700 "$(${pkgs.coreutils}/bin/dirname "$target_path")"
+                if [ ! -e "$target_path" ]; then
+                  $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$source_path" "$target_path"
+                elif [ ! -f "$target_path" ]; then
+                  echo "error: Hermes assistant OAuth target is not a regular file: $target_path" >&2
+                  exit 1
+                else
+                  $DRY_RUN_CMD ${pkgs.coreutils}/bin/chmod 600 "$target_path"
+                fi
+              }
 
-          ${lib.optionalString cfg.personal.enable ''
-            seed_oauth \
-              ${lib.escapeShellArg config.sops.secrets.hermes_assistant_google_oauth_ghost.path} \
-              ${lib.escapeShellArg "${profileHome}/google_token.json"}
-          ''}
-          ${lib.optionalString cfg.work.enable ''
-            seed_oauth \
-              ${lib.escapeShellArg config.sops.secrets.hermes_assistant_msgraph_oauth_nyx.path} \
-              ${lib.escapeShellArg "${profileHome}/msgraph_token_cache.json"}
-          ''}
+              ${lib.optionalString cfg.personal.enable ''
+                seed_oauth \
+                  ${lib.escapeShellArg config.sops.secrets.hermes_assistant_google_oauth_ghost.path} \
+                  ${lib.escapeShellArg "${profileHome}/google_token.json"}
+              ''}
+              ${lib.optionalString cfg.work.enable ''
+                seed_oauth \
+                  ${lib.escapeShellArg config.sops.secrets.hermes_assistant_msgraph_oauth_nyx.path} \
+                  ${lib.escapeShellArg "${profileHome}/msgraph_token_cache.json"}
+              ''}
         '';
   };
 }
