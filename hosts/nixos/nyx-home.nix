@@ -135,6 +135,8 @@ in
     };
   };
 
+  profiles.hermesKanbanSync.installCollector = true;
+
   home.activation.retireLegacyHermes = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
     if [ -z "''${DRY_RUN_CMD:-}" ]; then
       ${pkgs.systemd}/bin/systemctl --user disable --now \
