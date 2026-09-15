@@ -119,10 +119,10 @@ try:
         _write_peer_source_side_channel(source)
         return _orig_set_accounting_context(session_db, session_id)
 
-    def _patched_add_prompt_cache_key(api_kwargs, *, messages, tools, supports_prompt_cache_key):
+    def _patched_add_prompt_cache_key(api_kwargs, **kwargs):
         source = _hermes_source_ctx.get()
-        session_id = _hermes_session_id_ctx.get()
-        if source or session_id:
+        workload_session_id = kwargs.get("session_id") or _hermes_session_id_ctx.get()
+        if source or workload_session_id:
             consumer = os.environ.get("EROS_CONSUMER", "hermes")
             trust_domain = os.environ.get("EROS_TRUST_DOMAIN", "shared")
             workload = source or "unknown"
@@ -132,8 +132,8 @@ try:
                 api_kwargs["extra_body"] = extra_body
             if source:
                 extra_body.setdefault("x_hermes_source", source)
-            if session_id:
-                extra_body.setdefault("litellm_session_id", session_id)
+            if workload_session_id:
+                extra_body.setdefault("litellm_session_id", workload_session_id)
             metadata = extra_body.get("metadata")
             if not isinstance(metadata, dict):
                 metadata = {}
@@ -156,14 +156,9 @@ try:
             extra_headers.setdefault("x-eros-consumer", consumer)
             extra_headers.setdefault("x-eros-trust-domain", trust_domain)
             extra_headers.setdefault("x-eros-workload", workload)
-            if session_id:
-                extra_headers.setdefault("x-eros-session", session_id)
-        return _orig_add_prompt_cache_key(
-            api_kwargs,
-            messages=messages,
-            tools=tools,
-            supports_prompt_cache_key=supports_prompt_cache_key,
-        )
+            if workload_session_id:
+                extra_headers.setdefault("x-eros-session", workload_session_id)
+        return _orig_add_prompt_cache_key(api_kwargs, **kwargs)
 
     aux_accounting.set_accounting_context = _patched_set_accounting_context
     chat_completions._add_prompt_cache_key = _patched_add_prompt_cache_key

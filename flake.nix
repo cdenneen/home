@@ -399,6 +399,23 @@
                     python -m unittest source/test_backlog_sync.py
                     touch "$out"
                   '';
+              hermes-workload-metadata =
+                if system == "aarch64-linux" then
+                  let
+                    service =
+                      configurations.homeConfigurations."cdenneen@ghost".config.systemd.user.services.hermes-mesh-gateway.Service;
+                    pythonPath = removePrefix "PYTHONPATH=" (
+                      findFirst (hasPrefix "PYTHONPATH=") (throw "Hermes gateway has no PYTHONPATH") service.Environment
+                    );
+                    selftest = elemAt service.ExecStartPre 1;
+                  in
+                  pkgs.runCommand "hermes-workload-metadata-check" { } ''
+                    mkdir -p "$TMPDIR/home"
+                    HOME="$TMPDIR/home" PYTHONPATH=${escapeShellArg pythonPath} ${selftest}
+                    touch "$out"
+                  ''
+                else
+                  pkgs.runCommand "hermes-workload-metadata-check" { } "touch $out";
               eros-consumer-mcp =
                 let
                   consumerHosts = {

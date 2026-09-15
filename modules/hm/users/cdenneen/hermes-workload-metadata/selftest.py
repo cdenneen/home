@@ -42,6 +42,8 @@ def main() -> None:
         messages=[],
         tools=None,
         supports_prompt_cache_key=False,  # exercises our injection independent of the original's own gate
+        session_id="selftest-session-id",
+        cache_scope_id="selftest-cache-scope",
     )
 
     extra_body = api_kwargs.get("extra_body")
@@ -67,6 +69,18 @@ def main() -> None:
         "x-eros-session": "selftest-session-id",
     }, f"unexpected spend headers: {api_kwargs.get('extra_headers')!r}"
 
+    cache_kwargs: dict = {}
+    chat_completions._add_prompt_cache_key(
+        cache_kwargs,
+        messages=[{"role": "system", "content": "stable cache prefix"}],
+        tools=None,
+        supports_prompt_cache_key=True,
+        session_id="selftest-session-id",
+        cache_scope_id="selftest-cache-scope",
+    )
+    cache_key = cache_kwargs.get("prompt_cache_key")
+    assert isinstance(cache_key, str) and cache_key, "prompt cache key was not added"
+
     # #40: the peer-process attestation side channel must actually be
     # written, keyed by this process's own pid - a functional check, not
     # just checking the extra_body injection above.
@@ -78,7 +92,9 @@ def main() -> None:
     assert side_channel_data.get("source") == "selftest-source", (
         f"side channel recorded {side_channel_data.get('source')!r}, expected 'selftest-source'"
     )
-    assert time.time() - side_channel_data.get("ts", 0) < 10, "side channel timestamp is stale"
+    assert time.time() - side_channel_data.get("ts", 0) < 10, (
+        "side channel timestamp is stale"
+    )
     side_channel_path.unlink(missing_ok=True)
 
     aux_accounting.reset_accounting_context(
