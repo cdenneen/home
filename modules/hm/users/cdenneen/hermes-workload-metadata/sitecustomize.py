@@ -81,8 +81,8 @@ try:
     from contextvars import ContextVar
     from pathlib import Path
 
-    import agent.aux_accounting as aux_accounting
-    import agent.transports.chat_completions as chat_completions
+    from agent import aux_accounting
+    from agent.transports import chat_completions
 
     _hermes_source_ctx: ContextVar[str | None] = ContextVar(
         "hermes_workload_metadata_source", default=None
@@ -123,6 +123,9 @@ try:
         source = _hermes_source_ctx.get()
         session_id = _hermes_session_id_ctx.get()
         if source or session_id:
+            consumer = os.environ.get("EROS_CONSUMER", "hermes")
+            trust_domain = os.environ.get("EROS_TRUST_DOMAIN", "shared")
+            workload = source or "unknown"
             extra_body = api_kwargs.get("extra_body")
             if not isinstance(extra_body, dict):
                 extra_body = {}
@@ -131,6 +134,30 @@ try:
                 extra_body.setdefault("x_hermes_source", source)
             if session_id:
                 extra_body.setdefault("litellm_session_id", session_id)
+            metadata = extra_body.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+                extra_body["metadata"] = metadata
+            tags = metadata.get("tags")
+            if not isinstance(tags, list):
+                tags = []
+                metadata["tags"] = tags
+            for tag in (
+                f"consumer:{consumer}",
+                f"trust_domain:{trust_domain}",
+                f"workload:{workload}",
+            ):
+                if tag not in tags:
+                    tags.append(tag)
+            extra_headers = api_kwargs.get("extra_headers")
+            if not isinstance(extra_headers, dict):
+                extra_headers = dict(extra_headers or {})
+                api_kwargs["extra_headers"] = extra_headers
+            extra_headers.setdefault("x-eros-consumer", consumer)
+            extra_headers.setdefault("x-eros-trust-domain", trust_domain)
+            extra_headers.setdefault("x-eros-workload", workload)
+            if session_id:
+                extra_headers.setdefault("x-eros-session", session_id)
         return _orig_add_prompt_cache_key(
             api_kwargs,
             messages=messages,

@@ -78,15 +78,23 @@ let
       builtins.getEnv "HOSTNAME";
   isNyx = hostName == "nyx";
   isGhost = hostName == "ghost";
+  erosTrustDomain =
+    if isNyx then
+      "work"
+    else if isGhost || pkgs.stdenv.hostPlatform.isDarwin then
+      "personal"
+    else
+      "shared";
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   hostSystem = pkgs.stdenv.hostPlatform.system;
-  useSharedNyxMcp = isDarwin || isNyx || isGhost;
   nyxSharedMcpHost = if isNyx then "127.0.0.1" else "nyx.tail0e55.ts.net";
   nyxSharedMcpUrl = port: "http://${nyxSharedMcpHost}:${toString port}/mcp";
   graphifyMcpUrl = nyxSharedMcpUrl 18108;
   # LiteLLM /mcp gateway MVP (2026-09-11): registered on eros as mcp_servers.
-  # Same 9 plain-HTTP servers as the direct nyxSharedMcpUrl entries above,
-  # proxied through Eros for centralized auth/budget/tool-search. Header
+  # The aggregate endpoint exposes only LiteLLM's virtual discovery/call tools
+  # when mcp_tool_search_enabled is set on the calling key. Named endpoints are
+  # retained for narrowly scoped clients such as individual Hermes profiles.
+  # Header
   # confirmed live against v1.94.0: "Authorization: Bearer <key>" - NOT
   # "x-litellm-api-key" (that form 401s with "Malformed API Key... Ensure
   # Key has `Bearer ` prefix").
@@ -97,7 +105,7 @@ let
   # the admin-only branch, and 401s with "Only proxy admin can be used to
   # generate..." for any virtual key. The master key bypasses route checks
   # entirely, so it succeeds on both forms - don't use it to validate this.
-  erosLitellmMcpUrl = name: "http://eros.tail0e55.ts.net:4000/mcp/${name}";
+  erosLitellmMcpGatewayUrl = "http://eros.tail0e55.ts.net:4000/mcp/";
 
   writableRoots = [
     "/Users/cdenneen/code/workspace"
@@ -112,103 +120,6 @@ let
     "${homeDir}/.npm"
     "${homeDir}/.local/share/pnpm"
   ];
-
-  mkMcpCommand = script: {
-    command = "bash";
-    args = [
-      "-lc"
-      script
-    ];
-  };
-
-  mkSharedMcpCommand =
-    port: script:
-    if useSharedNyxMcp then
-      {
-        url = nyxSharedMcpUrl port;
-      }
-    else
-      mkMcpCommand script;
-
-  mkLocalMcpCommand = script: {
-    command = "bash";
-    args = [
-      "-lc"
-      script
-    ];
-  };
-
-  mkNyxOnlySharedMcpCommand =
-    port: script:
-    if isNyx || isGhost then
-      {
-        url = nyxSharedMcpUrl port;
-      }
-    else
-      mkLocalMcpCommand script;
-
-  mcpGitlabScript = ''
-    set -euo pipefail
-
-    export GITLAB_API_URL="https://git.ap.org/api/v4"
-    export GITLAB_READ_ONLY_MODE="true"
-
-    if [ -z "''${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
-      token="$(glab auth token -h git.ap.org 2>/dev/null || true)"
-      if [ -z "$token" ]; then
-        token="$(glab auth token 2>/dev/null || true)"
-      fi
-      if [ -n "$token" ]; then
-        export GITLAB_PERSONAL_ACCESS_TOKEN="$token"
-      fi
-    fi
-
-    exec npx -y @zereight/mcp-gitlab
-  '';
-
-  mcpKubernetesScript = ''
-    set -euo pipefail
-
-    kubeconfig="''${KUBECONFIG:-$HOME/.kube/config}"
-    if [ -r "$kubeconfig" ]; then
-      sanitized="''${TMPDIR:-/tmp}/codex-kubeconfig.$$"
-      sed -E 's/^([[:space:]]*-[[:space:]]+)no([[:space:]]*)$/\1"no"\2/' "$kubeconfig" > "$sanitized"
-      export KUBECONFIG="$sanitized"
-    fi
-
-    exec npx -y @strowk/mcp-k8s
-  '';
-
-  mcpAwsScript = ''
-    set -euo pipefail
-    export LOG_LEVEL="error"
-    exec npx -y aws-mcp-readonly-lite
-  '';
-
-  mcpTerraformScript = ''
-    set -euo pipefail
-
-    if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
-      exec podman run -i --rm hashicorp/terraform-mcp-server:0.4.0
-    fi
-
-    exec npx -y terraform-mcp-server
-  '';
-
-  mcpDuckDuckGoScript = ''
-    set -euo pipefail
-    exec npx -y ddg-mcp-search
-  '';
-
-  mcpContext7Script = ''
-    set -euo pipefail
-    exec npx -y @upstash/context7-mcp
-  '';
-
-  mcpPlaywrightScript = ''
-    set -euo pipefail
-    exec npx -y @playwright/mcp
-  '';
 
   codexConfigAttrs =
     (lib.optionalAttrs isDarwin {
@@ -276,6 +187,18 @@ let
         steer = true;
       };
       mcp_servers = {
+        eros = {
+          url = erosLitellmMcpGatewayUrl;
+          bearer_token_env_var = "EROS_LITELLM_API_KEY";
+          http_headers = {
+            "x-eros-consumer" = hostName;
+            "x-eros-trust-domain" = erosTrustDomain;
+            "x-eros-workload" = "codex";
+          };
+          required = false;
+          startup_timeout_sec = 20;
+          tool_timeout_sec = 180;
+        };
         github = {
           url = "https://api.githubcopilot.com/mcp/";
           bearer_token_env_var = "GITHUB_TOKEN";
@@ -283,57 +206,10 @@ let
           startup_timeout_sec = 20;
           tool_timeout_sec = 120;
         };
-        recallium = {
-          url = nyxSharedMcpUrl 18001;
-          required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 180;
-        };
-        graphify = {
-          url = graphifyMcpUrl;
-          required = false;
-          startup_timeout_sec = 30;
-          tool_timeout_sec = 180;
-        };
         supabase = {
           url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
           required = false;
           startup_timeout_sec = 20;
-          tool_timeout_sec = 180;
-        };
-        gitlab = (mkSharedMcpCommand 18101 mcpGitlabScript) // {
-          required = false;
-          startup_timeout_sec = 30;
-          tool_timeout_sec = 180;
-        };
-        kubernetes = (mkSharedMcpCommand 18102 mcpKubernetesScript) // {
-          required = false;
-          startup_timeout_sec = 30;
-          tool_timeout_sec = 180;
-        };
-        aws = (mkSharedMcpCommand 18103 mcpAwsScript) // {
-          required = false;
-          startup_timeout_sec = 30;
-          tool_timeout_sec = 180;
-        };
-        terraform = (mkSharedMcpCommand 18104 mcpTerraformScript) // {
-          required = false;
-          startup_timeout_sec = 30;
-          tool_timeout_sec = 240;
-        };
-        duckduckgo = (mkSharedMcpCommand 18105 mcpDuckDuckGoScript) // {
-          required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
-        };
-        context7 = (mkSharedMcpCommand 18106 mcpContext7Script) // {
-          required = false;
-          startup_timeout_sec = 20;
-          tool_timeout_sec = 120;
-        };
-        playwright = (mkNyxOnlySharedMcpCommand 18107 mcpPlaywrightScript) // {
-          required = false;
-          startup_timeout_sec = 30;
           tool_timeout_sec = 180;
         };
         cocoindex-code = {
@@ -566,54 +442,17 @@ in
 
   home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
     mcpServers = {
-      # MVP set (2026-09-11): routed through Eros LiteLLM's /mcp gateway
-      # instead of directly at nyx, for centralized auth/budget/tool-search.
-      # Placeholder substituted with the real eros-claude-clients key by
-      # claudeMcpSettingsWrite below.
-      recallium = {
+      # One aggregate endpoint replaces 159 eagerly loaded tool schemas with
+      # LiteLLM's bounded virtual search/call tools.
+      eros = {
         type = "http";
-        url = erosLitellmMcpUrl "recallium";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      graphify = {
-        type = "http";
-        url = erosLitellmMcpUrl "graphify";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      context7 = {
-        type = "http";
-        url = erosLitellmMcpUrl "context7";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      playwright = {
-        type = "http";
-        url = erosLitellmMcpUrl "playwright";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      kubernetes = {
-        type = "http";
-        url = erosLitellmMcpUrl "kubernetes";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      aws = {
-        type = "http";
-        url = erosLitellmMcpUrl "aws";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      terraform = {
-        type = "http";
-        url = erosLitellmMcpUrl "terraform";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      duckduckgo = {
-        type = "http";
-        url = erosLitellmMcpUrl "duckduckgo";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
-      };
-      gitlab = {
-        type = "http";
-        url = erosLitellmMcpUrl "gitlab";
-        headers = { Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"; };
+        url = erosLitellmMcpGatewayUrl;
+        headers = {
+          Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__";
+          "x-eros-consumer" = hostName;
+          "x-eros-trust-domain" = erosTrustDomain;
+          "x-eros-workload" = "claude-code";
+        };
       };
       cocoindex-code = {
         command = cocoindexCodeExe;
@@ -707,67 +546,82 @@ in
   home.file.".codex/strict.config.toml".source =
     tomlFormat.generate "codex-strict.config.toml" codexProfileAttrs.strict;
 
-  home.activation.claudeMcpSettingsWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-    set -euo pipefail
+  home.activation.claudeMcpSettingsWrite =
+    lib.hm.dag.entryAfter
+      [
+        "linkGeneration"
+        (if isDarwin then "materializeDarwinSopsSecrets" else "materializeLinuxSopsSecrets")
+      ]
+      ''
+            set -euo pipefail
 
-    mcp_src="$HOME/.claude/mcp-settings.source"
-    dst="$HOME/.claude.json"
+        mcp_src="$HOME/.claude/mcp-settings.source"
+        dst="$HOME/.claude.json"
 
-    if [ ! -f "$mcp_src" ]; then
-      exit 0
-    fi
+        if [ ! -f "$mcp_src" ]; then
+          exit 0
+        fi
 
-    mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
+        mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
 
-    # Substitute cloudflare API token placeholder at activation time so the
-    # secret never lands in the nix store.
-    cf_token=""
-    for _cf_candidate in \
-      /run/user/1000/secrets.d/*/cloudflare_account_api_token \
-      "$HOME/.local/share/sops-nix/secrets/cloudflare_account_api_token" \
-      "$HOME/.config/sops-nix/secrets/cloudflare_account_api_token"
-    do
-      if [ -r "$_cf_candidate" ]; then
-        cf_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_cf_candidate")"
-        break
-      fi
-    done
+        # Substitute cloudflare API token placeholder at activation time so the
+        # secret never lands in the nix store.
+        cf_token=""
+        for _cf_candidate in \
+          /run/user/1000/secrets.d/*/cloudflare_account_api_token \
+          "$HOME/.local/share/sops-nix/secrets/cloudflare_account_api_token" \
+          "$HOME/.config/sops-nix/secrets/cloudflare_account_api_token"
+        do
+          if [ -r "$_cf_candidate" ]; then
+            cf_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_cf_candidate")"
+            break
+          fi
+        done
 
-    if [ -n "$cf_token" ]; then
-      mcp_json="$(printf '%s' "$mcp_json" | \
-        ${pkgs.gnused}/bin/sed "s|__CLOUDFLARE_API_TOKEN_PLACEHOLDER__|Bearer $cf_token|g")"
-    fi
+        if [ -n "$cf_token" ]; then
+          mcp_json="$(printf '%s' "$mcp_json" | \
+            ${pkgs.gnused}/bin/sed "s|__CLOUDFLARE_API_TOKEN_PLACEHOLDER__|Bearer $cf_token|g")"
+        fi
 
-    # Substitute the eros-claude-clients LiteLLM key for the MCP gateway
-    # entries at activation time, same pattern as cf_token above.
-    eros_key=""
-    for _eros_candidate in \
-      /run/user/1000/secrets.d/*/eros_litellm_key_claude_clients \
-      "$HOME/.local/share/sops-nix/secrets/eros_litellm_key_claude_clients" \
-      "$HOME/.config/sops-nix/secrets/eros_litellm_key_claude_clients"
-    do
-      if [ -r "$_eros_candidate" ]; then
-        eros_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_eros_candidate")"
-        break
-      fi
-    done
+        # Use the existing host key for both inference and MCP so LiteLLM can
+        # attribute consumer/domain spend without a cross-host shared credential.
+        eros_key=""
+        for _eros_candidate in \
+          /run/user/1000/secrets.d/*/eros_litellm_api_key \
+          "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key" \
+          "$HOME/.config/sops-nix/secrets/eros_litellm_api_key"
+        do
+          if [ -r "$_eros_candidate" ]; then
+            eros_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_eros_candidate")"
+            break
+          fi
+        done
 
-    if [ -n "$eros_key" ]; then
-      mcp_json="$(printf '%s' "$mcp_json" | \
-        ${pkgs.gnused}/bin/sed "s|__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__|Bearer $eros_key|g")"
-    fi
+            if printf '%s' "$mcp_json" | ${pkgs.gnugrep}/bin/grep -q '__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__'; then
+              if [ -z "$eros_key" ]; then
+                echo "claudeMcpSettingsWrite: Eros key is required but unavailable" >&2
+                exit 1
+              fi
+              mcp_json="$(printf '%s' "$mcp_json" | \
+                ${pkgs.gnused}/bin/sed "s|__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__|Bearer $eros_key|g")"
+            fi
 
-    if [ -f "$dst" ]; then
-      merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" -)"
-    else
-      merged="$mcp_json"
-    fi
+            if printf '%s' "$mcp_json" | ${pkgs.gnugrep}/bin/grep -q '__[A-Z0-9_]*_PLACEHOLDER__'; then
+              echo "claudeMcpSettingsWrite: refusing to install unresolved secret placeholders" >&2
+              exit 1
+            fi
 
-    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude.json.XXXXXX")"
-    printf '%s\n' "$merged" > "$tmp"
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
-  '';
+        if [ -f "$dst" ]; then
+          merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[0] + {mcpServers: .[1].mcpServers}' "$dst" -)"
+        else
+          merged="$mcp_json"
+        fi
+
+            tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.claude.json.XXXXXX")"
+            printf '%s\n' "$merged" > "$tmp"
+            $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+            $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+      '';
 
   home.activation.ponytailPluginCache = lib.mkIf enableAgentPlugins (
     lib.hm.dag.entryAfter [ "linkGeneration" ] ''
@@ -862,153 +716,141 @@ in
   # write ~/.claude/settings.json - real clobber risk otherwise. del() on an
   # already-absent key is a no-op, so this is safe on hosts whose env block
   # never had AWS_PROFILE/model overrides (e.g. nyx) as well as hosts that did.
-  home.activation.claudeSettingsEnvWrite = lib.hm.dag.entryAfter [
-    "ponytailPluginState"
-    (if isDarwin then "materializeDarwinSopsSecrets" else "materializeLinuxSopsSecrets")
-  ] ''
-    set -euo pipefail
+  home.activation.claudeSettingsEnvWrite =
+    lib.hm.dag.entryAfter
+      [
+        "ponytailPluginState"
+        (if isDarwin then "materializeDarwinSopsSecrets" else "materializeLinuxSopsSecrets")
+      ]
+      ''
+        set -euo pipefail
 
-    claude_dir="$HOME/.claude"
-    settings="$claude_dir/settings.json"
-    mkdir -p "$claude_dir"
+        claude_dir="$HOME/.claude"
+        settings="$claude_dir/settings.json"
+        mkdir -p "$claude_dir"
 
-    token=""
-    for _c in \
-      /run/user/1000/secrets.d/*/eros_litellm_key_claude_clients \
-      "$HOME/.local/share/sops-nix/secrets/eros_litellm_key_claude_clients" \
-      "$HOME/.config/sops-nix/secrets/eros_litellm_key_claude_clients"
-    do
-      if [ -r "$_c" ]; then
-        token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_c")"
-        break
-      fi
-    done
+        token=""
+        for _c in \
+          /run/user/1000/secrets.d/*/eros_litellm_api_key \
+          "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key" \
+          "$HOME/.config/sops-nix/secrets/eros_litellm_api_key"
+        do
+          if [ -r "$_c" ]; then
+            token="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_c")"
+            break
+          fi
+        done
 
-    if [ -z "$token" ]; then
-      echo "warning: eros_litellm_key_claude_clients missing, skipping Claude Code env rewrite" >&2
-      exit 0
-    fi
+        if [ -z "$token" ]; then
+          echo "warning: eros_litellm_api_key missing, skipping Claude Code env rewrite" >&2
+          exit 0
+        fi
 
-    if [ -f "$settings" ]; then
-      settings_json="$(${pkgs.coreutils}/bin/cat "$settings")"
-    else
-      settings_json='{}'
-    fi
+        if [ -f "$settings" ]; then
+          settings_json="$(${pkgs.coreutils}/bin/cat "$settings")"
+        else
+          settings_json='{}'
+        fi
 
-    # One-time backup before the first destructive env rewrite, so rollback
-    # is a straight file copy rather than a re-derivation.
-    backup="$claude_dir/settings.json.pre-eros-migration.bak"
-    if [ ! -e "$backup" ] && [ -f "$settings" ]; then
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp "$settings" "$backup"
-    fi
+        # One-time backup before the first destructive env rewrite, so rollback
+        # is a straight file copy rather than a re-derivation.
+        backup="$claude_dir/settings.json.pre-eros-migration.bak"
+        if [ ! -e "$backup" ] && [ -f "$settings" ]; then
+          $DRY_RUN_CMD ${pkgs.coreutils}/bin/cp "$settings" "$backup"
+        fi
 
-    tmp="$(${pkgs.coreutils}/bin/mktemp "$claude_dir/settings.json.XXXXXX")"
-    printf '%s' "$settings_json" | ${pkgs.jq}/bin/jq \
-      --arg baseUrl "http://eros.tail0e55.ts.net:4000" \
-      --arg token "$token" \
-      '.env.ANTHROPIC_BASE_URL = $baseUrl
-       | .env.ANTHROPIC_AUTH_TOKEN = $token
-       | .env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1"
-       | del(.env.CLAUDE_CODE_USE_BEDROCK)
-       | del(.env.AWS_PROFILE)
-       | del(.env.AWS_REGION)
-       | del(.env.ANTHROPIC_DEFAULT_HAIKU_MODEL)
-       | del(.env.ANTHROPIC_DEFAULT_SONNET_MODEL)
-       | del(.env.ANTHROPIC_DEFAULT_OPUS_MODEL)' > "$tmp"
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
-  '';
+        tmp="$(${pkgs.coreutils}/bin/mktemp "$claude_dir/settings.json.XXXXXX")"
+        printf '%s' "$settings_json" | ${pkgs.jq}/bin/jq \
+          --arg baseUrl "http://eros.tail0e55.ts.net:4000" \
+          --arg token "$token" \
+          --arg customHeaders ${lib.escapeShellArg "x-eros-consumer: ${hostName}\nx-eros-trust-domain: ${erosTrustDomain}\nx-eros-workload: claude-code"} \
+          '.env.ANTHROPIC_BASE_URL = $baseUrl
+           | .env.ANTHROPIC_AUTH_TOKEN = $token
+           | .env.ANTHROPIC_CUSTOM_HEADERS = $customHeaders
+           | .env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1"
+           | .env.MCP_DISCOVERY_CACHE = "1"
+           | del(.env.CLAUDE_CODE_USE_BEDROCK)
+           | del(.env.AWS_PROFILE)
+           | del(.env.AWS_REGION)
+           | del(.env.ANTHROPIC_DEFAULT_HAIKU_MODEL)
+           | del(.env.ANTHROPIC_DEFAULT_SONNET_MODEL)
+           | del(.env.ANTHROPIC_DEFAULT_OPUS_MODEL)' > "$tmp"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+      '';
 
   home.file.".claude-desktop-mcp-settings.source" = lib.mkIf isDarwin {
     text = builtins.toJSON {
       mcpServers = {
-        recallium = {
+        eros = {
           command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "recallium") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        graphify = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "graphify") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        context7 = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "context7") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        playwright = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "playwright") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        kubernetes = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "kubernetes") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        aws = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "aws") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        terraform = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "terraform") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        duckduckgo = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "duckduckgo") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
-        };
-        gitlab = {
-          command = "npx";
-          args = [ "-y" "mcp-remote" (erosLitellmMcpUrl "gitlab") "--header" "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" ];
+          args = [
+            "-y"
+            "mcp-remote"
+            erosLitellmMcpGatewayUrl
+            "--header"
+            "Authorization: __EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__"
+            "--header"
+            "x-eros-consumer: ${hostName}"
+            "--header"
+            "x-eros-trust-domain: ${erosTrustDomain}"
+            "--header"
+            "x-eros-workload: claude-desktop"
+          ];
         };
       };
     };
   };
 
   home.activation.claudeDesktopMcpSettingsWrite = lib.mkIf isDarwin (
-    lib.hm.dag.entryAfter [
-      "materializeDarwinSopsSecrets"
-    ] ''
-      set -euo pipefail
+    lib.hm.dag.entryAfter
+      [
+        "materializeDarwinSopsSecrets"
+      ]
+      ''
+        set -euo pipefail
 
-      mcp_src="$HOME/.claude-desktop-mcp-settings.source"
-      dst="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+        mcp_src="$HOME/.claude-desktop-mcp-settings.source"
+        dst="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 
-      if [ ! -f "$mcp_src" ]; then
-        exit 0
-      fi
-      mkdir -p "$HOME/Library/Application Support/Claude"
-
-      mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
-
-      eros_key=""
-      for _eros_candidate in \
-        /run/user/1000/secrets.d/*/eros_litellm_key_claude_clients \
-        "$HOME/.local/share/sops-nix/secrets/eros_litellm_key_claude_clients" \
-        "$HOME/.config/sops-nix/secrets/eros_litellm_key_claude_clients"
-      do
-        if [ -r "$_eros_candidate" ]; then
-          eros_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_eros_candidate")"
-          break
+        if [ ! -f "$mcp_src" ]; then
+          exit 0
         fi
-      done
+        mkdir -p "$HOME/Library/Application Support/Claude"
 
-      if [ -z "$eros_key" ]; then
-        echo "warning: eros_litellm_key_claude_clients missing, skipping Claude Desktop MCP rewrite" >&2
-        exit 0
-      fi
+        mcp_json="$(${pkgs.coreutils}/bin/cat "$mcp_src")"
 
-      mcp_json="$(printf '%s' "$mcp_json" | \
-        ${pkgs.gnused}/bin/sed "s|__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__|Bearer $eros_key|g")"
+        eros_key=""
+        for _eros_candidate in \
+          /run/user/1000/secrets.d/*/eros_litellm_api_key \
+          "$HOME/.local/share/sops-nix/secrets/eros_litellm_api_key" \
+          "$HOME/.config/sops-nix/secrets/eros_litellm_api_key"
+        do
+          if [ -r "$_eros_candidate" ]; then
+            eros_key="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$_eros_candidate")"
+            break
+          fi
+        done
 
-      if [ -f "$dst" ]; then
-        merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[1] + {mcpServers: .[0].mcpServers}' - "$dst")"
-      else
-        merged="$mcp_json"
-      fi
+        if [ -z "$eros_key" ]; then
+          echo "warning: eros_litellm_api_key missing, skipping Claude Desktop MCP rewrite" >&2
+          exit 0
+        fi
 
-      tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/Library/Application Support/Claude/claude_desktop_config.json.XXXXXX")"
-      printf '%s\n' "$merged" > "$tmp"
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
-      $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
-    ''
+        mcp_json="$(printf '%s' "$mcp_json" | \
+          ${pkgs.gnused}/bin/sed "s|__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__|Bearer $eros_key|g")"
+
+        if [ -f "$dst" ]; then
+          merged="$(printf '%s' "$mcp_json" | ${pkgs.jq}/bin/jq -s '.[1] + {mcpServers: .[0].mcpServers}' - "$dst")"
+        else
+          merged="$mcp_json"
+        fi
+
+        tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/Library/Application Support/Claude/claude_desktop_config.json.XXXXXX")"
+        printf '%s\n' "$merged" > "$tmp"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+        $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
+      ''
   );
 
   home.activation.piSettingsWrite = lib.mkIf enableAgentPlugins (
@@ -1098,60 +940,102 @@ in
       ''
   );
 
-  home.activation.piMcpConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-    set -euo pipefail
-
-    dst="$HOME/.pi/agent/mcp.json"
-    $DRY_RUN_CMD mkdir -p "$HOME/.pi/agent"
-    if [ -f "$dst" ]; then
-      current="$(${pkgs.coreutils}/bin/cat "$dst")"
-    else
-      current='{}'
-    fi
-
-    tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.pi/agent/mcp.json.XXXXXX")"
-    printf '%s' "$current" | ${pkgs.jq}/bin/jq \
-      --arg recalliumUrl ${lib.escapeShellArg (nyxSharedMcpUrl 18001)} \
-      --arg graphifyUrl ${lib.escapeShellArg graphifyMcpUrl} \
-      '.mcpServers.recallium = {type: "http", url: $recalliumUrl, directTools: true}
-       | .mcpServers.graphify = {type: "http", url: $graphifyUrl, directTools: true}' > "$tmp"
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
-    $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
-  '';
-
-  home.activation.graphifyHermesConfig = lib.mkIf (
-    config.profiles.hermesGateway.enable || config.profiles.hermesGatewaySecondary.enable
-  ) (
+  home.activation.piMcpConfigWrite = lib.mkIf (config.sops.secrets ? eros_litellm_api_key) (
     lib.hm.dag.entryAfter
       [
-        "gitlabMcpProxyHermesConfig"
-        "hermesGatewayBootstrapConfig"
+        (if isDarwin then "materializeDarwinSopsSecrets" else "materializeLinuxSopsSecrets")
       ]
       ''
-        configure_graphify() {
-          local hermes_config="$1"
-          if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
-            local tmp
-            tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-graphify.XXXXXX)"
-            ${pkgs.yq-go}/bin/yq '
-              .mcp_servers.graphify.url = "${graphifyMcpUrl}"
-              | .mcp_servers.graphify.timeout = 180
-              | .mcp_servers.graphify.connect_timeout = 30
-            ' "$hermes_config" > "$tmp"
-            if ! ${pkgs.diffutils}/bin/cmp -s "$tmp" "$hermes_config" \
-              || [ "$(${pkgs.coreutils}/bin/stat -c %a "$hermes_config")" != 600 ]; then
-              ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$hermes_config"
-            fi
-            ${pkgs.coreutils}/bin/rm -f "$tmp"
-          fi
-        }
+        set -euo pipefail
 
-        configure_graphify "$HOME/.hermes/config.yaml"
-        ${lib.optionalString config.profiles.hermesGatewaySecondary.enable ''
-          configure_graphify "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}/config.yaml"
-        ''}
+        dst="$HOME/.pi/agent/mcp.json"
+        secret="${config.sops.secrets.eros_litellm_api_key.path}"
+        $DRY_RUN_CMD mkdir -p "$HOME/.pi/agent"
+
+        if [ -n "''${DRY_RUN_CMD:-}" ]; then
+          echo "Would configure Pi to use the Eros aggregate MCP gateway"
+        else
+          if [ ! -s "$secret" ]; then
+            echo "Missing Eros LiteLLM SOPS secret: $secret" >&2
+            exit 1
+          fi
+
+          if [ -f "$dst" ]; then
+            current="$(${pkgs.coreutils}/bin/cat "$dst")"
+          else
+            current='{}'
+          fi
+
+          tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.pi/agent/mcp.json.XXXXXX")"
+          printf '%s' "$current" | ${pkgs.jq}/bin/jq \
+            --arg url ${lib.escapeShellArg erosLitellmMcpGatewayUrl} \
+            --arg consumer ${lib.escapeShellArg hostName} \
+            --arg trustDomain ${lib.escapeShellArg erosTrustDomain} \
+            --rawfile apiKey "$secret" \
+            '($apiKey | sub("[\\r\\n]+$"; "")) as $key
+             | if $key == "" then error("empty Eros LiteLLM key")
+               else del(
+                 .mcpServers.recallium,
+                 .mcpServers.graphify,
+                 .mcpServers.context7,
+                 .mcpServers.playwright,
+                 .mcpServers.duckduckgo,
+                 .mcpServers.gitlab,
+                 .mcpServers.kubernetes,
+                 .mcpServers.aws,
+                 .mcpServers.terraform
+               )
+               | .mcpServers.eros = {
+                   type: "http",
+                   url: $url,
+                   headers: {
+                     Authorization: ("Bearer " + $key),
+                     "x-eros-consumer": $consumer,
+                     "x-eros-trust-domain": $trustDomain,
+                     "x-eros-workload": "pi"
+                   },
+                   directTools: true
+                 }
+               end' > "$tmp"
+          ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$dst"
+          ${pkgs.coreutils}/bin/rm -f "$tmp"
+        fi
       ''
   );
+
+  home.activation.graphifyHermesConfig =
+    lib.mkIf (config.profiles.hermesGateway.enable || config.profiles.hermesGatewaySecondary.enable)
+      (
+        lib.hm.dag.entryAfter
+          [
+            "gitlabMcpProxyHermesConfig"
+            "hermesGatewayBootstrapConfig"
+          ]
+          ''
+            configure_graphify() {
+              local hermes_config="$1"
+              if [ -f "$hermes_config" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
+                local tmp
+                tmp="$(${pkgs.coreutils}/bin/mktemp --tmpdir hermes-graphify.XXXXXX)"
+                ${pkgs.yq-go}/bin/yq '
+                  .mcp_servers.graphify.url = "${graphifyMcpUrl}"
+                  | .mcp_servers.graphify.timeout = 180
+                  | .mcp_servers.graphify.connect_timeout = 30
+                ' "$hermes_config" > "$tmp"
+                if ! ${pkgs.diffutils}/bin/cmp -s "$tmp" "$hermes_config" \
+                  || [ "$(${pkgs.coreutils}/bin/stat -c %a "$hermes_config")" != 600 ]; then
+                  ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$hermes_config"
+                fi
+                ${pkgs.coreutils}/bin/rm -f "$tmp"
+              fi
+            }
+
+            configure_graphify "$HOME/.hermes/config.yaml"
+            ${lib.optionalString config.profiles.hermesGatewaySecondary.enable ''
+              configure_graphify "$HOME/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}/config.yaml"
+            ''}
+          ''
+      );
 
   home.activation.codexConfigWrite = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     set -euo pipefail

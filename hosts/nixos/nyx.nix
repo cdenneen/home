@@ -966,6 +966,7 @@ in
         set -euo pipefail
         gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
         password_file="${config.sops.secrets.opencode_server_password.path}"
+        eros_key_file="${config.users.users.cdenneen.home}/.local/share/sops-nix/secrets/eros_litellm_api_key"
         if [ -r "$gitlab_file" ]; then
           gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$gitlab_file")"
           if [ -z "$gitlab_token" ]; then
@@ -987,6 +988,18 @@ in
         else
           echo "opencode-web: password file not readable" >&2
         fi
+
+        if [ ! -r "$eros_key_file" ]; then
+          echo "opencode-web: Eros key file not readable" >&2
+          exit 1
+        fi
+        export EROS_LITELLM_API_KEY="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$eros_key_file")"
+        if [ -z "$EROS_LITELLM_API_KEY" ]; then
+          echo "opencode-web: Eros key file empty" >&2
+          exit 1
+        fi
+        export EROS_LITELLM_BASE_URL="http://100.117.68.38:4000"
+        export EROS_LITELLM_API_KEY_BEARER="Bearer $EROS_LITELLM_API_KEY"
 
         exec /etc/profiles/per-user/cdenneen/bin/opencode serve --hostname 127.0.0.1 --port 4097
       '';
