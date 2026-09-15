@@ -823,6 +823,11 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.eros_litellm_api_key_nyx = {
+    owner = "cdenneen";
+    group = "users";
+    mode = "0400";
+  };
   sops.secrets.opensync_workos_client_id = {
     owner = "cdenneen";
     group = "users";
@@ -966,7 +971,7 @@ in
         set -euo pipefail
         gitlab_file="${config.users.users.cdenneen.home}/.config/opnix/gitlab_token"
         password_file="${config.sops.secrets.opencode_server_password.path}"
-        eros_key_file="${config.users.users.cdenneen.home}/.local/share/sops-nix/secrets/eros_litellm_api_key"
+        eros_key_file="${config.sops.secrets.eros_litellm_api_key_nyx.path}"
         if [ -r "$gitlab_file" ]; then
           gitlab_token="$(${pkgs.coreutils}/bin/tr -d '\n\r' <"$gitlab_file")"
           if [ -z "$gitlab_token" ]; then
