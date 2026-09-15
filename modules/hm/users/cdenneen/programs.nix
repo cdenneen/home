@@ -162,7 +162,7 @@ in
     enable = true;
     config = {
       ProgramArguments = [
-        "${config.home.profileDirectory}/bin/opencode"
+        "${config.home.homeDirectory}/.local/bin/opencode-with-eros"
         "serve"
         "--hostname"
         "127.0.0.1"

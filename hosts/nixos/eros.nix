@@ -21,6 +21,113 @@ let
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   omniroutePort = 20128;
   qdrantPort = 6333;
+  contextPorts = {
+    shared = 18120;
+    personal = 18121;
+    work = 18122;
+  };
+  contextBroker = pkgs.python313.withPackages (ps: [
+    ps.mcp
+    ps.psycopg
+  ]);
+  contextBrokerSource = ../../pkgs/eros-context-broker;
+  contextModelRoutes = [
+    "auto"
+    "axis-claude-sonnet-4-6"
+    "claude-haiku-4-5"
+    "claude-sonnet-4-6"
+    "claude-sonnet-5"
+    "claude-opus-5"
+    "coding"
+    "coding-core"
+    "coding-gemini"
+    "coding-haiku"
+    "coding-openai"
+    "coding-strong"
+    "deepseek-v3.2"
+    "embedding-core"
+    "g2-omniroute-openai-gpt4o-mini"
+    "g5-omniroute-bedrock-haiku"
+    "general-core"
+    "glm-5"
+    "gpt-5.4"
+    "gpt-5.6-terra"
+    "kimi-k2.5"
+    "local-embed"
+    "mini"
+    "multimodal-long"
+    "nova-2-lite"
+    "openai/*"
+    "personal"
+    "quality"
+    "qwen3-coder-next"
+    "qwen3-next-80b-a3b"
+    "reasoning-candidate"
+    "research-candidate"
+    "review-strong"
+    "tier0-local"
+    "tier1-coding"
+    "tier1-general"
+    "tier2-coding"
+    "tier2-general"
+    "tier2-research"
+    "tier3-quality"
+    "tier4-frontier"
+    "titan-embed-text-v2"
+    "work"
+  ];
+  contextMcpCatalog = {
+    recallium = "http://nyx.tail0e55.ts.net:18001/mcp";
+    graphify = "http://nyx.tail0e55.ts.net:18108/mcp";
+    context7 = "http://nyx.tail0e55.ts.net:18106/mcp";
+    playwright = "http://nyx.tail0e55.ts.net:18107/mcp";
+    kubernetes = "http://nyx.tail0e55.ts.net:18102/mcp";
+    aws = "http://nyx.tail0e55.ts.net:18103/mcp";
+    terraform = "http://nyx.tail0e55.ts.net:18104/mcp";
+    duckduckgo = "http://nyx.tail0e55.ts.net:18105/mcp";
+    gitlab = "http://nyx.tail0e55.ts.net:18101/mcp";
+  };
+  contextSkillRoots = lib.concatStringsSep ":" [
+    "${../../modules/hm/users/cdenneen/ai/skills}"
+    "${../../modules/hm/users/cdenneen/hermes-supervisor}"
+  ];
+  mkContextBrokerService = domain: port: {
+    description = "Eros ${domain} context broker";
+    after = [
+      "eros-context-schema.service"
+      "network-online.target"
+    ];
+    requires = [ "eros-context-schema.service" ];
+    wants = [
+      "network-online.target"
+      "ollama.service"
+      "podman-qdrant.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    environment = {
+      EROS_TRUST_DOMAIN = domain;
+      EROS_CONTEXT_PORT = toString port;
+      EROS_KNOWLEDGE_DSN = "postgresql:///eros_context?host=/run/postgresql";
+      EROS_LITELLM_DSN = "postgresql:///litellm?host=/run/postgresql";
+      EROS_QDRANT_URL = "http://127.0.0.1:${toString qdrantPort}";
+      EROS_OLLAMA_URL = "http://127.0.0.1:11434";
+      EROS_SKILL_ROOTS = contextSkillRoots;
+      EROS_MODEL_ROUTES = lib.concatStringsSep "," contextModelRoutes;
+      EROS_MCP_CATALOG = builtins.toJSON contextMcpCatalog;
+      EROS_EXTERNAL_PROJECTS = "[]";
+    };
+    serviceConfig = {
+      Type = "simple";
+      User = "eros_context";
+      Group = "eros_context";
+      ExecStart = "${contextBroker}/bin/python ${contextBrokerSource}/server.py serve";
+      Restart = "on-failure";
+      RestartSec = "5s";
+      StateDirectory = "eros-context";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+    };
+  };
 in
 {
   networking.hostName = "eros";
@@ -86,12 +193,25 @@ in
 
   systemd.tmpfiles.rules = [ "d /var/lib/qdrant 0750 root root -" ];
 
+  users.users.eros_context = {
+    isSystemUser = true;
+    group = "eros_context";
+  };
+  users.groups.eros_context = { };
+
   services.postgresql = {
     enable = true;
-    ensureDatabases = [ "litellm" ];
+    ensureDatabases = [
+      "litellm"
+      "eros_context"
+    ];
     ensureUsers = [
       {
         name = "litellm";
+        ensureDBOwnership = true;
+      }
+      {
+        name = "eros_context";
         ensureDBOwnership = true;
       }
     ];
@@ -241,6 +361,18 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
             aws_region_name: us-east-1
+            cache_control_injection_points: &eros_cache_points_with_tools
+              - location: tool_config
+                control:
+                  type: ephemeral
+              - location: message
+                role: system
+                control:
+                  type: ephemeral
+              - location: message
+                index: -1
+                control:
+                  type: ephemeral
         - model_name: coding-gemini
           litellm_params:
             model: gemini/gemini-2.5-flash
@@ -277,18 +409,7 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
-            cache_control_injection_points: &eros_cache_points_with_tools
-              - location: tool_config
-                control:
-                  type: ephemeral
-              - location: message
-                role: system
-                control:
-                  type: ephemeral
-              - location: message
-                index: -1
-                control:
-                  type: ephemeral
+            cache_control_injection_points: *eros_cache_points_with_tools
 
         # --- Claude Code / Claude Desktop client-facing aliases (2026-09-11) ---
         # Net-new, parallel to coding-strong/tier2-general (not a rename/reuse):
@@ -517,6 +638,7 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+            cache_control_injection_points: *eros_cache_points_with_tools
         - model_name: tier4-frontier
           litellm_params:
             model: openai/gpt-5.6-sol
@@ -604,6 +726,7 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+            cache_control_injection_points: *eros_cache_points_with_tools
         - model_name: qwen3-coder-next
           litellm_params:
             model: bedrock/qwen.qwen3-coder-next
@@ -654,11 +777,9 @@ in
         # personal/work (2026-09-03): single entry point per trust domain,
         # forwarding to OmniRoute's native combo/reasoning_routing_rules
         # engine (combo: ai-auto) - see hermes-profile-model migration.
-        # Two separate OmniRoute client keys (not one shared key) so that
-        # OmniRoute-side per-key scoping (memory/cache isolation, group
-        # model permissions) can eventually track the same personal/work
-        # trust-domain boundary already enforced elsewhere, rather than
-        # collapsing every consumer into one shared OmniRoute identity.
+        # Two OmniRoute client keys preserve personal/work cost attribution
+        # and routing identity. Private context stays domain-scoped, while
+        # shared ontology/capabilities are common and routing remains usable.
         # Old tier0-4/auto/mini/quality/coding-* entries above are left in
         # place until consumer traffic is proven flowing through these two
         # and they can be retired.
@@ -681,6 +802,11 @@ in
       general_settings:
         master_key: os.environ/LITELLM_MASTER_KEY
         database_url: os.environ/DATABASE_URL
+        # LiteLLM 1.94.0 leaks estimated reservation spend when a native
+        # Anthropic stream disconnects. Operational keys have no hard budget;
+        # test-key limits use reconciled spend rather than rejecting real work
+        # against the leaked process-local estimate.
+        disable_budget_reservation: true
         # Fallback targets must also be in the calling key'''s own allowlist,
         # not just the primary model - closes a gap where a key restricted
         # to model X could silently reach fallback Y via a fallback chain
@@ -697,11 +823,37 @@ in
         # change coding-strong's contract for its existing callers.
         context_management_summary_model: claude-sonnet-5
       litellm_settings:
-        # Bootstrap default is cache bypass everywhere (01-eros-inference-fabric.md).
-        # Previously cache:true + router_settings.cache_responses:false were both
-        # present at once (ambiguous, flagged in 07-cache-and-retrieval.md) - fixed
-        # by disabling caching outright until 07's adoption sequence is run.
+        # Keep response caching disabled: an exact response can be stale or
+        # unsafe to replay. Provider-side Anthropic prompt-prefix caching is
+        # enabled separately and measured in LiteLLM's native spend tables.
         cache: false
+        enable_anthropic_prompt_caching: true
+        extra_spend_tag_headers:
+          - x-eros-consumer
+          - x-eros-trust-domain
+          - x-eros-workload
+          - x-eros-task
+          - x-eros-session
+          - x-eros-outcome
+        default_key_generate_params:
+          object_permission:
+            mcp_tool_search_enabled: true
+            mcp_servers:
+              - recallium
+              - graphify
+              - context7
+              - playwright
+              - duckduckgo
+              - gitlab
+              - kubernetes
+              - aws
+              - terraform
+              - eros-context-shared
+        # Direct request-layer semantic filtering remains disabled until a
+        # pinned-v1.94 compatibility test proves nested/native tools fail open.
+        # MCP-speaking clients use /mcp/ virtual tool search instead.
+        mcp_semantic_tool_filter:
+          enabled: false
         drop_params: true
         additional_drop_params:
           - x_hermes_source
@@ -770,30 +922,68 @@ in
         recallium:
           url: "http://nyx.tail0e55.ts.net:18001/mcp"
           transport: "http"
+          description: "Personal and work memory retrieval; results remain unverified until promoted with evidence"
+          mcp_info: &eros_local_mcp_cost
+            mcp_server_cost_info:
+              default_cost_per_query: 0.0
         graphify:
           url: "http://nyx.tail0e55.ts.net:18108/mcp"
           transport: "http"
+          description: "Graph projection and knowledge search"
+          mcp_info: *eros_local_mcp_cost
         context7:
           url: "http://nyx.tail0e55.ts.net:18106/mcp"
           transport: "http"
+          description: "Current library and framework documentation"
+          mcp_info: *eros_local_mcp_cost
         playwright:
           url: "http://nyx.tail0e55.ts.net:18107/mcp"
           transport: "http"
+          description: "Browser automation with external side effects"
+          mcp_info: *eros_local_mcp_cost
         kubernetes:
           url: "http://nyx.tail0e55.ts.net:18102/mcp"
           transport: "http"
+          description: "Kubernetes discovery and operations"
+          mcp_info: *eros_local_mcp_cost
         aws:
           url: "http://nyx.tail0e55.ts.net:18103/mcp"
           transport: "http"
+          description: "AWS discovery and operations"
+          mcp_info: *eros_local_mcp_cost
         terraform:
           url: "http://nyx.tail0e55.ts.net:18104/mcp"
           transport: "http"
+          description: "Terraform and OpenTofu discovery and operations"
+          mcp_info: *eros_local_mcp_cost
         duckduckgo:
           url: "http://nyx.tail0e55.ts.net:18105/mcp"
           transport: "http"
+          description: "Public web search"
+          mcp_info: *eros_local_mcp_cost
         gitlab:
           url: "http://nyx.tail0e55.ts.net:18101/mcp"
           transport: "http"
+          description: "GitLab discovery and operations"
+          mcp_info: *eros_local_mcp_cost
+        context_shared:
+          server_id: "eros-context-shared"
+          url: "http://127.0.0.1:${toString contextPorts.shared}/mcp"
+          transport: "http"
+          description: "Central ontology, capability discovery, reusable results, and shared accounting identity"
+          mcp_info: *eros_local_mcp_cost
+        context_personal:
+          server_id: "eros-context-personal"
+          url: "http://127.0.0.1:${toString contextPorts.personal}/mcp"
+          transport: "http"
+          description: "Central context fabric with personal accounting identity"
+          mcp_info: *eros_local_mcp_cost
+        context_work:
+          server_id: "eros-context-work"
+          url: "http://127.0.0.1:${toString contextPorts.work}/mcp"
+          transport: "http"
+          description: "Central context fabric with work accounting identity"
+          mcp_info: *eros_local_mcp_cost
       EOF
       ${pkgs.coreutils}/bin/chmod 0600 "${litellmConfigFile}"
     '';
@@ -839,6 +1029,122 @@ in
       printf "ALTER ROLE litellm PASSWORD '%s';\\n" "$password" \
         | ${pkgs.util-linux}/bin/runuser -u postgres -- ${config.services.postgresql.package}/bin/psql --dbname=postgres --set=ON_ERROR_STOP=1
     '';
+  };
+
+  systemd.services.eros-context-schema = {
+    description = "Initialize the Eros ontology database";
+    after = [ "postgresql.service" ];
+    requires = [ "postgresql.service" ];
+    before = [
+      "eros-context-shared.service"
+      "eros-context-personal.service"
+      "eros-context-work.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "eros_context";
+    };
+    script = ''
+      set -euo pipefail
+      ${config.services.postgresql.package}/bin/psql \
+        --dbname=eros_context --set=ON_ERROR_STOP=1 \
+        --file=${contextBrokerSource}/schema.sql
+    '';
+  };
+
+  systemd.services.eros-litellm-policy = {
+    description = "Apply fail-open LiteLLM accounting and Eros context permissions";
+    after = [ "podman-litellm.service" ];
+    wants = [ "podman-litellm.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    path = [
+      config.services.postgresql.package
+      pkgs.coreutils
+      pkgs.util-linux
+    ];
+    script = ''
+      set -euo pipefail
+      for attempt in $(${pkgs.coreutils}/bin/seq 1 60); do
+        if ${pkgs.util-linux}/bin/runuser -u postgres -- \
+          ${config.services.postgresql.package}/bin/psql --dbname=litellm --tuples-only --command \
+          'SELECT 1 FROM "LiteLLM_VerificationToken" LIMIT 1' >/dev/null 2>&1; then
+          exec ${pkgs.util-linux}/bin/runuser -u postgres -- \
+            ${config.services.postgresql.package}/bin/psql --dbname=litellm \
+            --set=ON_ERROR_STOP=1 --file=${contextBrokerSource}/litellm-policy.sql
+        fi
+        ${pkgs.coreutils}/bin/sleep 2
+      done
+      echo "LiteLLM schema did not become ready within 120 seconds" >&2
+      exit 1
+    '';
+  };
+
+  systemd.services.eros-context-shared = mkContextBrokerService "shared" contextPorts.shared;
+  systemd.services.eros-context-personal = mkContextBrokerService "personal" contextPorts.personal;
+  systemd.services.eros-context-work = mkContextBrokerService "work" contextPorts.work;
+
+  systemd.services.eros-context-catalog = {
+    description = "Refresh the Eros capability catalog";
+    after = [ "eros-context-shared.service" ];
+    wants = [ "eros-context-shared.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "eros_context";
+      Group = "eros_context";
+    };
+    environment = {
+      EROS_TRUST_DOMAIN = "shared";
+      EROS_KNOWLEDGE_DSN = "postgresql:///eros_context?host=/run/postgresql";
+      EROS_QDRANT_URL = "http://127.0.0.1:${toString qdrantPort}";
+      EROS_OLLAMA_URL = "http://127.0.0.1:11434";
+      EROS_SKILL_ROOTS = contextSkillRoots;
+      EROS_MODEL_ROUTES = lib.concatStringsSep "," contextModelRoutes;
+      EROS_MCP_CATALOG = builtins.toJSON contextMcpCatalog;
+    };
+    script = "${contextBroker}/bin/python ${contextBrokerSource}/server.py sync";
+  };
+  systemd.timers.eros-context-catalog = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "5m";
+      OnUnitActiveSec = "6h";
+      Persistent = true;
+    };
+  };
+
+  systemd.services.eros-spend-report = {
+    description = "Generate advisory Eros spend and cache report";
+    after = [
+      "eros-context-schema.service"
+      "eros-litellm-policy.service"
+    ];
+    wants = [ "eros-litellm-policy.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "eros_context";
+      Group = "eros_context";
+      StateDirectory = "eros-context";
+    };
+    environment = {
+      EROS_TRUST_DOMAIN = "shared";
+      EROS_LITELLM_DSN = "postgresql:///litellm?host=/run/postgresql";
+      EROS_REPORT_PATH = "/var/lib/eros-context/spend-report.json";
+    };
+    script = "${contextBroker}/bin/python ${contextBrokerSource}/server.py report";
+  };
+  systemd.timers.eros-spend-report = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "10m";
+      OnUnitActiveSec = "1h";
+      Persistent = true;
+    };
   };
 
   systemd.services.podman-litellm = {
@@ -1117,7 +1423,6 @@ in
   # Networking (DHCP on ens5)
   networking.useDHCP = false;
   networking.interfaces.ens5.useDHCP = true;
-
 
   # Drift guard (G-DR-PREP-1): detects when the running eros-litellm
   # config.yaml has diverged from what the CURRENTLY DEPLOYED flake pin

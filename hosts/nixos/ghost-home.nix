@@ -32,7 +32,7 @@ let
         ${pkgs.coreutils}/bin/printf '%s=%s\n' "$name" "$value"
       }
 
-      emit_secret EROS_HERMES_AGENTS_KEY ${lib.escapeShellArg config.sops.secrets.eros_litellm_key_hermes_agents.path}
+      emit_secret EROS_HERMES_AGENTS_KEY ${lib.escapeShellArg config.sops.secrets.eros_litellm_api_key.path}
       emit_secret API_SERVER_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_ghost.path}
       emit_secret HERMES_PEER_GHOST_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_ghost.path}
       emit_secret HERMES_PEER_NYX_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_nyx.path}
@@ -42,9 +42,15 @@ let
     '';
   baseSecretsCommand = mkSecretsCommand null;
   chiefSecretsCommand = mkSecretsCommand config.sops.secrets.hermes_slack_env_ghost_chief.path;
-  erosMcp = name: {
-    url = "http://eros.tail0e55.ts.net:4000/mcp/${name}";
-    headers.Authorization = "Bearer $" + "{EROS_HERMES_AGENTS_KEY}";
+  erosMcp = {
+    # Two virtual discovery/call tools front the full permitted catalog.
+    url = "http://eros.tail0e55.ts.net:4000/mcp/";
+    headers = {
+      Authorization = "Bearer $" + "{EROS_HERMES_AGENTS_KEY}";
+      "x-eros-consumer" = "ghost";
+      "x-eros-trust-domain" = "personal";
+      "x-eros-workload" = "hermes";
+    };
     connect_timeout = 30;
     timeout = 180;
   };
@@ -77,6 +83,9 @@ let
       "model.api_mode" = "chat_completions";
       "secrets.command.enabled" = true;
       "secrets.command.command" = toString secretsCommand;
+      mcp_servers = {
+        context = erosMcp;
+      };
       "auxiliary.compression.model" = "nova-2-lite";
       "auxiliary.compression.provider" = "main";
       "auxiliary.title_generation.model" = "nova-2-lite";
@@ -129,6 +138,8 @@ in
 
   profiles.hermesMesh = {
     enable = true;
+    consumer = "ghost-hermes";
+    trustDomain = "personal";
     workingDirectory = "/home/cdenneen/src/workspace";
     souls = {
       assistant = commonSoul + ''
@@ -371,40 +382,16 @@ in
     assistant = mkNamedMeshProfile "assistant" "claude-sonnet-4-6" baseSecretsCommand { };
     chief-of-staff = mkNamedMeshProfile "chief-of-staff" "claude-sonnet-5" chiefSecretsCommand {
       "platforms.slack.enabled" = true;
-      mcp_servers = {
-        recallium = erosMcp "recallium";
-        duckduckgo = erosMcp "duckduckgo";
-        context7 = erosMcp "context7";
-        gitlab_com = {
-          command = toString gitlabComMcp;
-          connect_timeout = 30;
-          timeout = 180;
-        };
-        gitlab_corp = {
-          url = "http://100.80.58.4:18101/mcp";
-          connect_timeout = 30;
-          timeout = 180;
-        };
+      "mcp_servers.gitlab_com" = {
+        command = toString gitlabComMcp;
+        connect_timeout = 30;
+        timeout = 180;
       };
     };
-    researcher = mkNamedMeshProfile "researcher" "kimi-k2.5" baseSecretsCommand {
-      mcp_servers = {
-        recallium = erosMcp "recallium";
-        duckduckgo = erosMcp "duckduckgo";
-      };
-    };
-    architect = mkNamedMeshProfile "architect" "claude-opus-5" baseSecretsCommand {
-      mcp_servers = {
-        recallium = erosMcp "recallium";
-        context7 = erosMcp "context7";
-      };
-    };
-    coder = mkNamedMeshProfile "coder" "qwen3-coder-next" baseSecretsCommand {
-      "mcp_servers.context7" = erosMcp "context7";
-    };
-    tester = mkNamedMeshProfile "tester" "deepseek-v3.2" baseSecretsCommand {
-      "mcp_servers.playwright" = erosMcp "playwright";
-    };
+    researcher = mkNamedMeshProfile "researcher" "kimi-k2.5" baseSecretsCommand { };
+    architect = mkNamedMeshProfile "architect" "claude-opus-5" baseSecretsCommand { };
+    coder = mkNamedMeshProfile "coder" "qwen3-coder-next" baseSecretsCommand { };
+    tester = mkNamedMeshProfile "tester" "deepseek-v3.2" baseSecretsCommand { };
     reviewer = mkNamedMeshProfile "reviewer" "claude-sonnet-5" baseSecretsCommand { };
     ops = mkNamedMeshProfile "ops" "claude-sonnet-4-6" baseSecretsCommand { };
   };

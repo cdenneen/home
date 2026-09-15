@@ -399,6 +399,63 @@
                     python -m unittest source/test_backlog_sync.py
                     touch "$out"
                   '';
+              eros-consumer-mcp =
+                let
+                  consumerHosts = {
+                    ghost = configurations.homeConfigurations."cdenneen@ghost".config;
+                    nyx = configurations.homeConfigurations."cdenneen@nyx".config;
+                  }
+                  // optionalAttrs (system == "aarch64-darwin") {
+                    VNJTECMBCD = configurations.homeConfigurations."cdenneen@VNJTECMBCD".config;
+                    mbair = configurations.homeConfigurations."cdenneen@mbair".config;
+                  }
+                  // optionalAttrs (system != "aarch64-linux") {
+                    ghost = null;
+                    nyx = null;
+                  };
+                  activeConsumerHosts = filterAttrs (_: home: home != null) consumerHosts;
+                  consumerFiles =
+                    concatLists (
+                      mapAttrsToList (
+                        host: home:
+                        [
+                          {
+                            name = "${host}-codex.toml";
+                            path = home.home.file.".codex/config.toml.source".source;
+                          }
+                          {
+                            name = "${host}-claude.json";
+                            path = pkgs.writeText "${host}-claude.json" home.home.file.".claude/mcp-settings.source".text;
+                          }
+                          {
+                            name = "${host}-pi-activation.sh";
+                            path = pkgs.writeText "${host}-pi-activation.sh" home.home.activation.piMcpConfigWrite.data;
+                          }
+                        ]
+                        ++ optionals (home.programs ? opencode) [
+                          {
+                            name = "${host}-opencode.json";
+                            path = pkgs.writeText "${host}-opencode.json" (builtins.toJSON home.programs.opencode.settings);
+                          }
+                        ]
+                      ) activeConsumerHosts
+                    )
+                    ++ optionals (system == "aarch64-darwin") [
+                      {
+                        name = "VNJTECMBCD-claude-desktop.json";
+                        path =
+                          pkgs.writeText "VNJTECMBCD-claude-desktop.json"
+                            activeConsumerHosts.VNJTECMBCD.home.file.".claude-desktop-mcp-settings.source".text;
+                      }
+                    ];
+                  fixtures = pkgs.linkFarm "eros-consumer-mcp-fixtures" consumerFiles;
+                in
+                pkgs.runCommand "eros-consumer-mcp-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+                  cp -R ${fixtures} fixtures
+                  chmod -R u+w fixtures
+                  python ${./pkgs/eros-context-broker/check_consumer_configs.py} fixtures
+                  touch "$out"
+                '';
               hermes-supervisor =
                 pkgs.runCommand "hermes-supervisor-check"
                   {
@@ -694,12 +751,27 @@
                       (profile.modelOverrides."auxiliary.compression.provider" == "main")
                       (profile.modelOverrides."auxiliary.title_generation.model" == "nova-2-lite")
                       (profile.modelOverrides."auxiliary.title_generation.provider" == "main")
+                      (builtins.hasAttr "mcp_servers" profile.modelOverrides)
+                      (profile.modelOverrides.mcp_servers.context.url == "http://eros.tail0e55.ts.net:4000/mcp/")
                     ];
+                  mcpOverrideNames =
+                    profile:
+                    filter (name: hasPrefix "mcp_servers." name || name == "mcp_servers") (
+                      builtins.attrNames profile.modelOverrides
+                    );
+                  onlyAggregateMcp = profile: mcpOverrideNames profile == [ "mcp_servers" ];
                 in
                 assert profileModels ghostRoleProfiles == expectedGhostModels;
                 assert profileModels nyxRoleProfiles == expectedNyxModels;
                 assert all validProfile (builtins.attrValues ghostProfiles);
                 assert all validProfile (builtins.attrValues nyxProfiles);
+                assert all onlyAggregateMcp (builtins.attrValues (removeAttrs ghostProfiles [ "chief-of-staff" ]));
+                assert all onlyAggregateMcp (builtins.attrValues nyxProfiles);
+                assert
+                  mcpOverrideNames ghostProfiles.chief-of-staff == [
+                    "mcp_servers"
+                    "mcp_servers.gitlab_com"
+                  ];
                 assert ghost.profiles.hermesMesh.enable;
                 assert nyx.profiles.hermesMesh.enable;
                 assert ghost.profiles.hermesAssistant.personal.enable;
@@ -771,10 +843,7 @@
                 assert ghostRouter."plugins.enabled" == [ "platforms/slack" ];
                 assert nyxRouter."plugins.enabled" == [ "platforms/slack" ];
                 assert ghostProfiles.chief-of-staff.modelOverrides."platforms.slack.enabled";
-                assert builtins.hasAttr "gitlab_com" ghostProfiles.chief-of-staff.modelOverrides.mcp_servers;
-                assert
-                  ghostProfiles.chief-of-staff.modelOverrides.mcp_servers.gitlab_corp.url
-                  == "http://100.80.58.4:18101/mcp";
+                assert builtins.hasAttr "mcp_servers.gitlab_com" ghostProfiles.chief-of-staff.modelOverrides;
                 assert nyxProfiles.coder.modelOverrides."platforms.slack.enabled";
                 assert nyxProfiles.ops.modelOverrides."platforms.slack.enabled";
                 assert builtins.attrNames ghost.profiles.hermesMesh.souls == builtins.attrNames expectedGhostModels;
@@ -813,8 +882,8 @@
                 assert builtins.elem "writeBoundary" nyx.home.activation.hermesProfileModelConfig.after;
                 assert ghost.profiles.hermesPolicyEndpoint.instances == { };
                 assert nyx.profiles.hermesPolicyEndpoint.instances == { };
-                assert ghost.sops.secrets.eros_litellm_key_hermes_agents.mode == "0400";
-                assert nyx.sops.secrets.eros_litellm_key_hermes_agents.mode == "0400";
+                assert !(ghost.sops.secrets ? eros_litellm_key_hermes_agents);
+                assert !(nyx.sops.secrets ? eros_litellm_key_hermes_agents);
                 assert ghost.sops.secrets.hermes_mesh_api_key_ghost.mode == "0400";
                 assert ghost.sops.secrets.hermes_mesh_api_key_nyx.mode == "0400";
                 assert nyx.sops.secrets.hermes_mesh_api_key_ghost.mode == "0400";

@@ -9,6 +9,10 @@ let
   cfg = config.profiles.hermesMesh;
   packageAvailable = pkgs.stdenv.hostPlatform.isLinux && agentPkgs != null && agentPkgs ? hermes;
   singleWriterLock = import ../hermes-single-writer-lock.nix { inherit pkgs; };
+  workloadMetadata = import ../hermes-workload-metadata {
+    inherit pkgs agentPkgs;
+  };
+  workloadMetadataSitecustomize = workloadMetadata.mkCombinedSitecustomize "";
   hermesHome = "${config.home.homeDirectory}/.hermes";
   gatewayChecks = pkgs.writeShellScript "hermes-mesh-gateway-checks" ''
     set -euo pipefail
@@ -24,6 +28,19 @@ in
       type = lib.types.str;
       default = "${config.home.homeDirectory}/src/workspace";
       description = "Default working directory for the Hermes mesh gateway.";
+    };
+
+    consumer = lib.mkOption {
+      type = lib.types.str;
+      description = "Stable Eros spend-attribution consumer name.";
+    };
+
+    trustDomain = lib.mkOption {
+      type = lib.types.enum [
+        "personal"
+        "work"
+      ];
+      description = "Fixed Eros trust domain for this Hermes mesh.";
     };
 
     souls = lib.mkOption {
@@ -77,13 +94,21 @@ in
       };
       Service = {
         Type = "simple";
-        ExecStartPre = gatewayChecks;
+        ExecStartPre = [
+          gatewayChecks
+          workloadMetadata.selftestCheck
+        ];
         ExecStart = singleWriterLock.wrapExecStart {
           lockPath = "${hermesHome}/.single-writer.lock";
           execStart = "${agentPkgs.hermes}/bin/hermes gateway run --replace --external-supervisor";
         };
         WorkingDirectory = cfg.workingDirectory;
-        Environment = [ "HERMES_HOME=%h/.hermes" ];
+        Environment = [
+          "HERMES_HOME=%h/.hermes"
+          "PYTHONPATH=${workloadMetadataSitecustomize}"
+          "EROS_CONSUMER=${cfg.consumer}"
+          "EROS_TRUST_DOMAIN=${cfg.trustDomain}"
+        ];
         Restart = "on-failure";
         RestartSec = 5;
         RestartPreventExitStatus = 78;

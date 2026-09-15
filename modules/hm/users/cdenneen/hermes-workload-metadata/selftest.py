@@ -18,8 +18,8 @@ import os
 import time
 from pathlib import Path
 
-import agent.aux_accounting as aux_accounting
-import agent.transports.chat_completions as chat_completions
+from agent import aux_accounting
+from agent.transports import chat_completions
 
 _PEER_SOURCE_DIR = Path.home() / ".hermes-policy" / "_peer-source"
 
@@ -55,6 +55,17 @@ def main() -> None:
         f"{extra_body.get('litellm_session_id')!r} - session_id propagation is not taking "
         f"effect as expected"
     )
+    assert extra_body.get("metadata", {}).get("tags") == [
+        f"consumer:{os.environ.get('EROS_CONSUMER', 'hermes')}",
+        f"trust_domain:{os.environ.get('EROS_TRUST_DOMAIN', 'shared')}",
+        "workload:selftest-source",
+    ], f"unexpected spend tags: {extra_body.get('metadata', {}).get('tags')!r}"
+    assert api_kwargs.get("extra_headers") == {
+        "x-eros-consumer": os.environ.get("EROS_CONSUMER", "hermes"),
+        "x-eros-trust-domain": os.environ.get("EROS_TRUST_DOMAIN", "shared"),
+        "x-eros-workload": "selftest-source",
+        "x-eros-session": "selftest-session-id",
+    }, f"unexpected spend headers: {api_kwargs.get('extra_headers')!r}"
 
     # #40: the peer-process attestation side channel must actually be
     # written, keyed by this process's own pid - a functional check, not

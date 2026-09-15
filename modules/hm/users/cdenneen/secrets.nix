@@ -20,6 +20,13 @@ let
   isGhost = hostName == "ghost";
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
+  erosTrustDomain =
+    if isNyx then
+      "work"
+    else if isGhost || isDarwin then
+      "personal"
+    else
+      "shared";
   erosLitellmKeyName = lib.attrByPath [ hostName ] null {
     VNJTECMBCD = "eros_litellm_api_key_vnjtecmbcd";
     ghost = "eros_litellm_api_key_ghost";
@@ -162,62 +169,87 @@ let
       prune = true;
       reserved = 10000;
     };
-    mcp = {
-      gitlab = mkOpencodeMcp 18101 mcpGitlabScript;
-      recallium = {
-        type = "remote";
-        url = recalliumMcpUrl;
-        enabled = true;
-        timeout = 60000;
-      };
-      graphify = {
-        type = "remote";
-        url = nyxSharedMcpUrl 18108;
-        enabled = true;
-        timeout = 60000;
-      };
-      supabase = {
-        type = "remote";
-        url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
-        enabled = true;
-        timeout = 60000;
-      };
-      kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
-      aws = mkOpencodeMcp 18103 mcpAwsScript;
-      terraform = mkOpencodeMcp 18104 mcpTerraformScript;
-      duckduckgo = mkOpencodeMcp 18105 mcpDuckDuckGoScript;
-      context7 =
-        (mkOpencodeMcp 18106 mcpContext7Script)
-        // lib.optionalAttrs (!useSharedNyxMcp) {
-          environment = {
-            CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+    mcp =
+      (
+        if erosLitellmKeyName != null then
+          {
+            # LiteLLM exposes two virtual discovery/call tools here, keeping
+            # the underlying common MCP catalog out of every prompt.
+            eros = {
+              type = "remote";
+              url = "http://eros.tail0e55.ts.net:4000/mcp/";
+              enabled = true;
+              timeout = 120000;
+              headers = {
+                Authorization = "{env:EROS_LITELLM_API_KEY_BEARER}";
+                "x-eros-consumer" = hostName;
+                "x-eros-trust-domain" = erosTrustDomain;
+                "x-eros-workload" = "opencode";
+              };
+            };
+          }
+        else
+          {
+            # Retain local/direct fallbacks only on hosts that do not have an
+            # Eros virtual key provisioned yet.
+            gitlab = mkOpencodeMcp 18101 mcpGitlabScript;
+            recallium = {
+              type = "remote";
+              url = recalliumMcpUrl;
+              enabled = true;
+              timeout = 60000;
+            };
+            graphify = {
+              type = "remote";
+              url = nyxSharedMcpUrl 18108;
+              enabled = true;
+              timeout = 60000;
+            };
+            kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
+            aws = mkOpencodeMcp 18103 mcpAwsScript;
+            terraform = mkOpencodeMcp 18104 mcpTerraformScript;
+            duckduckgo = mkOpencodeMcp 18105 mcpDuckDuckGoScript;
+            context7 =
+              (mkOpencodeMcp 18106 mcpContext7Script)
+              // lib.optionalAttrs (!useSharedNyxMcp) {
+                environment = {
+                  CONTEXT7_API_KEY = "{env:CONTEXT7_API_KEY}";
+                };
+              };
+            playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
+              enabled = true;
+              timeout = 120000;
+            };
+          }
+      )
+      // {
+        supabase = {
+          type = "remote";
+          url = "https://mcp.supabase.com/mcp?project_ref=kefpmmjhtdxhhhcndrnx";
+          enabled = true;
+          timeout = 60000;
+        };
+        cocoindex-code = {
+          type = "local";
+          command = [
+            cocoindexCodeExe
+            "mcp"
+          ];
+          enabled = true;
+          timeout = 120000;
+        };
+      }
+      // lib.optionalAttrs isGhost {
+        cloudflare = {
+          type = "remote";
+          url = "https://mcp.cloudflare.com/mcp";
+          enabled = true;
+          timeout = 60000;
+          headers = {
+            Authorization = "{env:CLOUDFLARE_API_TOKEN_BEARER}";
           };
         };
-      playwright = (mkNyxOnlyOpencodeMcp 18107 mcpPlaywrightScript) // {
-        enabled = true;
-        timeout = 120000;
       };
-      cocoindex-code = {
-        type = "local";
-        command = [
-          cocoindexCodeExe
-          "mcp"
-        ];
-        enabled = true;
-        timeout = 120000;
-      };
-    }
-    // lib.optionalAttrs isGhost {
-      cloudflare = {
-        type = "remote";
-        url = "https://mcp.cloudflare.com/mcp";
-        enabled = true;
-        timeout = 60000;
-        headers = {
-          Authorization = "{env:CLOUDFLARE_API_TOKEN_BEARER}";
-        };
-      };
-    };
     permission = {
       skill = {
         "*" = "allow";
@@ -264,6 +296,7 @@ let
         # prefix already include it themselves.
         export EROS_LITELLM_BASE_URL="http://100.117.68.38:4000"
         export EROS_LITELLM_API_KEY="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.eros_litellm_api_key.path}")"
+        export EROS_LITELLM_API_KEY_BEARER="Bearer $EROS_LITELLM_API_KEY"
       fi
     ''}
   '';
@@ -324,9 +357,8 @@ in
     };
 
     openai_api_key.mode = "0400";
-    # Claude Code / Claude Desktop dedicated LiteLLM virtual key - purpose-
-    # scoped (not per-host); same value on every machine. Not under
-    # isGhost/isNyx - must decrypt on every host including Darwin.
+    # Retained for rollback compatibility; active clients use the host key so
+    # cost and trust-domain attribution remain stable across all consumers.
     eros_litellm_key_claude_clients.mode = "0400";
     github-token = {
       mode = "0400";
@@ -351,7 +383,6 @@ in
     oci_private_key.mode = "0600";
   }
   // lib.optionalAttrs (isGhost || isNyx) {
-    eros_litellm_key_hermes_agents.mode = "0400";
     hermes_mesh_api_key_ghost.mode = "0400";
     hermes_mesh_api_key_nyx.mode = "0400";
   }
@@ -772,6 +803,31 @@ in
       ".config/sops" = {
         source = config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/Library/Application Support/sops";
         force = true;
+      };
+    })
+
+    (lib.mkIf (isDarwin && erosLitellmKeyName != null) {
+      ".local/bin/opencode-with-eros" = {
+        executable = true;
+        text = ''
+          set -euo pipefail
+
+          secret="${config.sops.secrets.eros_litellm_api_key.path}"
+          if [ ! -r "$secret" ]; then
+            echo "opencode-with-eros: Eros key is not readable at $secret" >&2
+            exit 1
+          fi
+
+          export EROS_LITELLM_BASE_URL="http://100.117.68.38:4000"
+          export EROS_LITELLM_API_KEY="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$secret")"
+          if [ -z "$EROS_LITELLM_API_KEY" ]; then
+            echo "opencode-with-eros: Eros key is empty" >&2
+            exit 1
+          fi
+          export EROS_LITELLM_API_KEY_BEARER="Bearer $EROS_LITELLM_API_KEY"
+
+          exec "${config.home.profileDirectory}/bin/opencode" "$@"
+        '';
       };
     })
   ];
