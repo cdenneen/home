@@ -57,25 +57,29 @@ SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{budget_mode}', '"obs
 WHERE key_alias LIKE 'eros-%'
   AND lower(coalesce(metadata->>'hard_budget', 'false')) NOT IN ('true', '1', 'yes');
 
--- Hermes now uses the existing host keys. Expand those keys to the complete
--- Eros route catalog so trust-domain attribution no longer depends on one
--- cross-host shared credential.
+-- Every operational Eros key may use the complete route catalog. Trust-domain
+-- labels are accounting/provenance metadata, not access-control boundaries.
 UPDATE "LiteLLM_VerificationToken"
 SET models = ARRAY(
     SELECT DISTINCT model
     FROM unnest(coalesce(models, ARRAY[]::text[]) || ARRAY[
+        'coding', 'local-embed', 'coding-openai', 'openai/*',
+        'coding-haiku', 'coding-gemini', 'coding-strong',
+        'claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5',
+        'g2-omniroute-openai-gpt4o-mini', 'g5-omniroute-bedrock-haiku',
+        'tier0-local', 'tier1-general', 'tier1-coding', 'mini',
+        'tier2-general', 'tier2-coding', 'auto', 'tier2-research',
+        'tier3-quality', 'quality', 'gpt-5.4', 'gpt-5.6-terra',
+        'axis-claude-sonnet-4-6', 'tier4-frontier', 'general-core',
+        'coding-core', 'multimodal-long', 'review-strong',
+        'research-candidate', 'reasoning-candidate', 'embedding-core',
         'claude-sonnet-4-6', 'qwen3-coder-next', 'qwen3-next-80b-a3b',
         'deepseek-v3.2', 'kimi-k2.5', 'glm-5', 'nova-2-lite',
-        'titan-embed-text-v2', 'claude-sonnet-5', 'claude-haiku-4-5',
-        'claude-opus-5', 'openai/*'
+        'titan-embed-text-v2', 'personal', 'work'
     ]) AS model
 )
-WHERE key_alias IN (
-        'eros-nyx-all-routing',
-        'eros-mbair-all-routing',
-        'eros-VNJTECMBCD-all-routing'
-    )
-   OR key_alias LIKE 'eros-ghost-all-routing%';
+WHERE key_alias LIKE 'eros-%'
+  AND lower(coalesce(metadata->>'hard_budget', 'false')) NOT IN ('true', '1', 'yes');
 
 -- Every operational key gets an Eros-owned permission row for the complete
 -- shared discovery fabric. Reassigning the token avoids broadening any row

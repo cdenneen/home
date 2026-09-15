@@ -260,7 +260,7 @@ let
 
   codexProfileAttrs = {
     eros = {
-      model = "coding";
+      model = "coding-openai";
       model_reasoning_effort = "high";
       model_reasoning_summary = "none";
       model_provider = "eros";
@@ -929,7 +929,7 @@ in
 
           tmp="$(${pkgs.coreutils}/bin/mktemp "$HOME/.pi/agent/models.json.XXXXXX")"
           ${pkgs.jq}/bin/jq \
-            --arg baseUrl "http://100.117.68.38:4000/v1" \
+            --arg baseUrl "http://100.117.68.38:4000" \
             --rawfile apiKey "$secret" \
             '($apiKey | sub("[\\r\\n]+$"; "")) as $key
              | if $key == "" then error("empty Eros LiteLLM key")

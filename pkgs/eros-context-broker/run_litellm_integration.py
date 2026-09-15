@@ -422,7 +422,7 @@ mcp_servers:
     def verify_policy(self) -> dict[str, Any]:
         output = self.psql(
             """SELECT json_agg(row_to_json(result)) FROM (
-                 SELECT key_alias, max_budget, budget_duration,
+                 SELECT key_alias, max_budget, budget_duration, models,
                         metadata->>'budget_mode' AS budget_mode,
                         metadata->>'hard_budget' AS hard_budget
                  FROM \"LiteLLM_VerificationToken\"
@@ -443,6 +443,18 @@ mcp_servers:
             )
         if operational["budget_mode"] != "observe":
             raise AssertionError(f"operational budget is not advisory: {operational}")
+        required_models = {
+            "claude-sonnet-5",
+            "general-core",
+            "nova-2-lite",
+            "openai/*",
+            "qwen3-coder-next",
+        }
+        missing_models = required_models.difference(operational["models"])
+        if missing_models:
+            raise AssertionError(
+                f"operational key is missing routes {sorted(missing_models)}: {operational}"
+            )
         for alias in ("eros-integration-test", "eros-interop-test"):
             if (
                 by_alias[alias]["max_budget"] is None
