@@ -260,7 +260,7 @@ let
 
   codexProfileAttrs = {
     eros = {
-      model = "coding";
+      model = "coding-openai";
       model_reasoning_effort = "high";
       model_reasoning_summary = "none";
       model_provider = "eros";

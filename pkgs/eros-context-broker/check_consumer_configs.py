@@ -64,6 +64,16 @@ def validate_host(directory: Path, host: str) -> None:
         codex = tomllib.load(handle)
     assert_mcp_map(f"{host}/codex", codex["mcp_servers"], "codex", host)
 
+    with (directory / f"{host}-codex-eros.toml").open("rb") as handle:
+        codex_eros = tomllib.load(handle)
+    if codex_eros.get("model") != "coding-openai":
+        raise AssertionError(
+            f"{host}/codex: Responses API requires coding-openai, "
+            f"got {codex_eros.get('model')!r}"
+        )
+    if codex_eros.get("model_providers", {}).get("eros", {}).get("wire_api") != "responses":
+        raise AssertionError(f"{host}/codex: Eros provider must use Responses API")
+
     claude = json.loads((directory / f"{host}-claude.json").read_text())
     assert_mcp_map(f"{host}/claude", claude["mcpServers"], "claude-code", host)
 

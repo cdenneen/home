@@ -446,6 +446,10 @@
                             path = home.home.file.".codex/config.toml.source".source;
                           }
                           {
+                            name = "${host}-codex-eros.toml";
+                            path = home.home.file.".codex/eros.config.toml".source;
+                          }
+                          {
                             name = "${host}-claude.json";
                             path = pkgs.writeText "${host}-claude.json" home.home.file.".claude/mcp-settings.source".text;
                           }
