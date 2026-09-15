@@ -100,6 +100,14 @@ def validate_host(directory: Path, host: str) -> None:
                 f"{host}/pi: missing rendered attribution value {expected}"
             )
 
+    pi_models_activation = (
+        directory / f"{host}-pi-models-activation.sh"
+    ).read_text()
+    if 'baseUrl "http://100.117.68.38:4000"' not in pi_models_activation:
+        raise AssertionError(f"{host}/pi: LiteLLM base URL must omit /v1")
+    if 'baseUrl "http://100.117.68.38:4000/v1"' in pi_models_activation:
+        raise AssertionError(f"{host}/pi: LiteLLM base URL would duplicate /v1")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()

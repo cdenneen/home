@@ -457,6 +457,10 @@
                             name = "${host}-pi-activation.sh";
                             path = pkgs.writeText "${host}-pi-activation.sh" home.home.activation.piMcpConfigWrite.data;
                           }
+                          {
+                            name = "${host}-pi-models-activation.sh";
+                            path = pkgs.writeText "${host}-pi-models-activation.sh" home.home.activation.piModelsWrite.data;
+                          }
                         ]
                         ++ optionals (home.programs ? opencode) [
                           {
