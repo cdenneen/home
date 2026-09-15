@@ -441,33 +441,36 @@ in
   };
 
   home.file.".claude/mcp-settings.source".text = builtins.toJSON ({
-    mcpServers = {
-      # One aggregate endpoint replaces 159 eagerly loaded tool schemas with
-      # LiteLLM's bounded virtual search/call tools.
-      eros = {
-        type = "http";
-        url = erosLitellmMcpGatewayUrl;
-        headers = {
-          Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__";
-          "x-eros-consumer" = hostName;
-          "x-eros-trust-domain" = erosTrustDomain;
-          "x-eros-workload" = "claude-code";
+    mcpServers =
+      lib.optionalAttrs (config.sops.secrets ? eros_litellm_api_key) {
+        # One aggregate endpoint replaces 159 eagerly loaded tool schemas with
+        # LiteLLM's bounded virtual search/call tools.
+        eros = {
+          type = "http";
+          url = erosLitellmMcpGatewayUrl;
+          headers = {
+            Authorization = "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__";
+            "x-eros-consumer" = hostName;
+            "x-eros-trust-domain" = erosTrustDomain;
+            "x-eros-workload" = "claude-code";
+          };
+        };
+      }
+      // {
+        cocoindex-code = {
+          command = cocoindexCodeExe;
+          args = [ "mcp" ];
+        };
+      }
+      // lib.optionalAttrs isGhost {
+        cloudflare = {
+          type = "http";
+          url = "https://mcp.cloudflare.com/mcp";
+          headers = {
+            Authorization = "__CLOUDFLARE_API_TOKEN_PLACEHOLDER__";
+          };
         };
       };
-      cocoindex-code = {
-        command = cocoindexCodeExe;
-        args = [ "mcp" ];
-      };
-    }
-    // lib.optionalAttrs isGhost {
-      cloudflare = {
-        type = "http";
-        url = "https://mcp.cloudflare.com/mcp";
-        headers = {
-          Authorization = "__CLOUDFLARE_API_TOKEN_PLACEHOLDER__";
-        };
-      };
-    };
   });
 
   home.file.".codex/subagents/kubernetes-expert.md".source = ./ai/subagents/kubernetes-expert.md;
