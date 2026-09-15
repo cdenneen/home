@@ -414,6 +414,11 @@
                     nyx = null;
                   };
                   activeConsumerHosts = filterAttrs (_: home: home != null) consumerHosts;
+                  erosLocalClaude =
+                    if system == "aarch64-linux" then
+                      configurations.homeConfigurations."cdenneen@eros".config.home.file.".claude/mcp-settings.source".text
+                    else
+                      "";
                   consumerFiles =
                     concatLists (
                       mapAttrsToList (
@@ -450,6 +455,8 @@
                     ];
                   fixtures = pkgs.linkFarm "eros-consumer-mcp-fixtures" consumerFiles;
                 in
+                assert
+                  system != "aarch64-linux" || !(hasInfix "__EROS_CLAUDE_CLIENTS_KEY_PLACEHOLDER__" erosLocalClaude);
                 pkgs.runCommand "eros-consumer-mcp-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
                   cp -R ${fixtures} fixtures
                   chmod -R u+w fixtures

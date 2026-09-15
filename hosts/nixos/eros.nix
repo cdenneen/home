@@ -221,6 +221,39 @@ in
     settings.password_encryption = "scram-sha-256";
   };
 
+  systemd.services.eros-postgresql-collation-refresh = {
+    description = "Refresh PostgreSQL template collation metadata";
+    after = [ "postgresql.service" ];
+    requires = [ "postgresql.service" ];
+    before = [ "postgresql-setup.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "postgres";
+    };
+    script = ''
+      set -euo pipefail
+      psql=${config.services.postgresql.package}/bin/psql
+
+      for database in postgres template1; do
+        versions="$($psql --dbname=postgres --tuples-only --no-align --field-separator='|' \
+          --command="SELECT datcollversion, pg_database_collation_actual_version(oid) FROM pg_database WHERE datname = '$database'")"
+        stored="''${versions%%|*}"
+        actual="''${versions#*|}"
+        if [ -n "$stored" ] && [ "$stored" != "$actual" ]; then
+          $psql --dbname="$database" --command="REINDEX DATABASE \"$database\""
+          $psql --dbname=postgres --command="ALTER DATABASE \"$database\" REFRESH COLLATION VERSION"
+        fi
+      done
+    '';
+  };
+
+  systemd.services.postgresql-setup = {
+    after = [ "eros-postgresql-collation-refresh.service" ];
+    requires = [ "eros-postgresql-collation-refresh.service" ];
+  };
+
   sops.secrets = {
     eros_litellm_master_key = {
       owner = "root";
