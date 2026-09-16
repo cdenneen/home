@@ -55,10 +55,19 @@
     "kernel.panic" = 5;
     "kernel.pid_max" = 131072;
   };
-  boot.initrd.postDeviceCommands = lib.mkBefore ''
-    if grep -qw fsckroot=1 /proc/cmdline; then
+  boot.initrd.systemd.services.fsck-root-on-request = {
+    description = "Run a forced root filesystem check when requested";
+    requiredBy = [ "sysroot.mount" ];
+    after = [ "initrd-root-device.target" ];
+    before = [ "sysroot.mount" ];
+    unitConfig = {
+      DefaultDependencies = false;
+      ConditionKernelCommandLine = "fsckroot=1";
+    };
+    serviceConfig.Type = "oneshot";
+    path = [ pkgs.e2fsprogs ];
+    script = ''
       echo "fsckroot=1 set; running fsck on root device..."
-      udevadm settle
       root_dev="${config.fileSystems."/".device}"
       if [ ! -e "$root_dev" ]; then
         echo "Root device $root_dev not found; falling back to /dev/sda2"
@@ -66,8 +75,8 @@
       fi
       echo "fsck target: $root_dev"
       fsck.ext4 -fy "$root_dev" || true
-    fi
-  '';
+    '';
+  };
   hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
   # Mitigate MDS by disabling SMT (trade-off: lower peak throughput).
   security.allowSimultaneousMultithreading = false;
