@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  utils,
   ...
 }:
 {
@@ -55,28 +56,37 @@
     "kernel.panic" = 5;
     "kernel.pid_max" = 131072;
   };
-  boot.initrd.systemd.services.fsck-root-on-request = {
-    description = "Run a forced root filesystem check when requested";
-    requiredBy = [ "sysroot.mount" ];
-    after = [ "initrd-root-device.target" ];
-    before = [ "sysroot.mount" ];
-    unitConfig = {
-      DefaultDependencies = false;
-      ConditionKernelCommandLine = "fsckroot=1";
+  boot.initrd.systemd.services.fsck-root-on-request =
+    let
+      rootDevice = config.fileSystems."/".device;
+      rootFsckUnit = "systemd-fsck@${utils.escapeSystemdPath rootDevice}.service";
+    in
+    {
+      description = "Run a forced root filesystem check when requested";
+      wantedBy = [ "initrd-root-fs.target" ];
+      after = [ "systemd-udev-trigger.service" ];
+      before = [
+        rootFsckUnit
+        "sysroot.mount"
+      ];
+      unitConfig.ConditionKernelCommandLine = "fsckroot=1";
+      serviceConfig.Type = "oneshot";
+      path = [
+        config.boot.initrd.systemd.package
+        pkgs.e2fsprogs
+      ];
+      script = ''
+        echo "fsckroot=1 set; running fsck on root device..."
+        udevadm settle
+        root_dev="${rootDevice}"
+        if [ ! -e "$root_dev" ]; then
+          echo "Root device $root_dev not found; falling back to /dev/sda2"
+          root_dev="/dev/sda2"
+        fi
+        echo "fsck target: $root_dev"
+        fsck.ext4 -fy "$root_dev" || true
+      '';
     };
-    serviceConfig.Type = "oneshot";
-    path = [ pkgs.e2fsprogs ];
-    script = ''
-      echo "fsckroot=1 set; running fsck on root device..."
-      root_dev="${config.fileSystems."/".device}"
-      if [ ! -e "$root_dev" ]; then
-        echo "Root device $root_dev not found; falling back to /dev/sda2"
-        root_dev="/dev/sda2"
-      fi
-      echo "fsck target: $root_dev"
-      fsck.ext4 -fy "$root_dev" || true
-    '';
-  };
   hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
   # Mitigate MDS by disabling SMT (trade-off: lower peak throughput).
   security.allowSimultaneousMultithreading = false;
