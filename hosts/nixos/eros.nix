@@ -394,6 +394,9 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
             cache_control_injection_points: &eros_cache_points_with_tools
               - location: tool_config
                 control:
@@ -457,11 +460,17 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
             cache_control_injection_points: *eros_cache_points_with_tools
         - model_name: claude-sonnet-5
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
             cache_control_injection_points: *eros_cache_points_with_tools
           model_info:
             # UNVERIFIED: max_input_tokens only changes what LiteLLM reports
@@ -481,6 +490,9 @@ in
             # Do not revert to global. without re-proving cache reads.
             model: bedrock/us.anthropic.claude-opus-5
             aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
             cache_control_injection_points: *eros_cache_points_with_tools
           model_info:
             max_input_tokens: 1000000
@@ -1018,6 +1030,18 @@ in
           description: "Central context fabric with work accounting identity"
           mcp_info: *eros_local_mcp_cost
       EOF
+      ${pkgs.yq-go}/bin/yq -e '
+        [
+          .model_list[]
+          | select(.litellm_params.model | startswith("bedrock/"))
+          | select(.litellm_params.model | contains("embed") | not)
+          | select(
+              .litellm_params.drop_params != true
+              or (.litellm_params.additional_drop_params | contains(["x_hermes_source"]) | not)
+            )
+        ]
+        | length == 0
+      ' "${litellmConfigFile}" > /dev/null
       ${pkgs.coreutils}/bin/chmod 0600 "${litellmConfigFile}"
     '';
   };
