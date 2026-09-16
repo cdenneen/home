@@ -9,6 +9,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: dependency-pr-merges
+  cancel-in-progress: false
+
 jobs:
   merge:
     # Only evaluate pull request-triggered CI runs
@@ -16,9 +20,6 @@ jobs:
       github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
       - name: Verify required eval jobs passed
         id: evals
         run: |
@@ -78,18 +79,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
 
-      - name: Merge dependency PR
+      - name: Merge or refresh dependency PR
         if: steps.evals.outputs.ready == 'true' && steps.pr.outputs.pr != ''
         run: |
           PR="${{ steps.pr.outputs.pr }}"
-
-          # Prefer auto-merge when the repository allows it, but fall back to
-          # a direct squash merge for green dependency PRs when auto-merge is disabled.
-          if gh pr merge --auto --squash "$PR"; then
+          run_head=$(jq -r '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")
+          pr_head=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+          if [ "$run_head" != "$pr_head" ]; then
+            echo "CI run ${run_head} is stale for PR #${PR} at ${pr_head}; ignoring it."
             exit 0
           fi
 
-          echo "Auto-merge unavailable; performing direct squash merge for PR #$PR."
-          gh pr merge --squash --delete-branch "$PR"
+          merge_state=$(gh pr view "$PR" --json mergeStateStatus --jq .mergeStateStatus)
+          case "$merge_state" in
+            BEHIND)
+              echo "PR #${PR} is behind main; rebasing it before another CI run."
+              for attempt in 1 2 3; do
+                if gh pr update-branch --rebase "$PR"; then
+                  exit 0
+                fi
+                if [ "$attempt" -eq 3 ]; then
+                  echo "Unable to rebase PR #${PR} after ${attempt} attempts." >&2
+                  exit 1
+                fi
+                sleep $((attempt * 3))
+              done
+              ;;
+            CLEAN)
+              gh pr merge --squash --delete-branch "$PR"
+              ;;
+            *)
+              echo "PR #${PR} is ${merge_state}; leaving it open without failing the workflow."
+              ;;
+          esac
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}

@@ -1,12 +1,15 @@
 name: "Build and populate cache"
 on:
-  pull_request:
-  push:
-    branches:
-      - main
   schedule:
     - cron: "30 7 * * *"
+    - cron: "15 8 * * 1"
   workflow_dispatch:
+    inputs:
+      refresh_existing:
+        description: "Refresh an open flake PR even when its candidate revision is unchanged"
+        required: false
+        type: boolean
+        default: false
 concurrency:
   group: build-populate-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +20,7 @@ permissions:
   pull-requests: write
 jobs:
   Update-flake-inputs:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 7 * * *'
     runs-on: ubuntu-latest
     concurrency:
       group: update-flake-${{ matrix.input }}
@@ -44,11 +47,11 @@ jobs:
           - apple-silicon-support
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install nix
-        uses: cachix/install-nix-action@v30
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
             accept-flake-config = true
@@ -56,23 +59,57 @@ jobs:
         id: update
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          REFRESH_EXISTING: ${{ inputs.refresh_existing || false }}
         run: |
           set -euo pipefail
           input="${{ matrix.input }}"
+          branch="update-flake-${input}"
           git fetch origin main
-          git checkout -B "update-flake-${input}" "origin/main"
+          git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}" || true
+          git checkout -B "$branch" "origin/main"
           nix flake lock --update-input "$input"
           if git diff --exit-code flake.lock; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          existing_pr=$(gh pr list \
+            --base main \
+            --head "$branch" \
+            --state open \
+            --json number \
+            --jq '.[0]?.number // empty')
+          remote_lock=$(mktemp)
+          trap 'rm -f "$remote_lock"' EXIT
+          if [ "$REFRESH_EXISTING" != "true" ] \
+            && [ -n "$existing_pr" ] \
+            && git show "origin/${branch}:flake.lock" > "$remote_lock" 2>/dev/null; then
+            candidate=$(jq -c --arg input "$input" '
+              .nodes.root.inputs[$input] as $node
+              | if ($node | type) == "string" then .nodes[$node].locked else empty end
+            ' flake.lock)
+            remote_candidate=$(jq -c --arg input "$input" '
+              .nodes.root.inputs[$input] as $node
+              | if ($node | type) == "string" then .nodes[$node].locked else empty end
+            ' "$remote_lock")
+            if [ -n "$candidate" ] && [ "$candidate" = "$remote_candidate" ]; then
+              merge_state=$(gh pr view "$existing_pr" --json mergeStateStatus --jq .mergeStateStatus)
+              if [ "$merge_state" != "BEHIND" ] && [ "$(date -u +%u)" != "1" ]; then
+                echo "PR #${existing_pr} already tests this ${input} candidate; leaving it unchanged."
+                echo "changed=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "Refreshing PR #${existing_pr} because it is behind or due for its weekly retry."
+            fi
+          fi
+
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add flake.lock
           git commit -m "Update flake input ${input}"
           attempts=3
           for attempt in $(seq 1 "$attempts"); do
-            if git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "update-flake-${input}" --force; then
+            if git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch" --force; then
               break
             fi
             if [ "$attempt" -eq "$attempts" ]; then
@@ -81,21 +118,61 @@ jobs:
             fi
             sleep $((attempt * 2))
           done
-          existing_pr=$(gh pr list \
-            --base main \
-            --head "update-flake-${input}" \
-            --state open \
-            --json number \
-            --jq '.[0]?.number // empty')
           if [ -n "$existing_pr" ]; then
-            echo "PR #${existing_pr} already open for update-flake-${input}"
+            echo "PR #${existing_pr} already open for ${branch}"
           else
             gh pr create \
               --base main \
-              --head "update-flake-${input}" \
+              --head "$branch" \
               --title "Update flake input ${input}" \
               --label "dependencies" \
               --label "automated" \
               --body "Updates ${input} in flake.lock."
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
+
+  Update-github-actions:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '15 8 * * 1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Update GitHub Actions
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          branch="update-github-actions"
+          git fetch origin main
+          git checkout -B "$branch" origin/main
+          python3 scripts/update-github-actions.py
+          if git diff --exit-code -- .github/workflows; then
+            exit 0
+          fi
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add .github/workflows
+          git commit -m "Update GitHub Actions"
+          git push -u "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch" --force
+
+          existing_pr=$(gh pr list \
+            --base main \
+            --head "$branch" \
+            --state open \
+            --json number \
+            --jq '.[0]?.number // empty')
+          if [ -n "$existing_pr" ]; then
+            echo "PR #${existing_pr} already open for ${branch}"
+          else
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "Update GitHub Actions" \
+              --label "dependencies" \
+              --label "automated" \
+              --body "Updates stable major GitHub Action references from a trusted same-repository workflow. Review before merging."
+          fi
