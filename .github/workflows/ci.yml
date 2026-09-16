@@ -2,6 +2,8 @@ name: flake-ci
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
     inputs:
@@ -20,14 +22,25 @@ jobs:
   # They are strict under flake-parts and require per-system guarantees
   # that are better validated via system evals below.
 
-  nixos-eval:
-    runs-on: ubuntu-24.04-arm
+  nixos-eval-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: nyx
+            runner: ubuntu-24.04-arm
+            phase_b: true
+          - host: MacBook-Pro-NixOS
+            runner: ubuntu-latest
+            phase_b: false
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            download-attempts = 8
       - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
@@ -63,12 +76,13 @@ jobs:
             exit 1
           }
           unset GH_PAT
-      - uses: cachix/cachix-action@v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build Phase B package and default checks
+        if: matrix.phase_b
         run: |
           nix build .#packages.aarch64-linux.phase-b-tooling --accept-flake-config
           nix build .#checks.aarch64-linux.phase-b-tooling-unit --accept-flake-config
@@ -77,17 +91,28 @@ jobs:
           nix build .#checks.aarch64-linux.phase-b-tooling-vm --accept-flake-config
           nix build .#checks.aarch64-linux.hermes-workload-metadata --accept-flake-config
           nix build .#checks.aarch64-linux.eros-consumer-mcp --accept-flake-config
-      - name: Evaluate NixOS (nyx)
-        run: nix eval --raw .#nixosConfigurations.nyx.config.system.build.toplevel.drvPath --accept-flake-config
+      - name: Evaluate NixOS (${{ matrix.host }})
+        run: nix eval --raw '.#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel.drvPath' --accept-flake-config
+
+  nixos-eval:
+    if: always()
+    needs: nixos-eval-platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all NixOS evaluations passed
+        env:
+          RESULT: ${{ needs.nixos-eval-platform.result }}
+        run: test "$RESULT" = success
 
   darwin-eval:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           extra-conf: |
             experimental-features = nix-command flakes
+            download-attempts = 8
       - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
@@ -123,7 +148,7 @@ jobs:
             exit 1
           }
           unset GH_PAT
-      - uses: cachix/cachix-action@v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: cdenneen
@@ -140,11 +165,12 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            download-attempts = 8
       - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
@@ -198,11 +224,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            download-attempts = 8
       - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
@@ -238,7 +265,7 @@ jobs:
             exit 1
           }
           unset GH_PAT
-      - uses: cachix/cachix-action@v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: cdenneen
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -270,7 +297,7 @@ jobs:
     runs-on: [ self-hosted, flash ]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
@@ -314,11 +341,12 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
-      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           extra-conf: |
             experimental-features = nix-command flakes
+            download-attempts = 8
       - name: Configure private flake access
         env:
           GITLAB_AXIS_READ_TOKEN: ${{ secrets.GITLAB_AXIS_READ_TOKEN }}
