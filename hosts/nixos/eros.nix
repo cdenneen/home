@@ -1033,7 +1033,7 @@ in
       ${pkgs.yq-go}/bin/yq -e '
         [
           .model_list[]
-          | select(.litellm_params.model | startswith("bedrock/"))
+          | select(.litellm_params.model | test("^bedrock/"))
           | select(.litellm_params.model | contains("embed") | not)
           | select(
               .litellm_params.drop_params != true
