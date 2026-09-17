@@ -791,7 +791,33 @@ in
            | del(.env.AWS_REGION)
            | del(.env.ANTHROPIC_DEFAULT_HAIKU_MODEL)
            | del(.env.ANTHROPIC_DEFAULT_SONNET_MODEL)
-           | del(.env.ANTHROPIC_DEFAULT_OPUS_MODEL)' > "$tmp"
+           | del(.env.ANTHROPIC_DEFAULT_OPUS_MODEL)
+           # claude-opus-5 -> claude-opus-5[1m] (2026-09-17). Through a
+           # non-Anthropic ANTHROPIC_BASE_URL, Claude Code resolves plain
+           # "claude-opus-5" to a 200k window: its model table gives opus-5
+           # supports_1m_suffix and no native_1m_3p, and the 1M-by-provider
+           # gate requires the base URL to be a real Anthropic host. Result was
+           # 180k usable (200k less the output reserve) against 66-77k of fixed
+           # per-turn overhead, so autocompact fired every few turns - measured
+           # 16 compactions in 2200 transcript lines, all peaking at ~165k,
+           # versus 11 in 29000 lines peaking at ~930k on claude-sonnet-5,
+           # which does carry native_1m_3p.bedrock.
+           #
+           # The [1m] suffix is stripped client-side before the request
+           # (Qs/Wu in the CLI bundle), so eros still routes on model_name
+           # claude-opus-5 -> bedrock/us.anthropic.claude-opus-5; a literal
+           # [1m] name would 403 at the key allowlist, i.e. fail loudly.
+           # Verified live against Bedrock: 218,506 input tokens returned 200
+           # both with and without anthropic-beta context-1m-2025-08-07, so
+           # that route does not enforce a 200k ceiling. Only >200k was proven,
+           # not the full 1M - if a very large prompt is ever rejected it
+           # surfaces as a 400 at request time. Escape hatch:
+           # CLAUDE_CODE_DISABLE_1M_CONTEXT=1, or set .model back by hand.
+           #
+           # Conditional so interactive /model choices are not clobbered on
+           # every activation; only the plain 200k name is migrated.
+           | (if .model == "claude-opus-5"
+              then .model = "claude-opus-5[1m]" else . end)' > "$tmp"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
       '';
