@@ -965,6 +965,20 @@ in
   };
 
   systemd.services.axis = {
+    # Temporary AC-149-07 acceptance configuration. The observer remains
+    # read-only until AXIS durably verifies a matching owner Slack admission.
+    environment = {
+      AXIS_POA_ADAPTER_ID = "poa-v1";
+      AXIS_POA_RESPONSIBILITY_ID = "agency.axis149.slack-sdlc.disposable-calculator.v1";
+      AXIS_POA_GOAL_REF = "axis.live.slack-sdlc.disposable-calculator.v1";
+      AXIS_POA_TASK_ID = "!149";
+      AXIS_POA_PROJECT_ID = "ghostspace/axis-mvp-disposable-calculator";
+      AXIS_POA_REPOSITORY_URL = "https://gitlab.com/ghostspace/axis-mvp-disposable-calculator.git";
+      AXIS_POA_REF = "acceptance/slack-sdlc-v1";
+      AXIS_POA_RESOLVED_COMMIT = "fb91d327efcf2ceb1eb6fe2339aeeb6fd9e12360";
+      AXIS_POA_REPO_ROOT = "/var/lib/axis/acceptance/axis-mvp-disposable-calculator";
+      AXIS_POA_POLL_SECONDS = "60";
+    };
     unitConfig.RequiresMountsFor = [
       axisSlackBotTokenFile
       axisSlackSigningSecretFile
