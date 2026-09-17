@@ -19,6 +19,7 @@ let
   litellmHttpsPort = 8443;
   litellmEnvFile = "/run/eros-litellm/env";
   litellmConfigFile = "/run/eros-litellm/config.yaml";
+  bedrockToolGuardFile = ../../pkgs/eros-litellm-hooks/bedrock_tool_guard.py;
   omniroutePort = 20128;
   qdrantPort = 6333;
   contextPorts = {
@@ -173,7 +174,13 @@ in
       };
       litellm = {
         image = "ghcr.io/berriai/litellm:v1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe";
-        volumes = [ "${litellmConfigFile}:/app/config.yaml:ro" ];
+        volumes = [
+          "${litellmConfigFile}:/app/config.yaml:ro"
+          # Mounted at /app because the container's WorkingDir is /app and
+          # sys.path[0] is "", so litellm_settings.callbacks can reference it as
+          # the bare module `eros_bedrock_tool_guard`. See the callbacks entry.
+          "${bedrockToolGuardFile}:/app/eros_bedrock_tool_guard.py:ro"
+        ];
         extraOptions = [
           "--env-file=${litellmEnvFile}"
           "--network=host"
@@ -911,7 +918,8 @@ in
               - graphify
               - context7
               - playwright
-              - duckduckgo
+              # renamed from duckduckgo - see the mcp_servers entry for why
+              - web-search
               - gitlab
               - kubernetes
               - aws
@@ -922,6 +930,23 @@ in
         # MCP-speaking clients use /mcp/ virtual tool search instead.
         mcp_semantic_tool_filter:
           enabled: false
+        # Drops Anthropic provider-executed tools (web_search_*, web_fetch_*,
+        # code_execution_*) from requests whose model group resolves to a
+        # bedrock/* deployment. Bedrock has no implementation for them and fails
+        # the whole request with a non-retryable 400 - and because cross-tier
+        # fallback is banned here, the turn just dies and the consumer reports a
+        # bare "provider failed after retries". Measured 2026-09-17: 592 such
+        # failures in two hours on claude-opus-5/claude-sonnet-5.
+        #
+        # Resolved via get_instance_fn, which splits on the last dot: module
+        # `eros_bedrock_tool_guard`, instance `guard`. It reaches this path
+        # because ProxyLogging.pre_call_hook's CustomLogger branch has no
+        # call_type allowlist, so it fires for anthropic_messages (/v1/messages)
+        # as well as chat completions. Source and self-check:
+        # pkgs/eros-litellm-hooks/bedrock_tool_guard.py - it fails open on any
+        # internal error.
+        callbacks:
+          - eros_bedrock_tool_guard.guard
         drop_params: true
         additional_drop_params:
           - x_hermes_source
@@ -1024,10 +1049,25 @@ in
           transport: "http"
           description: "Terraform and OpenTofu discovery and operations"
           mcp_info: *eros_local_mcp_cost
-        duckduckgo:
+        # Named "web-search", not "duckduckgo", so the tool names it prefixes
+        # carry the English words a consumer would search for. The gateway's
+        # tool search (proxy/_experimental/mcp_server/tool_search.py) is not
+        # semantic - it scores by counting query tokens that appear as
+        # substrings of `name + " " + description`, and the description comes
+        # from the upstream server, which for ddg-mcp-search is Chinese-only
+        # ("在DuckDuckGo上搜索并返回格式化结果"). As `duckduckgo-search` the only
+        # web-search tool on the gateway scored 1 on "web search the internet"
+        # and lost to gitlab/graphify/playwright, whose verbose English
+        # descriptions happened to match more tokens - i.e. the one tool that
+        # does web search was effectively undiscoverable. This yields
+        # web-search-search / web-search-fetch_content, matching both "web" and
+        # "search"; "duckduckgo" still matches via the upstream description.
+        # The server-level `description` below is NOT indexed - handle_mcp_tool_search
+        # builds its haystack per-tool - so it cannot substitute for the prefix.
+        web-search:
           url: "http://nyx.tail0e55.ts.net:18105/mcp"
           transport: "http"
-          description: "Public web search"
+          description: "Public web search and page fetch (DuckDuckGo)"
           mcp_info: *eros_local_mcp_cost
         gitlab:
           url: "http://nyx.tail0e55.ts.net:18101/mcp"
