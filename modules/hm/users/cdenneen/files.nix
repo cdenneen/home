@@ -349,6 +349,20 @@ in
   home.file.".hermes/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
   home.file.".pi/agent/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
 
+  # Extracted out of ai/AGENTS.md (2026-09-17). The GitLab pipeline/IaC contract
+  # was ~9KB of the 22KB global CLAUDE.md, i.e. ~2.2k tokens re-sent on every
+  # turn of every session, while applying to a minority of tasks. As a skill it
+  # loads on demand instead. Measured motivation: Claude Code's fixed per-turn
+  # overhead was 66-77k tokens against claude-opus-5's 180k usable window (opus
+  # is a 200k model through the gateway - see the [1m] note in ai/AGENTS.md),
+  # which drove autocompact every few turns.
+  home.file.".codex/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".agents/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".opencode/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".claude/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".hermes/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".pi/agent/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+
   # Symlink pi packages from the pi-plugins Nix store package to ~/.pi/agent/npm/node_modules/
   # Only create symlinks when piPluginsPkg is available (i.e., when agentPkgs is set)
   home.file.".pi/agent/npm/node_modules/pi-mcp-adapter" = lib.mkIf (piPluginsPkg != null) {
