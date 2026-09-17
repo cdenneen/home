@@ -456,10 +456,29 @@ in
         # existing alias has. Underlying Bedrock deployments are shared with
         # existing routes where the model is identical - this only adds
         # routing-layer aliases, not new Bedrock calls.
+        #
+        # timeout: 600 on each claude-* deployment (2026-09-17). router_settings
+        # timeout: 90 leaks onto the streaming path and kills Claude Code turns
+        # mid-stream. Chain: /v1/messages -> anthropic_messages ->
+        # _ageneric_api_call_with_fallbacks, which router.py:3095-3110 routes to
+        # resolve_llm_passthrough_timeout(); that ignores stream_timeout and
+        # falls back to router_timeout (= self._explicit_timeout, router.py:571,
+        # = 90). httpx read timeout becomes aiohttp sock_read
+        # (aiohttp_transport.py:262), which is a PER-CHUNK gap timeout, not a
+        # total - so any >90s pause in the Bedrock SSE stream (extended thinking
+        # on a large prompt) raises SocketTimeoutError -> httpx.ReadTimeout
+        # inside async_data_generator() and the turn just stops. num_retries
+        # can't cover it: the 200 OK is already on the wire. Observed on eros:
+        # 08:28:26 stream start -> 08:29:58 ReadTimeout = 92s, recurring Sep
+        # 15-17. litellm_params.timeout outranks router_timeout in that chain
+        # (and feeds _get_non_stream_timeout for the chat-completions path), so
+        # it fixes both without loosening timeout: 90 for every other route.
+        # 600 = LiteLLM's own DEFAULT_PASS_THROUGH_REQUEST_TIMEOUT_SECONDS.
         - model_name: claude-haiku-4-5
           litellm_params:
             model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
             aws_region_name: us-east-1
+            timeout: 600
             drop_params: true
             additional_drop_params:
               - x_hermes_source
@@ -468,6 +487,7 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
+            timeout: 600
             drop_params: true
             additional_drop_params:
               - x_hermes_source
@@ -490,6 +510,7 @@ in
             # Do not revert to global. without re-proving cache reads.
             model: bedrock/us.anthropic.claude-opus-5
             aws_region_name: us-east-1
+            timeout: 600
             drop_params: true
             additional_drop_params:
               - x_hermes_source
@@ -768,6 +789,8 @@ in
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-4-6
             aws_region_name: us-east-1
+            # See the timeout: 600 rationale on claude-haiku-4-5 above.
+            timeout: 600
             drop_params: true
             additional_drop_params:
               - x_hermes_source
