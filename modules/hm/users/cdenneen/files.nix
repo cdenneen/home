@@ -815,9 +815,15 @@ in
            # CLAUDE_CODE_DISABLE_1M_CONTEXT=1, or set .model back by hand.
            #
            # Conditional so interactive /model choices are not clobbered on
-           # every activation; only the plain 200k name is migrated.
-           | (if .model == "claude-opus-5"
-              then .model = "claude-opus-5[1m]" else . end)' > "$tmp"
+           # every activation: only a bare opus-5 selection is upgraded, and
+           # the anchored match makes it idempotent (an existing "[1m]" suffix
+           # does not match). Both spellings occur in practice - the settings
+           # file stores the short alias "opus" when the model is chosen from
+           # the picker, and the full "claude-opus-5" when it comes from
+           # gateway model discovery.
+           | (if (.model | type) == "string"
+                 and (.model | test("^(opus|claude-opus-5)$"))
+              then .model += "[1m]" else . end)' > "$tmp"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/install -m 600 -T "$tmp" "$settings"
         $DRY_RUN_CMD ${pkgs.coreutils}/bin/rm -f "$tmp"
       '';
