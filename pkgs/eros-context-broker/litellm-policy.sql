@@ -90,7 +90,14 @@ INSERT INTO "LiteLLM_ObjectPermissionTable" (
     models, mcp_toolsets, search_tools, mcp_tool_search_enabled
 ) VALUES (
     'eros-shared-tool-search-permissions', ARRAY[
-        'recallium', 'graphify', 'context7', 'playwright', 'duckduckgo',
+        -- 'web_search' (was 'duckduckgo'): this list holds *gateway* server
+        -- names from eros.nix mcp_servers, which was renamed so the tool-name
+        -- prefix carries English keywords. The name must track that rename or
+        -- the gateway filters the tools out of every key referencing this row,
+        -- which is what silently removed web search on 2026-09-17. The direct
+        -- server on nyx is still called duckduckgo; that is a different
+        -- namespace and is deliberately unchanged.
+        'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform', 'eros-context-shared'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
@@ -115,7 +122,14 @@ INSERT INTO "LiteLLM_ObjectPermissionTable" (
 VALUES (
     'eros-context-work-permissions',
     ARRAY[
-        'recallium', 'graphify', 'context7', 'playwright', 'duckduckgo',
+        -- 'web_search' (was 'duckduckgo'): this list holds *gateway* server
+        -- names from eros.nix mcp_servers, which was renamed so the tool-name
+        -- prefix carries English keywords. The name must track that rename or
+        -- the gateway filters the tools out of every key referencing this row,
+        -- which is what silently removed web search on 2026-09-17. The direct
+        -- server on nyx is still called duckduckgo; that is a different
+        -- namespace and is deliberately unchanged.
+        'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
         'eros-context-shared', 'eros-context-work'
     ]::text[],
@@ -133,7 +147,14 @@ INSERT INTO "LiteLLM_ObjectPermissionTable" (
 VALUES (
     'eros-context-personal-permissions',
     ARRAY[
-        'recallium', 'graphify', 'context7', 'playwright', 'duckduckgo',
+        -- 'web_search' (was 'duckduckgo'): this list holds *gateway* server
+        -- names from eros.nix mcp_servers, which was renamed so the tool-name
+        -- prefix carries English keywords. The name must track that rename or
+        -- the gateway filters the tools out of every key referencing this row,
+        -- which is what silently removed web search on 2026-09-17. The direct
+        -- server on nyx is still called duckduckgo; that is a different
+        -- namespace and is deliberately unchanged.
+        'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
         'eros-context-shared', 'eros-context-personal'
     ]::text[],

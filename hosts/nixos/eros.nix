@@ -1107,6 +1107,29 @@ in
         ]
         | length == 0
       ' "${litellmConfigFile}" > /dev/null
+      # LiteLLM reserves "-" as its MCP tool-prefix separator and rejects it in
+      # mcp_servers keys at startup, so a hyphen here is not a config smell but
+      # an outage: on 2026-09-17 an `mcp_servers.web-search` key crashlooped the
+      # proxy 601 times over ~20h until it was rolled back. The YAML parsed and
+      # the container image was fine, so nothing upstream of here caught it.
+      # Note this constrains the map key only - server_id may contain hyphens,
+      # which is why the eros-context-* servers use underscore keys.
+      ${pkgs.yq-go}/bin/yq -e '
+        [ .mcp_servers | keys | .[] | select(test("-")) ] | length == 0
+      ' "${litellmConfigFile}" > /dev/null
+      # Every server named in the default key allowlist must actually exist, by
+      # map key or by server_id. Without this, renaming an mcp_servers key while
+      # leaving the allowlist stale silently drops the server's tools from every
+      # key referencing it - the failure mode is an empty tool search rather than
+      # an error, so it is invisible until someone notices a capability is gone.
+      ${pkgs.yq-go}/bin/yq -e '
+        (.mcp_servers | to_entries | map([.key, (.value.server_id // .key)]) | flatten) as $known
+        | [
+            .litellm_settings.default_key_generate_params.object_permission.mcp_servers[]
+            | select([.] - $known | length > 0)
+          ]
+        | length == 0
+      ' "${litellmConfigFile}" > /dev/null
       ${pkgs.coreutils}/bin/chmod 0600 "${litellmConfigFile}"
     '';
   };
