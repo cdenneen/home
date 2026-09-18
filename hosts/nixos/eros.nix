@@ -173,7 +173,29 @@ in
         autoStart = true;
       };
       litellm = {
-        image = "ghcr.io/berriai/litellm:v1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe";
+        # v1.101.0 (2026-09-18). Multi-arch index digest, same convention as the
+        # v1.94.0 pin it replaces - eros is aarch64, and pinning the index keeps
+        # the expression arch-independent.
+        #
+        # Validated before cutover on a v1.101.0 container against a
+        # schema-complete clone of the prod database (litellm_staging, spend-log
+        # rows excluded), on a separate port, with prod untouched throughout.
+        # The Prisma migration on that clone succeeded and the proxy was ready in
+        # ~20s. All seven checks passed:
+        #   1. the Bedrock tool guard still fires on /v1/messages with
+        #      call_type=anthropic_messages - this was the main risk, since
+        #      v1.95.0 introduced a Rust /v1/messages path that could have
+        #      bypassed the Python pre_call_hook. It does not.
+        #   2. timeout: 600 preserved on all four claude-* routes
+        #   3. cache_control_injection_points still applied
+        #   4. x_hermes_source still dropped
+        #   5. object_permission survived v1.96's MCP entitlements rework
+        #   6. semantic MCP tool search works (see mcp_tool_search below)
+        #   7. 219,333 input tokens to claude-opus-5 returned 200
+        #
+        # Rollback is the previous pin:
+        # v1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe
+        image = "ghcr.io/berriai/litellm:v1.101.0@sha256:d295634e09c648dcdb72c4cc2dd226f5fb87823a73e88cbbed6f205e4deb044b";
         volumes = [
           "${litellmConfigFile}:/app/config.yaml:ro"
           # Mounted at /app because the container's WorkingDir is /app and
@@ -930,6 +952,30 @@ in
         # MCP-speaking clients use /mcp/ virtual tool search instead.
         mcp_semantic_tool_filter:
           enabled: false
+        # Ranks the /mcp/ virtual mcp_tool_search results by meaning instead of
+        # by keyword. v1.94.0's search_tools() scored a tool by counting query
+        # tokens appearing as substrings of `name + " " + description`, which
+        # made the catalog effectively undiscoverable by intent: "search the
+        # internet for recent news" returned three recallium *memory* tools, and
+        # "fetch a web page" returned playwright-browser_click. Unset keeps that
+        # keyword behaviour, so this key is what turns the feature on.
+        #
+        # local-embed is the existing ollama qwen3-embedding:0.6b route, so this
+        # adds no new dependency and no egress. Measured on v1.101.0 staging:
+        # "fetch a web page" -> web_search-fetch_content (0.73) as the top hit.
+        #
+        # Note the key is mcp_tool_search.embedding_model, NOT the
+        # skill_search_embedding_model named in the docs - that one configures
+        # semantic search over LiteLLM-hosted *skills*, a different feature.
+        # Verified against v1.101.0's own MCPToolSearchSettings model.
+        #
+        # This does not fix web-search discovery on its own: web_search-search's
+        # upstream description is a single Chinese phrase, and even a
+        # multilingual embedder ranks it below verbose English tools for
+        # "search the internet" queries. That needs an English-described search
+        # server, tracked separately.
+        mcp_tool_search:
+          embedding_model: local-embed
         # Drops Anthropic provider-executed tools (web_search_*, web_fetch_*,
         # code_execution_*) from requests whose model group resolves to a
         # bedrock/* deployment. Bedrock has no implementation for them and fails
