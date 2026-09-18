@@ -1095,27 +1095,47 @@ in
           transport: "http"
           description: "Terraform and OpenTofu discovery and operations"
           mcp_info: *eros_local_mcp_cost
-        # Named "web_search", not "duckduckgo", so the tool names it prefixes
-        # carry the English words a consumer would search for. The gateway's
-        # tool search (proxy/_experimental/mcp_server/tool_search.py) is not
-        # semantic - it scores by counting query tokens that appear as
-        # substrings of `name + " " + description`, and the description comes
-        # from the upstream server, which for ddg-mcp-search is Chinese-only
-        # ("在DuckDuckGo上搜索并返回格式化结果"). As `duckduckgo-search` the only
-        # web-search tool on the gateway scored 1 on "web search the internet"
-        # and lost to gitlab/graphify/playwright, whose verbose English
-        # descriptions happened to match more tokens - i.e. the one tool that
-        # does web search was effectively undiscoverable. This yields
-        # web_search-search / web_search-fetch_content, matching both "web" and
-        # "search"; "duckduckgo" still matches via the upstream description.
-        # The server-level `description` below is NOT indexed - handle_mcp_tool_search
-        # builds its haystack per-tool - so it cannot substitute for the prefix.
-        # LiteLLM reserves "-" as its MCP tool-prefix separator and rejects it
-        # in server map keys during startup, so this identifier uses "_".
+        # Parallel's hosted Search MCP, replacing the ddg-mcp-search server on
+        # nyx:18105 (2026-09-18). Free and anonymous - "The Search MCP is free to
+        # use - no API key required" per docs.parallel.ai/integrations/mcp/search-mcp -
+        # so this adds no secret and no cost. The /mcp endpoint is deliberately
+        # the unauthenticated one; /mcp-oauth exists for higher rate limits and
+        # 401s without a key, which we do not want here.
+        #
+        # Why replace a server that worked: tool discovery is only as good as the
+        # upstream tool *descriptions*, and ddg-mcp-search's were a single
+        # Chinese phrase each ("在DuckDuckGo上搜索并返回格式化结果"). That made web
+        # search unfindable by intent no matter what the gateway did. Measured on
+        # this deployment, before and after enabling semantic ranking:
+        #   keyword  (v1.94.0): "search the internet for recent news" -> three
+        #                       recallium *memory* tools
+        #   semantic (v1.101.0): same query -> context_personal-* (0.70), still
+        #                       not web search
+        # Renaming the server key could not fix it (the key only prefixes the
+        # name), and LiteLLM has no tool-description override. Parallel's tools
+        # ship verbose English descriptions, which is what the ranker indexes.
+        # Its output is English structured JSON too, where ddg-mcp-search
+        # returned Chinese boilerplate ("找到 3 条搜索结果:") into model context.
+        #
+        # Verified from eros before switching: initialize + tools/list + a real
+        # web_search call, all anonymous. Result quality spot-checked on three
+        # queries - authoritative hits (freedesktop.org man pages, AWS Bedrock
+        # model cards). Tool names stay web_search-* because the server key is
+        # unchanged, so the object_permission grants in litellm-policy.sql and
+        # every issued key keep working untouched.
+        #
+        # Rate limits are unpublished and keyed on session_id for anonymous use;
+        # if that becomes a problem the options are an API key on /mcp-oauth, or
+        # self-hosting (RivalSearchMCP is MIT, English, zero-auth, and was the
+        # runner-up). LiteLLM still reserves "-" as its MCP tool-prefix
+        # separator, so this key keeps using "_".
         web_search:
-          url: "http://nyx.tail0e55.ts.net:18105/mcp"
+          url: "https://search.parallel.ai/mcp"
           transport: "http"
-          description: "Public web search and page fetch (DuckDuckGo)"
+          description: "Public web search and page fetch"
+          # Still the zero-cost anchor: the anonymous /mcp endpoint is free, so
+          # 0.0 stays accurate, and keeping mcp_info preserves this server's
+          # accounting attribution alongside every other entry.
           mcp_info: *eros_local_mcp_cost
         gitlab:
           url: "http://nyx.tail0e55.ts.net:18101/mcp"
