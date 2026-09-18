@@ -40,7 +40,6 @@ let
     "@strowk/mcp-k8s"
     "aws-mcp-readonly-lite"
     "terraform-mcp-server"
-    "ddg-mcp-search"
     "@upstash/context7-mcp"
     "@playwright/mcp"
   ];
@@ -109,14 +108,15 @@ let
         exec ${pkgs.nodejs_24}/bin/npx -y terraform-mcp-server
       '';
     };
-    duckduckgo = {
-      port = 18105;
-      stateful = false;
-      script = ''
-        set -euo pipefail
-        exec ${pkgs.nodejs_24}/bin/npx -y ddg-mcp-search
-      '';
-    };
+    # duckduckgo (port 18105, ddg-mcp-search) removed 2026-09-18. Its tool
+    # names and descriptions were Chinese-only, which made web search
+    # undiscoverable by intent through the Eros gateway's tool search no matter
+    # how the gateway was configured, and its result payloads pushed Chinese
+    # boilerplate into every consumer's context. It was also an unpinned
+    # `npx -y` dependency resolved at service start. Web search now comes from
+    # Parallel's free hosted Search MCP via the gateway's `web_search` server;
+    # every consumer on every host reaches it through the single `eros` MCP
+    # entry, so nothing needs a direct server here. Port 18105 is now free.
     context7 = {
       port = 18106;
       script = ''
@@ -908,7 +908,6 @@ in
   systemd.user.services.nyx-mcp-kubernetes = mkNyxMcpGatewayService "kubernetes" nyxSharedMcpServers.kubernetes;
   systemd.user.services.nyx-mcp-aws = mkNyxMcpGatewayService "aws" nyxSharedMcpServers.aws;
   systemd.user.services.nyx-mcp-terraform = mkNyxMcpGatewayService "terraform" nyxSharedMcpServers.terraform;
-  systemd.user.services.nyx-mcp-duckduckgo = mkNyxMcpGatewayService "duckduckgo" nyxSharedMcpServers.duckduckgo;
   systemd.user.services.nyx-mcp-context7 = mkNyxMcpGatewayService "context7" nyxSharedMcpServers.context7;
   systemd.user.services.nyx-mcp-playwright = mkNyxMcpGatewayService "playwright" nyxSharedMcpServers.playwright;
 
