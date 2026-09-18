@@ -31,6 +31,7 @@ let
   axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
   axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
+  axisGitlabWriteApiTokenFile = config.sops.secrets.axis_gitlab_write_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
   axisSlackProductOwnerId = "U0B7ZGP6M43";
   axisSlackIdentitySecretName = "provider.slack.identity.${
@@ -165,7 +166,7 @@ let
   axisGitlabCapabilitySetup = pkgs.writeShellScript "axis-gitlab-capability-setup" ''
     set -euo pipefail
 
-    if [ ! -s "${axisGitlabReadApiTokenFile}" ]; then
+    if [ ! -s "${axisGitlabReadApiTokenFile}" ] || [ ! -s "${axisGitlabWriteApiTokenFile}" ]; then
       echo "axis GitLab capability setup: required secret file is missing or empty" >&2
       exit 1
     fi
@@ -176,6 +177,14 @@ let
         --secret-name provider.gitlab.axis.read_api_token \
         --scope axis_vault \
         --display-name "AXIS GitLab read_api token (ghostspace/axis)" \
+        --secret-stdin \
+        > /dev/null
+    ${pkgs.coreutils}/bin/cat "${axisGitlabWriteApiTokenFile}" \
+      | ${axis.packages.${pkgs.system}.axis}/bin/axis --data-root /var/lib/axis capability authorize \
+        --capability-id provider.gitlab.axis.write-api-token \
+        --secret-name provider.gitlab.axis.write_api_token \
+        --scope axis_vault \
+        --display-name "AXIS GitLab write_api token (disposable calculator)" \
         --secret-stdin \
         > /dev/null
   '';
@@ -724,6 +733,13 @@ in
     mode = "0400";
     restartUnits = [ "axis.service" ];
   };
+  sops.secrets.axis_gitlab_write_api_token = {
+    sopsFile = ../../secrets/axis.yaml;
+    owner = "axis";
+    group = "axis";
+    mode = "0400";
+    restartUnits = [ "axis.service" ];
+  };
   sops.secrets."alpha0/audit-key" = {
     sopsFile = alpha0SecretsFile;
     key = "alpha0_audit_key";
@@ -985,6 +1001,7 @@ in
       axisSharedAiApiKeyFile
       axisSharedAiBaseUrlFile
       axisGitlabReadApiTokenFile
+      axisGitlabWriteApiTokenFile
     ];
     preStart = lib.mkBefore "${axisSlackCapabilitySetup} && ${axisSharedAiCapabilitySetup} && ${axisGitlabCapabilitySetup}";
     # Active-development deployment channel (self-SDLC dogfood): points at a
