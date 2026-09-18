@@ -85,7 +85,11 @@ let
     kubernetes = "http://nyx.tail0e55.ts.net:18102/mcp";
     aws = "http://nyx.tail0e55.ts.net:18103/mcp";
     terraform = "http://nyx.tail0e55.ts.net:18104/mcp";
-    duckduckgo = "http://nyx.tail0e55.ts.net:18105/mcp";
+    # No duckduckgo entry: the ddg-mcp-search server on nyx:18105 was removed
+    # (Chinese-only tool descriptions made it undiscoverable, and it was an
+    # unpinned npx dependency). Web search reaches consumers through the
+    # gateway's `web_search` mcp_servers entry, which the context brokers see
+    # via the gateway rather than this direct catalog.
     gitlab = "http://nyx.tail0e55.ts.net:18101/mcp";
   };
   contextSkillRoots = lib.concatStringsSep ":" [

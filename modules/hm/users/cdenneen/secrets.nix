@@ -136,11 +136,6 @@ let
     exec npx -y terraform-mcp-server
   '';
 
-  mcpDuckDuckGoScript = ''
-    set -euo pipefail
-    exec npx -y ddg-mcp-search
-  '';
-
   mcpContext7Script = ''
     set -euo pipefail
     exec npx -y @upstash/context7-mcp
@@ -208,7 +203,6 @@ let
             kubernetes = mkOpencodeMcp 18102 mcpKubernetesScript;
             aws = mkOpencodeMcp 18103 mcpAwsScript;
             terraform = mkOpencodeMcp 18104 mcpTerraformScript;
-            duckduckgo = mkOpencodeMcp 18105 mcpDuckDuckGoScript;
             context7 =
               (mkOpencodeMcp 18106 mcpContext7Script)
               // lib.optionalAttrs (!useSharedNyxMcp) {
