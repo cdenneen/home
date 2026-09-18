@@ -919,7 +919,7 @@ in
               - context7
               - playwright
               # renamed from duckduckgo - see the mcp_servers entry for why
-              - web-search
+              - web_search
               - gitlab
               - kubernetes
               - aws
@@ -1049,7 +1049,7 @@ in
           transport: "http"
           description: "Terraform and OpenTofu discovery and operations"
           mcp_info: *eros_local_mcp_cost
-        # Named "web-search", not "duckduckgo", so the tool names it prefixes
+        # Named "web_search", not "duckduckgo", so the tool names it prefixes
         # carry the English words a consumer would search for. The gateway's
         # tool search (proxy/_experimental/mcp_server/tool_search.py) is not
         # semantic - it scores by counting query tokens that appear as
@@ -1060,11 +1060,13 @@ in
         # and lost to gitlab/graphify/playwright, whose verbose English
         # descriptions happened to match more tokens - i.e. the one tool that
         # does web search was effectively undiscoverable. This yields
-        # web-search-search / web-search-fetch_content, matching both "web" and
+        # web_search-search / web_search-fetch_content, matching both "web" and
         # "search"; "duckduckgo" still matches via the upstream description.
         # The server-level `description` below is NOT indexed - handle_mcp_tool_search
         # builds its haystack per-tool - so it cannot substitute for the prefix.
-        web-search:
+        # LiteLLM reserves "-" as its MCP tool-prefix separator and rejects it
+        # in server map keys during startup, so this identifier uses "_".
+        web_search:
           url: "http://nyx.tail0e55.ts.net:18105/mcp"
           transport: "http"
           description: "Public web search and page fetch (DuckDuckGo)"
