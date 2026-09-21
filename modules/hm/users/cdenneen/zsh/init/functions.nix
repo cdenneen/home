@@ -23,6 +23,10 @@
   }
 
   1pwcheck() {
+    if [[ "$1" == "ap" ]]; then
+      load_op_service_token
+      has_op_service_token && return 0
+    fi
     [[ -z "$(op vault user list private --account $1 2>/dev/null)" ]] && 1pwsignin || return true
   }
 
@@ -46,6 +50,31 @@
     1pwcheck "$1" && op item edit --account "$1" "$2" "files.[file]=$3"
   }
 
+  opap() {
+    local token default_vault has_vault arg
+    local -a args
+
+    load_op_service_token
+    token="''${OP_SERVICE_ACCOUNT_TOKEN:-}"
+    [[ -n "$token" ]] || {
+      echo "missing AP service token; checked OP_AP_SERVICE_ACCOUNT_TOKEN_FILE and /run/user/$(id -u)/secrets.d/*/op_service_account_token_ap" >&2
+      return 1
+    }
+
+    default_vault="''${OP_AP_DEFAULT_VAULT:-cdenneen-env}"
+    args=("$@")
+    has_vault=0
+    for arg in "$@"; do
+      [[ "$arg" == "--vault" || "$arg" == --vault=* ]] && has_vault=1 && break
+    done
+
+    if (( ! has_vault )) && [[ "''${args[1]:-}" == "item" ]]; then
+      args+=(--vault "$default_vault")
+    fi
+
+    OP_SERVICE_ACCOUNT_TOKEN="$token" op "''${args[@]}"
+  }
+
   1pwurl() {
     echo "$1" | sed 's/^.*i=//;s/\&.*$//'
   }
@@ -54,12 +83,46 @@
     command -v op >/dev/null 2>&1
   }
 
+  resolve_op_service_token_file() {
+    setopt localoptions extendedglob
+    local uid token_file candidate
+    local -a runtime_candidates
+
+    uid="$(id -u)"
+    token_file="''${OP_AP_SERVICE_ACCOUNT_TOKEN_FILE:-$HOME/.config/sops-nix/secrets/op_service_account_token_ap}"
+    runtime_candidates=(/run/user/$uid/secrets.d/*/op_service_account_token_ap(N))
+
+    for candidate in \
+      "$token_file" \
+      "$HOME/.local/share/sops-nix/secrets/op_service_account_token_ap" \
+      "/run/user/$uid/secrets/op_service_account_token_ap" \
+      "$runtime_candidates[@]"; do
+      [[ -r "$candidate" ]] && { print -r -- "$candidate"; return 0; }
+    done
+
+    return 1
+  }
+
+  load_op_service_token() {
+    local token_file
+    if [[ -z "''${OP_SERVICE_ACCOUNT_TOKEN:-}" ]]; then
+      token_file="$(resolve_op_service_token_file 2>/dev/null || true)"
+      [[ -n "$token_file" ]] && export OP_SERVICE_ACCOUNT_TOKEN="$(tr -d '\n\r' < "$token_file")"
+    fi
+  }
+
+  has_op_service_token() {
+    [[ -n "''${OP_SERVICE_ACCOUNT_TOKEN:-}" ]]
+  }
+
   has_op_accounts() {
-    has_op && [ -n "$(op account list 2>/dev/null)" ]
+    load_op_service_token
+    has_op && (has_op_service_token || [ -n "$(op account list 2>/dev/null)" ])
   }
 
   is_op_unlocked() {
-    has_op_accounts && op account get >/dev/null 2>&1
+    load_op_service_token
+    has_op && (has_op_service_token || (has_op_accounts && op account get >/dev/null 2>&1))
   }
 
   update_secrets() {
