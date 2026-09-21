@@ -260,6 +260,8 @@ let
     };
   };
   shellSecretExports = ''
+    export OP_AP_SERVICE_ACCOUNT_TOKEN_FILE="${config.home.homeDirectory}/.config/sops-nix/secrets/op_service_account_token_ap"
+
     if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
       export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"
     fi
@@ -357,6 +359,10 @@ in
     github-token = {
       mode = "0400";
       path = "${sopsSecretsDir}/github-token";
+    };
+    gitlab_git_clone_token = {
+      mode = "0400";
+      path = "${sopsSecretsDir}/gitlab_git_clone_token";
     };
     gemini_api_key.mode = "0400";
     supabase_access_token.mode = "0400";
