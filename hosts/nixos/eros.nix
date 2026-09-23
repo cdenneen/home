@@ -39,6 +39,7 @@ let
     "claude-sonnet-4-6"
     "claude-sonnet-5"
     "claude-opus-5"
+    "claude-opus-5-5"
     "coding"
     "coding-core"
     "coding-gemini"
@@ -542,6 +543,37 @@ in
             # of it cache-write. Regional pins the cache so reads can land.
             # Do not revert to global. without re-proving cache reads.
             model: bedrock/us.anthropic.claude-opus-5
+            aws_region_name: us-east-1
+            timeout: 600
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+            cache_control_injection_points: *eros_cache_points_with_tools
+          model_info:
+            max_input_tokens: 1000000
+
+        # Opus 5.5 (2026-09-23). Regional us. profile for the same cache-scoping
+        # reason as claude-opus-5 above - do not switch to global. without
+        # re-proving cache reads. Verified against Bedrock from eros before
+        # adding: us.anthropic.claude-opus-5-5 is an ACTIVE inference profile,
+        # invoke-model returns 200, streaming works (checked through litellm's
+        # own SDK, 5 chunks), and both the context-1m-2025-08-07 beta and
+        # cache_control on a system block are accepted.
+        #
+        # Single route with max_input_tokens: 1000000, matching claude-opus-5 and
+        # claude-sonnet-5. There is deliberately no separate 200k/1M pair: the
+        # normal-vs-1M choice is client-side in Claude Code via the [1m] suffix,
+        # which is stripped before the request leaves the client, so both land on
+        # this one route.
+        #
+        # Caveat for Claude Code specifically: CLI 2.1.220's model table stops at
+        # claude-opus-4-7, so it has no capability entry for this slug yet - it
+        # will be selectable via gateway discovery but without native_1m_3p or a
+        # [1m] variant until the CLI ships an entry. API-shaped consumers
+        # (Hermes, opencode, pi) are unaffected.
+        - model_name: claude-opus-5-5
+          litellm_params:
+            model: bedrock/us.anthropic.claude-opus-5-5
             aws_region_name: us-east-1
             timeout: 600
             drop_params: true

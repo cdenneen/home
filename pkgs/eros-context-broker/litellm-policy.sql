@@ -65,7 +65,25 @@ SET models = ARRAY(
     FROM unnest(coalesce(models, ARRAY[]::text[]) || ARRAY[
         'coding', 'local-embed', 'coding-openai', 'openai/*',
         'coding-haiku', 'coding-gemini', 'coding-strong',
+        -- 'claude-*' so a new claude route is reachable the moment it lands in
+        -- eros.nix, without a second edit here. Key model lists are explicit
+        -- (no bare '*'), so before this every added Claude model 403'd for all
+        -- 14 eros-% keys until someone remembered to extend this array - the
+        -- same declaration-vs-reality drift that silently removed web search
+        -- when the duckduckgo MCP server was renamed.
+        --
+        -- Verified against this LiteLLM build's own matcher
+        -- (_model_matches_any_wildcard_pattern_in_list): claude-* matches
+        -- claude-opus-5-5 and claude-sonnet-5, and does NOT match gpt-5.4 or
+        -- coding-strong - so it grants the claude-prefixed routes only and does
+        -- not silently widen access to the tier aliases that happen to share
+        -- the same underlying Bedrock models.
+        --
+        -- The explicit names stay listed: they are harmless, and they keep this
+        -- array readable as the intended catalog rather than a bare pattern.
+        'claude-*',
         'claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5',
+        'claude-opus-5-5',
         'g2-omniroute-openai-gpt4o-mini', 'g5-omniroute-bedrock-haiku',
         'tier0-local', 'tier1-general', 'tier1-coding', 'mini',
         'tier2-general', 'tier2-coding', 'auto', 'tier2-research',
