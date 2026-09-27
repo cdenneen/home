@@ -37,9 +37,13 @@ let
     "axis-claude-sonnet-4-6"
     "claude-haiku-4-5"
     "claude-sonnet-4-6"
+    "claude-sonnet-4-6-1m"
     "claude-sonnet-5"
+    "claude-sonnet-5-1m"
     "claude-opus-5"
+    "claude-opus-5-1m"
     "claude-opus-5-5"
+    "claude-opus-5-5-1m"
     "coding"
     "coding-core"
     "coding-gemini"
@@ -54,6 +58,7 @@ let
     "glm-5"
     "gpt-5.4"
     "gpt-5.6-terra"
+    "gpt-5.6-terra-1m"
     "kimi-k2.5"
     "local-embed"
     "mini"
@@ -424,6 +429,40 @@ in
           litellm_params:
             model: openai/*
             api_key: os.environ/OPENAI_API_KEY
+        # pi long-context switch aliases (2026-09-23), same idea as the
+        # claude-*-1m block: pi sends the id verbatim, so the 272k (base,
+        # OpenAI short-context pricing tier) vs 922k choice is a distinct
+        # model_name. Params identical to what the openai/* wildcard resolves
+        # to; exact model_name matches win over the wildcard, and the existing
+        # openai/* key grant covers these names. gpt-5.6-cyber (400k) skipped.
+        - model_name: openai/gpt-5.6-1m
+          litellm_params:
+            model: openai/gpt-5.6
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: openai/gpt-5.6-sol-1m
+          litellm_params:
+            model: openai/gpt-5.6-sol
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: openai/gpt-5.6-terra-1m
+          litellm_params:
+            model: openai/gpt-5.6-terra
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: openai/gpt-5.6-luna-1m
+          litellm_params:
+            model: openai/gpt-5.6-luna
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: openai/gpt-6-astra-1m
+          litellm_params:
+            model: openai/gpt-6-astra
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: openai/gpt-6-sol-1m
+          litellm_params:
+            model: openai/gpt-6-sol
+            api_key: os.environ/OPENAI_API_KEY
+        - model_name: openai/gpt-6-luna-1m
+          litellm_params:
+            model: openai/gpt-6-luna
+            api_key: os.environ/OPENAI_API_KEY
         - model_name: coding-haiku
           litellm_params:
             model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
@@ -518,7 +557,7 @@ in
               - x_hermes_source
             cache_control_injection_points: *eros_cache_points_with_tools
         - model_name: claude-sonnet-5
-          litellm_params:
+          litellm_params: &eros_claude_sonnet_5_params
             model: bedrock/us.anthropic.claude-sonnet-5
             aws_region_name: us-east-1
             timeout: 600
@@ -533,7 +572,7 @@ in
             # >200K-token test call before trusting this in practice.
             max_input_tokens: 1000000
         - model_name: claude-opus-5
-          litellm_params:
+          litellm_params: &eros_claude_opus_5_params
             # REGIONAL (us.), not the global. cross-region profile (2026-09-14).
             # Bedrock prompt caches are region-scoped: under global. AWS may
             # route consecutive invocations to different regions, so a cache
@@ -561,10 +600,10 @@ in
         # cache_control on a system block are accepted.
         #
         # Single route with max_input_tokens: 1000000, matching claude-opus-5 and
-        # claude-sonnet-5. There is deliberately no separate 200k/1M pair: the
-        # normal-vs-1M choice is client-side in Claude Code via the [1m] suffix,
-        # which is stripped before the request leaves the client, so both land on
-        # this one route.
+        # claude-sonnet-5. For Claude Code the normal-vs-1M choice is client-side
+        # via the [1m] suffix, which is stripped before the request leaves the
+        # client, so both land on this one route. pi has no such suffix, so the
+        # claude-*-1m aliases below exist purely as a pi-side switch.
         #
         # Caveat for Claude Code specifically: CLI 2.1.220's model table stops at
         # claude-opus-4-7, so it has no capability entry for this slug yet - it
@@ -572,7 +611,7 @@ in
         # [1m] variant until the CLI ships an entry. API-shaped consumers
         # (Hermes, opencode, pi) are unaffected.
         - model_name: claude-opus-5-5
-          litellm_params:
+          litellm_params: &eros_claude_opus_5_5_params
             model: bedrock/us.anthropic.claude-opus-5-5
             aws_region_name: us-east-1
             timeout: 600
@@ -580,6 +619,27 @@ in
             additional_drop_params:
               - x_hermes_source
             cache_control_injection_points: *eros_cache_points_with_tools
+          model_info:
+            max_input_tokens: 1000000
+
+        # --- pi 1M-context switch aliases (2026-09-23) ---
+        # pi-litellm registers every claude-* id with a hard-coded 200k
+        # contextWindow and pi has no [1m] suffix, so pi picks 200k vs 1M by
+        # model id: the base name is overridden to 200k in pi's models.json,
+        # the -1m name to 1M. Each alias reuses the base route's litellm_params
+        # via YAML anchor - same Bedrock deployment, same cache/timeout/guards.
+        # Covered by the existing claude-* key grant (litellm-policy.sql).
+        # No haiku (200k-only) and no axis-* alias, deliberately.
+        - model_name: claude-sonnet-5-1m
+          litellm_params: *eros_claude_sonnet_5_params
+          model_info:
+            max_input_tokens: 1000000
+        - model_name: claude-opus-5-1m
+          litellm_params: *eros_claude_opus_5_params
+          model_info:
+            max_input_tokens: 1000000
+        - model_name: claude-opus-5-5-1m
+          litellm_params: *eros_claude_opus_5_5_params
           model_info:
             max_input_tokens: 1000000
 
@@ -755,13 +815,16 @@ in
             additional_drop_params:
               - x_hermes_source
         - model_name: gpt-5.6-terra
-          litellm_params:
+          litellm_params: &eros_gpt_5_6_terra_params
             model: openai/gpt-5.6-terra
             api_base: http://127.0.0.1:20128/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+        # pi 922k switch alias; see the openai/*-1m block.
+        - model_name: gpt-5.6-terra-1m
+          litellm_params: *eros_gpt_5_6_terra_params
         - model_name: axis-claude-sonnet-4-6
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-4-6
@@ -851,7 +914,7 @@ in
         # comment above - the eros-hermes-agents key is granted these aliases
         # per explicit user request for "all the bedrock models we wired up".
         - model_name: claude-sonnet-4-6
-          litellm_params:
+          litellm_params: &eros_claude_sonnet_4_6_params
             model: bedrock/us.anthropic.claude-sonnet-4-6
             aws_region_name: us-east-1
             # See the timeout: 600 rationale on claude-haiku-4-5 above.
@@ -860,6 +923,12 @@ in
             additional_drop_params:
               - x_hermes_source
             cache_control_injection_points: *eros_cache_points_with_tools
+        # pi 1M switch alias for claude-sonnet-4-6; see the claude-*-1m block
+        # after claude-opus-5-5. Anchor is defined above, so this must follow.
+        - model_name: claude-sonnet-4-6-1m
+          litellm_params: *eros_claude_sonnet_4_6_params
+          model_info:
+            max_input_tokens: 1000000
         - model_name: qwen3-coder-next
           litellm_params:
             model: bedrock/qwen.qwen3-coder-next
