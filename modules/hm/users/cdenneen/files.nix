@@ -358,10 +358,12 @@ in
   # which drove autocompact every few turns.
   home.file.".codex/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
   home.file.".agents/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
-  home.file.".opencode/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".opencode/skills/gitlab-pipelines/SKILL.md".source =
+    ./ai/skills/gitlab-pipelines/SKILL.md;
   home.file.".claude/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
   home.file.".hermes/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
-  home.file.".pi/agent/skills/gitlab-pipelines/SKILL.md".source = ./ai/skills/gitlab-pipelines/SKILL.md;
+  home.file.".pi/agent/skills/gitlab-pipelines/SKILL.md".source =
+    ./ai/skills/gitlab-pipelines/SKILL.md;
 
   # Symlink pi packages from the pi-plugins Nix store package to ~/.pi/agent/npm/node_modules/
   # Only create symlinks when piPluginsPkg is available (i.e., when agentPkgs is set)
@@ -405,52 +407,107 @@ in
       baseUrl = null;
       api = "openai-completions";
       apiKey = null;
-      modelOverrides = {
-        coding-strong = {
-          maxTokens = 128000;
-          contextWindow = 1000000;
+      # pi-litellm hard-codes contextWindow 200000 for claude-* (128000 for
+      # everything else) and pi has no [1m] suffix, so eros' *-1m aliases
+      # (same upstream route) are the context switch: the base id gets the
+      # short window, the -1m id the long one. Claude: 200k / 1M. GPT-5.6/6:
+      # 272k (OpenAI short-context pricing tier, as pi's own GPT-5.6 default)
+      # / 922k (proxy max_input). Haiku is 200k-only. maxTokens from eros
+      # /model/info. pi-litellm's modelMeta only flags claude as reasoning, so
+      # the direct-OpenAI openai/* ids get pi's built-in GPT-5.6 thinking map
+      # (reasoning_effort passes through to OpenAI); the omniroute-backed
+      # gpt-5.6-terra alias gets context only.
+      modelOverrides =
+        let
+          pair = short: long: extra: name: {
+            ${name} = extra // {
+              contextWindow = short;
+            };
+            "${name}-1m" = extra // {
+              contextWindow = long;
+            };
+          };
+          gptReasoning = {
+            maxTokens = 128000;
+            reasoning = true;
+            thinkingLevelMap = {
+              off = "none";
+              minimal = null;
+              low = "low";
+              medium = "medium";
+              high = "high";
+              xhigh = "xhigh";
+              max = "max";
+            };
+          };
+          pairs = f: names: lib.mergeAttrsList (map f names);
+        in
+        pairs (pair 200000 1000000 { maxTokens = 128000; }) [
+          "claude-sonnet-5"
+          "claude-opus-5"
+          "claude-opus-5-5"
+        ]
+        // pair 200000 1000000 { maxTokens = 64000; } "claude-sonnet-4-6"
+        // pair 272000 922000 { maxTokens = 128000; } "gpt-5.6-terra"
+        // pairs (pair 272000 922000 gptReasoning) [
+          "openai/gpt-5.6"
+          "openai/gpt-5.6-sol"
+          "openai/gpt-5.6-terra"
+          "openai/gpt-5.6-luna"
+          "openai/gpt-6-astra"
+          "openai/gpt-6-sol"
+          "openai/gpt-6-luna"
+        ]
+        // {
+          claude-haiku-4-5 = {
+            maxTokens = 64000;
+            contextWindow = 200000;
+          };
+          coding-strong = {
+            maxTokens = 128000;
+            contextWindow = 1000000;
+          };
+          coding-core = {
+            maxTokens = 8192;
+            contextWindow = 262144;
+          };
+          coding = {
+            maxTokens = 4096;
+            contextWindow = 28672;
+          };
+          coding-openai = {
+            maxTokens = 128000;
+            contextWindow = 272000;
+          };
+          coding-gemini = {
+            maxTokens = 65535;
+            contextWindow = 1048576;
+          };
+          coding-haiku = {
+            maxTokens = 64000;
+            contextWindow = 200000;
+          };
+          review-strong = {
+            maxTokens = 128000;
+            contextWindow = 200000;
+          };
+          general-core = {
+            maxTokens = 8192;
+            contextWindow = 128000;
+          };
+          multimodal-long = {
+            maxTokens = 64000;
+            contextWindow = 1000000;
+          };
+          research-candidate = {
+            maxTokens = 262144;
+            contextWindow = 262144;
+          };
+          reasoning-candidate = {
+            maxTokens = 163840;
+            contextWindow = 163840;
+          };
         };
-        coding-core = {
-          maxTokens = 8192;
-          contextWindow = 262144;
-        };
-        coding = {
-          maxTokens = 4096;
-          contextWindow = 28672;
-        };
-        coding-openai = {
-          maxTokens = 128000;
-          contextWindow = 272000;
-        };
-        coding-gemini = {
-          maxTokens = 65535;
-          contextWindow = 1048576;
-        };
-        coding-haiku = {
-          maxTokens = 64000;
-          contextWindow = 200000;
-        };
-        review-strong = {
-          maxTokens = 128000;
-          contextWindow = 200000;
-        };
-        general-core = {
-          maxTokens = 8192;
-          contextWindow = 128000;
-        };
-        multimodal-long = {
-          maxTokens = 64000;
-          contextWindow = 1000000;
-        };
-        research-candidate = {
-          maxTokens = 262144;
-          contextWindow = 262144;
-        };
-        reasoning-candidate = {
-          maxTokens = 163840;
-          contextWindow = 163840;
-        };
-      };
     };
   };
 

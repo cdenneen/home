@@ -87,7 +87,7 @@ SET models = ARRAY(
         'g2-omniroute-openai-gpt4o-mini', 'g5-omniroute-bedrock-haiku',
         'tier0-local', 'tier1-general', 'tier1-coding', 'mini',
         'tier2-general', 'tier2-coding', 'auto', 'tier2-research',
-        'tier3-quality', 'quality', 'gpt-5.4', 'gpt-5.6-terra',
+        'tier3-quality', 'quality', 'gpt-5.4', 'gpt-5.6-terra', 'gpt-5.6-terra-1m',
         'axis-claude-sonnet-4-6', 'tier4-frontier', 'general-core',
         'coding-core', 'multimodal-long', 'review-strong',
         'research-candidate', 'reasoning-candidate', 'embedding-core',
