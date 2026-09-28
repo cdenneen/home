@@ -341,7 +341,7 @@ with subtest("G7 retained writable access in publish interval cannot diverge dig
     # Write helper via printf lines to avoid nested-quote issues in the driver.
     machine.succeed(
         "printf '%s\n' "
-        "'#!/bin/bash' "
+        "'#!/bin/sh' "
         "'export AXIS_SEAL_TEST_MUTATE_PUBLISH=BIND_MUTATION' "
         f"'python3 -E -s -B {sealpy} seal {job} >/tmp/bind-seal-out 2>/tmp/bind-seal-err' "
         "'echo $? > /tmp/bind-seal-rc' "
