@@ -39,13 +39,22 @@ with subtest("positive control: conforming job seals and executes"):
 
 # ---- A. Permission scope -----------------------------------------------------------------
 with subtest("axis may start and stop only the two acceptance templates"):
+    # Positive: start/stop of acceptance templates is allowed (exercised by seal_and_run).
+    # Denied ops must ASSERT non-zero — printing alone is not evidence.
     machine.fail(f"{AS_AXIS} systemctl start sshd.service")
     machine.fail(f"{AS_AXIS} systemctl stop polkit.service")
     machine.fail(f"{AS_AXIS} systemd-run --collect true")
     machine.fail(f"{AS_AXIS} systemctl daemon-reload")
-    for verb in ("restart", "reload", "kill"):
+    # manage-unit-files path (enable/disable) must be denied — not in start/stop contract.
+    rc_en = machine.execute(f"{AS_AXIS} systemctl enable axis-acceptance@probe00001.service")[0]
+    assert rc_en != 0, f"enable must be DENIED rc={rc_en}"
+    rc_dis = machine.execute(f"{AS_AXIS} systemctl disable axis-acceptance@probe00001.service")[0]
+    assert rc_dis != 0, f"disable must be DENIED rc={rc_dis}"
+    for verb in ("restart", "reload", "kill", "try-restart", "reload-or-restart"):
         rc = machine.execute(f"{AS_AXIS} systemctl {verb} axis-acceptance@probe00001.service")[0]
-        print(f"MEASURED verb={verb} rc={rc}")
+        assert rc != 0, f"{verb} must be DENIED rc={rc}"
+        print(f"DENIED verb={verb} rc={rc}")
+    print("POLKIT_DENIES_ASSERTED enable/disable/restart/reload/kill")
 
 # ---- B. Controller integrity -------------------------------------------------------------
 with subtest("a case cannot modify controller files, evidence, checkout, or its own snapshot"):
@@ -211,7 +220,7 @@ with subtest("G2 hard links into staged tree are rejected at seal"):
     machine.succeed(f"test ! -e {SPOOL}/jobs/{job}")
     # partial may exist after failed validate — must not be executable as job id
     machine.fail(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")
-    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/incoming/{job} /tmp/hl-outside-{job}")
+    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing {SPOOL}/incoming/{job} /tmp/hl-outside-{job}")
     print("G2_PASS seal_rc=", rc)
 
 # G3 Symlinks into/out of sealed tree
@@ -227,7 +236,7 @@ with subtest("G3 symlinks in staged tree are rejected at seal"):
     assert rc != 0, "seal must fail closed on symlink"
     machine.succeed(f"test ! -e {SPOOL}/jobs/{job}")
     machine.fail(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")
-    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/incoming/{job}")
+    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing {SPOOL}/incoming/{job}")
     print("G3_PASS seal_rc=", rc)
 
 # G4 Concurrent mutation during seal (controlled ordering via SIGSTOP)
@@ -262,7 +271,7 @@ with subtest("G4 concurrent mutation mid-seal cannot alter published digest"):
     assert "CONCURRENT_MUTATION" not in content, content
     assert "CONCURRENT_BASE" in content, content
     print("G4_PASS published_clean mut_rc=", mut_rc)
-    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/incoming/{job}")
+    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing {SPOOL}/incoming/{job}")
 
 with subtest("G5 interrupted sealing leaves non-executable partial"):
     job = "interrupt-01"
@@ -285,7 +294,98 @@ with subtest("G5 interrupted sealing leaves non-executable partial"):
     rc = machine.execute(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")[0]
     assert rc != 0, "partial must not execute"
     print("G5_PASS non_executable rc=", rc)
-    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/incoming/{job}")
+    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing {SPOOL}/incoming/{job}")
+
+# G5b Interrupted DURING publication (staging copy done, before atomic rename)
+with subtest("G5b interrupt during publication leaves non-executable partial"):
+    # invariant: jobs/<id>.publishing with SEALED must not authorize; runner sees no jobs/<id>
+    job = "interrupt-pub-01"
+    stage(job, "print('INTERRUPT_PUB')", [])
+    es = machine.succeed(f"systemctl show axis-acceptance-seal@{job}.service -p ExecStart --value")
+    pys = [x for x in re.findall(r"/nix/store/[^ ;]+", es) if x.endswith(".py")]
+    assert pys, es
+    sealpy = pys[0]
+    barrier = "/tmp/axis-seal-barrier-publish"
+    machine.succeed(f"rm -f {barrier}.ready {barrier}.cont /tmp/intpub-seal.pid")
+    machine.succeed(
+        f"bash -c 'AXIS_SEAL_TEST_PUBLISH_BARRIER={barrier} python3 -E -s -B {sealpy} seal {job} "
+        f">/tmp/intpub-seal-out 2>/tmp/intpub-seal-err & echo $! > /tmp/intpub-seal.pid'"
+    )
+    machine.wait_until_succeeds(f"test -f {barrier}.ready", timeout=60)
+    machine.succeed(f"test -d {SPOOL}/jobs/{job}.publishing")
+    machine.succeed(f"test -f {SPOOL}/jobs/{job}.publishing/SEALED")
+    machine.succeed(f"test ! -d {SPOOL}/jobs/{job}")
+    machine.succeed("kill -KILL $(cat /tmp/intpub-seal.pid)")
+    machine.succeed(f"test ! -d {SPOOL}/jobs/{job}")
+    # Real runner against partial publication state — must not execute.
+    rc = machine.execute(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")[0]
+    assert rc != 0, "publishing staging must not authorize execution"
+    # Even if SEALED exists under .publishing, entry path is jobs/<id> only.
+    machine.succeed(f"test -d {SPOOL}/jobs/{job}.publishing")
+    print("G5b_PASS publish_interrupt_non_executable rc=", rc)
+    machine.succeed(
+        f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing {SPOOL}/incoming/{job}"
+    )
+
+# G7 Bind published bytes: controlled divergence after candidate digest / during publish
+with subtest("G7 retained writable access in publish interval cannot diverge digest"):
+    # Controlled-order: mutate staging bytes after SEALED candidate digest, before rename.
+    # Seal must fail closed; jobs/<id> must not appear; runner must not execute.
+    job = "bind-bytes-01"
+    stage(job, "print('BIND_BASE')", [])
+    es = machine.succeed(f"systemctl show axis-acceptance-seal@{job}.service -p ExecStart --value")
+    pys = [x for x in re.findall(r"/nix/store/[^ ;]+", es) if x.endswith(".py")]
+    assert pys, es
+    sealpy = pys[0]
+    machine.succeed("rm -f /tmp/bind-seal-out /tmp/bind-seal-err /tmp/bind-seal-rc /tmp/bind-seal.sh")
+    # Write helper via printf lines to avoid nested-quote issues in the driver.
+    machine.succeed(
+        "printf '%s\n' "
+        "'#!/bin/bash' "
+        "'export AXIS_SEAL_TEST_MUTATE_PUBLISH=BIND_MUTATION' "
+        f"'python3 -E -s -B {sealpy} seal {job} >/tmp/bind-seal-out 2>/tmp/bind-seal-err' "
+        "'echo $? > /tmp/bind-seal-rc' "
+        "> /tmp/bind-seal.sh"
+    )
+    machine.succeed("chmod 755 /tmp/bind-seal.sh && /tmp/bind-seal.sh")
+    seal_rc = int(machine.succeed("cat /tmp/bind-seal-rc").strip())
+    assert seal_rc != 0, "seal must fail when published bytes diverge from SEALED digest"
+    machine.succeed(f"test ! -d {SPOOL}/jobs/{job}")
+    err = machine.succeed("cat /tmp/bind-seal-err || true")
+    assert "published digest mismatch" in err, err
+    rc_run = machine.execute(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")[0]
+    assert rc_run != 0, "diverged publish must not authorize execution"
+    print("G7_PASS bind_published_bytes seal_rc=", seal_rc, "run_rc=", rc_run)
+    machine.succeed(
+        f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing {SPOOL}/incoming/{job}"
+    )
+
+# G8 Entry rejects published snapshot that does not match SEALED
+with subtest("G8 entry verifies published snapshot against SEALED before exec"):
+    job = "entry-bind-01"
+    stage(job, "print('ENTRY_BIND_OK')", [])
+    machine.succeed(f"{AS_AXIS} systemctl start axis-acceptance-seal@{job}.service")
+    sealed = machine.succeed(f"cat {SPOOL}/jobs/{job}/SEALED").strip()
+    # Tamper published snapshot as root after seal (simulates divergent published bytes).
+    machine.succeed(
+        f"chmod u+w {SPOOL}/jobs/{job}/snapshot/src/probe_mod.py && "
+        f"echo TAMPERED >> {SPOOL}/jobs/{job}/snapshot/src/probe_mod.py && "
+        f"chmod 444 {SPOOL}/jobs/{job}/snapshot/src/probe_mod.py"
+    )
+    rc = machine.execute(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")[0]
+    assert rc != 0, "entry must DENY exec when published snapshot != SEALED"
+    # Restore original bytes so digest matches SEALED again.
+    machine.succeed(f"chmod u+w {SPOOL}/jobs/{job}/snapshot/src/probe_mod.py")
+    machine.succeed(
+        f"tee {SPOOL}/jobs/{job}/snapshot/src/probe_mod.py > /dev/null << 'PYEOF'\nprint('ENTRY_BIND_OK')\nPYEOF"
+    )
+    machine.succeed(f"chmod 444 {SPOOL}/jobs/{job}/snapshot/src/probe_mod.py")
+    rc_ok = machine.execute(f"{AS_AXIS} systemctl start --wait axis-acceptance@{job}.service")[0]
+    assert rc_ok == 0, rc_ok
+    out = result(job)
+    assert "ENTRY_BIND_OK" in out, out
+    print("G8_PASS entry_bind sealed=", sealed, "deny_rc=", rc, "ok_rc=", rc_ok)
+    machine.succeed(f"rm -rf {SPOOL}/jobs/{job} {SPOOL}/jobs/{job}.sealing {SPOOL}/jobs/{job}.publishing")
 
 with subtest("G6 repeated seal/start cannot substitute different content"):
     # RemainAfterExit=true: second systemctl start may no-op (rc=0) without re-running
