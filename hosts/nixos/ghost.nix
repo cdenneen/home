@@ -376,6 +376,7 @@ in
 {
   imports = [
     ./ghost-base.nix
+    ./platform-axis-acceptance.nix
     axis.nixosModules.default
   ];
 
