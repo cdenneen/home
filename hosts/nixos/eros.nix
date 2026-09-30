@@ -1489,6 +1489,25 @@ in
     environment = {
       HOME = config.users.users.cdenneen.home;
       HOSTNAME = "127.0.0.1";
+      # HOST, not just HOSTNAME (2026-09-30). OmniRoute 3.8.51 hardened the
+      # default bind of the Next server that serves /v1/chat/completions and
+      # /v1/responses: it previously bound `HOST || 0.0.0.0` - every interface -
+      # and .51 tightened that. HOSTNAME is a system/shell variable the Next
+      # server does not read, so upgrading to .51 without HOST set drops the
+      # 127.0.0.1 listener that litellm's OmniRoute routes depend on
+      # (api_base: http://127.0.0.1:20128/v1). Verified on eros before this
+      # change: 3.8.51 with HOST unset never answered on loopback; with
+      # HOST=127.0.0.1 it binds and returns the same HTTP 307 as 3.8.49.
+      #
+      # Setting it now is a no-op on 3.8.49 (which already binds loopback) and
+      # is the prerequisite for taking 3.8.51, which carries the fix for the
+      # silent-empty-response retry loop that cost $1,497 over 15h49m on
+      # 2026-09-28/29: PR #12262, "trust finish_reason length/max_tokens over
+      # the reasoning-consumed-token ratio in response quality validation, so a
+      # reasoning model truncated below the old 90% threshold correctly fails
+      # and retries instead of returning empty content as a silent success".
+      # That fix is in 3.8.51 only - 3.8.50 does not have it.
+      HOST = "127.0.0.1";
       PORT = toString omniroutePort;
       DATA_DIR = "${config.users.users.cdenneen.home}/.omniroute";
       # Temporary diagnostic (2026-09-02): captures full request/response
