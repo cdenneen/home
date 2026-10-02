@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "falkordb-schema"
+version = "0.1.0"
+description = "FalkorDB knowledge graph schema and utilities"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "redis>=5.0.0",
+]
+
+[project.scripts]
+falkordb-init-schema = "init_schema:init_schema"
+falkordb-record-completed-task = "record_completed_task:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["init_schema.py", "record_completed_task.py", "falkordb_schema*"]
