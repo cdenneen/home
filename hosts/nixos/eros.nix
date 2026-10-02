@@ -21,6 +21,7 @@ let
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   bedrockToolGuardFile = ../../pkgs/eros-litellm-hooks/bedrock_tool_guard.py;
   omniroutePort = 20130;
+  redisPort = 6379;
   qdrantPort = 6333;
   contextPorts = {
     shared = 18120;
@@ -202,6 +203,23 @@ in
         image = "qdrant/qdrant:v1.18.3@sha256:0bd98fa7977f1e75694779359ca4e212822e5a71334e28421182f72f209d5286";
         ports = [ "127.0.0.1:${toString qdrantPort}:6333" ];
         volumes = [ "/var/lib/qdrant:/qdrant/storage:U" ];
+        autoStart = true;
+      };
+      redis = {
+        # Redis 7.4 — pinned multi-arch index digest (aarch64-compatible).
+        # Loopback-only: used for session-state caching and agent-context
+        # fast-path. Exposed on tailnet via tailscale serve for cross-host
+        # access from nyx/ghost.
+        image = "redis:7.4@sha256:5ae47eabf9ef58b89a574b4fe9ccadb86a0db5aee2df3a7bc6ae2d69f08a7f1a";
+        ports = [ "127.0.0.1:${toString redisPort}:6379" ];
+        volumes = [ "/var/lib/redis:/data:U" ];
+        cmd = [
+          "redis-server"
+          "--appendonly"
+          "yes"
+          "--bind"
+          "0.0.0.0"
+        ];
         autoStart = true;
       };
       litellm = {
@@ -1724,6 +1742,7 @@ in
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=${toString litellmHttpsPort} http://127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --yes --tcp=20128 off 2>/dev/null || true
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
       # Shared AI Services MVP: policy-endpoint instances on Ghost/Nyx need
       # to reach Qdrant for shared-reuse retrieval/promotion
       # (shared_intelligence.py) - previously loopback-only, undiscovered
