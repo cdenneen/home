@@ -181,46 +181,50 @@ in
     };
   };
 
-  launchd.agents.omniroute = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && hostName == "VNJTECMBCD") {
-    enable = true;
-    config = {
-      ProgramArguments = [
-        "${config.home.homeDirectory}/.local/bin/omniroute"
-        "--no-open"
-      ];
-      EnvironmentVariables = {
-        HOME = config.home.homeDirectory;
-        PATH = "${config.home.homeDirectory}/.local/bin:${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
-        HOSTNAME = "127.0.0.1";
-        PORT = "20128";
-        DATA_DIR = "${config.home.homeDirectory}/.omniroute";
+  launchd.agents.omniroute =
+    lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && hostName == "VNJTECMBCD")
+      {
+        enable = true;
+        config = {
+          ProgramArguments = [
+            "${config.home.homeDirectory}/.local/bin/omniroute"
+            "--no-open"
+          ];
+          EnvironmentVariables = {
+            HOME = config.home.homeDirectory;
+            PATH = "${config.home.homeDirectory}/.local/bin:${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+            HOSTNAME = "127.0.0.1";
+            PORT = "20128";
+            DATA_DIR = "${config.home.homeDirectory}/.omniroute";
+          };
+          KeepAlive = true;
+          RunAtLoad = true;
+          ProcessType = "Background";
+          StandardOutPath = "${config.home.homeDirectory}/Library/Logs/omniroute.log";
+          StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/omniroute.log";
+        };
       };
-      KeepAlive = true;
-      RunAtLoad = true;
-      ProcessType = "Background";
-      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/omniroute.log";
-      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/omniroute.log";
-    };
-  };
 
-  launchd.agents.oci-ghost-autostart = lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && enableOciGhostAutostart) {
-    enable = true;
-    config = {
-      ProgramArguments = [
-        "${config.home.homeDirectory}/.local/bin/ensure-oci-ghost-runner"
-      ];
-      EnvironmentVariables = {
-        HOME = config.home.homeDirectory;
-        WORKSPACE_ROOT = "${config.home.homeDirectory}/code/workspace";
-        PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+  launchd.agents.oci-ghost-autostart =
+    lib.mkIf (pkgs.stdenv.hostPlatform.isDarwin && enableOciGhostAutostart)
+      {
+        enable = true;
+        config = {
+          ProgramArguments = [
+            "${config.home.homeDirectory}/.local/bin/ensure-oci-ghost-runner"
+          ];
+          EnvironmentVariables = {
+            HOME = config.home.homeDirectory;
+            WORKSPACE_ROOT = "${config.home.homeDirectory}/code/workspace";
+            PATH = "${config.home.profileDirectory}/bin:${config.home.homeDirectory}/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/etc/profiles/per-user/cdenneen/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin";
+          };
+          RunAtLoad = true;
+          StartInterval = 300;
+          ProcessType = "Background";
+          StandardOutPath = "${config.home.homeDirectory}/Library/Logs/oci-ghost-autostart.log";
+          StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/oci-ghost-autostart.log";
+        };
       };
-      RunAtLoad = true;
-      StartInterval = 300;
-      ProcessType = "Background";
-      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/oci-ghost-autostart.log";
-      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/oci-ghost-autostart.log";
-    };
-  };
 
   launchd.agents.peps-service = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
     enable = true;
@@ -299,7 +303,7 @@ in
   };
 
   services.syncthing = {
-    enable = true;
+    enable = false; # No folders configured on any host — agent-context uses GitHub/eros instead
     tray.enable = pkgs.stdenv.hostPlatform.isLinux;
     overrideDevices = false;
     overrideFolders = false;
@@ -333,108 +337,110 @@ in
   programs.ssh =
     let
       sshSettings = {
-      "i-* m-*" = {
-        ProxyCommand = ssmProxyCommand;
-      };
+        "i-* m-*" = {
+          ProxyCommand = ssmProxyCommand;
+        };
 
-      c9 = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        ProxyCommand = ssmProxyCommand;
-        User = "ubuntu";
-        HostName = "i-085b4f08b56c8b914";
-      };
+        c9 = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          ProxyCommand = ssmProxyCommand;
+          User = "ubuntu";
+          HostName = "i-085b4f08b56c8b914";
+        };
 
-      "eros-ssm" = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        ProxyCommand = ssmProxyCommand;
-        User = "cdenneen";
-        HostName = "i-0a3e1df60bde023ad";
-        RemoteForward = erosRemoteForwards;
-      };
+        "eros-ssm" = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          ProxyCommand = ssmProxyCommand;
+          User = "cdenneen";
+          HostName = "i-0a3e1df60bde023ad";
+          RemoteForward = erosRemoteForwards;
+        };
 
-      eros = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        User = "cdenneen";
-        HostName = "10.224.11.147";
-        RemoteForward = erosRemoteForwards;
-      };
+        eros = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          User = "cdenneen";
+          HostName = "10.224.11.147";
+          RemoteForward = erosRemoteForwards;
+        };
 
-      nyx = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        User = "cdenneen";
-        HostName = "100.80.58.4";
-        RemoteForward = erosRemoteForwards;
-      };
+        nyx = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          User = "cdenneen";
+          HostName = "100.80.58.4";
+          RemoteForward = erosRemoteForwards;
+        };
 
-      ghost = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        User = "cdenneen";
-        HostName = "150.136.97.147";
-      };
+        ghost = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          User = "cdenneen";
+          HostName = "150.136.97.147";
+        };
 
-      "nyx-ssm" = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        ProxyCommand = ssmProxyCommand;
-        User = "cdenneen";
-        HostName = "i-052cb7906e89d224a";
-        RemoteForward = erosRemoteForwards;
-      };
+        "nyx-ssm" = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          ProxyCommand = ssmProxyCommand;
+          User = "cdenneen";
+          HostName = "i-052cb7906e89d224a";
+          RemoteForward = erosRemoteForwards;
+        };
 
-      nix = {
-        User = "root";
-        HostName = "10.224.11.140";
-        IdentityFile = "~/.ssh/cdenneen_winlaptop.pem";
-        RequestTTY = "no";
-      };
+        nix = {
+          User = "root";
+          HostName = "10.224.11.140";
+          IdentityFile = "~/.ssh/cdenneen_winlaptop.pem";
+          RequestTTY = "no";
+        };
 
-      "git-codecommit.*.amazonaws.com" = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        User = "APKA4GUE2SGMGTPZB44D";
-      };
+        "git-codecommit.*.amazonaws.com" = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          User = "APKA4GUE2SGMGTPZB44D";
+        };
 
-      puppet = {
-        IdentitiesOnly = true;
-        IdentityFile = identityConfig.identityFile;
-        User = "root";
-        HostName = "ctcpmaster01.ap.org";
-      };
+        puppet = {
+          IdentitiesOnly = true;
+          IdentityFile = identityConfig.identityFile;
+          User = "root";
+          HostName = "ctcpmaster01.ap.org";
+        };
 
-      "github.com" = {
-        User = "git";
-        IdentitiesOnly = true;
-        IdentityFile = [ "${sshDir}/github_ed25519" ];
-      };
+        "github.com" = {
+          User = "git";
+          IdentitiesOnly = true;
+          IdentityFile = [ "${sshDir}/github_ed25519" ];
+        };
 
-      "gitlab.com" = {
-        IdentitiesOnly = true;
-        IdentityFile = [ "${sshDir}/cdenneen_ed25519_2024" ];
-        User = "git";
-      };
-      "git.ap.org" = {
-        IdentitiesOnly = true;
-        IdentityFile = [ "~/.ssh/id_ed25519" ];
-      };
+        "gitlab.com" = {
+          IdentitiesOnly = true;
+          IdentityFile = [ "${sshDir}/cdenneen_ed25519_2024" ];
+          User = "git";
+        };
+        "git.ap.org" = {
+          IdentitiesOnly = true;
+          IdentityFile = [ "~/.ssh/id_ed25519" ];
+        };
       };
       legacySshSettings = lib.mapAttrs (
-        _:
-        hostSettings:
+        _: hostSettings:
         lib.mapAttrs' (
           name: value:
-          lib.nameValuePair {
-            ProxyCommand = "proxyCommand";
-            IdentitiesOnly = "identitiesOnly";
-            IdentityFile = "identityFile";
-            User = "user";
-            HostName = "hostname";
-            RemoteForward = "remoteForwards";
-          }.${name} or name value
+          lib.nameValuePair
+            {
+              ProxyCommand = "proxyCommand";
+              IdentitiesOnly = "identitiesOnly";
+              IdentityFile = "identityFile";
+              User = "user";
+              HostName = "hostname";
+              RemoteForward = "remoteForwards";
+            }
+            .${name} or name
+            value
         ) (lib.filterAttrs (name: _: name != "RequestTTY") hostSettings)
       ) sshSettings;
     in
