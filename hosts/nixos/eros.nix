@@ -261,10 +261,13 @@ in
         autoStart = true;
       };
       falkordb-mcp = {
-        # falkordb/mcpserver:latest pinned to digest from Docker Hub 2026-10-02.
-        # Runs HTTP transport, connecting to FalkorDB on 127.0.0.1:6380.
+        # falkordb/mcpserver:latest pinned to Docker Hub 2026-10-02.
+        # Runs HTTP transport, using --network=host so FALKORDB_HOST=127.0.0.1
+        # reaches the FalkorDB container (shared network namespace, no port
+        # mapping needed - it's publishing to 127.0.0.1:6380 on the host).
         image = "falkordb/mcpserver@sha256:2baa2346d7ad7476e90d99211111f677a357eb4d46cf29ef69ada84a578aefdd";
         ports = [ "127.0.0.1:8081:3000" ];
+        extraOptions = [ "--network=host" ];
         environment = {
           FALKORDB_HOST = "127.0.0.1";
           FALKORDB_PORT = toString falkordbPort;
@@ -1728,10 +1731,6 @@ in
       # POST/PUT (GET happened to work locally-only in prior testing; this
       # is the first time it's been reached from another host at all).
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantPort} 127.0.0.1:${toString qdrantPort}
-      # FalkorDB ports: 6380 for Graph/Redis, 8081 for MCP server.
-      # Loopback-only as per Phase 3 spec.
-      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString falkordbPort} 127.0.0.1:${toString falkordbPort}
-      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp 8081 127.0.0.1:8081
     '';
   };
 

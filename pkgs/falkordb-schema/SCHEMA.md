@@ -27,6 +27,9 @@ Represents a unit of work from Ghost Kanban.
 ### File
 Represents a file in the repository.
 
+Node key: `(path, repo)` - composite key to support multiple repositories
+with files at the same relative path.
+
 - `path`: Full file path (e.g., "hosts/nixos/eros.nix")
 - `repo`: Repository name (e.g., "cdenneen/home")
 - `sha`: Commit SHA where file was last touched
@@ -80,7 +83,7 @@ Create these on first run via `init_schema.py`:
 ```cypher
 CREATE CONSTRAINT task_id IF NOT EXISTS FOR (t:Task) REQUIRE t.id IS UNIQUE;
 CREATE CONSTRAINT agent_id IF NOT EXISTS FOR (a:Agent) REQUIRE a.id IS UNIQUE;
-CREATE CONSTRAINT file_path IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE;
+CREATE CONSTRAINT file_path_repo IF NOT EXISTS FOR (f:File) REQUIRE (f.path, f.repo) IS UNIQUE;
 CREATE CONSTRAINT repo_name IF NOT EXISTS FOR (r:Repo) REQUIRE r.name IS UNIQUE;
 CREATE CONSTRAINT issue_id IF NOT EXISTS FOR (i:Issue) REQUIRE i.id IS UNIQUE;
 CREATE CONSTRAINT decision_id IF NOT EXISTS FOR (d:Decision) REQUIRE d.id IS UNIQUE;
