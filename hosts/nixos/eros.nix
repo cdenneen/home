@@ -1118,6 +1118,7 @@ in
               - terraform
               - eros-context-shared
               - falkordb
+              - agent_handoff
         # Direct request-layer semantic filtering remains disabled until a
         # pinned-v1.94 compatibility test proves nested/native tools fail open.
         # MCP-speaking clients use /mcp/ virtual tool search instead.
