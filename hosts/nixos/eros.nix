@@ -30,6 +30,12 @@ let
   agentHandoffPort = 18123;
   agentHandoffSource = ../../pkgs/agent-handoff;
   agentHandoffEnv = pkgs.python313.withPackages (ps: [ ps.mcp ]);
+  # git and ssh must be on PATH for the service to clone and push.
+  agentHandoffPath = lib.makeBinPath [
+    pkgs.git
+    pkgs.openssh
+    pkgs.coreutils
+  ];
   contextBroker = pkgs.python313.withPackages (ps: [
     ps.mcp
     ps.psycopg
@@ -1439,6 +1445,7 @@ in
       AGENT_HANDOFF_REPO = "/var/lib/agent-handoff/agent-context";
       AGENT_HANDOFF_GITHUB_REPO = "cdenneen/agent-context";
       AGENT_HANDOFF_DEPLOY_KEY = "/run/agent-handoff/deploy_key";
+      PATH = "${agentHandoffPath}:${agentHandoffEnv}/bin";
     };
     serviceConfig = {
       Type = "simple";

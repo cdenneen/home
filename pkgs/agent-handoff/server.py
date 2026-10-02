@@ -18,8 +18,6 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("agent-handoff")
-
 
 def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
@@ -34,6 +32,10 @@ PORT = int(env("AGENT_HANDOFF_PORT", "18123"))
 HANDOFFS_DIR = REPO_DIR / "handoffs"
 CONTEXT_DIR = REPO_DIR / "context"
 MEMORY_DIR = REPO_DIR / "memory"
+
+mcp = FastMCP(
+    "agent-handoff", host="127.0.0.1", port=PORT
+)
 
 
 # ---------------------------------------------------------------------------
@@ -457,4 +459,4 @@ if __name__ == "__main__":
 
     if args.command == "serve":
         _ensure_repo()
-        mcp.run(transport="streamable-http", host="127.0.0.1", port=PORT)
+        mcp.run(transport="streamable-http")
