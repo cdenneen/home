@@ -111,7 +111,7 @@ let
 
     ## Reporting to Chief of Staff (MANDATORY)
 
-    You have a `cos-update` command available. Call it — do not just describe that you would.
+    You have a `cos-update` skill. Call it — do not just describe that you would.
 
     Call it at these points without waiting to be asked:
     - **Session start**: `cos-update started "Working on: <topic>"`
