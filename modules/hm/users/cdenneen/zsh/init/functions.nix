@@ -67,6 +67,12 @@
       [[ "$arg" == "--vault" || "$arg" == --vault=* ]] && has_vault=1 && break
     done
 
+    # `op item move` takes --current-vault/--destination-vault, and
+    # `op item template` is vault-independent; both error on --vault.
+    case "''${args[2]:-}" in
+      move|mv|template) has_vault=1 ;;
+    esac
+
     if (( ! has_vault )) && [[ "''${args[1]:-}" == "item" ]]; then
       default_vault="$(resolve_op_ap_default_vault)"
       args+=(--vault "$default_vault")
