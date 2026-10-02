@@ -28,8 +28,11 @@ let
     work = 18122;
   };
   agentHandoffPort = 18123;
+  kanbanShimPort = 18124;
   agentHandoffSource = ../../pkgs/agent-handoff;
   agentHandoffEnv = pkgs.python313.withPackages (ps: [ ps.mcp ]);
+  kanbanShimSource = ../../pkgs/kanban-shim;
+  kanbanShimEnv = pkgs.python313.withPackages (ps: [ ps.mcp ]);
   contextBroker = pkgs.python313.withPackages (ps: [
     ps.mcp
     ps.psycopg
@@ -101,8 +104,11 @@ let
     # via the gateway rather than this direct catalog.
     gitlab = "http://nyx.tail0e55.ts.net:18101/mcp";
     # Agent handoff: durable cross-agent context, session bridging, /handoff.
-    # Runs locally on eros (port 18123); no trust-domain isolation needed.
+    # Runs locally on eros (port 18124); no trust-domain isolation needed.
     agent-handoff = "http://127.0.0.1:${toString agentHandoffPort}/mcp";
+    # Kanban shim: expose Ghost's Hermes Kanban as MCP tools on Eros.
+    # Runs locally on eros (port 18124); no trust-domain isolation needed.
+    kanban_shim = "http://127.0.0.1:${toString kanbanShimPort}/mcp";
   };
   contextSkillRoots = lib.concatStringsSep ":" [
     "${../../modules/hm/users/cdenneen/ai/skills}"
@@ -351,6 +357,13 @@ in
     # to clone the repo and push handoff documents. Write-access deploy key,
     # scoped to cdenneen/agent-context only. Generated 2026-10-02.
     agent_handoff_deploy_key = {
+      owner = "cdenneen";
+      group = "cdenneen";
+      mode = "0400";
+    };
+    # SSH deploy key for kanban-shim service on eros.
+    # Constrained to hermes kanban commands only via authorized_keys command=.
+    kanban_shim_ssh_key = {
       owner = "cdenneen";
       group = "cdenneen";
       mode = "0400";
@@ -1285,6 +1298,12 @@ in
           transport: "http"
           description: "Durable cross-agent session handoffs, context bridging, and /handoff resume prompts"
           mcp_info: *eros_local_mcp_cost
+        kanban_shim:
+          server_id: "kanban-shim"
+          url: "http://127.0.0.1:${toString kanbanShimPort}/mcp"
+          transport: "http"
+          description: "Ghost's Hermes Kanban as MCP tools on Eros"
+          mcp_info: *eros_local_mcp_cost
       EOF
       ${pkgs.yq-go}/bin/yq -e '
         [
@@ -1426,7 +1445,7 @@ in
   systemd.services.eros-context-work = mkContextBrokerService "work" contextPorts.work;
 
   # Agent handoff service — durable cross-agent context and session bridging.
-  # Runs as cdenneen (needs GitHub token from SOPS), exposes FastMCP on port 18123.
+  # Runs as cdenneen (needs GitHub token from SOPS), exposes FastMCP on port 18124.
   # Separate from the context brokers: no trust-domain isolation needed, different
   # security posture (needs git/GitHub access), and host-name-agnostic by design.
   systemd.services.agent-handoff = {
@@ -1462,6 +1481,45 @@ in
       RestartSec = "5s";
       StateDirectory = "agent-handoff";
       RuntimeDirectory = "agent-handoff";
+      RuntimeDirectoryMode = "0700";
+      NoNewPrivileges = true;
+    };
+  };
+
+  # Kanban shim service — expose Ghost's Hermes Kanban as MCP tools on Eros.
+  # Runs as cdenneen (needs SSH key from SOPS), exposes FastMCP on port 18124.
+  # Separate from the context brokers: no trust-domain isolation needed.
+  systemd.services.kanban-shim = {
+    description = "Kanban shim — expose Ghost's Hermes Kanban as MCP tools on Eros";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    environment = {
+      KANBAN_SHIM_PORT = toString kanbanShimPort;
+      KANBAN_SHIM_SSH_TARGET = "cdenneen@ghost.tail0e55.ts.net";
+      KANBAN_SHIM_SSH_KEY = "/run/kanban-shim/ssh_key";
+    };
+    path = [
+      pkgs.openssh
+      pkgs.coreutils
+      kanbanShimEnv
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "cdenneen";
+      ExecStartPre = pkgs.writeShellScript "kanban-shim-env" ''
+        set -euo pipefail
+        install -d -m 700 /run/kanban-shim
+        ${pkgs.coreutils}/bin/install -m 600 \
+          "${config.sops.secrets.kanban_shim_ssh_key.path}" \
+          /run/kanban-shim/ssh_key
+      '';
+      ExecStart = "${kanbanShimEnv}/bin/python ${kanbanShimSource}/server.py serve";
+      Restart = "on-failure";
+      RestartSec = "5s";
+      StateDirectory = "kanban-shim";
+      RuntimeDirectory = "kanban-shim";
       RuntimeDirectoryMode = "0700";
       NoNewPrivileges = true;
     };
