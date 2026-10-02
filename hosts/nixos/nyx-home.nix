@@ -154,6 +154,7 @@ in
   };
 
   profiles.hermesKanbanSync.installCollector = true;
+  profiles.agentHandoff.enable = true;
   profiles.hermesAssistant = {
     work.enable = true;
     automation = {
