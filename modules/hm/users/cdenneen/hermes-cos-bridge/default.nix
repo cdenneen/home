@@ -33,7 +33,7 @@ in
       map (root: {
         name = "${root}/cos-update/SKILL.md";
         value = {
-          source = ../../../../modules/hm/users/cdenneen/ai/skills/cos-update/SKILL.md;
+          source = ./SKILL.md;
         };
       }) cfg.skillTargets
     );
