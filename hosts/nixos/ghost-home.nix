@@ -203,6 +203,22 @@ in
 
   profiles.agentHandoff.enable = true;
 
+  # CoS Kanban sweep cron — installed via hermes cron so the gateway runs it
+  # on schedule without a separate systemd service. Chief-of-staff reads all
+  # work boards every 4 hours on weekdays and surfaces drift to Slack.
+  home.activation.hermesCosSweepCron = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    set -euo pipefail
+    _hermes="$(command -v hermes 2>/dev/null || echo "")"
+    if [ -n "$_hermes" ] && [ -S "$HOME/.hermes/gateway.sock" ] 2>/dev/null || \
+       systemctl --user is-active hermes-mesh-gateway.service >/dev/null 2>&1; then
+      "$_hermes" -p chief-of-staff cron add \
+        --name "kanban-sweep" \
+        --schedule "0 9,13,17,21 * * 1-5" \
+        --prompt "Kanban sweep. Read all work boards (work-ops, work-eks-platform, work-gitlab). For each in-progress task: check last comment/update time and identify any over 4 hours without a cos-update from the assigned worker. Post a brief status digest to Slack channel C0BHLUXQ4EB. For tasks blocked over 24 hours with no owner action, escalate to Chris with the exact gate. Do not dispatch new work in this sweep — surface drift only." \
+        2>/dev/null || true  # idempotent: cron add is safe to re-run
+    fi
+  '';
+
   profiles.hermesKanbanSync = {
     enable = true;
     outboundEnabled = true;

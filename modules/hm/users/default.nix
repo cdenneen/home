@@ -30,6 +30,7 @@ in
     ./cdenneen/hermes-supervisor/default.nix
     ./cdenneen/hermes-watchdog/default.nix
     ./cdenneen/agent-handoff/default.nix
+    ./cdenneen/hermes-cos-bridge/default.nix
   ];
 
   options.profiles = {
