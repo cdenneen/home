@@ -257,20 +257,19 @@ in
           "127.0.0.1:${toString falkordbPort}:6379"
           "127.0.0.1:${toString falkordbBrowserPort}:3000"
         ];
-        volumes = [ "/var/lib/falkordb:/var/lib/falkordb:U" ];
+        volumes = [ "/var/lib/falkordb:/var/lib/falkordb/data:U" ];
         autoStart = true;
       };
       falkordb-mcp = {
-        # falkordb/mcpserver:latest pinned to Docker Hub 2026-10-02.
+        # falkordb/mcpserver:latest arm64 image pinned from Docker Hub 2026-10-02.
         # Runs HTTP transport, using --network=host so FALKORDB_HOST=127.0.0.1
-        # reaches the FalkorDB container (shared network namespace, no port
-        # mapping needed - it's publishing to 127.0.0.1:6380 on the host).
-        image = "falkordb/mcpserver@sha256:2baa2346d7ad7476e90d99211111f677a357eb4d46cf29ef69ada84a578aefdd";
-        ports = [ "127.0.0.1:8081:3000" ];
+        # reaches the host-published FalkorDB port directly.
+        image = "falkordb/mcpserver@sha256:54f260dac099141a7e7945d1f4bf380317bc56f89e0a7391461e0c57ba83f24d";
         extraOptions = [ "--network=host" ];
         environment = {
           FALKORDB_HOST = "127.0.0.1";
           FALKORDB_PORT = toString falkordbPort;
+          MCP_PORT = "8081";
         };
         autoStart = true;
       };
@@ -1636,8 +1635,8 @@ in
       "eros-litellm-config.service"
       "ollama.service"
       "podman-qdrant.service"
-      "podman-falkordb.service"
     ];
+    wants = [ "podman-falkordb.service" ];
     after = [
       "eros-litellm-db-user.service"
       "eros-litellm-env.service"
