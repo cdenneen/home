@@ -29,6 +29,7 @@ in
     ./cdenneen/hermes-slack-platform
     ./cdenneen/hermes-supervisor/default.nix
     ./cdenneen/hermes-watchdog/default.nix
+    ./cdenneen/agent-handoff/default.nix
   ];
 
   options.profiles = {

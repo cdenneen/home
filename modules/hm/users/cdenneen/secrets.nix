@@ -261,6 +261,8 @@ let
   };
   shellSecretExports = ''
     export OP_AP_SERVICE_ACCOUNT_TOKEN_FILE="${config.home.homeDirectory}/.config/sops-nix/secrets/op_service_account_token_ap"
+    export OP_AP_DEFAULT_VAULT="gss"
+    export OP_AP_FALLBACK_VAULT="cdenneen-env"
 
     if [ -r "${config.sops.secrets.supabase_access_token.path}" ]; then
       export SUPABASE_ACCESS_TOKEN="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "${config.sops.secrets.supabase_access_token.path}")"

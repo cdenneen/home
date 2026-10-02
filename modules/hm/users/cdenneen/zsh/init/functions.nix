@@ -61,7 +61,6 @@
       return 1
     }
 
-    default_vault="''${OP_AP_DEFAULT_VAULT:-cdenneen-env}"
     args=("$@")
     has_vault=0
     for arg in "$@"; do
@@ -69,6 +68,7 @@
     done
 
     if (( ! has_vault )) && [[ "''${args[1]:-}" == "item" ]]; then
+      default_vault="$(resolve_op_ap_default_vault)"
       args+=(--vault "$default_vault")
     fi
 
@@ -109,6 +109,25 @@
       token_file="$(resolve_op_service_token_file 2>/dev/null || true)"
       [[ -n "$token_file" ]] && export OP_SERVICE_ACCOUNT_TOKEN="$(tr -d '\n\r' < "$token_file")"
     fi
+  }
+
+  resolve_op_ap_default_vault() {
+    local preferred fallback
+
+    preferred="''${OP_AP_DEFAULT_VAULT:-gss}"
+    fallback="''${OP_AP_FALLBACK_VAULT:-cdenneen-env}"
+
+    if op vault get "$preferred" >/dev/null 2>&1; then
+      print -r -- "$preferred"
+      return 0
+    fi
+
+    if [[ -n "$fallback" ]] && op vault get "$fallback" >/dev/null 2>&1; then
+      print -r -- "$fallback"
+      return 0
+    fi
+
+    print -r -- "$preferred"
   }
 
   has_op_service_token() {

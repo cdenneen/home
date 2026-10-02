@@ -201,6 +201,8 @@ in
     };
   };
 
+  profiles.agentHandoff.enable = true;
+
   profiles.hermesKanbanSync = {
     enable = true;
     outboundEnabled = true;
