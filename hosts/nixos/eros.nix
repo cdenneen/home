@@ -1722,9 +1722,7 @@ in
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=${toString litellmHttpsPort} http://127.0.0.1:${toString litellmPort}
-      # Remove any stale OmniRoute serve rule on the old port (20128) before
-      # registering the current one; harmless if 20128 is not registered.
-      ${pkgs.tailscale}/bin/tailscale serve --yes off --tcp 20128 2>/dev/null || true
+      ${pkgs.tailscale}/bin/tailscale serve --yes --tcp=20128 off 2>/dev/null || true
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
       # Shared AI Services MVP: policy-endpoint instances on Ghost/Nyx need
       # to reach Qdrant for shared-reuse retrieval/promotion
