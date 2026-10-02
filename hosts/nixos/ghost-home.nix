@@ -36,6 +36,7 @@ let
       emit_secret API_SERVER_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_ghost.path}
       emit_secret HERMES_PEER_GHOST_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_ghost.path}
       emit_secret HERMES_PEER_NYX_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_nyx.path}
+      emit_secret OPENAI_API_KEY ${lib.escapeShellArg config.sops.secrets.openai_api_key.path}
       ${lib.optionalString (slackEnvPath != null) ''
         ${pkgs.coreutils}/bin/cat ${lib.escapeShellArg slackEnvPath}
       ''}
@@ -91,6 +92,10 @@ let
       "auxiliary.title_generation.model" = "nova-2-lite";
       "auxiliary.title_generation.provider" = "main";
       bot_peers = peerUrls;
+      # Fallback to OpenAI when eros/LiteLLM is unreachable.
+      # OPENAI_API_KEY is injected via the secrets command above.
+      "fallback_model.provider" = "openai-api";
+      "fallback_model.model" = "gpt-6-luna";
     }
     // extraOverrides;
   };
