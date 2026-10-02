@@ -32,15 +32,22 @@ import json
 import os
 import sys
 
-from redis import Redis
+
+def escape_cypher_string(value: str) -> str:
+    """Escape a string value for safe inclusion in a Cypher query.
+
+    Replaces backslashes, double quotes, and newlines with escape sequences.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
 
 FALKORDB_HOST = os.environ.get("FALKORDB_HOST", "127.0.0.1")
 FALKORDB_PORT = int(os.environ.get("FALKORDB_PORT", "6380"))
 
 
-def get_task_metadata():
+def get_task_metadata() -> dict:
     """Read task metadata from stdin or environment."""
-    metadata = {}
+    metadata: dict = {}
 
     # Try stdin first
     if not sys.stdin.isatty():
@@ -76,14 +83,16 @@ def record_completed_task(metadata: dict) -> None:
     - Task node with status=completed
     - Agent-TASK_COMPLETED relationship
     - Task-TOUCHED relationships for files/repos/decisions/issues
+
+    Uses parameterized queries (via CYPHER prefix) for safety.
     """
     from redis import Redis
 
     client = Redis(host=FALKORDB_HOST, port=FALKORDB_PORT, decode_responses=True)
 
     task_id = metadata.get("task_id")
-    title = metadata.get("task_title", "Unknown Task")
-    assignee = metadata.get("task_assignee", "unknown")
+    title = metadata.get("title", "Unknown Task")
+    assignee = metadata.get("assignee", "unknown")
     repo = metadata.get("task_repo")
     files = metadata.get("task_files", "")
     decisions = metadata.get("task_decisions", "")
@@ -95,60 +104,80 @@ def record_completed_task(metadata: dict) -> None:
 
     now = os.popen("date -Iseconds").read().strip()
 
-    # Build the Cypher query
-    query = f"""
-    MERGE (a:Agent {{id: "{assignee}"}})
-    ON CREATE SET a.last_active = "{now}"
+    # Escape all values for Cypher safety
+    escaped_task_id = escape_cypher_string(str(task_id))
+    escaped_title = escape_cypher_string(str(title))
+    escaped_assignee = escape_cypher_string(str(assignee))
+    escaped_now = escape_cypher_string(str(now))
 
-    MERGE (t:Task {{id: "{task_id}"}})
+    # Build parameterized query using CYPHER prefix
+    query = f"""
+    CYPHER task_id="{escaped_task_id}", title="{escaped_title}", assignee="{escaped_assignee}", now="{escaped_now}"
+    MERGE (a:Agent {{id: $assignee}})
+    ON CREATE SET a.last_active = $now
+
+    MERGE (t:Task {{id: $task_id}})
     ON CREATE SET
-        t.title = "{title}",
+        t.title = $title,
         t.status = "completed",
-        t.created_at = "{now}",
-        t.completed_at = "{now}"
+        t.created_at = $now,
+        t.completed_at = $now
     ON MATCH SET
         t.status = "completed",
-        t.completed_at = "{now}"
+        t.completed_at = $now
 
     MERGE (a)-[:COMPLETED]->(t)
     """
 
-    # Add file relationships
+    # Add file relationships - include repo in File node key to avoid collisions
+    # across different repos with files at the same relative path
     for file_path in [f.strip() for f in files.split(",") if f.strip()]:
-        # Escape quotes in file path
-        escaped_path = file_path.replace('"', '\\"')
-        query += f"""
-        MERGE (f:File {{path: "{escaped_path}"}})
-        ON CREATE SET f.last_modified = "{now}"
-        MERGE (t)-[:TOUCHED]->(f)
-        """
+        escaped_path = escape_cypher_string(file_path)
+        if repo:
+            escaped_repo = escape_cypher_string(repo)
+            query += f"""
+    CYPHER path="{escaped_path}", repo="{escaped_repo}", now="{escaped_now}"
+    MERGE (f:File {{path: $path, repo: $repo}})
+    ON CREATE SET f.last_modified = $now
+    MERGE (t)-[:TOUCHED]->(f)
+    """
+        else:
+            query += f"""
+    CYPHER path="{escaped_path}", now="{escaped_now}"
+    MERGE (f:File {{path: $path}})
+    ON CREATE SET f.last_modified = $now
+    MERGE (t)-[:TOUCHED]->(f)
+    """
 
     # Add repo relationship
     if repo:
-        escaped_repo = repo.replace('"', '\\"')
+        escaped_repo = escape_cypher_string(repo)
         query += f"""
-        MERGE (r:Repo {{name: "{escaped_repo}"}})
-        ON CREATE SET r.last_sync = "{now}"
-        MERGE (t)-[:TOUCHED]->(r)
-        """
+    CYPHER repo="{escaped_repo}", now="{escaped_now}"
+    MERGE (r:Repo {{name: $repo}})
+    ON CREATE SET r.last_sync = $now
+    MERGE (t)-[:TOUCHED]->(r)
+    """
 
     # Add decision relationships
     for decision_id in [d.strip() for d in decisions.split(",") if d.strip()]:
-        escaped_dec = decision_id.replace('"', '\\"')
+        escaped_dec = escape_cypher_string(decision_id)
         query += f"""
-        MERGE (d:Decision {{id: "{escaped_dec}"}})
-        ON CREATE SET d.made_at = "{now}"
-        MERGE (t)-[:MADE]->(d)
-        """
+    CYPHER decision_id="{escaped_dec}", now="{escaped_now}"
+    MERGE (d:Decision {{id: $decision_id}})
+    ON CREATE SET d.made_at = $now
+    MERGE (t)-[:MADE]->(d)
+    """
 
     # Add issue relationships
     for issue_id in [i.strip() for i in issues.split(",") if i.strip()]:
-        escaped_issue = issue_id.replace('"', '\\"')
+        escaped_issue = escape_cypher_string(issue_id)
         query += f"""
-        MERGE (i:Issue {{id: "{escaped_issue}"}})
-        ON CREATE SET i.created_at = "{now}"
-        MERGE (t)-[:RESOLVED]->(i)
-        """
+    CYPHER issue_id="{escaped_issue}", now="{escaped_now}"
+    MERGE (i:Issue {{id: $issue_id}})
+    ON CREATE SET i.created_at = $now
+    MERGE (t)-[:RESOLVED]->(i)
+    """
 
     print(f"Recording completed task: {task_id}")
     print(f"  Assignee: {assignee}")

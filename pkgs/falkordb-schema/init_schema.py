@@ -28,7 +28,7 @@ def init_schema() -> None:
     constraints = [
         "CREATE CONSTRAINT task_id FOR (t:Task) REQUIRE t.id IS UNIQUE",
         "CREATE CONSTRAINT agent_id FOR (a:Agent) REQUIRE a.id IS UNIQUE",
-        "CREATE CONSTRAINT file_path FOR (f:File) REQUIRE f.path IS UNIQUE",
+        "CREATE CONSTRAINT file_path_repo FOR (f:File) REQUIRE (f.path, f.repo) IS UNIQUE",
         "CREATE CONSTRAINT repo_name FOR (r:Repo) REQUIRE r.name IS UNIQUE",
         "CREATE CONSTRAINT issue_id FOR (i:Issue) REQUIRE i.id IS UNIQUE",
         "CREATE CONSTRAINT decision_id FOR (d:Decision) REQUIRE d.id IS UNIQUE",
@@ -48,14 +48,23 @@ def init_schema() -> None:
             client.execute_command("GRAPH.QUERY", "knowledge", constraint)
             print(f"  ✓ {constraint}")
         except Exception as e:
-            # Constraint may already exist
-            print(f"  ! {constraint}")
-            print(f"    (possibly already exists: {e})")
+            # Check if this is a "constraint already exists" error
+            err_str = str(e)
+            # FalkorDB/RedisGraph errors typically contain " constraint already exists"
+            # or similar message for duplicate constraints
+            if "already exists" in err_str.lower() or "duplicate" in err_str.lower():
+                print(f"  ! {constraint}")
+                print(f"    (constraint already exists, skipping)")
+            else:
+                # Re-raise for any other error (malformed statement, DB error, etc.)
+                print(f"  ✗ {constraint}", file=sys.stderr)
+                print(f"    (error: {e})", file=sys.stderr)
+                sys.exit(1)
 
     print("\nSchema initialization complete.")
     print("\nAvailable node types: Agent, Task, File, Decision, Repo, Issue")
     print("\nExample queries:")
-    print('  GRAPH.QUERY knowledge "MATCH (t:Task {status: \\"completed\\"}) RETURN t LIMIT 10"')
+    print('  GRAPH.QUERY knowledge "MATCH (t:Task {status: \\\\"completed\\\\\\"}) RETURN t LIMIT 10"')
     print('  GRAPH.QUERY knowledge "MATCH (a:Agent)-[:COMPLETED]->(t:Task) RETURN a.name, count(t) as completed ORDER BY completed DESC LIMIT 5"')
 
 
