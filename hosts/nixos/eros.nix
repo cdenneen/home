@@ -20,7 +20,7 @@ let
   litellmEnvFile = "/run/eros-litellm/env";
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   bedrockToolGuardFile = ../../pkgs/eros-litellm-hooks/bedrock_tool_guard.py;
-  omniroutePort = 20128;
+  omniroutePort = 20130;
   qdrantPort = 6333;
   contextPorts = {
     shared = 18120;
@@ -710,12 +710,12 @@ in
         - model_name: g2-omniroute-openai-gpt4o-mini
           litellm_params:
             model: openai/gpt-4o-mini
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
         - model_name: g5-omniroute-bedrock-haiku
           litellm_params:
             model: openai/anthropic.claude-3-haiku-20240307-v1:0
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
           model_info:
             input_cost_per_token: 0.00000025
@@ -731,7 +731,7 @@ in
         - model_name: tier1-general
           litellm_params:
             model: openai/gemini-2.5-flash
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -743,7 +743,7 @@ in
           litellm_params:
             model: openai/gpt-5-mini
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             drop_params: true
             additional_drop_params:
               - x_hermes_source
@@ -755,7 +755,7 @@ in
         - model_name: mini
           litellm_params:
             model: openai/gemini-2.5-flash
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -805,7 +805,7 @@ in
         - model_name: tier2-coding
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -839,8 +839,8 @@ in
           litellm_params:
             model: openai/bedrock/us.anthropic.claude-sonnet-5
             # co-located on eros today; if omniroute ever moves to its own
-            # host, this becomes http://eros.tail0e55.ts.net:20128/v1
-            api_base: http://127.0.0.1:20128/v1
+            # host, this becomes http://eros.tail0e55.ts.net:20130/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -848,7 +848,7 @@ in
         - model_name: tier2-research
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -856,7 +856,7 @@ in
         - model_name: tier3-quality
           litellm_params:
             model: openai/global.anthropic.claude-opus-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
         # `quality` (2026-09-02): additive alias for tier3-quality's exact
         # model. No fallback, same as tier3-quality itself - Opus is its own
@@ -865,7 +865,7 @@ in
         - model_name: quality
           litellm_params:
             model: openai/global.anthropic.claude-opus-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
         # tier4-frontier deliberately has no fallback and is not part of any
         # fallback chain below - explicit-only, separate key at the governor
@@ -873,7 +873,7 @@ in
         - model_name: gpt-5.4
           litellm_params:
             model: openai/gpt-5.4
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -881,7 +881,7 @@ in
         - model_name: gpt-5.6-terra
           litellm_params: &eros_gpt_5_6_terra_params
             model: openai/gpt-5.6-terra
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -1052,7 +1052,7 @@ in
         - model_name: personal
           litellm_params:
             model: openai/ai-auto
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY_PERSONAL
             drop_params: true
             additional_drop_params:
@@ -1060,7 +1060,7 @@ in
         - model_name: work
           litellm_params:
             model: openai/ai-auto
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY_WORK
             drop_params: true
             additional_drop_params:
@@ -1662,7 +1662,7 @@ in
       # and .51 tightened that. HOSTNAME is a system/shell variable the Next
       # server does not read, so upgrading to .51 without HOST set drops the
       # 127.0.0.1 listener that litellm's OmniRoute routes depend on
-      # (api_base: http://127.0.0.1:20128/v1). Verified on eros before this
+      # (api_base: http://127.0.0.1:20130/v1). Verified on eros before this
       # change: 3.8.51 with HOST unset never answered on loopback; with
       # HOST=127.0.0.1 it binds and returns the same HTTP 307 as 3.8.49.
       #
@@ -1722,6 +1722,9 @@ in
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=${toString litellmHttpsPort} http://127.0.0.1:${toString litellmPort}
+      # Remove any stale OmniRoute serve rule on the old port (20128) before
+      # registering the current one; harmless if 20128 is not registered.
+      ${pkgs.tailscale}/bin/tailscale serve --yes off --tcp 20128 2>/dev/null || true
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
       # Shared AI Services MVP: policy-endpoint instances on Ghost/Nyx need
       # to reach Qdrant for shared-reuse retrieval/promotion
