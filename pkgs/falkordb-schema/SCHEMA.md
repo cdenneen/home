@@ -12,6 +12,7 @@ Represents a human or AI agent that performs tasks.
 - `type`: "human" or "ai"
 - `email`: Contact email (for humans)
 - `last_active`: ISO-8601 timestamp
+- `memory_snapshot`: Current truncated Hermes memory snapshot
 
 ### Task
 Represents a unit of work from Ghost Kanban.
@@ -70,6 +71,7 @@ Represents a GitLab issue.
 - `(:Agent)-[:CREATED]->(:Task)` - Agent created the task
 - `(:Agent)-[:ASSIGNED]->(:Task)` - Agent is assigned to the task
 - `(:Agent)-[:COMPLETED]->(:Task)` - Agent completed the task
+- `(:Agent)-[:KNOWS]->(:Decision)` - Agent memory currently contains this decision
 - `(:Task)-[:TOUCHED]->(:File)` - Task modified this file
 - `(:Task)-[:MADE]->(:Decision)` - Task resulted in this decision
 - `(:Task)-[:RESOLVED]->(:Issue)` - Task resolved this issue
