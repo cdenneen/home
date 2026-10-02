@@ -28,6 +28,20 @@ let
     "${piPluginsPkg}/lib/pi-plugins/node_modules/@narumitw/pi-goal"
     "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-hermes-memory"
     "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-litellm"
+    # Orchestration and workflow plugins
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-loop-mode"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-loop-police"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-web-access"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/billion-context"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-x"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/bigpowers"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/context-mode"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-background-tasks"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/agent-comms"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-advisor-flow"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/@quintinshaw/pi-dynamic-workflows"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/@rmrdeveloper/sideroom-pi"
+    "${piPluginsPkg}/lib/pi-plugins/node_modules/max-context"
     # Keep alternate goal implementations packaged but disabled to avoid
     # duplicate /goal command registration.
     {
@@ -64,6 +78,20 @@ let
     "npm:pi-rtk-optimizer"
     "npm:pi-codex-goal"
     "git:github.com/DietrichGebert/ponytail"
+    # Ad-hoc npm-installed plugins now managed by Nix — purge the npm: references
+    "npm:pi-loop-mode"
+    "npm:pi-loop-police"
+    "npm:pi-web-access"
+    "npm:billion-context"
+    "npm:pi-goal-x"
+    "npm:bigpowers"
+    "npm:context-mode"
+    "npm:pi-background-tasks"
+    "npm:agent-comms"
+    "npm:pi-advisor-flow"
+    "npm:@quintinshaw/pi-dynamic-workflows"
+    "npm:@rmrdeveloper/sideroom-pi"
+    "npm:max-context"
   ];
   piLegacyPackagesJson = pkgs.writeText "pi-legacy-packages.json" (
     builtins.toJSON piLegacyPackageSources
@@ -393,6 +421,48 @@ in
   };
   home.file.".pi/agent/npm/node_modules/pi-codex-goal" = lib.mkIf (piPluginsPkg != null) {
     source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-codex-goal";
+  };
+  # Orchestration and workflow plugins — previously ad-hoc npm installs, now Nix-managed
+  home.file.".pi/agent/npm/node_modules/pi-loop-mode" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-loop-mode";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-loop-police" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-loop-police";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-web-access" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-web-access";
+  };
+  home.file.".pi/agent/npm/node_modules/billion-context" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/billion-context";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-goal-x" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-goal-x";
+  };
+  home.file.".pi/agent/npm/node_modules/bigpowers" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/bigpowers";
+  };
+  home.file.".pi/agent/npm/node_modules/context-mode" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/context-mode";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-background-tasks" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-background-tasks";
+  };
+  home.file.".pi/agent/npm/node_modules/agent-comms" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/agent-comms";
+  };
+  home.file.".pi/agent/npm/node_modules/pi-advisor-flow" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/pi-advisor-flow";
+  };
+  home.file.".pi/agent/npm/node_modules/@quintinshaw/pi-dynamic-workflows" =
+    lib.mkIf (piPluginsPkg != null)
+      {
+        source = "${piPluginsPkg}/lib/pi-plugins/node_modules/@quintinshaw/pi-dynamic-workflows";
+      };
+  home.file.".pi/agent/npm/node_modules/@rmrdeveloper/sideroom-pi" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/@rmrdeveloper/sideroom-pi";
+  };
+  home.file.".pi/agent/npm/node_modules/max-context" = lib.mkIf (piPluginsPkg != null) {
+    source = "${piPluginsPkg}/lib/pi-plugins/node_modules/max-context";
   };
 
   # The LiteLLM key must be rendered from SOPS: pi-litellm reads this file
