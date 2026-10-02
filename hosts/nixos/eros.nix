@@ -33,6 +33,8 @@ let
   agentHandoffEnv = pkgs.python313.withPackages (ps: [ ps.mcp ]);
   kanbanShimSource = ../../pkgs/kanban-shim;
   kanbanShimEnv = pkgs.python313.withPackages (ps: [ ps.mcp ]);
+  falkordbSchemaSource = ../../pkgs/falkordb-schema;
+  falkordbSchemaEnv = pkgs.python313.withPackages (ps: [ ps.redis ]);
   contextBroker = pkgs.python313.withPackages (ps: [
     ps.mcp
     ps.psycopg
@@ -89,6 +91,9 @@ let
     "titan-embed-text-v2"
     "work"
   ];
+  falkordbPort = 6380;
+  falkordbBrowserPort = 3000;
+
   contextMcpCatalog = {
     recallium = "http://nyx.tail0e55.ts.net:18001/mcp";
     graphify = "http://nyx.tail0e55.ts.net:18108/mcp";
@@ -104,11 +109,14 @@ let
     # via the gateway rather than this direct catalog.
     gitlab = "http://nyx.tail0e55.ts.net:18101/mcp";
     # Agent handoff: durable cross-agent context, session bridging, /handoff.
-    # Runs locally on eros (port 18124); no trust-domain isolation needed.
+    # Runs locally on eros (port 18123); no trust-domain isolation needed.
     agent-handoff = "http://127.0.0.1:${toString agentHandoffPort}/mcp";
     # Kanban shim: expose Ghost's Hermes Kanban as MCP tools on Eros.
     # Runs locally on eros (port 18124); no trust-domain isolation needed.
     kanban_shim = "http://127.0.0.1:${toString kanbanShimPort}/mcp";
+    # FalkorDB MCP server: expose FalkorDB knowledge graph via MCP.
+    # Runs locally on eros (port 8081); no trust-domain isolation needed.
+    falkordb = "http://127.0.0.1:8081/mcp";
   };
   contextSkillRoots = lib.concatStringsSep ":" [
     "${../../modules/hm/users/cdenneen/ai/skills}"
@@ -125,6 +133,7 @@ let
       "network-online.target"
       "ollama.service"
       "podman-qdrant.service"
+      "podman-falkordb.service"
     ];
     wantedBy = [ "multi-user.target" ];
     environment = {
@@ -133,6 +142,7 @@ let
       EROS_KNOWLEDGE_DSN = "postgresql:///eros_context?host=/run/postgresql";
       EROS_LITELLM_DSN = "postgresql:///litellm?host=/run/postgresql";
       EROS_QDRANT_URL = "http://127.0.0.1:${toString qdrantPort}";
+      EROS_FALKORDB_URL = "http://127.0.0.1:${toString falkordbPort}";
       EROS_OLLAMA_URL = "http://127.0.0.1:11434";
       EROS_SKILL_ROOTS = contextSkillRoots;
       EROS_MODEL_ROUTES = lib.concatStringsSep "," contextModelRoutes;
@@ -239,10 +249,35 @@ in
         ];
         autoStart = true;
       };
+      falkordb = {
+        # falkordb/falkordb:latest pinned to digest from Docker Hub 2026-10-02.
+        # Includes both Redis/Graph (6379→6380) and browser UI (3000) on loopback.
+        image = "falkordb/falkordb@sha256:adbddd418916c25618564ff8597a919b08bc76452ebeb74eb985c38d7281df62";
+        ports = [
+          "127.0.0.1:${toString falkordbPort}:6379"
+          "127.0.0.1:${toString falkordbBrowserPort}:3000"
+        ];
+        volumes = [ "/var/lib/falkordb:/var/lib/falkordb:U" ];
+        autoStart = true;
+      };
+      falkordb-mcp = {
+        # falkordb/mcpserver:latest pinned to digest from Docker Hub 2026-10-02.
+        # Runs HTTP transport, connecting to FalkorDB on 127.0.0.1:6380.
+        image = "falkordb/mcpserver@sha256:2baa2346d7ad7476e90d99211111f677a357eb4d46cf29ef69ada84a578aefdd";
+        ports = [ "127.0.0.1:8081:3000" ];
+        environment = {
+          FALKORDB_HOST = "127.0.0.1";
+          FALKORDB_PORT = toString falkordbPort;
+        };
+        autoStart = true;
+      };
     };
   };
 
-  systemd.tmpfiles.rules = [ "d /var/lib/qdrant 0750 root root -" ];
+  systemd.tmpfiles.rules = [
+    "d /var/lib/qdrant 0750 root root -"
+    "d /var/lib/falkordb 0750 root root -"
+  ];
 
   users.users.eros_context = {
     isSystemUser = true;
@@ -1079,6 +1114,7 @@ in
               - aws
               - terraform
               - eros-context-shared
+              - falkordb
         # Direct request-layer semantic filtering remains disabled until a
         # pinned-v1.94 compatibility test proves nested/native tools fail open.
         # MCP-speaking clients use /mcp/ virtual tool search instead.
@@ -1303,6 +1339,12 @@ in
           url: "http://127.0.0.1:${toString kanbanShimPort}/mcp"
           transport: "http"
           description: "Ghost's Hermes Kanban as MCP tools on Eros"
+          mcp_info: *eros_local_mcp_cost
+        falkordb:
+          server_id: "falkordb"
+          url: "http://127.0.0.1:8081/mcp"
+          transport: "http"
+          description: "FalkorDB knowledge graph via MCP"
           mcp_info: *eros_local_mcp_cost
       EOF
       ${pkgs.yq-go}/bin/yq -e '
@@ -1538,6 +1580,7 @@ in
       EROS_TRUST_DOMAIN = "shared";
       EROS_KNOWLEDGE_DSN = "postgresql:///eros_context?host=/run/postgresql";
       EROS_QDRANT_URL = "http://127.0.0.1:${toString qdrantPort}";
+      EROS_FALKORDB_URL = "http://127.0.0.1:${toString falkordbPort}";
       EROS_OLLAMA_URL = "http://127.0.0.1:11434";
       EROS_SKILL_ROOTS = contextSkillRoots;
       EROS_MODEL_ROUTES = lib.concatStringsSep "," contextModelRoutes;
@@ -1590,6 +1633,7 @@ in
       "eros-litellm-config.service"
       "ollama.service"
       "podman-qdrant.service"
+      "podman-falkordb.service"
     ];
     after = [
       "eros-litellm-db-user.service"
@@ -1597,6 +1641,7 @@ in
       "eros-litellm-config.service"
       "ollama.service"
       "podman-qdrant.service"
+      "podman-falkordb.service"
     ];
   };
 
@@ -1683,6 +1728,10 @@ in
       # POST/PUT (GET happened to work locally-only in prior testing; this
       # is the first time it's been reached from another host at all).
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantPort} 127.0.0.1:${toString qdrantPort}
+      # FalkorDB ports: 6380 for Graph/Redis, 8081 for MCP server.
+      # Loopback-only as per Phase 3 spec.
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString falkordbPort} 127.0.0.1:${toString falkordbPort}
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp 8081 127.0.0.1:8081
     '';
   };
 
