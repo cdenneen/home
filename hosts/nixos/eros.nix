@@ -34,6 +34,7 @@ let
   kanbanShimSource = ../../pkgs/kanban-shim;
   kanbanShimEnv = pkgs.python313.withPackages (ps: [ ps.mcp ]);
   falkordbSchemaSource = ../../pkgs/falkordb-schema;
+  omniroute = pkgs.callPackage ../../pkgs/omniroute.nix { };
   falkordbSchemaEnv = pkgs.python313.withPackages (ps: [ ps.redis ]);
   contextBroker = pkgs.python313.withPackages (ps: [
     ps.mcp
@@ -1649,8 +1650,14 @@ in
 
   systemd.services.omniroute = {
     description = "OmniRoute local AI gateway";
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
     wantedBy = [ "multi-user.target" ];
     path = [ pkgs.nodejs_24 ];
     environment = {
@@ -1675,6 +1682,9 @@ in
       # and retries instead of returning empty content as a silent success".
       # That fix is in 3.8.51 only - 3.8.50 does not have it.
       HOST = "127.0.0.1";
+      # The CLI entrypoint reads this directly; HOST alone only affects the
+      # npm/run-next entrypoint that this unit does not use.
+      OMNIROUTE_SERVER_HOST = "127.0.0.1";
       PORT = toString omniroutePort;
       DATA_DIR = "${config.users.users.cdenneen.home}/.omniroute";
       # Temporary diagnostic (2026-09-02): captures full request/response
@@ -1687,14 +1697,40 @@ in
       ENABLE_REQUEST_LOGS = "true";
     };
     serviceConfig = {
+      ExecStartPre = "+${pkgs.writeShellScript "omniroute-serve-stop" ''
+        set -euo pipefail
+        ${pkgs.tailscale}/bin/tailscale serve --yes --tcp=${toString omniroutePort} off 2>/dev/null || true
+      ''}";
       Type = "simple";
       User = "cdenneen";
       Group = "users";
       WorkingDirectory = config.users.users.cdenneen.home;
-      ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
+      ExecStart = "${omniroute}/bin/omniroute --no-open";
+      ExecStartPost = "+${pkgs.systemd}/bin/systemctl --no-block restart omniroute-serve-ready.service";
       Restart = "on-failure";
       RestartSec = "5s";
     };
+  };
+
+  systemd.services.omniroute-serve-ready = {
+    description = "Restore OmniRoute Tailscale Serve route after readiness";
+    after = [ "omniroute.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+    script = ''
+      set -euo pipefail
+      for _ in $(${pkgs.coreutils}/bin/seq 1 60); do
+        if ${pkgs.netcat-openbsd}/bin/nc -z 127.0.0.1 ${toString omniroutePort}; then
+          exec ${pkgs.systemd}/bin/systemctl restart tailscale-serve-eros.service
+        fi
+        ${pkgs.coreutils}/bin/sleep 0.25
+      done
+      echo "OmniRoute is not ready; retrying Serve restoration" >&2
+      exit 1
+    '';
   };
 
   systemd.services.tailscale-serve-eros = {
@@ -1714,13 +1750,18 @@ in
       "podman-qdrant.service"
     ];
     wantedBy = [ "multi-user.target" ];
-    serviceConfig.Type = "oneshot";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
     path = [ pkgs.tailscale ];
     script = ''
       set -euo pipefail
       if ! ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1; then
-        echo "Tailscale is not authenticated; skipping LiteLLM serve"
-        exit 0
+        echo "Tailscale is not authenticated; retrying Serve setup" >&2
+        exit 1
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=${toString litellmHttpsPort} http://127.0.0.1:${toString litellmPort}
