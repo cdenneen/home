@@ -12,18 +12,18 @@
 Every agent in the fleet (Hermes profiles, CoS, Claude Desktop, Codex, pi) has
 a different memory ceiling and a disconnected store:
 
-| Agent | Current memory | Limit | Shared? |
-|---|---|---|---|
-| Hermes (any profile) | MEMORY.md + USER.md | 2,200 + 1,375 chars | No — per-profile |
-| CoS (chief-of-staff@ghost) | Same MEMORY.md | Same | No |
-| Claude Desktop | Project notes (local) | Varies | No |
-| Codex | None (stateless) | — | No |
-| pi/Paul | Per-project memory tool | Unknown | No |
-| Recallium | Episodic sessions (nyx:18001) | Large | MCP-accessible |
-| Qdrant (eros) | Vector collections | Large | MCP-accessible |
-| FalkorDB (eros) | Knowledge graph | Large | MCP-accessible |
-| Redis (eros) | Cache (pending #862) | TTL-bounded | MCP-accessible |
-| agent-context repo | Handoff markdown files | Git-bounded | Git-accessible |
+| Agent                      | Current memory                | Limit               | Shared?          |
+| -------------------------- | ----------------------------- | ------------------- | ---------------- |
+| Hermes (any profile)       | MEMORY.md + USER.md           | 2,200 + 1,375 chars | No — per-profile |
+| CoS (chief-of-staff@ghost) | Same MEMORY.md                | Same                | No               |
+| Claude Desktop             | Project notes (local)         | Varies              | No               |
+| Codex                      | None (stateless)              | —                   | No               |
+| pi/Paul                    | Per-project memory tool       | Unknown             | No               |
+| Recallium                  | Episodic sessions (nyx:18001) | Large               | MCP-accessible   |
+| Qdrant (eros)              | Vector collections            | Large               | MCP-accessible   |
+| FalkorDB (eros)            | Knowledge graph               | Large               | MCP-accessible   |
+| Redis (eros)               | Cache (pending #862)          | TTL-bounded         | MCP-accessible   |
+| agent-context repo         | Handoff markdown files        | Git-bounded         | Git-accessible   |
 
 The result: agents constantly re-derive context, LLM calls are made for things
 already known, and no agent has visibility into what others have learned.
@@ -90,14 +90,14 @@ two new tools and the Redis + FalkorDB + git write paths.
 
 `store_context` accepts a `type` hint that controls routing:
 
-| Type | Redis | Qdrant | FalkorDB | agent-context |
-|---|---|---|---|---|
-| `fact` | ✓ TTL=7d | ✓ `shared_knowledge` | ✓ Decision node | ✓ commit |
-| `decision` | ✓ TTL=30d | ✓ `shared_knowledge` | ✓ Decision node | ✓ commit |
-| `session` | ✓ TTL=4h | ✓ `shared_memory` | — | ✓ handoff |
-| `topology` | ✓ TTL=∞ | ✓ `shared_knowledge` | ✓ Agent node | ✓ commit |
-| `task` | ✓ TTL=7d | — | ✓ Task node | — |
-| `capability` | — | ✓ `eros_capability_v1` | ✓ Agent node | — |
+| Type         | Redis     | Qdrant                 | FalkorDB        | agent-context |
+| ------------ | --------- | ---------------------- | --------------- | ------------- |
+| `fact`       | ✓ TTL=7d  | ✓ `shared_knowledge`   | ✓ Decision node | ✓ commit      |
+| `decision`   | ✓ TTL=30d | ✓ `shared_knowledge`   | ✓ Decision node | ✓ commit      |
+| `session`    | ✓ TTL=4h  | ✓ `shared_memory`      | —               | ✓ handoff     |
+| `topology`   | ✓ TTL=∞   | ✓ `shared_knowledge`   | ✓ Agent node    | ✓ commit      |
+| `task`       | ✓ TTL=7d  | —                      | ✓ Task node     | —             |
+| `capability` | —         | ✓ `eros_capability_v1` | ✓ Agent node    | —             |
 
 Default type is `fact` when unspecified.
 
@@ -115,11 +115,35 @@ Default type is `fact` when unspecified.
     "type": "object",
     "required": ["content"],
     "properties": {
-      "content": {"type": "string", "description": "The fact, decision, or note to store"},
-      "type": {"type": "string", "enum": ["fact", "decision", "session", "topology", "task", "capability"], "default": "fact"},
-      "agent_id": {"type": "string", "description": "Calling agent identity (e.g. ops@nyx). Defaults to trust domain owner."},
-      "project": {"type": "string", "description": "Project slug for scoping (e.g. eks-platform, multi-agent-workflow)"},
-      "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags for filtering"}
+      "content": {
+        "type": "string",
+        "description": "The fact, decision, or note to store"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "fact",
+          "decision",
+          "session",
+          "topology",
+          "task",
+          "capability"
+        ],
+        "default": "fact"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Calling agent identity (e.g. ops@nyx). Defaults to trust domain owner."
+      },
+      "project": {
+        "type": "string",
+        "description": "Project slug for scoping (e.g. eks-platform, multi-agent-workflow)"
+      },
+      "tags": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional tags for filtering"
+      }
     }
   }
 }
@@ -135,11 +159,30 @@ Default type is `fact` when unspecified.
     "type": "object",
     "required": ["query"],
     "properties": {
-      "query": {"type": "string", "description": "Natural language query or keyword"},
-      "project": {"type": "string", "description": "Scope to a specific project"},
-      "agent_id": {"type": "string", "description": "Scope to a specific agent's knowledge"},
-      "type": {"type": "string", "enum": ["fact", "decision", "session", "topology", "task", "capability"]},
-      "limit": {"type": "integer", "default": 10}
+      "query": {
+        "type": "string",
+        "description": "Natural language query or keyword"
+      },
+      "project": {
+        "type": "string",
+        "description": "Scope to a specific project"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Scope to a specific agent's knowledge"
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "fact",
+          "decision",
+          "session",
+          "topology",
+          "task",
+          "capability"
+        ]
+      },
+      "limit": { "type": "integer", "default": 10 }
     }
   }
 }
@@ -152,6 +195,7 @@ Default type is `fact` when unspecified.
 ### cos-update → store_context fan-out
 
 When any agent calls `cos-update`, CoS:
+
 1. Updates the Kanban task
 2. Calls `store_context(content=message, type="session", agent_id=caller)`
 
@@ -161,6 +205,7 @@ without agents needing to make a separate call.
 ### Hermes memory.write_approval → store_context
 
 No Hermes source patch needed. The approach:
+
 - MEMORY.md remains the survival hint (built-in Hermes mechanism)
 - Agents are instructed in their SOUL to call `store_context` for anything
   durable, instead of relying on the Hermes memory tool for shared facts

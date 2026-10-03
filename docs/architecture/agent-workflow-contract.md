@@ -21,6 +21,7 @@ bug, not a style choice.
 ## The Problem This Solves
 
 Without this contract:
+
 - Agents re-derive known facts via LLM calls (wastes tokens, costs money)
 - Sessions start cold — agent has no awareness of prior work
 - Work gets lost at session boundaries
@@ -80,6 +81,7 @@ All durable facts belong in the shared stores (layers 1-6).
 ### During work — continuous cos-update (NOT just end-of-session)
 
 Trigger `cos-update` (Hermes) or equivalent at:
+
 - Every significant decision ("I'm going to approach this by...")
 - Every tool/file/resource discovery ("The relevant file is X")
 - Every blocker ("Can't proceed without Y")
@@ -114,16 +116,16 @@ The `cos-update` skill calls `hermes peer dm ghost/chief-of-staff`.
 
 **Trigger points (non-negotiable):**
 
-| Event | Message format |
-|---|---|
-| Session start | `[started] Working on: <topic>. Context loaded from: <sources>.` |
-| Decision made | `[update] Decision: <what and why>. Impact: <files/tasks affected>.` |
-| Discovery | `[update] Found: <what>. Relevant to: <task/project>.` |
-| Blocked | `[blocked] Gate: <exact blocker>. Owner: <who>. Parallel work: <what>.` |
-| Unit complete | `[update] Done: <what>. Evidence: <link/file>. Next: <step>.` |
-| Context pressure | `[update] Context at ~N%. State snapshot: <summary>.` |
-| Review needed | `[review] <PR/MR link>. Waiting on: <who>.` |
-| Session end | `[completed] <done, links, remains, next action>.` |
+| Event            | Message format                                                          |
+| ---------------- | ----------------------------------------------------------------------- |
+| Session start    | `[started] Working on: <topic>. Context loaded from: <sources>.`        |
+| Decision made    | `[update] Decision: <what and why>. Impact: <files/tasks affected>.`    |
+| Discovery        | `[update] Found: <what>. Relevant to: <task/project>.`                  |
+| Blocked          | `[blocked] Gate: <exact blocker>. Owner: <who>. Parallel work: <what>.` |
+| Unit complete    | `[update] Done: <what>. Evidence: <link/file>. Next: <step>.`           |
+| Context pressure | `[update] Context at ~N%. State snapshot: <summary>.`                   |
+| Review needed    | `[review] <PR/MR link>. Waiting on: <who>.`                             |
+| Session end      | `[completed] <done, links, remains, next action>.`                      |
 
 **Format rule:** One paragraph, factual, no padding. Always include links when
 available (GitLab full path, GitHub PR, file paths). CoS uses this to update
@@ -245,16 +247,16 @@ For each in-progress task:
 
 All agents reach these via `eros.tail0e55.ts.net:4000/mcp/`:
 
-| Tool | Service | Purpose |
-|---|---|---|
-| `recall` | eros-context-broker | Cache-first ranked memory retrieval |
-| `store_context` | eros-context-broker | Fan-out write to all memory stores |
-| `search_context` | eros-context-broker | Semantic search (existing) |
-| `write_handoff` | agent-handoff | Write durable session handoff |
-| `read_handoff` | agent-handoff | Load prior session handoff |
-| `list_handoffs` | agent-handoff | Find relevant handoffs |
-| `graph.query` | falkordb-mcp | Direct FalkorDB Cypher query |
-| Kanban tools | kanban-shim | Read/write ghost Kanban |
+| Tool             | Service             | Purpose                             |
+| ---------------- | ------------------- | ----------------------------------- |
+| `recall`         | eros-context-broker | Cache-first ranked memory retrieval |
+| `store_context`  | eros-context-broker | Fan-out write to all memory stores  |
+| `search_context` | eros-context-broker | Semantic search (existing)          |
+| `write_handoff`  | agent-handoff       | Write durable session handoff       |
+| `read_handoff`   | agent-handoff       | Load prior session handoff          |
+| `list_handoffs`  | agent-handoff       | Find relevant handoffs              |
+| `graph.query`    | falkordb-mcp        | Direct FalkorDB Cypher query        |
+| Kanban tools     | kanban-shim         | Read/write ghost Kanban             |
 
 Coding CLIs (Claude Desktop, Codex, pi) reach these via `mcp-remote` to
 `eros.tail0e55.ts.net:4000/mcp/` with appropriate trust domain headers.

@@ -384,3 +384,51 @@ Before ending any substantial execution session that modified code, state, tasks
 - Include suggestions only when useful work remains outside the completed request.
 - Keep suggestions simple, direct, and actionable.
 - Do not overcomplicate wording or steps.
+
+## Shared Memory Contract
+
+Full spec: `~/.ai/AGENTS.md` (this file) + `docs/architecture/agent-workflow-contract.md`.
+
+### Session start — before any other action
+
+1. `recall(query="active context <topic>")` via eros context broker MCP — Redis first, then Qdrant+FalkorDB.
+2. `list_handoffs(project=<slug>, limit=5)` via agent-handoff MCP — if handoff_id in task, `read_handoff(id)` first.
+3. Check Ghost Kanban for assigned tasks.
+4. Read `.ai/HANDOFF.md` in the repo if present.
+5. THEN begin work. Never ask Chris to re-explain context that exists in the above sources.
+
+### During work — continuous updates (not just end-of-session)
+
+Call `session_update` (Hermes) or equivalent at every: significant decision, discovery, blocker, unit complete, context pressure >50%, direction change. CoS and the shared memory system receive every update.
+
+### Memory writes
+
+Use `store_context(content, type, agent_id, project)` for durable facts — fans out to Redis + Qdrant + FalkorDB + agent-context repo automatically. Types: `fact`, `decision`, `session`, `topology`, `task`.
+
+Do NOT write directly to MEMORY.md for shared facts. MEMORY.md is a session bootstrap hint only.
+
+### Session end
+
+1. `write_handoff(topic, content, project, next_action)` — full state for cold resume.
+2. `store_context` for key facts/decisions discovered this session.
+3. Update `.ai/HANDOFF.md` in the repo.
+4. Explicit close signal to CoS/dispatcher — do not just stop.
+
+### Human-in-the-middle handoff
+
+When awaiting human review/approval:
+
+```
+write_handoff(..., next_action="awaiting approval: <what>")
+Print: "HANDOFF: <id> — Resume: tell @nyxops to resume handoff <id>"
+```
+
+### MCP endpoints (via eros.tail0e55.ts.net:4000/mcp/)
+
+| Tool                             | Purpose                                              |
+| -------------------------------- | ---------------------------------------------------- |
+| `recall`                         | Cache-first ranked retrieval (Redis→Qdrant→FalkorDB) |
+| `store_context`                  | Fan-out write to all memory stores                   |
+| `write_handoff`                  | Durable session handoff                              |
+| `read_handoff` / `list_handoffs` | Load prior session context                           |
+| Kanban tools                     | Read/write Ghost Kanban                              |
