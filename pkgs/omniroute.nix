@@ -23,6 +23,7 @@
         ];
       }
       ''
+        set -euo pipefail
         mkdir -p "$out"
         tar -xzf ${
           fetchurl {
@@ -46,6 +47,7 @@
   nativeBuildInputs = [ makeWrapper ];
 
   installPhase = ''
+    set -euo pipefail
     runHook preInstall
     mkdir -p "$out/lib/omniroute" "$out/bin"
     cp -R . "$out/lib/omniroute"
@@ -56,6 +58,7 @@
 
   doInstallCheck = true;
   installCheckPhase = ''
+    set -euo pipefail
     "$out/bin/omniroute" --version | grep -F "3.8.51"
   '';
 

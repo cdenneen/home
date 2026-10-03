@@ -1698,6 +1698,7 @@ in
     };
     serviceConfig = {
       ExecStartPre = "+${pkgs.writeShellScript "omniroute-serve-stop" ''
+        set -euo pipefail
         ${pkgs.tailscale}/bin/tailscale serve --yes --tcp=${toString omniroutePort} off 2>/dev/null || true
       ''}";
       Type = "simple";
@@ -1709,7 +1710,10 @@ in
         set -euo pipefail
         for _ in $(${pkgs.coreutils}/bin/seq 1 60); do
           if ${pkgs.netcat-openbsd}/bin/nc -z 127.0.0.1 ${toString omniroutePort}; then
-            exec ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}
+            if ! ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}; then
+              echo "OmniRoute is ready locally, but Tailscale Serve setup failed" >&2
+            fi
+            exit 0
           fi
           ${pkgs.coreutils}/bin/sleep 0.25
         done
