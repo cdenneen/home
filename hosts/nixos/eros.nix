@@ -1706,7 +1706,17 @@ in
       Group = "users";
       WorkingDirectory = config.users.users.cdenneen.home;
       ExecStart = "${omniroute}/bin/omniroute --no-open";
-      ExecStartPost = "+${pkgs.systemd}/bin/systemctl --no-block restart tailscale-serve-eros.service";
+      ExecStartPost = "+${pkgs.writeShellScript "omniroute-serve-ready" ''
+        set -euo pipefail
+        for _ in $(${pkgs.coreutils}/bin/seq 1 60); do
+          if ${pkgs.netcat-openbsd}/bin/nc -z 127.0.0.1 ${toString omniroutePort}; then
+            exec ${pkgs.systemd}/bin/systemctl --no-block restart tailscale-serve-eros.service
+          fi
+          ${pkgs.coreutils}/bin/sleep 0.25
+        done
+        echo "OmniRoute did not bind port ${toString omniroutePort}" >&2
+        exit 1
+      ''}";
       Restart = "on-failure";
       RestartSec = "5s";
     };
