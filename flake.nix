@@ -717,6 +717,8 @@
                   nyxAssistantHealth = nyx.systemd.user.services.hermes-assistant-health.Service;
                   ghostAssistantBrief = ghost.systemd.user.timers.hermes-assistant-brief.Timer;
                   nyxAssistantBrief = nyx.systemd.user.timers.hermes-assistant-brief.Timer;
+                  ghostPiMorning = ghost.systemd.user.timers.pi-portfolio-sweep-morning.Timer;
+                  ghostPiEvening = ghost.systemd.user.timers.pi-portfolio-sweep-evening.Timer;
                   expectedGhostModels = {
                     assistant = "claude-sonnet-4-6";
                     architect = "claude-opus-5";
@@ -820,6 +822,12 @@
                 assert builtins.hasAttr "hermes-assistant-health" nyx.systemd.user.timers;
                 assert builtins.hasAttr "hermes-assistant-brief" ghost.systemd.user.timers;
                 assert builtins.hasAttr "hermes-assistant-brief" nyx.systemd.user.timers;
+                assert builtins.hasAttr "pi-portfolio-sweep-morning" ghost.systemd.user.timers;
+                assert builtins.hasAttr "pi-portfolio-sweep-evening" ghost.systemd.user.timers;
+                assert ghostPiMorning.OnCalendar == "Mon..Fri *-*-* 07:00:00 America/New_York";
+                assert ghostPiEvening.OnCalendar == "Mon..Fri *-*-* 18:00:00 America/New_York";
+                assert ghostPiMorning.Persistent;
+                assert ghostPiEvening.Persistent;
                 assert ghostAssistantBrief.OnCalendar == "*-*-* 07:30:00 America/New_York";
                 assert nyxAssistantBrief.OnCalendar == "Mon..Fri *-*-* 08:00:00 America/New_York";
                 assert ghostAssistantBrief.Persistent;
