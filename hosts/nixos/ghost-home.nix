@@ -208,6 +208,14 @@ in
 
   profiles.agentHandoff.enable = true;
 
+  profiles.piPortfolioSweep = {
+    enable = true;
+    slackEnvFile = config.sops.secrets.hermes_slack_env_ghost_chief.path;
+    slackChannel = "C0BHLUXQ4EB";
+    morningCalendar = "Mon..Fri *-*-* 07:00:00 America/New_York";
+    eveningCalendar = "Mon..Fri *-*-* 18:00:00 America/New_York";
+  };
+
   # CoS Kanban sweep cron — installed via hermes cron so the gateway runs it
   # on schedule without a separate systemd service. Chief-of-staff reads all
   # work boards every 4 hours on weekdays and surfaces drift to Slack.

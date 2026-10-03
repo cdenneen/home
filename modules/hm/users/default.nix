@@ -31,6 +31,7 @@ in
     ./cdenneen/hermes-watchdog/default.nix
     ./cdenneen/agent-handoff/default.nix
     ./cdenneen/hermes-cos-bridge/default.nix
+    ./cdenneen/pi-portfolio-sweep/default.nix
   ];
 
   options.profiles = {
