@@ -1706,6 +1706,7 @@ in
       Group = "users";
       WorkingDirectory = config.users.users.cdenneen.home;
       ExecStart = "${omniroute}/bin/omniroute --no-open";
+      ExecStartPost = "+${pkgs.systemd}/bin/systemctl --no-block restart tailscale-serve-eros.service";
       Restart = "on-failure";
       RestartSec = "5s";
     };
