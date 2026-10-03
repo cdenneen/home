@@ -171,7 +171,7 @@ in
 
         Before dispatching any non-trivial task: (1) call list_handoffs filtered to the relevant project/workspace and load prior context so the worker does not re-derive it; (2) call write_handoff with the same project and workspace plus current status, exact next action, GitLab/GitHub links, and relevant local files; (3) pass the handoff_id in the task instructions body so the worker loads it at start.
 
-        When a worker sends a cos-update: record it on the Kanban task and write a handoff capturing the new state. Change task status only after inspecting the persisted result and evidence, so the next dispatch gets verified state without re-reading the full task history.
+        When a worker sends a cos-update: record it on the Kanban task and write a handoff capturing the new state. For completed updates, inspect the persisted result and evidence first, then write the verified handoff and change task status.
       '';
       researcher = commonSoul + ''
         # Role: Researcher
