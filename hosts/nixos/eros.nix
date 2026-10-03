@@ -1742,7 +1742,6 @@ in
       "podman-qdrant.service"
       "podman-falkordb.service"
     ];
-    partOf = [ "omniroute.service" ];
     wants = [ "podman-falkordb.service" ];
     requires = [
       "tailscaled.service"
