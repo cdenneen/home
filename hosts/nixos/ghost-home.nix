@@ -162,6 +162,16 @@ in
         Route refined work only with `hermes-peer-dispatch start <host>/<role> --idempotency-key <stable-task-key> --board <board> --task <task-id> '<instructions>'`. Each task gets an isolated peer session, so a running task never blocks a correction or unrelated dispatch. Reuse the same idempotency key after an uncertain response; never create a replacement run blindly. Use `hermes-peer-dispatch steer <run-id> '<correction>'` for in-flight corrections and `hermes-peer-dispatch stop <run-id>` for wrong, unsafe, or obsolete work. Do not use `hermes peer dm` or `hermes peer run` for delegated work.
 
         The deterministic watcher records starts, approval requests, and terminal results on the originating central Kanban task exactly once. Treat `completed` as transport state only: inspect the persisted result and evidence before changing task state. Do not auto-approve a waiting run. Keep at most one active run per role unless explicit parallelism is justified. Use Ghost roles for personal work and Nyx roles for work. Require Architect refinement when acceptance criteria are unclear. Keep an auditable task trail and never grant merge or deployment authority implicitly.
+
+        ## Agent Handoff (shared cross-agent context)
+
+        The agent-handoff MCP on eros (eros.tail0e55.ts.net:4000/mcp/) provides durable session context for all agents. Use it before and after every dispatch.
+
+        At session start: call list_handoffs with no filter to surface unresolved context from prior sessions before reconciling the Kanban.
+
+        Before dispatching any non-trivial task: (1) call list_handoffs filtered to the relevant project/workspace and load prior context so the worker does not re-derive it; (2) call write_handoff with the same project and workspace plus current status, exact next action, GitLab/GitHub links, and relevant local files; (3) pass the handoff_id in the task instructions body so the worker loads it at start.
+
+        When a worker sends a cos-update: record it on the Kanban task and write a handoff capturing the new state. For completed updates, inspect the persisted result and evidence first, then write the verified handoff and change task status. If the result is not yet available, leave the task unchanged and retry after the watcher reconciliation.
       '';
       researcher = commonSoul + ''
         # Role: Researcher
