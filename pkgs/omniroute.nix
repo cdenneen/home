@@ -2,6 +2,7 @@
   buildNpmPackage,
   fetchurl,
   gnutar,
+  gnugrep,
   gzip,
   importNpmLock,
   lib,
@@ -59,7 +60,7 @@
   doInstallCheck = true;
   installCheckPhase = ''
     set -euo pipefail
-    "$out/bin/omniroute" --version | grep -F "3.8.51"
+    "$out/bin/omniroute" --version | ${gnugrep}/bin/grep -F "3.8.51"
   '';
 
   meta = {
