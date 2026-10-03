@@ -45,6 +45,7 @@ OLLAMA_URL = env("EROS_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 EMBED_MODEL = env("EROS_EMBED_MODEL", "qwen3-embedding:0.6b")
 GRAPHIFY_URL = env("EROS_GRAPHIFY_URL", "http://nyx.tail0e55.ts.net:18108/mcp")
 RECALLIUM_URL = env("EROS_RECALLIUM_URL", "http://nyx.tail0e55.ts.net:18001/mcp")
+FALKORDB_HOST = env("FALKORDB_HOST", "127.0.0.1")
 SKILL_ROOTS = tuple(Path(p) for p in env("EROS_SKILL_ROOTS", "").split(":") if p)
 MODEL_ROUTES = tuple(
     value for value in env("EROS_MODEL_ROUTES", "").split(",") if value
@@ -1184,6 +1185,388 @@ def initialize() -> None:
         "eros_capability_v1",
     ):
         ensure_collection(collection)
+
+
+def _get_falkordb_client() -> Any:
+    """Get a Redis client connected to FalkorDB's Redis/Graph protocol on port 6380."""
+    try:
+        from redis import Redis
+
+        return Redis(host=FALKORDB_HOST, port=6380, decode_responses=True)
+    except (OSError, ValueError):
+        return None
+
+
+def _escape_cypher_string(value: str) -> str:
+    """Escape a string value for safe inclusion in a Cypher query.
+
+    Replaces backslashes, double quotes, and newlines with escape sequences.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def store_context(
+    content: str,
+    type: str = "fact",
+    agent_id: str = "",
+    project: str = "",
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Store a fact, decision, or session note in the shared memory system.
+
+    Fans out to Qdrant (vector), FalkorDB (graph), and agent-context repo (durable)
+    based on the memory type routing table. Use instead of writing directly to
+    MEMORY.md for anything that should be accessible to other agents.
+
+    Memory type routing (no Redis cache tier per Phase 1 design doc):
+    - fact/decision/topology → Qdrant shared_knowledge + FalkorDB Decision/Agent node
+    - session → Qdrant shared_memory (handoff)
+    - task → FalkorDB Task node only
+    - capability → Qdrant eros_capability_v1 + FalkorDB Agent node
+
+    Args:
+        content: The fact, decision, or note to store
+        type: One of fact|decision|session|topology|task|capability (default: fact)
+        agent_id: Calling agent identity (e.g. ops@nyx). Defaults to trust domain owner.
+        project: Project slug for scoping (e.g. eks-platform)
+        tags: Optional list of tags for filtering
+
+    Returns:
+        Dict with per-store write status indicating which stores were written successfully.
+    """
+    if tags is None:
+        tags = []
+
+    if not agent_id:
+        agent_id = TRUST_DOMAIN
+
+    result: dict[str, Any] = {
+        "qdrant": {"status": "skipped"},
+        "falkordb": {"status": "skipped"},
+        "agent_context": {"status": "skipped"},
+    }
+
+    # Determine routing based on type (per memory type routing table)
+    qdrant_collection: str | None = None
+    falkordb_node_type: str | None = None
+
+    match type:
+        case "fact":
+            qdrant_collection = "shared_knowledge"
+            falkordb_node_type = "Decision"
+            result["agent_context"]["status"] = "pending"
+        case "decision":
+            qdrant_collection = "shared_knowledge"
+            falkordb_node_type = "Decision"
+            result["agent_context"]["status"] = "pending"
+        case "session":
+            qdrant_collection = "shared_memory"
+            result["agent_context"]["status"] = "pending"
+        case "topology":
+            qdrant_collection = "shared_knowledge"
+            falkordb_node_type = "Agent"
+            result["agent_context"]["status"] = "pending"
+        case "task":
+            falkordb_node_type = "Task"
+            # task doesn't write to Qdrant per routing table
+        case "capability":
+            qdrant_collection = "eros_capability_v1"
+            falkordb_node_type = "Agent"
+            # capability doesn't write to agent-context per routing table
+        case _:
+            raise ValueError(f"invalid type: {type}, must be one of fact|decision|session|topology|task|capability")
+
+    # 1. Qdrant write path
+    if qdrant_collection:
+        vector = embed(content)
+        qdrant_id = stable_id(type, TRUST_DOMAIN, content)
+        payload = {
+            "id": qdrant_id,
+            "type": type,
+            "trust_domain": TRUST_DOMAIN,
+            "content": content,
+            "agent_id": agent_id,
+            "project": project,
+            "tags": tags,
+        }
+        try:
+            qdrant_upsert(qdrant_collection, qdrant_id, vector, payload)
+            result["qdrant"] = {"status": "success", "collection": qdrant_collection, "id": qdrant_id}
+        except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError) as err:
+            result["qdrant"] = {"status": "error", "error": str(err)}
+
+    # 2. FalkorDB write path (parameterized queries via Redis GRAPH.QUERY)
+    if falkordb_node_type:
+        falkordb_client = _get_falkordb_client()
+        if falkordb_client:
+            now = datetime.now(timezone.utc).isoformat()
+            escaped_agent_id = _escape_cypher_string(agent_id)
+            escaped_project = _escape_cypher_string(project) if project else ""
+            escaped_content = _escape_cypher_string(content)
+            escaped_now = _escape_cypher_string(now)
+            escaped_type = _escape_cypher_string(type)
+
+            # Build parameterized Cypher query
+            match falkordb_node_type:
+                case "Agent":
+                    query = f"""
+    CYPHER agent_id="{escaped_agent_id}", project="{escaped_project}", content="{escaped_content}", now="{escaped_now}", type="{escaped_type}"
+    MERGE (a:Agent {{id: $agent_id}})
+    ON CREATE SET
+        a.trust_domain = $trust_domain,
+        a.last_active = $now,
+        a.project = $project
+    ON MATCH SET
+        a.last_active = $now
+    """
+                case "Decision":
+                    content_hash = stable_id(type, TRUST_DOMAIN, content)
+                    escaped_content_hash = _escape_cypher_string(content_hash)
+                    query = f"""
+    CYPHER content_hash="{escaped_content_hash}", content="{escaped_content}", agent_id="{escaped_agent_id}", project="{escaped_project}", now="{escaped_now}", type="{escaped_type}"
+    MERGE (d:Decision {{id: $content_hash}})
+    ON CREATE SET
+        d.content = $content,
+        d.trust_domain = $trust_domain,
+        d.created_at = $now,
+        d.agent_id = $agent_id,
+        d.project = $project,
+        d.type = $type
+    ON MATCH SET
+        d.content = $content,
+        d.updated_at = $now
+    """
+                case "Task":
+                    content_hash = stable_id(type, TRUST_DOMAIN, content)
+                    escaped_content_hash = _escape_cypher_string(content_hash)
+                    query = f"""
+    CYPHER content_hash="{escaped_content_hash}", content="{escaped_content}", agent_id="{escaped_agent_id}", project="{escaped_project}", now="{escaped_now}"
+    MERGE (t:Task {{id: $content_hash}})
+    ON CREATE SET
+        t.content = $content,
+        t.trust_domain = $trust_domain,
+        t.status = "open",
+        t.created_at = $now,
+        t.agent_id = $agent_id,
+        t.project = $project
+    ON MATCH SET
+        t.content = $content,
+        t.updated_at = $now
+    """
+                case _:
+                    result["falkordb"] = {"status": "skipped", "reason": "unknown node type"}
+                    query = None
+
+            if query:
+                try:
+                    falkordb_client.execute_command("GRAPH.QUERY", "knowledge", query.strip())
+                    result["falkordb"] = {
+                        "status": "success",
+                        "node_type": falkordb_node_type,
+                        "agent_id": agent_id,
+                    }
+                except Exception as err:
+                    result["falkordb"] = {"status": "error", "error": str(err)}
+        else:
+            result["falkordb"] = {"status": "skipped", "reason": "no falkordb client"}
+
+    # 3. agent-context repo write path (for fact/decision/topology/session)
+    if result["agent_context"]["status"] == "pending":
+        try:
+            import subprocess
+
+            repo_dir = Path(env("AGENT_HANDOFF_REPO", "/var/lib/agent-handoff/agent-context"))
+            handoffs_dir = repo_dir / "handoffs"
+            handoffs_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate unique ID and filename
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            handoff_id = stable_id(type, agent_id, content, ts)
+            filename = f"{ts}-{handoff_id[:12]}-{type}.md"
+
+            # Build frontmatter
+            handoff_data = {
+                "id": handoff_id,
+                "type": type,
+                "content": content,
+                "agent_id": agent_id,
+                "project": project,
+                "tags": tags,
+                "written_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            doc = f"""---
+{json.dumps(handoff_data, indent=2)}
+---
+# Memory: {type}
+
+**Agent:** {agent_id}  \
+**Project:** {project or "—"}  \
+**Trust Domain:** {TRUST_DOMAIN}
+
+{content}
+"""
+
+            path = handoffs_dir / filename
+            path.write_text(doc, encoding="utf-8")
+
+            # Commit and push
+            git_env = {**os.environ}
+            deploy_key = env("AGENT_HANDOFF_DEPLOY_KEY", "/run/agent-handoff/deploy_key")
+            if Path(deploy_key).exists():
+                git_env["GIT_SSH_COMMAND"] = (
+                    f"ssh -i {deploy_key} -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+                )
+
+            def run_git(*args: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["git", "-C", str(repo_dir), *args],
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                )
+
+            run_git("add", "-A")
+            commit_result = run_git("diff", "--cached", "--quiet", check=False)
+            if commit_result.returncode != 0:
+                run_git("commit", "-m", f"memory: {type} by {agent_id}")
+                run_git("push", check=False)
+
+            result["agent_context"] = {
+                "status": "success",
+                "file": filename,
+                "id": handoff_id,
+            }
+        except Exception as err:
+            result["agent_context"] = {"status": "error", "error": str(err)}
+
+    return result
+
+
+def recall(
+    query: str,
+    project: str = "",
+    agent_id: str = "",
+    type: str = "",
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Retrieve relevant context from shared memory.
+
+    Searches Qdrant (semantic) and FalkorDB (graph) in parallel, merges results
+    by relevance using merge_ranked(), and returns top `limit` ranked results.
+
+    Args:
+        query: Natural language query or keyword
+        project: Scope to a specific project
+        agent_id: Scope to a specific agent's knowledge
+        type: Optional type filter (fact|decision|session|topology|task|capability)
+        limit: Maximum number of results (default: 10)
+
+    Returns:
+        List of ranked context items from Qdrant and FalkorDB merge.
+    """
+    domains = visible_domains()
+    limit = min(max(limit, 1), 50)
+
+    # Determine collections to search
+    collections_to_search: list[str] = []
+    match type:
+        case "fact" | "decision" | "topology":
+            collections_to_search = ["shared_knowledge"]
+        case "session":
+            collections_to_search = ["shared_memory"]
+        case "capability":
+            collections_to_search = ["eros_capability_v1"]
+        case "task":
+            # task doesn't go to Qdrant per routing table
+            collections_to_search = []
+        case "":
+            # no type filter: search all relevant collections
+            collections_to_search = ["shared_knowledge", "shared_memory", "eros_capability_v1"]
+        case _:
+            raise ValueError(f"invalid type: {type}")
+
+    # 1. Qdrant semantic search
+    vector = embed(query)
+    qdrant_results: list[dict[str, Any]] = []
+    for collection in collections_to_search:
+        try:
+            qdrant_results.extend(
+                qdrant_search(collection, vector, limit, domains)
+            )
+        except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError):
+            pass
+
+    # 2. FalkorDB graph query (parameterized)
+    falkordb_results: list[dict[str, Any]] = []
+    falkordb_client = _get_falkordb_client()
+    if falkordb_client and query.strip():
+        now = datetime.now(timezone.utc).isoformat()
+        escaped_query = _escape_cypher_string(query)
+        escaped_project = _escape_cypher_string(project) if project else ""
+        escaped_agent_id = _escape_cypher_string(agent_id) if agent_id else ""
+
+        # Build a query that searches nodes by text match in content/metadata
+        # The graph query pattern from record_completed_task.py uses CYPHER prefix
+        base_query = f"""
+CYPHER query="{escaped_query}", project="{escaped_project}", agent_id="{escaped_agent_id}", now="{now}"
+"""
+
+        # Search Decision and Agent nodes (topology/capability share Agent type)
+        if type in ("", "fact", "decision", "topology", "capability"):
+            base_query += """
+MATCH (n:Decision) WHERE n.content IS NOT NULL AND toLower(n.content) CONTAINS toLower($query)
+  RETURN n.id AS id, n.content AS content, 'Decision' AS node_type, n.project AS project, n.agent_id AS agent_id, n.created_at AS created_at, 0.5 AS score
+UNION
+MATCH (n:Agent) WHERE n.id IS NOT NULL AND toLower(n.id) CONTAINS toLower($query)
+  RETURN n.id AS id, n.id AS content, 'Agent' AS node_type, n.project AS project, n.id AS agent_id, n.last_active AS created_at, 0.3 AS score
+UNION
+MATCH (n:Task) WHERE n.content IS NOT NULL AND toLower(n.content) CONTAINS toLower($query)
+  RETURN n.id AS id, n.content AS content, 'Task' AS node_type, n.project AS project, n.agent_id AS agent_id, n.created_at AS created_at, 0.4 AS score
+"""
+
+        # Apply project/agent_id filters
+        if project:
+            base_query = base_query.replace(
+                "WHERE n.content IS NOT NULL",
+                f"WHERE n.content IS NOT NULL AND n.project = $project",
+            )
+        if agent_id:
+            # Replace existing agent_id filter if any, or add
+            if "n.agent_id" in base_query or "n.id" in base_query:
+                # Rebuild with agent filter
+                base_query = f"""
+CYPHER query="{escaped_query}", project="{escaped_project}", agent_id="{escaped_agent_id}", now="{now}"
+MATCH (n:Decision) WHERE n.content IS NOT NULL AND n.agent_id = $agent_id AND toLower(n.content) CONTAINS toLower($query)
+  RETURN n.id AS id, n.content AS content, 'Decision' AS node_type, n.project AS project, n.agent_id AS agent_id, n.created_at AS created_at, 0.5 AS score
+UNION
+MATCH (n:Agent) WHERE n.id IS NOT NULL AND n.id = $agent_id
+  RETURN n.id AS id, n.id AS content, 'Agent' AS node_type, n.project AS project, n.id AS agent_id, n.last_active AS created_at, 0.3 AS score
+UNION
+MATCH (n:Task) WHERE n.content IS NOT NULL AND n.agent_id = $agent_id AND toLower(n.content) CONTAINS toLower($query)
+  RETURN n.id AS id, n.content AS content, 'Task' AS node_type, n.project AS project, n.agent_id AS agent_id, n.created_at AS created_at, 0.4 AS score
+"""
+
+        try:
+            records = falkordb_client.execute_command("GRAPH.QUERY", "knowledge", base_query.strip())
+            # records is [query_id, nodes, relationships, ...]
+            # Each record is a row with values
+            if len(records) > 1 and len(records[1]) > 0:
+                for record in records[1]:
+                    if isinstance(record, list) and len(record) >= 7:
+                        falkordb_results.append({
+                            "id": str(record[0]),
+                            "content": str(record[1] or ""),
+                            "type": record[2],
+                            "project": str(record[3] or ""),
+                            "agent_id": str(record[4] or ""),
+                            "score": float(record[6] or 0.0),
+                        })
+        except Exception:
+            pass
+
+    # 3. Merge and rank results
+    return merge_ranked((qdrant_results, falkordb_results), limit)
 
 
 def main() -> None:
