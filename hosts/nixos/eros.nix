@@ -1706,20 +1706,6 @@ in
       Group = "users";
       WorkingDirectory = config.users.users.cdenneen.home;
       ExecStart = "${omniroute}/bin/omniroute --no-open";
-      ExecStartPost = "+${pkgs.writeShellScript "omniroute-serve-start" ''
-        set -euo pipefail
-        for _ in $(${pkgs.coreutils}/bin/seq 1 60); do
-          if ${pkgs.netcat-openbsd}/bin/nc -z 127.0.0.1 ${toString omniroutePort}; then
-            if ! ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString omniroutePort} 127.0.0.1:${toString omniroutePort}; then
-              echo "OmniRoute is ready locally, but Tailscale Serve setup failed" >&2
-            fi
-            exit 0
-          fi
-          ${pkgs.coreutils}/bin/sleep 0.25
-        done
-        echo "OmniRoute did not bind port ${toString omniroutePort}" >&2
-        exit 1
-      ''}";
       Restart = "on-failure";
       RestartSec = "5s";
     };
@@ -1734,6 +1720,7 @@ in
       "podman-qdrant.service"
       "podman-falkordb.service"
     ];
+    partOf = [ "omniroute.service" ];
     wants = [ "podman-falkordb.service" ];
     requires = [
       "tailscaled.service"
@@ -1742,13 +1729,18 @@ in
       "podman-qdrant.service"
     ];
     wantedBy = [ "multi-user.target" ];
-    serviceConfig.Type = "oneshot";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
     path = [ pkgs.tailscale ];
     script = ''
       set -euo pipefail
       if ! ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1; then
-        echo "Tailscale is not authenticated; skipping LiteLLM serve"
-        exit 0
+        echo "Tailscale is not authenticated; retrying Serve setup" >&2
+        exit 1
       fi
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=${toString litellmHttpsPort} http://127.0.0.1:${toString litellmPort}
