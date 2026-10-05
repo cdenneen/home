@@ -373,7 +373,10 @@ in
   home.file.".claude/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
   home.file.".hermes/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
   home.file.".pi/agent/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
-  home.file.".pi/agent/AGENTS.md".source = ./ai/AGENTS-pi.md;
+  home.file.".pi/agent/AGENTS.md" = {
+    source = ./ai/AGENTS-pi.md;
+    force = true;
+  };
 
   home.file.".codex/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
   home.file.".agents/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
