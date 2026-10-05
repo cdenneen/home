@@ -482,45 +482,6 @@ in
     fi
   '';
 
-  # After sops-nix writes the glab config, lock it immutable on macOS so
-  # glab cannot auto-migrate the format and wipe the auth tokens.
-  # The activation script removes the lock before writing and re-applies after.
-  home.activation.glabConfigLockDarwin =
-    lib.hm.dag.entryAfter
-      [
-        "glabConfigConsolidateDarwin"
-        "materializeDarwinSopsSecrets"
-      ]
-      ''
-        if [ "$(uname -s)" = "Darwin" ]; then
-          canonical_cfg="$HOME/.config/glab-cli/config.yml"
-          if [ -f "$canonical_cfg" ]; then
-            # Remove any existing immutable flag first (idempotent unlock)
-            chflags nouchg "$canonical_cfg" 2>/dev/null || true
-            # Re-write from sops secret to ensure fresh tokens (sops already wrote it,
-            # this is a no-op if nothing changed; keeps the activation order explicit)
-            # Then lock: glab cannot rewrite an immutable file, so format migrations
-            # are silently skipped rather than wiping tokens.
-            $DRY_RUN_CMD chflags uchg "$canonical_cfg"
-          fi
-        fi
-      '';
-
-  # Unlock before any HM activation that might need to update the file.
-  home.activation.glabConfigUnlockDarwin =
-    lib.hm.dag.entryBefore
-      [
-        "glabConfigConsolidateDarwin"
-      ]
-      ''
-        if [ "$(uname -s)" = "Darwin" ]; then
-          canonical_cfg="$HOME/.config/glab-cli/config.yml"
-          if [ -f "$canonical_cfg" ]; then
-            chflags nouchg "$canonical_cfg" 2>/dev/null || true
-          fi
-        fi
-      '';
-
   # direnv loads this automatically (if present). Keep it tiny and just source
   # shared helpers so individual repos can assume they exist.
   home.file.".config/direnv/direnvrc".text = ''
