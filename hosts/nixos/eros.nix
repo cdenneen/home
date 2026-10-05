@@ -21,6 +21,7 @@ let
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   bedrockToolGuardFile = ../../pkgs/eros-litellm-hooks/bedrock_tool_guard.py;
   omniroutePort = 20130;
+  redisPort = 6379;
   qdrantPort = 6333;
   contextPorts = {
     shared = 18120;
@@ -204,6 +205,33 @@ in
         ports = [ "127.0.0.1:${toString qdrantPort}:6333" ];
         volumes = [ "/var/lib/qdrant:/qdrant/storage:U" ];
         autoStart = true;
+      };
+      # Redis for agent context caching (store_context/recall hot path).
+      # Auth: requirepass from SOPS secret — no unauthenticated access.
+      # Eviction: allkeys-lru at 512 MB cap — prevents unbounded growth.
+      # Tailscale serve is intentionally NOT added: Redis password auth is
+      # required before exposing on the tailnet. Once context broker
+      # store_context/recall is implemented and tested locally, add:
+      #   tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
+      # and update REDIS_URL in context broker env to use eros.tail0e55.ts.net.
+      redis = {
+        image = "redis:7.4@sha256:5ae47eabf9ef58b89a574b4fe9ccadb86a0db5aee2df3a7bc6ae2d69f08a7f1a";
+        ports = [ "127.0.0.1:${toString redisPort}:6379" ];
+        volumes = [ "/var/lib/redis:/data:U" ];
+        environment = {
+          REDIS_PASSWORD_FILE = "/run/secrets/eros_redis_password";
+        };
+        extraOptions = [
+          "--mount"
+          "type=bind,source=/run/secrets/eros_redis_password,target=/run/secrets/eros_redis_password,readonly"
+        ];
+        cmd = [
+          "sh"
+          "-c"
+          "redis-server --appendonly yes --requirepass \"$(cat /run/secrets/eros_redis_password)\" --maxmemory 512mb --maxmemory-policy allkeys-lru --bind 0.0.0.0"
+        ];
+        autoStart = true;
+        dependsOn = [ ];
       };
       litellm = {
         # v1.101.0 (2026-09-18). Multi-arch index digest, same convention as the
@@ -404,6 +432,13 @@ in
     kanban_shim_ssh_key = {
       owner = "cdenneen";
       group = "cdenneen";
+      mode = "0400";
+    };
+    # Password for the eros-local Redis instance (agent context cache).
+    # Generated at setup: openssl rand -base64 32
+    eros_redis_password = {
+      owner = "root";
+      group = "root";
       mode = "0400";
     };
   };
