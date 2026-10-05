@@ -141,6 +141,45 @@ class BrokerPolicyTests(unittest.TestCase):
         finally:
             server.EXTERNAL_PROJECTS = original
 
+    def test_memory_store_fails_closed_and_recall_is_scoped(self):
+        original_embed = server.embed
+        original_upsert = server.qdrant_upsert
+        original_search = server.qdrant_search
+        calls = []
+        try:
+            server.embed = lambda _text: [1.0]
+            server.qdrant_upsert = lambda *_args: False
+            with self.assertRaises(RuntimeError):
+                server.store_context("important", project="demo")
+
+            server.qdrant_upsert = lambda *_args: True
+            self.assertEqual(
+                server.store_context("important", type="task", project="demo")[
+                    "status"
+                ],
+                "stored",
+            )
+
+            def search(collection, vector, limit, domains, matches=None):
+                calls.append((collection, vector, limit, tuple(domains), matches))
+                return [
+                    {"payload": {"id": "one", "content": "important"}, "score": 1.0}
+                ]
+
+            server.qdrant_search = search
+            self.assertEqual(
+                server.recall("important", project="demo", agent_id="ops", type="task"),
+                [{"id": "one", "content": "important", "score": 1.0}],
+            )
+            self.assertEqual(
+                calls[0][4],
+                {"project": "demo", "agent_id": "ops", "type": "task"},
+            )
+        finally:
+            server.embed = original_embed
+            server.qdrant_upsert = original_upsert
+            server.qdrant_search = original_search
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ VERIFICATION_METHODS = {
 }
 INELIGIBLE_FLAGS = {"live_state", "mutation", "session_specific", "tool_bearing"}
 VECTOR_SIZE = 1024
+MEMORY_TYPES = {"fact", "decision", "session", "topology", "task", "capability"}
 
 
 def env(name: str, default: str) -> str:
@@ -148,9 +149,9 @@ def ensure_collection(name: str) -> None:
 
 def qdrant_upsert(
     collection: str, point_id: str, vector: list[float] | None, payload: dict[str, Any]
-) -> None:
+) -> bool:
     if vector is None:
-        return
+        return False
     try:
         http_json(
             f"{QDRANT_URL}/collections/{collection}/points?wait=false",
@@ -165,25 +166,34 @@ def qdrant_upsert(
             },
             method="PUT",
         )
+        return True
     except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError):
-        pass
+        return False
 
 
 def qdrant_search(
-    collection: str, vector: list[float] | None, limit: int, domains: Iterable[str]
+    collection: str,
+    vector: list[float] | None,
+    limit: int,
+    domains: Iterable[str],
+    matches: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     if vector is None:
         return []
     try:
+        filters = [{"key": "trust_domain", "match": {"any": list(domains)}}]
+        filters.extend(
+            {"key": key, "match": {"value": value}}
+            for key, value in (matches or {}).items()
+            if value
+        )
         response = http_json(
             f"{QDRANT_URL}/collections/{collection}/points/query",
             {
                 "query": vector,
                 "limit": limit,
                 "with_payload": True,
-                "filter": {
-                    "must": [{"key": "trust_domain", "match": {"any": list(domains)}}]
-                },
+                "filter": {"must": filters},
             },
             timeout=2.0,
         )
@@ -372,6 +382,65 @@ def health() -> dict[str, Any]:
         "trust_domain": TRUST_DOMAIN,
         "visible_domains": visible_domains(),
     }
+
+
+@mcp.tool()
+def store_context(
+    content: str,
+    type: str = "fact",
+    agent_id: str = "",
+    project: str = "",
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Store scoped agent context in the shared vector memory."""
+    content = content.strip()
+    if not content:
+        raise ValueError("content must not be empty")
+    if type not in MEMORY_TYPES:
+        raise ValueError(f"invalid type: {type}")
+    point_id = stable_id("memory", TRUST_DOMAIN, type, agent_id, project, content)
+    payload = {
+        "id": point_id,
+        "content": content,
+        "type": type,
+        "trust_domain": TRUST_DOMAIN,
+        "agent_id": agent_id,
+        "project": project,
+        "tags": tags or [],
+        "stored_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not qdrant_upsert("eros_shared_memory_v1", point_id, embed(content), payload):
+        raise RuntimeError("context write failed")
+    return {"status": "stored", "id": point_id}
+
+
+@mcp.tool()
+def recall(
+    query: str,
+    project: str = "",
+    agent_id: str = "",
+    type: str = "",
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Recall context within the current trust domain and requested scope."""
+    query = query.strip()
+    if not query:
+        raise ValueError("query must not be empty")
+    if type and type not in MEMORY_TYPES:
+        raise ValueError(f"invalid type: {type}")
+    matches = {"project": project, "agent_id": agent_id, "type": type}
+    return merge_ranked(
+        (
+            qdrant_search(
+                "eros_shared_memory_v1",
+                embed(query),
+                min(max(limit, 1), 50),
+                visible_domains(),
+                matches,
+            ),
+        ),
+        min(max(limit, 1), 50),
+    )
 
 
 @mcp.tool()
@@ -954,6 +1023,7 @@ def _upsert_capability(
         )
     qdrant_upsert(
         "eros_capability_v1",
+        "eros_shared_memory_v1",
         capability_id,
         embed(f"{name}\n{description}"),
         {
