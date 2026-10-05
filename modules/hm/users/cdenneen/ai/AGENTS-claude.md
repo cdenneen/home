@@ -13,6 +13,22 @@
 
 This file is injected every session. Project context belongs in `.ai/HANDOFF.md` loaded via startup routine, not here. GitLab pipeline contract is in the `gitlab-pipelines` skill — load on demand.
 
+### MCP tool names on eros (use these exact names — don't rely on search)
+
+The eros MCP aggregate (`eros.tail0e55.ts.net:4000/mcp/`) proxies multiple servers. Semantic tool search may not surface all tools — call these directly by name:
+
+| Contract name    | Actual MCP tool              | Server              |
+| ---------------- | ---------------------------- | ------------------- |
+| `write_handoff`  | `write_handoff`              | agent-handoff       |
+| `read_handoff`   | `read_handoff`               | agent-handoff       |
+| `list_handoffs`  | `list_handoffs`              | agent-handoff       |
+| `store_context`  | `store_context`              | eros-context-shared |
+| `recall`         | `recall`                     | eros-context-shared |
+| `search_context` | `search_context`             | eros-context-shared |
+| Kanban read      | `kanban_list`, `kanban_show` | kanban-shim         |
+
+If tool search returns `recallium-*` or `graphify-*` — those are valid for episodic memory and graph queries, but `write_handoff` and `store_context` are the canonical contract tools. Search for them specifically: `mcp__eros__mcp_tool_call` with tool_name `write_handoff`.
+
 ### Session update (Claude equivalent of cos-update)
 
 Claude Code does not have the Hermes `cos-update` skill. Use the MCP equivalent:
