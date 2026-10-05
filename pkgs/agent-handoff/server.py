@@ -364,6 +364,94 @@ def list_context(kind: str = "") -> list[dict[str, str]]:
 
 
 @mcp.tool()
+def cos_update(
+    status: str,
+    message: str,
+    agent: str = "claude-desktop",
+) -> dict[str, Any]:
+    """Send a status update to the Chief of Staff on ghost, which logs it to the Kanban.
+
+    Use this at session start, on every significant decision or discovery,
+    when blocked, when requesting review, and at session end. CoS is the
+    single source of truth for all in-flight work — calling this keeps the
+    Kanban accurate so no work is invisible or repeated.
+
+    Args:
+        status: One of: started, update, blocked, review, completed
+        message: Human-readable update. Include what you did, why, links to
+                 PRs/issues, what's next. Be specific — CoS uses this to
+                 update the Kanban and brief other agents.
+        agent:   Caller identity (default: claude-desktop). Used by CoS to
+                 attribute the update and route to the right Kanban board.
+
+    Returns a dict with 'sent', 'cos_reply', and 'kanban_hint' fields.
+    """
+    valid_statuses = {"started", "update", "blocked", "review", "completed"}
+    if status not in valid_statuses:
+        return {
+            "error": f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid_statuses))}",
+            "sent": False,
+        }
+
+    formatted = f"[{agent}] [{status}] {message}"
+
+    try:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=10",
+                "ghost",
+                "hermes", "peer", "dm", "ghost/chief-of-staff",
+                formatted,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        cos_reply = (result.stdout or "").strip()
+        # Strip the sops helper line that always appears on ghost
+        cos_reply = "\n".join(
+            line for line in cos_reply.splitlines()
+            if not line.startswith("Command helper:")
+        ).strip()
+
+        # Parse structured task_id from CoS reply JSON block if present
+        task_id = None
+        kanban_status = None
+        board = None
+        for line in cos_reply.splitlines():
+            line = line.strip()
+            if line.startswith("{") and "task_id" in line:
+                try:
+                    parsed = json.loads(line)
+                    task_id = parsed.get("task_id")
+                    kanban_status = parsed.get("status")
+                    board = parsed.get("board")
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        return {
+            "sent": result.returncode == 0,
+            "cos_reply": cos_reply or "(no reply)",
+            "task_id": task_id,
+            "kanban_status": kanban_status,
+            "board": board,
+            "kanban_hint": (
+                f"Task ID: {task_id} on {board}. Use this task_id in all subsequent cos_update calls this session."
+                if task_id else
+                "CoS has received this update and will log it to the Kanban."
+            ),
+            "error": result.stderr.strip() if result.returncode != 0 else None,
+        }
+    except subprocess.TimeoutExpired:
+        return {"sent": False, "error": "SSH to ghost timed out after 30s", "cos_reply": None}
+    except Exception as exc:  # noqa: BLE001
+        return {"sent": False, "error": str(exc), "cos_reply": None}
+
+
+@mcp.tool()
 def health() -> dict[str, Any]:
     """Report agent-handoff service health."""
     repo_ok = (REPO_DIR / ".git").exists()

@@ -172,6 +172,22 @@ in
         Before dispatching any non-trivial task: (1) call list_handoffs filtered to the relevant project/workspace and load prior context so the worker does not re-derive it; (2) call write_handoff with the same project and workspace plus current status, exact next action, GitLab/GitHub links, and relevant local files; (3) pass the handoff_id in the task instructions body so the worker loads it at start.
 
         When a worker sends a cos-update: record it on the Kanban task and write a handoff capturing the new state. For completed updates, inspect the persisted result and evidence first, then write the verified handoff and change task status. If the result is not yet available, leave the task unchanged and retry after the watcher reconciliation.
+
+        ## Structured replies to agent cos-updates
+
+        When any agent sends a cos-update DM (format: `[<agent>] [<status>] <message>`), always end your reply with a JSON block on its own line so the calling agent can parse the task ID without screen-scraping prose:
+
+        ```
+        {"task_id":"<t_xxx or new-id>","status":"<acknowledged|created|updated|completed>","board":"<board-slug>"}
+        ```
+
+        For `started` updates: search the Kanban for an existing task matching the topic. If found, return its ID with status `acknowledged`. If not found, create a new task on the appropriate board (work-ops for nyx ops/infra, work-eks-platform for EKS/k8s, work-gitlab for GitLab) and return the new ID with status `created`. The agent will use this task_id for all subsequent updates in the session.
+
+        For `update`, `blocked`, `review` updates: update the matching task, return its ID with status `updated`.
+
+        For `completed` updates: finalize the task, return its ID with status `completed`.
+
+        Always include the JSON block even when the message is ambiguous — use your best match or create a catch-all task on work-ops.
       '';
       researcher = commonSoul + ''
         # Role: Researcher
