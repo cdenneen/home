@@ -12,9 +12,6 @@ import json
 import os
 import subprocess
 import textwrap
-import uuid
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -95,42 +92,6 @@ def _stable_id(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
-def _call_context_broker(tool: str, arguments: dict[str, Any]) -> Any:
-    """Call the local context broker MCP tool.
-
-    Returns the tool result or None on error (non-fatal; handoff still succeeds).
-    """
-    context_port = int(os.environ.get("EROS_CONTEXT_PORT", "18120"))
-    url = f"http://127.0.0.1:{context_port}/mcp"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-    }
-    payload = json.dumps({
-        "jsonrpc": "2.0",
-        "id": str(uuid.uuid4()),
-        "method": "tools/call",
-        "params": {"name": tool, "arguments": arguments},
-    }).encode()
-
-    try:
-        request = urllib.request.Request(url, data=payload, method="POST", headers=headers)
-        with urllib.request.urlopen(request, timeout=2.0) as response:
-            text = response.read().decode("utf-8", errors="replace")
-            if "data:" in text:
-                # Event stream - get the last message
-                for line in text.splitlines():
-                    if line.startswith("data:"):
-                        data = line[5:].strip()
-                        if data and data != "[DONE]":
-                            message = json.loads(data)
-                            return message.get("result", {})
-            else:
-                return json.loads(text).get("result", {})
-    except (OSError, ValueError, KeyError, urllib.error.URLError, urllib.error.HTTPError):
-        return None
-
-
 # ---------------------------------------------------------------------------
 # MCP tools
 # ---------------------------------------------------------------------------
@@ -203,15 +164,6 @@ def write_handoff(
     path = HANDOFFS_DIR / filename
     path.write_text(doc, encoding="utf-8")
     sha = _commit_and_push(f"handoff: {topic[:60]}")
-
-    # Write to shared memory system (fan-out to Qdrant, FalkorDB, agent-context)
-    _ = _call_context_broker("store_context", {
-        "content": content,
-        "type": "session",
-        "agent_id": agent or os.environ.get("EROS_TRUST_DOMAIN", "shared"),
-        "project": project,
-        "tags": [t.strip() for t in tags.split(",") if t.strip()],
-    })
 
     resume_prompt = _build_resume_prompt(
         handoff_id=handoff_id,

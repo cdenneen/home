@@ -252,3 +252,4 @@ Every GitLab pipeline/deployment response must end with a “Run Summary” bloc
 - Failed jobs: <list or none>
 - Child pipelines: <list>
 - Next action: <none|play job X|apply patch Y|rerun pipeline>
+

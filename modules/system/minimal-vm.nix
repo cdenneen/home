@@ -1,10 +1,4 @@
-{
-  config,
-  lib,
-  pkgs,
-  homeStateVersion ? "26.05",
-  ...
-}:
+{ config, lib, pkgs, homeStateVersion ? "26.05", ... }:
 {
   options.profiles.minimalVm.enable = lib.mkEnableOption "Minimal cloud VM profile (zsh, nvim, tailscale, no theme/shell bloat)";
 

@@ -270,13 +270,12 @@ assert custodyReader.serviceConfig.StandardInput == "socket";
 assert custodyReader.serviceConfig.DynamicUser;
 assert custodyReader.serviceConfig.User == "phase-b-custody-reader";
 assert custodyReader.serviceConfig.Group == "phase-b-custody-reader";
-assert
-  custodyReader.serviceConfig.InaccessiblePaths == [
-    "/var/lib/phase-b"
-    "/etc/phase-b"
-    "/home"
-    "/root"
-  ];
+assert custodyReader.serviceConfig.InaccessiblePaths == [
+  "/var/lib/phase-b"
+  "/etc/phase-b"
+  "/home"
+  "/root"
+];
 assert custodyReader.serviceConfig.IPAddressAllow == [ "198.51.100.20/32" ];
 assert custodyReader.serviceConfig.IPAddressDeny == "any";
 assert (custodyReader.serviceConfig.ReadWritePaths or [ ]) == [ ];
@@ -285,11 +284,10 @@ assert custodyReader.partOf == [ "phase-b-custody-reader.socket" ];
 assert custodySocket.unitConfig.StopWhenUnneeded;
 assert builtins.elem "phase-b-source-sensor.socket" executor.requires;
 assert builtins.elem "phase-b-custody-reader.socket" executor.requires;
-assert
-  executor.unitConfig.PropagatesStopTo == [
-    "phase-b-source-sensor.socket"
-    "phase-b-custody-reader.socket"
-  ];
+assert executor.unitConfig.PropagatesStopTo == [
+  "phase-b-source-sensor.socket"
+  "phase-b-custody-reader.socket"
+];
 assert executor.serviceConfig.DynamicUser == false;
 assert verifier.serviceConfig.DynamicUser == false;
 assert executor.serviceConfig.IPAddressDeny == "any";

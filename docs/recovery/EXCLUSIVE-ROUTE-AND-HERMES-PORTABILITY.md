@@ -7,10 +7,10 @@
 
 Normal producer integration completed before this qualification.
 
-| Product      | Merged pull requests | Merged current `main`                      | Current-main CI            |
-| ------------ | -------------------- | ------------------------------------------ | -------------------------- |
-| axis-control | #3, #4, #10          | `830b6432a758a633afbf2f3127ceb3dfeba340d7` | run `32506348009`: success |
-| Alpha0       | #2, #4               | `94e90beb00c46bca74f927437e1c8805eb64d099` | run `32506305059`: success |
+| Product | Merged pull requests | Merged current `main` | Current-main CI |
+|---|---|---|---|
+| axis-control | #3, #4, #10 | `830b6432a758a633afbf2f3127ceb3dfeba340d7` | run `32506348009`: success |
+| Alpha0 | #2, #4 | `94e90beb00c46bca74f927437e1c8805eb64d099` | run `32506305059`: success |
 
 The reviewed feature heads are ancestors of these merge commits. PR-head success is not used as the final source-integration claim.
 
@@ -32,14 +32,14 @@ CROSS_HOST_SUPERVISION_DEPLOYMENT = PARTIAL
 
 The merged producer and consumer contract is complete enough and is not reopened by this report. A disposable rootless two-container test exercised the existing contract over a private TCP bridge with zero mounts on either container. The consumer had no shared filesystem, SSH path, producer SQLite/Hermes access, producer process inspection, or producer-host subprocess access. Local controller access primitives were patched to fail.
 
-| Case                                  | Result                     |
-| ------------------------------------- | -------------------------- |
-| missing authentication                | HTTP 401                   |
+| Case | Result |
+|---|---|
+| missing authentication | HTTP 401 |
 | matching producer and GitLab evidence | `PROGRESSING`; no mutation |
-| changed GitLab head                   | `DRIFTED`; no mutation     |
-| incomplete producer envelope          | `UNKNOWN`                  |
-| contradictory producer evidence       | `UNKNOWN`                  |
-| producer unavailable                  | explicit `UNAVAILABLE`     |
+| changed GitLab head | `DRIFTED`; no mutation |
+| incomplete producer envelope | `UNKNOWN` |
+| contradictory producer evidence | `UNKNOWN` |
+| producer unavailable | explicit `UNAVAILABLE` |
 
 The isolated proof used axis-control `830b6432a758a633afbf2f3127ceb3dfeba340d7`, Alpha0 `94e90beb00c46bca74f927437e1c8805eb64d099`, an ephemeral bearer credential, and response digest `sha256:ccf62d1539b202c3b99416064b24f079bf4b7227587aad9316e150c46886bf8f`. Matching and changed-head request latency was 0.462 ms and 0.554 ms respectively on the local private bridge. These are samples, not an SLO.
 
@@ -49,29 +49,29 @@ Deployment remains `PARTIAL`: the HTTP wrapper and credential were disposable te
 
 Logical owners are restricted to `GENERIC_HERMES`, `AXIS_CONTROL`, and `ALPHA0`. Route aliases below are evidence-local; provider identifiers, channel/chat values, session identifiers, prompts, messages, commands, delivery targets, and credential material are excluded.
 
-| Route identity                | Ingress / trigger                                                   | Current gateway / profile                                     | Scheduler registry                     | Durable state dependency                                  | Intended canonical owner | Future disposition                                                                             | Cutover action required?                                                                  |
-| ----------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `GENERIC-CURRENT`             | generic messaging ingress                                           | generic gateway / default                                     | none inherent                          | 10 indexed generic sessions; none selected for migration  | `GENERIC_HERMES`         | reconstruct owner-approved route; start sessions fresh unless a subset is separately qualified | yes: prove sole source/destination connection and continuity                              |
-| `GENERIC-HISTORICAL-A`        | historical generic session origin, absent from current route config | generic gateway / default history                             | none                                   | one indexed session                                       | `GENERIC_HERMES`         | owner selects archive or conditional session export                                            | yes: explicit owner disposition                                                           |
-| `GENERIC-HISTORICAL-B`        | historical generic session origin, absent from current route config | generic gateway / default history                             | none                                   | one indexed session                                       | `GENERIC_HERMES`         | owner selects archive or conditional session export                                            | yes: explicit owner disposition                                                           |
-| `AXIS-MULTIPLEX`              | AXIS interaction carried by generic root                            | generic gateway / `axis-control` routed profile               | root-profile PO-alert registry         | 12 indexed AXIS sessions; archive-only                    | `AXIS_CONTROL`           | archive legacy route/sessions; reconstruct only an approved non-mutating adapter               | yes: confirm generic gateway ownership and dedicated scheduler has no external route      |
-| `AXIS-DEDICATED`              | no external ingress; dedicated legacy scheduler host                | legacy axis-control gateway / explicit `axis-control` profile | checkout profile registry              | no session index observed in checkout root/profile        | `AXIS_CONTROL`           | drain and archive; never restore as source authority                                           | yes: scheduler/work custody drain and source-no-process proof                             |
-| `ALPHA0-DEDICATED`            | dedicated Alpha0 messaging ingress                                  | legacy Alpha0 gateway / owner root routed to `alpha0`         | Alpha0 owner-root registry             | 27 indexed Alpha0-profile sessions; archive-only          | `ALPHA0`                 | recreate exact route/profile shim and start sessions fresh                                     | yes: exact producer preflights, external identity attestation, source-no-connection proof |
-| `ALPHA0-LOOPBACK`             | host-local Alpha0 API                                               | legacy Alpha0 gateway / default owner                         | none                                   | none                                                      | `ALPHA0`                 | recreate loopback-only from reviewed deployment                                                | yes: collision and listener preflight                                                     |
-| `GENERIC-AXIS-WORKER`         | enabled interval, agent-waking AXIS work                            | generic gateway / default                                     | generic root                           | runtime ID/history archive-only                           | `AXIS_CONTROL`           | do not restore                                                                                 | yes: future exact pause/removal and absence proof                                         |
-| `GENERIC-AXIS-WATCHDOG`       | enabled interval, AXIS recovery                                     | generic gateway / default                                     | generic root                           | runtime ID/history archive-only                           | `AXIS_CONTROL`           | do not restore; preserve the unrelated generic stuck-cron watchdog                             | yes: future exact pause/removal after recovery sources are fenced                         |
-| `AXIS-PO-ALERT`               | enabled interval, no-agent AXIS report                              | generic gateway / `axis-control`                              | generic root-profile                   | session/execution history archive-only                    | `AXIS_CONTROL`           | archive; rebuild only over canonical durable outbox/ACK if separately required                 | yes: drain explicitly                                                                     |
-| `AXIS-ROADMAP`                | enabled interval, agent-waking AXIS work                            | dedicated axis-control gateway / `axis-control`               | **checkout root and checkout profile** | duplicate persisted records; runtime history archive-only | `AXIS_CONTROL`           | archive; do not import or restore                                                              | yes: independently reconcile both physical registries and prove no fallback recreation    |
-| `ALPHA0-DAILY`                | enabled daily no-agent brief                                        | Alpha0 gateway / default owner                                | Alpha0 owner root                      | execution/ticker history archive-only                     | `ALPHA0`                 | recreate disabled from merged producer                                                         | yes: wrapper rehearsal and no-duplicate-delivery proof                                    |
-| `ALPHA0-SITREP`               | enabled interval, bounded no-agent observation                      | Alpha0 gateway / default owner                                | Alpha0 owner root                      | execution/ticker history archive-only                     | `ALPHA0`                 | recreate disabled after wrapper qualification                                                  | yes: prove observation-only semantics before individual enablement                        |
-| `GENERIC-STUCK-CRON`          | timer may recover generic gateway from bounded stale-run evidence   | generic root                                                  | generic root execution state           | fresh destination runtime only                            | `GENERIC_HERMES`         | preserve/recreate from canonical Home                                                          | yes: prove it observes only retained generic authority                                    |
-| `AXIS-SCHEDULER-WATCHDOG`     | timer may restart dedicated AXIS gateway                            | dedicated AXIS checkout profile                               | checkout profile                       | legacy health/history only                                | `AXIS_CONTROL`           | drain/archive                                                                                  | yes: fence before AXIS job pauses and prove no restart path                               |
-| `AXIS-WATCHDOG-BACKUP`        | legacy AXIS recovery timer                                          | generic/Home legacy watchdog plane                            | generic-root AXIS state                | legacy derived state only                                 | `AXIS_CONTROL`           | drain/archive                                                                                  | yes: fence before cron pauses                                                             |
-| `AXIS-WATCHDOG-MONITOR`       | configured manual monitor, currently inactive                       | generic/Home legacy watchdog plane                            | generic-root AXIS state                | legacy derived state only                                 | `AXIS_CONTROL`           | drain/archive                                                                                  | yes: prove it cannot recreate legacy execution                                            |
-| `AXIS-SUPERVISOR-PROVISIONER` | enabled oneshot provisions/resumes AXIS worker jobs                 | generic gateway dependency                                    | generic root                           | persisted jobs outlive declarations                       | `AXIS_CONTROL`           | remove legacy provisioner                                                                      | yes: fence before job pauses                                                              |
-| `AXIS-WATCHDOG-PROVISIONER`   | enabled oneshot provisions/resumes AXIS watchdog job                | generic gateway dependency                                    | generic root                           | persisted jobs outlive declarations                       | `AXIS_CONTROL`           | remove legacy provisioner                                                                      | yes: fence before job pauses                                                              |
-| `AXIS-WATCHDOG-CUTOVER`       | enabled failed oneshot may reinstall AXIS authority                 | legacy watchdog plane                                         | indirect generic root                  | legacy control state only                                 | `AXIS_CONTROL`           | drain/archive; failed state is not a fence                                                     | yes: disable and prove no fallback action                                                 |
-| `ALPHA0-NYX-RELAY`            | configured non-Hermes forwarding relay, inactive                    | separate Alpha0 service                                       | none                                   | none in Hermes                                            | `ALPHA0`                 | keep outside Hermes migration                                                                  | no for Hermes; separate admission before relay activation                                 |
+| Route identity | Ingress / trigger | Current gateway / profile | Scheduler registry | Durable state dependency | Intended canonical owner | Future disposition | Cutover action required? |
+|---|---|---|---|---|---|---|---|
+| `GENERIC-CURRENT` | generic messaging ingress | generic gateway / default | none inherent | 10 indexed generic sessions; none selected for migration | `GENERIC_HERMES` | reconstruct owner-approved route; start sessions fresh unless a subset is separately qualified | yes: prove sole source/destination connection and continuity |
+| `GENERIC-HISTORICAL-A` | historical generic session origin, absent from current route config | generic gateway / default history | none | one indexed session | `GENERIC_HERMES` | owner selects archive or conditional session export | yes: explicit owner disposition |
+| `GENERIC-HISTORICAL-B` | historical generic session origin, absent from current route config | generic gateway / default history | none | one indexed session | `GENERIC_HERMES` | owner selects archive or conditional session export | yes: explicit owner disposition |
+| `AXIS-MULTIPLEX` | AXIS interaction carried by generic root | generic gateway / `axis-control` routed profile | root-profile PO-alert registry | 12 indexed AXIS sessions; archive-only | `AXIS_CONTROL` | archive legacy route/sessions; reconstruct only an approved non-mutating adapter | yes: confirm generic gateway ownership and dedicated scheduler has no external route |
+| `AXIS-DEDICATED` | no external ingress; dedicated legacy scheduler host | legacy axis-control gateway / explicit `axis-control` profile | checkout profile registry | no session index observed in checkout root/profile | `AXIS_CONTROL` | drain and archive; never restore as source authority | yes: scheduler/work custody drain and source-no-process proof |
+| `ALPHA0-DEDICATED` | dedicated Alpha0 messaging ingress | legacy Alpha0 gateway / owner root routed to `alpha0` | Alpha0 owner-root registry | 27 indexed Alpha0-profile sessions; archive-only | `ALPHA0` | recreate exact route/profile shim and start sessions fresh | yes: exact producer preflights, external identity attestation, source-no-connection proof |
+| `ALPHA0-LOOPBACK` | host-local Alpha0 API | legacy Alpha0 gateway / default owner | none | none | `ALPHA0` | recreate loopback-only from reviewed deployment | yes: collision and listener preflight |
+| `GENERIC-AXIS-WORKER` | enabled interval, agent-waking AXIS work | generic gateway / default | generic root | runtime ID/history archive-only | `AXIS_CONTROL` | do not restore | yes: future exact pause/removal and absence proof |
+| `GENERIC-AXIS-WATCHDOG` | enabled interval, AXIS recovery | generic gateway / default | generic root | runtime ID/history archive-only | `AXIS_CONTROL` | do not restore; preserve the unrelated generic stuck-cron watchdog | yes: future exact pause/removal after recovery sources are fenced |
+| `AXIS-PO-ALERT` | enabled interval, no-agent AXIS report | generic gateway / `axis-control` | generic root-profile | session/execution history archive-only | `AXIS_CONTROL` | archive; rebuild only over canonical durable outbox/ACK if separately required | yes: drain explicitly |
+| `AXIS-ROADMAP` | enabled interval, agent-waking AXIS work | dedicated axis-control gateway / `axis-control` | **checkout root and checkout profile** | duplicate persisted records; runtime history archive-only | `AXIS_CONTROL` | archive; do not import or restore | yes: independently reconcile both physical registries and prove no fallback recreation |
+| `ALPHA0-DAILY` | enabled daily no-agent brief | Alpha0 gateway / default owner | Alpha0 owner root | execution/ticker history archive-only | `ALPHA0` | recreate disabled from merged producer | yes: wrapper rehearsal and no-duplicate-delivery proof |
+| `ALPHA0-SITREP` | enabled interval, bounded no-agent observation | Alpha0 gateway / default owner | Alpha0 owner root | execution/ticker history archive-only | `ALPHA0` | recreate disabled after wrapper qualification | yes: prove observation-only semantics before individual enablement |
+| `GENERIC-STUCK-CRON` | timer may recover generic gateway from bounded stale-run evidence | generic root | generic root execution state | fresh destination runtime only | `GENERIC_HERMES` | preserve/recreate from canonical Home | yes: prove it observes only retained generic authority |
+| `AXIS-SCHEDULER-WATCHDOG` | timer may restart dedicated AXIS gateway | dedicated AXIS checkout profile | checkout profile | legacy health/history only | `AXIS_CONTROL` | drain/archive | yes: fence before AXIS job pauses and prove no restart path |
+| `AXIS-WATCHDOG-BACKUP` | legacy AXIS recovery timer | generic/Home legacy watchdog plane | generic-root AXIS state | legacy derived state only | `AXIS_CONTROL` | drain/archive | yes: fence before cron pauses |
+| `AXIS-WATCHDOG-MONITOR` | configured manual monitor, currently inactive | generic/Home legacy watchdog plane | generic-root AXIS state | legacy derived state only | `AXIS_CONTROL` | drain/archive | yes: prove it cannot recreate legacy execution |
+| `AXIS-SUPERVISOR-PROVISIONER` | enabled oneshot provisions/resumes AXIS worker jobs | generic gateway dependency | generic root | persisted jobs outlive declarations | `AXIS_CONTROL` | remove legacy provisioner | yes: fence before job pauses |
+| `AXIS-WATCHDOG-PROVISIONER` | enabled oneshot provisions/resumes AXIS watchdog job | generic gateway dependency | generic root | persisted jobs outlive declarations | `AXIS_CONTROL` | remove legacy provisioner | yes: fence before job pauses |
+| `AXIS-WATCHDOG-CUTOVER` | enabled failed oneshot may reinstall AXIS authority | legacy watchdog plane | indirect generic root | legacy control state only | `AXIS_CONTROL` | drain/archive; failed state is not a fence | yes: disable and prove no fallback action |
+| `ALPHA0-NYX-RELAY` | configured non-Hermes forwarding relay, inactive | separate Alpha0 service | none | none in Hermes | `ALPHA0` | keep outside Hermes migration | no for Hermes; separate admission before relay activation |
 
 ### Scheduler registry closure
 
@@ -125,18 +125,18 @@ The two legacy AXIS environment files remain mode `0644`; future credential rota
 
 Each prior candidate was reduced as follows.
 
-| Artifact class                                                                          | Disposition                                                                                            |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| packages, templates, wrappers, prompts, producer skills, units, job declarations        | `RECREATE_FROM_VCS`                                                                                    |
-| route maps and non-secret ownership                                                     | `RECONSTRUCT_FROM_CANONICAL` after owner-approved declarations                                         |
-| Kanban, mission, status, brief and provider projections                                 | `RECONSTRUCT_FROM_CANONICAL`                                                                           |
-| scheduler ticker/de-dup state                                                           | `SAFELY_START_FRESH`; no non-reconstructible delivery boundary is qualified                            |
-| pending generic delivery/events                                                         | `SAFELY_START_FRESH`; no accepted unacknowledged effect is qualified                                   |
-| generic unprofiled sessions                                                             | `SAFELY_START_FRESH` now; only an owner-selected subset may later become conditional `MIGRATE_DURABLE` |
-| AXIS sessions, execution databases, ticker, board/checkpoint/event history              | `ARCHIVE_ONLY` after canonical reconciliation                                                          |
-| Alpha0 Hermes sessions, execution databases and ticker history                          | `ARCHIVE_ONLY`; destination starts fresh                                                               |
-| gateway state, route cache, heartbeat, PID, locks, sockets, WAL/SHM and temporary files | `SAFELY_START_FRESH`                                                                                   |
-| Alpha0 Core SQLite and audit chain                                                      | durable application state outside Hermes; retain the separate final-backup contract                    |
+| Artifact class | Disposition |
+|---|---|
+| packages, templates, wrappers, prompts, producer skills, units, job declarations | `RECREATE_FROM_VCS` |
+| route maps and non-secret ownership | `RECONSTRUCT_FROM_CANONICAL` after owner-approved declarations |
+| Kanban, mission, status, brief and provider projections | `RECONSTRUCT_FROM_CANONICAL` |
+| scheduler ticker/de-dup state | `SAFELY_START_FRESH`; no non-reconstructible delivery boundary is qualified |
+| pending generic delivery/events | `SAFELY_START_FRESH`; no accepted unacknowledged effect is qualified |
+| generic unprofiled sessions | `SAFELY_START_FRESH` now; only an owner-selected subset may later become conditional `MIGRATE_DURABLE` |
+| AXIS sessions, execution databases, ticker, board/checkpoint/event history | `ARCHIVE_ONLY` after canonical reconciliation |
+| Alpha0 Hermes sessions, execution databases and ticker history | `ARCHIVE_ONLY`; destination starts fresh |
+| gateway state, route cache, heartbeat, PID, locks, sockets, WAL/SHM and temporary files | `SAFELY_START_FRESH` |
+| Alpha0 Core SQLite and audit chain | durable application state outside Hermes; retain the separate final-backup contract |
 
 ```text
 REQUIRED_SEMANTIC_MIGRATION_SET.HERMES = []
@@ -148,18 +148,18 @@ No execution database or Hermes home is a migration unit. A future owner-selecte
 
 A disposable mode-`0700` destination was created twice from exact merged producer files. No production gateway, network call, Slack send, GitLab call, worker, scheduler, service manager, or durable database was used. The candidate migration set was empty.
 
-| Assertion                                           | Result                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------- |
-| Alpha0 owner/routed profile structural verification | pass                                                                      |
-| Alpha0 scheduler inventory                          | pass; two unique jobs, both disabled                                      |
-| axis-control scheduler declaration                  | pass; one disabled no-agent observer                                      |
-| duplicate destination scheduler authority           | none                                                                      |
-| imported durable Hermes items                       | 0                                                                         |
-| execution/session databases required                | no                                                                        |
-| process/liveness state required                     | no                                                                        |
-| second clean reconstruction semantic equality       | pass                                                                      |
-| semantic digest                                     | `sha256:ae398097b68bfb039e34aedfd9bf3eab506b1c2eff42f6ca1d82a9316b9f68f4` |
-| generic non-secret route identity                   | `UNKNOWN_NOT_IN_VCS`                                                      |
+| Assertion | Result |
+|---|---|
+| Alpha0 owner/routed profile structural verification | pass |
+| Alpha0 scheduler inventory | pass; two unique jobs, both disabled |
+| axis-control scheduler declaration | pass; one disabled no-agent observer |
+| duplicate destination scheduler authority | none |
+| imported durable Hermes items | 0 |
+| execution/session databases required | no |
+| process/liveness state required | no |
+| second clean reconstruction semantic equality | pass |
+| semantic digest | `sha256:ae398097b68bfb039e34aedfd9bf3eab506b1c2eff42f6ca1d82a9316b9f68f4` |
+| generic non-secret route identity | `UNKNOWN_NOT_IN_VCS` |
 
 ```text
 HERMES_SEMANTIC_RESTORE = PARTIAL

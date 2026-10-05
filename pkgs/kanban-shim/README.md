@@ -4,7 +4,7 @@ FastMCP server on `eros` that exposes Ghost's Hermes Kanban as an MCP toolset.
 
 ## Trust boundary
 
-**Critical:** This shim can _only_ read/write the ghost Kanban database via the constrained SSH command. It cannot:
+**Critical:** This shim can *only* read/write the ghost Kanban database via the constrained SSH command. It cannot:
 
 - Execute arbitrary commands on ghost
 - Read/write any files on ghost other than the Kanban SQLite database
@@ -24,17 +24,14 @@ All commands pass through `hermes kanban <verb> ...`, which is the only executab
 To constrain the SSH key to `hermes kanban` operations only:
 
 1. Generate a deploy key on `eros`:
-
    ```bash
    ssh-keygen -t ed25519 -f /run/kanban-shim/ssh_key -C "kanban-shim@eros"
    ```
 
 2. Copy the public key (`/run/kanban-shim/ssh_key.pub`) to `ghost` and add it to `~/.ssh/authorized_keys` with the `command` prefix:
-
    ```bash
    command="hermes kanban" ssh-ed25519 AAAAC3... kanban-shim@eros
    ```
-
    This ensures that even if the private key is compromised, the attacker can only execute `hermes kanban ...` subcommands, not arbitrary shell commands.
 
 3. Set proper permissions on `eros`:
@@ -129,11 +126,11 @@ Returns: `{"status": "ok", "ssh_target": "...", "ssh_key_set": true|false, "port
 
 ## Environment variables
 
-| Variable                 | Default                          | Description             |
-| ------------------------ | -------------------------------- | ----------------------- |
-| `KANBAN_SHIM_PORT`       | `18124`                          | FastMCP server port     |
-| `KANBAN_SHIM_SSH_TARGET` | `cdenneen@ghost.tail0e55.ts.net` | SSH target host         |
-| `KANBAN_SHIM_SSH_KEY`    | `/run/kanban-shim/ssh_key`       | Path to SSH private key |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KANBAN_SHIM_PORT` | `18124` | FastMCP server port |
+| `KANBAN_SHIM_SSH_TARGET` | `cdenneen@ghost.tail0e55.ts.net` | SSH target host |
+| `KANBAN_SHIM_SSH_KEY` | `/run/kanban-shim/ssh_key` | Path to SSH private key |
 
 ## Deployment
 

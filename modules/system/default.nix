@@ -239,12 +239,7 @@ in
     })
 
     (lib.mkIf
-      (
-        cfg.defaults.enable
-        && config ? system
-        && config.system ? stateVersion
-        && pkgs.stdenv.hostPlatform.isLinux
-      )
+      (cfg.defaults.enable && config ? system && config.system ? stateVersion && pkgs.stdenv.hostPlatform.isLinux)
       {
         nix.gc.dates = "weekly";
       }

@@ -20,18 +20,18 @@ The online backup is a consistent SQLite snapshot while the live service remains
 
 ## Canonical schema compatibility
 
-| Check                                                   | Result       |
-| ------------------------------------------------------- | ------------ |
-| Canonical schema version                                | 5            |
-| Recorded application migrations                         | 3, 4, 5      |
-| Tables, actual / expected                               | 27 / 27      |
-| Missing / extra tables                                  | none / none  |
-| Column, type, nullability, default or primary-key drift | none         |
-| Foreign-key declarations, actual / expected             | 39 / 39      |
-| Foreign-key definition drift                            | none         |
-| `PRAGMA integrity_check`                                | `ok`         |
-| `PRAGMA foreign_key_check`                              | 0 violations |
-| Migration required                                      | no           |
+| Check | Result |
+|---|---|
+| Canonical schema version | 5 |
+| Recorded application migrations | 3, 4, 5 |
+| Tables, actual / expected | 27 / 27 |
+| Missing / extra tables | none / none |
+| Column, type, nullability, default or primary-key drift | none |
+| Foreign-key declarations, actual / expected | 39 / 39 |
+| Foreign-key definition drift | none |
+| `PRAGMA integrity_check` | `ok` |
+| `PRAGMA foreign_key_check` | 0 violations |
+| Migration required | no |
 
 `PRAGMA user_version` is zero because Alpha0 uses `schema_migrations`, not that pragma, as application migration authority. Historical v3/v4 rows are expected provenance; a fresh current database records v5 directly.
 
@@ -41,16 +41,16 @@ Canonical `initialize()` was exercised against a disposable copy. It succeeded, 
 
 No row payloads were emitted. Aggregate structural/read results were:
 
-| Surface                 |                          Result |
-| ----------------------- | ------------------------------: |
-| Core projects           |     10, all readable and active |
-| Action proposals        | 34: 25 authorized, 9 reconciled |
-| Executions              |    34: 23 failed, 11 reconciled |
-| Audit events            |                             466 |
-| Observations            |                             139 |
-| Evidence records        |                             161 |
-| Claims                  |                              70 |
-| Decisions / assumptions |                           0 / 0 |
+| Surface | Result |
+|---|---:|
+| Core projects | 10, all readable and active |
+| Action proposals | 34: 25 authorized, 9 reconciled |
+| Executions | 34: 23 failed, 11 reconciled |
+| Audit events | 466 |
+| Observations | 139 |
+| Evidence records | 161 |
+| Claims | 70 |
+| Decisions / assumptions | 0 / 0 |
 
 Canonical read-only connection opened the disposable database. Unsigned structural audit verification recomputed all redacted-payload digests, event hashes and previous-hash links across 466 events successfully. HMAC signature verification was intentionally not attempted because it requires the production audit key. A full `Alpha0Core(..., read_only=True)` open with a deliberately wrong offline key failed closed at audit verification, as required.
 

@@ -6,17 +6,17 @@ Captured 2026-08-20 from live host `ghost`. This inventory records credential-fr
 
 Local evidence root: `/home/cdenneen/src/workspace/gss-ops/evidence/ghost-legacy-20260820`
 
-| Measure                                                                                    |    Result |
-| ------------------------------------------------------------------------------------------ | --------: |
-| Manifested copied candidates                                                               |        80 |
-| axis-control candidates                                                                    |        71 |
-| Alpha0/deployment candidates                                                               |         9 |
-| Bundle regular files (including control files and three pre-existing private Alpha0 files) |        90 |
-| Bundle directories                                                                         |        50 |
-| Manifest entries                                                                           |        80 |
-| Scanner pattern matches                                                                    |         0 |
-| Missing copies / hash mismatches / extra product files                                     | 0 / 0 / 0 |
-| Forbidden copied paths / permission violations / staged repositories                       | 0 / 0 / 0 |
+| Measure | Result |
+|---|---:|
+| Manifested copied candidates | 80 |
+| axis-control candidates | 71 |
+| Alpha0/deployment candidates | 9 |
+| Bundle regular files (including control files and three pre-existing private Alpha0 files) | 90 |
+| Bundle directories | 50 |
+| Manifest entries | 80 |
+| Scanner pattern matches | 0 |
+| Missing copies / hash mismatches / extra product files | 0 / 0 / 0 |
+| Forbidden copied paths / permission violations / staged repositories | 0 / 0 / 0 |
 
 All copied evidence files and control records are mode `0600`; containing directories are mode `0700`. Source-to-copy SHA-256 parity passed for every manifested entry. The complete per-entry path, size, timestamp, source mode/ownership, content hash, role and classification remain in the local `manifest.md`/`manifest.json`. They are intentionally not duplicated wholesale into Git.
 
@@ -34,17 +34,17 @@ The live root `/home/cdenneen/src/workspace/work/axis-control` has no root `.git
 
 ### High-value behavior candidates
 
-| Artifact                              | Captured SHA-256                                                   | Forensic value                                                   | Disposition                                                            |
-| ------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `scripts/roadmap_execution_lib.py`    | `ad547f4f941d221faa87ba50f3cbfb289ba27308f1049edffd084759ed491866` | dependency/frontier, decomposition, CI/review/custody projection | Requirements and tests only; do not import implementation.             |
-| `scripts/reconcile-roadmap-execution` | `05d70f1d81251c7b7e6ae32bad49546fe145aadc250f3523388a82e4aeea13e8` | live multi-surface reconciler                                    | Reject as runtime authority; remote effects precede durable state.     |
-| `scripts/axis_kanban_sync.py`         | `a2cc2ea3b41b66ff38cd9c4c70aa4d604589f50034b49a0a7fbe0b6f0b008750` | derived task/dependency projection                               | Future read-only projection concept only.                              |
-| `scripts/completion_triggers.py`      | `58dd7233d4a4a137fb89435e1e846570e03e642b0131399f7a73cb604f3436ab` | claim/restart/partial-ACK prior art                              | Retain tests as historical evidence; reject lossy queue/weak identity. |
-| `scripts/reconcile-ci-wait`           | `a239f2f4ed55e48eee52771ab13885538192651af0fb6790d64fd78021a588a8` | CI wait and infrastructure hints                                 | Rebuild only with exact-head complete evidence.                        |
-| `scripts/axis_lineage_fence.py`       | `141b3ec2f0aa94217878f19e337eb0a9400c446d031736623e2e9b5094aefe1e` | legacy branch/worktree guard                                     | Reject permissive custody; preserve future push-destination intent.    |
-| `scripts/workspace_hardening_lib.py`  | `79029846b3f6269d8bb1f290c2f4a8424319c899c537e4de3287a90fb492a57e` | branch/MR/worktree safety checks                                 | Port only bounded invariants at an authorized mutating stage.          |
-| `scripts/po_blocker_notifier.py`      | `1c6993567f3d045aae6829a219a4a8c98532dc3a89356f60efb1e11ed250f162` | PO packet/reminder UX                                            | Rebuild on canonical PO evidence and durable delivery ACK.             |
-| `scripts/axis_scheduler_watchdog.py`  | `f2d0285354f842cce91734fa75f5bd2ee54402e5bb6f7e1497e9565d7b4e67ad` | scheduler health prior art                                       | Reject mutation/weak identity; canonical watchdog supersedes it.       |
+| Artifact | Captured SHA-256 | Forensic value | Disposition |
+|---|---|---|---|
+| `scripts/roadmap_execution_lib.py` | `ad547f4f941d221faa87ba50f3cbfb289ba27308f1049edffd084759ed491866` | dependency/frontier, decomposition, CI/review/custody projection | Requirements and tests only; do not import implementation. |
+| `scripts/reconcile-roadmap-execution` | `05d70f1d81251c7b7e6ae32bad49546fe145aadc250f3523388a82e4aeea13e8` | live multi-surface reconciler | Reject as runtime authority; remote effects precede durable state. |
+| `scripts/axis_kanban_sync.py` | `a2cc2ea3b41b66ff38cd9c4c70aa4d604589f50034b49a0a7fbe0b6f0b008750` | derived task/dependency projection | Future read-only projection concept only. |
+| `scripts/completion_triggers.py` | `58dd7233d4a4a137fb89435e1e846570e03e642b0131399f7a73cb604f3436ab` | claim/restart/partial-ACK prior art | Retain tests as historical evidence; reject lossy queue/weak identity. |
+| `scripts/reconcile-ci-wait` | `a239f2f4ed55e48eee52771ab13885538192651af0fb6790d64fd78021a588a8` | CI wait and infrastructure hints | Rebuild only with exact-head complete evidence. |
+| `scripts/axis_lineage_fence.py` | `141b3ec2f0aa94217878f19e337eb0a9400c446d031736623e2e9b5094aefe1e` | legacy branch/worktree guard | Reject permissive custody; preserve future push-destination intent. |
+| `scripts/workspace_hardening_lib.py` | `79029846b3f6269d8bb1f290c2f4a8424319c899c537e4de3287a90fb492a57e` | branch/MR/worktree safety checks | Port only bounded invariants at an authorized mutating stage. |
+| `scripts/po_blocker_notifier.py` | `1c6993567f3d045aae6829a219a4a8c98532dc3a89356f60efb1e11ed250f162` | PO packet/reminder UX | Rebuild on canonical PO evidence and durable delivery ACK. |
+| `scripts/axis_scheduler_watchdog.py` | `f2d0285354f842cce91734fa75f5bd2ee54402e5bb6f7e1497e9565d7b4e67ad` | scheduler health prior art | Reject mutation/weak identity; canonical watchdog supersedes it. |
 
 Associated focused tests and heartbeat fixtures were retained. Passing legacy tests establish historical intent, not authority; several positively encode behavior canonical contracts reject.
 
@@ -80,10 +80,10 @@ Sanitized quarantine metadata records 10 systemd unit/timer identities and five 
 
 ## Security defects recorded without secret inspection
 
-| Path                                                                                | Owner:group      |   Mode | Service reference                                     | Future remediation                                                                                                                    |
-| ----------------------------------------------------------------------------------- | ---------------- | -----: | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `/home/cdenneen/src/workspace/work/axis-control/.hermes/.env`                       | `cdenneen:users` | `0644` | legacy axis-control Hermes runtime                    | After custody-approved drain: restrict to `0600`, rotate referenced credentials, and replace with reviewed external secret ownership. |
-| `/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/.env` | `cdenneen:users` | `0644` | `hermes-axis-control-gateway.service` profile runtime | Same; do not copy into Nix/store, reports or source control.                                                                          |
+| Path | Owner:group | Mode | Service reference | Future remediation |
+|---|---|---:|---|---|
+| `/home/cdenneen/src/workspace/work/axis-control/.hermes/.env` | `cdenneen:users` | `0644` | legacy axis-control Hermes runtime | After custody-approved drain: restrict to `0600`, rotate referenced credentials, and replace with reviewed external secret ownership. |
+| `/home/cdenneen/src/workspace/work/axis-control/.hermes/profiles/axis-control/.env` | `cdenneen:users` | `0644` | `hermes-axis-control-gateway.service` profile runtime | Same; do not copy into Nix/store, reports or source control. |
 
 Runtime state directories should ultimately be `0700` and secret/state files `0600`. Remediation and rotation were not authorized and were not performed. Historical Alpha0 config copies with mode `0644` require owner-side content classification before retention; their contents were not read.
 

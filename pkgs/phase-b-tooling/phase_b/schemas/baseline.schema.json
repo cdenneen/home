@@ -99,7 +99,11 @@
           "type": "object"
         }
       },
-      "required": ["alpha0", "dedicated_axis_route", "generic"],
+      "required": [
+        "alpha0",
+        "dedicated_axis_route",
+        "generic"
+      ],
       "type": "object"
     },
     "automatic_reboot_evidence": {
@@ -127,7 +131,12 @@
           "type": "boolean"
         }
       },
-      "required": ["digest", "id", "media_type", "owner_only"],
+      "required": [
+        "digest",
+        "id",
+        "media_type",
+        "owner_only"
+      ],
       "type": "object"
     },
     "backup_artifacts": {
@@ -161,7 +170,12 @@
                 "type": "boolean"
               }
             },
-            "required": ["digest", "id", "media_type", "owner_only"],
+            "required": [
+              "digest",
+              "id",
+              "media_type",
+              "owner_only"
+            ],
             "type": "object"
           },
           "kind": {
@@ -194,7 +208,12 @@
                 "type": "boolean"
               }
             },
-            "required": ["digest", "id", "media_type", "owner_only"],
+            "required": [
+              "digest",
+              "id",
+              "media_type",
+              "owner_only"
+            ],
             "type": "object"
           },
           "restore_receipt": {
@@ -222,11 +241,21 @@
                 "type": "boolean"
               }
             },
-            "required": ["digest", "id", "media_type", "owner_only"],
+            "required": [
+              "digest",
+              "id",
+              "media_type",
+              "owner_only"
+            ],
             "type": "object"
           }
         },
-        "required": ["backup", "kind", "source", "restore_receipt"],
+        "required": [
+          "backup",
+          "kind",
+          "source",
+          "restore_receipt"
+        ],
         "type": "object"
       },
       "maxItems": 2048,
@@ -297,7 +326,10 @@
             "type": "string"
           }
         },
-        "required": ["action", "operation"],
+        "required": [
+          "action",
+          "operation"
+        ],
         "type": "object"
       },
       "maxItems": 2048,
@@ -321,7 +353,10 @@
             "type": "string"
           }
         },
-        "required": ["classification", "identity"],
+        "required": [
+          "classification",
+          "identity"
+        ],
         "type": "object"
       },
       "maxItems": 2048,
@@ -345,7 +380,10 @@
             "type": "string"
           }
         },
-        "required": ["classification", "identity"],
+        "required": [
+          "classification",
+          "identity"
+        ],
         "type": "object"
       },
       "maxItems": 2048,
@@ -374,7 +412,11 @@
             "type": "string"
           }
         },
-        "required": ["healthy_state", "name", "start_identity"],
+        "required": [
+          "healthy_state",
+          "name",
+          "start_identity"
+        ],
         "type": "object"
       },
       "maxItems": 2048,
@@ -425,7 +467,10 @@
                           "type": "integer"
                         }
                       },
-                      "required": ["kind", "seconds"],
+                      "required": [
+                        "kind",
+                        "seconds"
+                      ],
                       "type": "object"
                     },
                     "state": {
@@ -434,7 +479,12 @@
                       "type": "string"
                     }
                   },
-                  "required": ["enabled", "id", "schedule", "state"],
+                  "required": [
+                    "enabled",
+                    "id",
+                    "schedule",
+                    "state"
+                  ],
                   "type": "object"
                 },
                 "maxItems": 2048,
@@ -442,7 +492,9 @@
                 "type": "array"
               }
             },
-            "required": ["jobs"],
+            "required": [
+              "jobs"
+            ],
             "type": "object"
           },
           "inode": {
@@ -495,7 +547,10 @@
             "type": "string"
           }
         },
-        "required": ["action", "operation"],
+        "required": [
+          "action",
+          "operation"
+        ],
         "type": "object"
       },
       "maxItems": 2048,
@@ -594,7 +649,10 @@
           "type": "array"
         }
       },
-      "required": ["classification_digest", "entries"],
+      "required": [
+        "classification_digest",
+        "entries"
+      ],
       "type": "object"
     },
     "schema": {
@@ -717,7 +775,12 @@
             "type": "string"
           }
         },
-        "required": ["generation", "offset", "stream", "token"],
+        "required": [
+          "generation",
+          "offset",
+          "stream",
+          "token"
+        ],
         "type": "object"
       },
       "maxItems": 9,

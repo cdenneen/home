@@ -39,7 +39,6 @@ let
   contextBroker = pkgs.python313.withPackages (ps: [
     ps.mcp
     ps.psycopg
-    ps.redis
   ]);
   contextBrokerSource = ../../pkgs/eros-context-broker;
   contextModelRoutes = [
@@ -145,7 +144,6 @@ let
       EROS_LITELLM_DSN = "postgresql:///litellm?host=/run/postgresql";
       EROS_QDRANT_URL = "http://127.0.0.1:${toString qdrantPort}";
       EROS_FALKORDB_URL = "http://127.0.0.1:${toString falkordbPort}";
-      FALKORDB_HOST = "127.0.0.1";
       EROS_OLLAMA_URL = "http://127.0.0.1:11434";
       EROS_SKILL_ROOTS = contextSkillRoots;
       EROS_MODEL_ROUTES = lib.concatStringsSep "," contextModelRoutes;

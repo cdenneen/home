@@ -1,7 +1,6 @@
 # Paul AGENTS.md Update Snippet
 
 ## Target File
-
 `~/.pi/agent/AGENTS.md` (Paul's orchestrator AGENTS.md on nyx)
 
 ## Suggested Addition
