@@ -21,6 +21,7 @@ let
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   bedrockToolGuardFile = ../../pkgs/eros-litellm-hooks/bedrock_tool_guard.py;
   omniroutePort = 20130;
+  redisPort = 6379;
   qdrantPort = 6333;
   contextPorts = {
     shared = 18120;
@@ -205,6 +206,42 @@ in
         volumes = [ "/var/lib/qdrant:/qdrant/storage:U" ];
         autoStart = true;
       };
+      # Redis for agent context caching (store_context/recall hot path).
+      # Auth: requirepass from SOPS secret — no unauthenticated access.
+      # Eviction: allkeys-lru at 512 MB cap — prevents unbounded growth.
+      # Tailscale serve is intentionally NOT added: Redis password auth is
+      # required before exposing on the tailnet. Once context broker
+      # store_context/recall is implemented and tested locally, add:
+      #   tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
+      # and update REDIS_URL in context broker env to use eros.tail0e55.ts.net.
+      redis = {
+        image = "redis:7.4@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f";
+        ports = [ "127.0.0.1:${toString redisPort}:6379" ];
+        volumes = [ "/var/lib/redis:/data" ];
+        extraOptions = [
+          "--mount"
+          "type=bind,source=/run/secrets/eros_redis_password,target=/run/secrets/eros_redis_password,readonly"
+        ];
+        cmd = [
+          "sh"
+          "-c"
+          ''
+            password="$(cat /run/secrets/eros_redis_password)"
+            test -n "$password"
+            umask 077
+            printf '%s\n' \
+              'appendonly yes' \
+              'maxmemory 512mb' \
+              'maxmemory-policy allkeys-lru' \
+              'bind 0.0.0.0' \
+              "requirepass $password" > /data/redis.conf
+            chown redis:redis /data /data/redis.conf
+            exec setpriv --reuid redis --regid redis --init-groups redis-server /data/redis.conf
+          ''
+        ];
+        autoStart = true;
+        dependsOn = [ ];
+      };
       litellm = {
         # v1.101.0 (2026-09-18). Multi-arch index digest, same convention as the
         # v1.94.0 pin it replaces - eros is aarch64, and pinning the index keeps
@@ -279,6 +316,7 @@ in
 
   systemd.tmpfiles.rules = [
     "d /var/lib/qdrant 0750 root root -"
+    "d /var/lib/redis 0700 root root -"
     "d /var/lib/falkordb 0750 root root -"
   ];
 
@@ -404,6 +442,13 @@ in
     kanban_shim_ssh_key = {
       owner = "cdenneen";
       group = "cdenneen";
+      mode = "0400";
+    };
+    # Password for the eros-local Redis instance (agent context cache).
+    # Generated at setup: openssl rand -base64 32
+    eros_redis_password = {
+      owner = "root";
+      group = "root";
       mode = "0400";
     };
   };
