@@ -336,7 +336,10 @@ in
   # so it can be patched on EC2 (store paths are read-only).
   home.file.".aws/config.source".source = ./files/aws-config;
 
-  home.file.".config/opencode/AGENTS.md".source = ./ai/AGENTS.md;
+  # ~/.ai/AGENTS.md — shared contract, readable by all agents at a stable path
+  home.file.".ai/AGENTS.md".source = ./ai/AGENTS.md;
+
+  home.file.".config/opencode/AGENTS.md".source = ./ai/AGENTS-opencode.md;
   home.file.".config/opencode/docs/agent-commands.md".source = ./opencode/docs/agent-commands.md;
   home.file.".config/opencode/docs/agent-secrets.md".source = ./opencode/docs/agent-secrets.md;
 
@@ -351,7 +354,7 @@ in
     ];
   };
 
-  home.file.".codex/AGENTS.md".source = ./ai/AGENTS.md;
+  home.file.".codex/AGENTS.md".source = ./ai/AGENTS-codex.md;
   home.file.".codex/RTK.md".source = ./ai/RTK.md;
   home.file.".codex/skills/cocoindex-code/SKILL.md".source = ./ai/skills/cocoindex-code/SKILL.md;
   home.file.".codex/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
@@ -365,10 +368,12 @@ in
   home.file.".opencode/skills/rtk-workflow/SKILL.md".source = ./ai/skills/rtk-workflow/SKILL.md;
   home.file.".opencode/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
 
-  home.file.".claude/CLAUDE.md".source = ./ai/AGENTS.md;
+  home.file.".claude/CLAUDE.md".source = ./ai/AGENTS-claude.md;
+  # pi AGENTS.md — sourced from flake so contract stays in sync
   home.file.".claude/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
   home.file.".hermes/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
   home.file.".pi/agent/skills/greploop/SKILL.md".source = "${greptileSkills}/greploop/SKILL.md";
+  home.file.".pi/agent/AGENTS.md".source = ./ai/AGENTS-pi.md;
 
   home.file.".codex/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
   home.file.".agents/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
