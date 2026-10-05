@@ -215,12 +215,9 @@ in
       #   tailscale serve --bg --yes --tcp ${toString redisPort} 127.0.0.1:${toString redisPort}
       # and update REDIS_URL in context broker env to use eros.tail0e55.ts.net.
       redis = {
-        image = "redis:7.4@sha256:5ae47eabf9ef58b89a574b4fe9ccadb86a0db5aee2df3a7bc6ae2d69f08a7f1a";
+        image = "redis:7.4@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f";
         ports = [ "127.0.0.1:${toString redisPort}:6379" ];
-        volumes = [ "/var/lib/redis:/data:U" ];
-        environment = {
-          REDIS_PASSWORD_FILE = "/run/secrets/eros_redis_password";
-        };
+        volumes = [ "/var/lib/redis:/data" ];
         extraOptions = [
           "--mount"
           "type=bind,source=/run/secrets/eros_redis_password,target=/run/secrets/eros_redis_password,readonly"
@@ -228,7 +225,19 @@ in
         cmd = [
           "sh"
           "-c"
-          "redis-server --appendonly yes --requirepass \"$(cat /run/secrets/eros_redis_password)\" --maxmemory 512mb --maxmemory-policy allkeys-lru --bind 0.0.0.0"
+          ''
+            password="$(cat /run/secrets/eros_redis_password)"
+            test -n "$password"
+            umask 077
+            printf '%s\n' \
+              'appendonly yes' \
+              'maxmemory 512mb' \
+              'maxmemory-policy allkeys-lru' \
+              'bind 0.0.0.0' \
+              "requirepass $password" > /data/redis.conf
+            chown redis:redis /data /data/redis.conf
+            exec setpriv --reuid redis --regid redis --init-groups redis-server /data/redis.conf
+          ''
         ];
         autoStart = true;
         dependsOn = [ ];
@@ -307,6 +316,7 @@ in
 
   systemd.tmpfiles.rules = [
     "d /var/lib/qdrant 0750 root root -"
+    "d /var/lib/redis 0700 root root -"
     "d /var/lib/falkordb 0750 root root -"
   ];
 
