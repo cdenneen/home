@@ -42,6 +42,7 @@ let
     ps.psycopg
   ]);
   contextBrokerSource = ../../pkgs/eros-context-broker;
+  costAlertSource = ../../pkgs/eros-cost-alert;
   contextModelRoutes = [
     "auto"
     "axis-claude-sonnet-4-6"
@@ -1670,6 +1671,46 @@ in
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnBootSec = "10m";
+      OnUnitActiveSec = "1h";
+      Persistent = true;
+    };
+  };
+
+  # Cost-alert service: fires once per hour, emits a structured JSON line to
+  # journald, and exits non-zero (triggering systemd "failed" state + OnFailure
+  # paths) when the current-week spend is at or above the warning threshold
+  # ($1,500/week warn, $2,000/week critical).  Alert deduplication is handled
+  # inside the script (at most one WARN and one CRITICAL per calendar day).
+  systemd.services.eros-cost-alert = {
+    description = "Check Eros weekly LLM spend against cost thresholds";
+    after = [
+      "eros-context-schema.service"
+      "eros-litellm-policy.service"
+    ];
+    wants = [ "eros-litellm-policy.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "eros_context";
+      Group = "eros_context";
+      StateDirectory = "eros-context";
+      # Non-zero exit is expected when spend exceeds warn threshold;
+      # treat it as a normal completion (not a service failure) so systemd
+      # does not restart or mark the unit permanently failed.
+      SuccessExitStatus = "0 1";
+    };
+    environment = {
+      EROS_LITELLM_DSN = "postgresql:///litellm?host=/run/postgresql";
+      EROS_COST_WEEKLY_WARN_USD = "1500";
+      EROS_COST_WEEKLY_CRITICAL_USD = "2000";
+      EROS_ALERT_STATE_PATH = "/var/lib/eros-context/cost-alert-state.json";
+    };
+    script = "${contextBroker}/bin/python ${costAlertSource}/eros-cost-alert.py";
+  };
+  systemd.timers.eros-cost-alert = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      # Stagger 30 minutes after the spend report so the report file is fresh
+      OnBootSec = "40m";
       OnUnitActiveSec = "1h";
       Persistent = true;
     };
