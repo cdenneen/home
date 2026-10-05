@@ -14,42 +14,42 @@ The canonical recovery implements Stage 0–3 and a disabled Stage 4 observer. D
 
 ## Semantic matrix
 
-| Responsibility | Classification | Decision |
-|---|---|---|
-| GitLab as AXIS execution truth | `CANONICAL_EQUIVALENT` | Preserve. Canonical makes the read boundary explicit and GET-only. |
-| Missing/nonterminal exact-head CI remains waiting | `CANONICAL_EQUIVALENT` | Preserve canonical `CI_WAIT`; never infer success from absence. |
-| Atomic state replacement, unchanged-write suppression and exclusive reconciliation | `CANONICAL_EQUIVALENT` | Canonical secure epoch/checkpoint/journal are stronger. |
-| Malformed state is preserved and surfaced rather than silently used | `CANONICAL_EQUIVALENT` | Canonical fail-closed storage tests cover this. |
-| Persist launch before process; individual durable event ACK | `CANONICAL_EQUIVALENT` | Canonical event journal supersedes legacy observation-after-launch. |
-| Typed dependency/gate semantics, full-closure and cross-repository frontier | `LEGACY_GOOD_MISSING` | Define one versioned/digested GitLab authority surface; arbitrary notes cannot authorize gates. |
-| Acceptance-ledger decomposition, conflict-domain capacity and cross-milestone unblockers | `LEGACY_GOOD_MISSING` | Rebuild only before dispatch graduation and release only after canonical `COMPLETE`. |
-| Bounded review convergence/stall handling | `LEGACY_GOOD_MISSING` | Apply only to schema-valid, exact-head, independently reviewed evidence. |
-| Binding-driven historical merged-MR recovery | `LEGACY_GOOD_MISSING` | Query from durable assignment/MR bindings and build exact merge/current-main receipts. |
-| Qualified CI infrastructure versus product failure disposition | `LEGACY_GOOD_MISSING` | Require complete exact-pipeline/job evidence and bounded retries; trace substrings are advisory only. |
-| Feature-branch push destination and duplicate-MR fences | `LEGACY_GOOD_MISSING` | Port at a future authorized mutation boundary, bound to canonical custody. |
-| PO-facing packet/reminder/clear UX | `LEGACY_GOOD_MISSING` | Rebuild over canonical PO identity with an append-only outbox and delivery ACK. |
-| Read-only operator/Kanban projection | `LEGACY_GOOD_MISSING` | YAGNI until requested; it may visualize canonical evidence but never establish custody. |
-| Fixed first page of issues/MRs and latest 20 notes accepted as complete | `LEGACY_BAD_REJECT` | Canonical bounded pagination/fail-closed completeness supersedes it. |
-| Free-text or untrusted note dependency/PO authority | `LEGACY_BAD_REJECT` | Mutable/truncated prose cannot authorize execution or release. |
-| Local Markdown/SHA as qualified review | `LEGACY_BAD_REJECT` | Require exact project/MR/head/diff, independent reviewer, findings and content-addressed evidence. |
-| Branch prefix/token overlap/local task state as custody | `LEGACY_BAD_REJECT` | Canonical full topology/assignment/adoption tuple is required. |
-| Successful pipeline on merge SHA as current-main completion | `LEGACY_BAD_REJECT` | Require merge receipt, current default-head ancestry, named tests and signed deployment evidence. |
-| Dependency/acceptance release immediately after merge | `LEGACY_BAD_REJECT` | Release only after canonical current-main completion. |
-| Stale first-pipeline fallback when no pipeline matches current MR head | `LEGACY_BAD_REJECT` | Missing matching evidence stays unknown/waiting. |
-| Pending-event truncation to 31 identities plus overflow marker | `LEGACY_BAD_REJECT` | Lossy overflow is forbidden; canonical journal retains every identity. |
-| Event key that coalesces different outcomes on same lineage/head | `LEGACY_BAD_REJECT` | Identity must bind type and consequential evidence. |
-| Arbitrary/stale ACK strings and ACK without transition proof | `LEGACY_BAD_REJECT` | ACK exact event ID only after durable committed transition/read-back. |
-| Effects before intent/state, failure write after lock, no read-after-write | `LEGACY_BAD_REJECT` | Future writes require intent-before-effect, stable idempotency, read-back, persist, individual ACK. |
-| Watchdog health from PID/timestamps and automatic restart | `LEGACY_BAD_REJECT` | Canonical digest/process/job identity checks and non-mutating watchdog supersede it. |
-| Notifier state advanced before delivery | `LEGACY_BAD_REJECT` | A crash must not suppress undelivered consequential alerts. |
-| Enabled five-minute model-waking legacy scheduler | `LEGACY_ONLY_TRANSITIONAL` | It is a drain target, not canonical Stage 4 behavior. |
-| Hermes Kanban claim/promote/complete/archive control | `LEGACY_ONLY_TRANSITIONAL` | Preserve until active custody is drained; do not make it canonical authority. |
-| Legacy MR metadata/milestone/description reconciliation | `LEGACY_ONLY_TRANSITIONAL` | Needed only to reconcile old in-flight work; canonical read-only recovery must not duplicate it. |
-| Legacy roadmap/index/review/handoff files | `LEGACY_ONLY_TRANSITIONAL` | Derived evidence for custody/history, then archive/retire. |
-| Lowest open milestone as active frontier | `UNKNOWN` | There were 19 active milestones; replay against an explicit authority record before choosing a rule. |
-| Live legacy source revision and review provenance | `UNKNOWN` | Root has no Git metadata. Current hashes/tests do not establish reviewed provenance. |
-| Historical lost/coalesced completion events | `UNKNOWN` | Source demonstrates the window; actual loss cannot be reconstructed from current snapshot alone. |
-| PO notifier delivery owner | `UNKNOWN` | No configured unit/job reference was found; manual/model invocation was not excluded. |
+| Responsibility                                                                           | Classification             | Decision                                                                                              |
+| ---------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| GitLab as AXIS execution truth                                                           | `CANONICAL_EQUIVALENT`     | Preserve. Canonical makes the read boundary explicit and GET-only.                                    |
+| Missing/nonterminal exact-head CI remains waiting                                        | `CANONICAL_EQUIVALENT`     | Preserve canonical `CI_WAIT`; never infer success from absence.                                       |
+| Atomic state replacement, unchanged-write suppression and exclusive reconciliation       | `CANONICAL_EQUIVALENT`     | Canonical secure epoch/checkpoint/journal are stronger.                                               |
+| Malformed state is preserved and surfaced rather than silently used                      | `CANONICAL_EQUIVALENT`     | Canonical fail-closed storage tests cover this.                                                       |
+| Persist launch before process; individual durable event ACK                              | `CANONICAL_EQUIVALENT`     | Canonical event journal supersedes legacy observation-after-launch.                                   |
+| Typed dependency/gate semantics, full-closure and cross-repository frontier              | `LEGACY_GOOD_MISSING`      | Define one versioned/digested GitLab authority surface; arbitrary notes cannot authorize gates.       |
+| Acceptance-ledger decomposition, conflict-domain capacity and cross-milestone unblockers | `LEGACY_GOOD_MISSING`      | Rebuild only before dispatch graduation and release only after canonical `COMPLETE`.                  |
+| Bounded review convergence/stall handling                                                | `LEGACY_GOOD_MISSING`      | Apply only to schema-valid, exact-head, independently reviewed evidence.                              |
+| Binding-driven historical merged-MR recovery                                             | `LEGACY_GOOD_MISSING`      | Query from durable assignment/MR bindings and build exact merge/current-main receipts.                |
+| Qualified CI infrastructure versus product failure disposition                           | `LEGACY_GOOD_MISSING`      | Require complete exact-pipeline/job evidence and bounded retries; trace substrings are advisory only. |
+| Feature-branch push destination and duplicate-MR fences                                  | `LEGACY_GOOD_MISSING`      | Port at a future authorized mutation boundary, bound to canonical custody.                            |
+| PO-facing packet/reminder/clear UX                                                       | `LEGACY_GOOD_MISSING`      | Rebuild over canonical PO identity with an append-only outbox and delivery ACK.                       |
+| Read-only operator/Kanban projection                                                     | `LEGACY_GOOD_MISSING`      | YAGNI until requested; it may visualize canonical evidence but never establish custody.               |
+| Fixed first page of issues/MRs and latest 20 notes accepted as complete                  | `LEGACY_BAD_REJECT`        | Canonical bounded pagination/fail-closed completeness supersedes it.                                  |
+| Free-text or untrusted note dependency/PO authority                                      | `LEGACY_BAD_REJECT`        | Mutable/truncated prose cannot authorize execution or release.                                        |
+| Local Markdown/SHA as qualified review                                                   | `LEGACY_BAD_REJECT`        | Require exact project/MR/head/diff, independent reviewer, findings and content-addressed evidence.    |
+| Branch prefix/token overlap/local task state as custody                                  | `LEGACY_BAD_REJECT`        | Canonical full topology/assignment/adoption tuple is required.                                        |
+| Successful pipeline on merge SHA as current-main completion                              | `LEGACY_BAD_REJECT`        | Require merge receipt, current default-head ancestry, named tests and signed deployment evidence.     |
+| Dependency/acceptance release immediately after merge                                    | `LEGACY_BAD_REJECT`        | Release only after canonical current-main completion.                                                 |
+| Stale first-pipeline fallback when no pipeline matches current MR head                   | `LEGACY_BAD_REJECT`        | Missing matching evidence stays unknown/waiting.                                                      |
+| Pending-event truncation to 31 identities plus overflow marker                           | `LEGACY_BAD_REJECT`        | Lossy overflow is forbidden; canonical journal retains every identity.                                |
+| Event key that coalesces different outcomes on same lineage/head                         | `LEGACY_BAD_REJECT`        | Identity must bind type and consequential evidence.                                                   |
+| Arbitrary/stale ACK strings and ACK without transition proof                             | `LEGACY_BAD_REJECT`        | ACK exact event ID only after durable committed transition/read-back.                                 |
+| Effects before intent/state, failure write after lock, no read-after-write               | `LEGACY_BAD_REJECT`        | Future writes require intent-before-effect, stable idempotency, read-back, persist, individual ACK.   |
+| Watchdog health from PID/timestamps and automatic restart                                | `LEGACY_BAD_REJECT`        | Canonical digest/process/job identity checks and non-mutating watchdog supersede it.                  |
+| Notifier state advanced before delivery                                                  | `LEGACY_BAD_REJECT`        | A crash must not suppress undelivered consequential alerts.                                           |
+| Enabled five-minute model-waking legacy scheduler                                        | `LEGACY_ONLY_TRANSITIONAL` | It is a drain target, not canonical Stage 4 behavior.                                                 |
+| Hermes Kanban claim/promote/complete/archive control                                     | `LEGACY_ONLY_TRANSITIONAL` | Preserve until active custody is drained; do not make it canonical authority.                         |
+| Legacy MR metadata/milestone/description reconciliation                                  | `LEGACY_ONLY_TRANSITIONAL` | Needed only to reconcile old in-flight work; canonical read-only recovery must not duplicate it.      |
+| Legacy roadmap/index/review/handoff files                                                | `LEGACY_ONLY_TRANSITIONAL` | Derived evidence for custody/history, then archive/retire.                                            |
+| Lowest open milestone as active frontier                                                 | `UNKNOWN`                  | There were 19 active milestones; replay against an explicit authority record before choosing a rule.  |
+| Live legacy source revision and review provenance                                        | `UNKNOWN`                  | Root has no Git metadata. Current hashes/tests do not establish reviewed provenance.                  |
+| Historical lost/coalesced completion events                                              | `UNKNOWN`                  | Source demonstrates the window; actual loss cannot be reconstructed from current snapshot alone.      |
+| PO notifier delivery owner                                                               | `UNKNOWN`                  | No configured unit/job reference was found; manual/model invocation was not excluded.                 |
 
 ## Defects that block graduation
 

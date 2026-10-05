@@ -88,11 +88,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "alpha0",
-        "dedicated_axis_route",
-        "generic"
-      ],
+      "required": ["alpha0", "dedicated_axis_route", "generic"],
       "type": "object"
     },
     "canonical_vectors_digest": {
@@ -141,11 +137,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "collector": {
@@ -172,11 +164,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "custody-reader": {
@@ -203,11 +191,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "executor": {
@@ -234,11 +218,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "hermes": {
@@ -265,11 +245,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "hermes-mutation-adapter": {
@@ -296,11 +272,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "network-monitor": {
@@ -327,11 +299,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "observation-signer": {
@@ -358,11 +326,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "privilege-dropper": {
@@ -389,11 +353,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "process-inspector": {
@@ -420,11 +380,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "receiver-client": {
@@ -451,11 +407,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "reconstruction-runner": {
@@ -482,11 +434,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "signature-verifier": {
@@ -513,11 +461,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "source-sensor": {
@@ -544,11 +488,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "source-signer": {
@@ -575,11 +515,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "systemctl": {
@@ -606,11 +542,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "verifier": {
@@ -637,11 +569,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         },
         "write-monitor": {
@@ -668,11 +596,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "closure",
-            "digest",
-            "path"
-          ],
+          "required": ["closure", "digest", "path"],
           "type": "object"
         }
       },
@@ -988,11 +912,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "receipt": {
@@ -1016,11 +936,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "reconstruction": {
@@ -1044,11 +960,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-audit": {
@@ -1072,11 +984,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-custody": {
@@ -1100,11 +1008,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-database": {
@@ -1128,11 +1032,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-identity": {
@@ -1156,11 +1056,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-provider-route": {
@@ -1184,11 +1080,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-registry": {
@@ -1212,11 +1104,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-systemd": {
@@ -1240,11 +1128,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-time": {
@@ -1268,11 +1152,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "sensor-user-journal": {
@@ -1296,11 +1176,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "source-authorization": {
@@ -1324,11 +1200,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         },
         "source-execution": {
@@ -1352,11 +1224,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "algorithm",
-            "id",
-            "public_key"
-          ],
+          "required": ["algorithm", "id", "public_key"],
           "type": "object"
         }
       },

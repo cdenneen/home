@@ -426,10 +426,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "forbidden_recurrence_count",
-        "history_complete"
-      ],
+      "required": ["forbidden_recurrence_count", "history_complete"],
       "type": "object"
     },
     "elapsed_monotonic": {
@@ -462,12 +459,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "generation",
-          "offset",
-          "stream",
-          "token"
-        ],
+        "required": ["generation", "offset", "stream", "token"],
         "type": "object"
       },
       "maxItems": 2048,
@@ -649,12 +641,7 @@
               "const": true
             }
           },
-          "required": [
-            "digest",
-            "id",
-            "media_type",
-            "owner_only"
-          ],
+          "required": ["digest", "id", "media_type", "owner_only"],
           "type": "object"
         },
         "sequence": {
@@ -662,11 +649,7 @@
           "type": "integer"
         }
       },
-      "required": [
-        "head",
-        "records",
-        "sequence"
-      ],
+      "required": ["head", "records", "sequence"],
       "type": "object"
     },
     "sample_count": {
@@ -701,12 +684,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "generation",
-          "offset",
-          "stream",
-          "token"
-        ],
+        "required": ["generation", "offset", "stream", "token"],
         "type": "object"
       },
       "maxItems": 9,

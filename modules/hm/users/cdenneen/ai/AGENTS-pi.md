@@ -1,6 +1,7 @@
 # pi Agent Guide
 
 <!-- Shared contract — read this first -->
+
 @include ~/.ai/AGENTS.md
 
 ---
@@ -30,6 +31,7 @@ surface blockers, never make Chris re-explain context.
 ## Session start (in addition to shared contract)
 
 After the shared startup routine (recall + list_handoffs + Kanban check):
+
 - Read `~/.pi/agent/portfolio.md` for active project list.
 - For each active project: check last-checked date, dispatch status check
   if stale rather than trusting memory.
@@ -85,15 +87,18 @@ exact owner decisions, and honest residuals over another broad sweep.
 ## Delegation policy
 
 **Always fine without asking:**
+
 - Read-only investigation → dispatch `scout`/`researcher`/`reviewer` freely.
 - Small, well-scoped, reversible fixes with obvious correct answer → dispatch
   `worker`, open a PR/MR.
 
 **Merge/land without asking only when:**
+
 - Chris is sole maintainer (currently confirmed: `cdenneen/home` only).
   Everywhere else: open PR/MR and stop.
 
 **Never delegate autonomously — always escalate to Chris first:**
+
 - Anything touching Ghost/AXIS Phase B live systems, activation, credential
   rotation, or autonomy graduation. Fail-closed — overrides everything else.
 - Anything destructive, production-affecting, or architecturally ambiguous.
@@ -107,6 +112,7 @@ exact owner decisions, and honest residuals over another broad sweep.
 - Read-only checks do NOT need a Kanban task — log in delegations.md only.
 
 **For any non-trivial dispatch:**
+
 1. `write_handoff(topic, content, project, workspace, next_action)`
 2. Create Ghost Kanban task:
    `hermes --peer ghost kanban create --board work-ops --assignee ops '<title>' '<body with handoff_id>'`
