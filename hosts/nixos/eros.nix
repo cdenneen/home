@@ -1786,14 +1786,20 @@ in
       OMNIROUTE_SERVER_HOST = "127.0.0.1";
       PORT = toString omniroutePort;
       DATA_DIR = "${config.users.users.cdenneen.home}/.omniroute";
-      # Temporary diagnostic (2026-09-02): captures full request/response
-      # pipeline bytes to request_detail_logs for the anthropic-compatible/
-      # bedrock-runtime empty-response investigation. The dashboard's
-      # call_log_pipeline_enabled setting cannot toggle this in practice -
-      # this env var is the only thing isDetailedLoggingEnabled() honors.
-      # Revert once that investigation concludes; verbose and not meant to
-      # run long-term.
-      ENABLE_REQUEST_LOGS = "true";
+      # ENABLE_REQUEST_LOGS was set "true" on 2026-09-02 to capture full
+      # request/response pipeline bytes into request_detail_logs for the
+      # anthropic-compatible/bedrock-runtime empty-response investigation.
+      # That investigation concluded: the fault was the response-quality
+      # validator trusting a reasoning-token ratio over finish_reason, fixed
+      # upstream in 3.8.51, and there have been zero zero-output-success
+      # recurrences since this host moved to 3.8.51 on 2026-09-30. The
+      # diagnostic had accumulated 88M in DATA_DIR and is explicitly not
+      # meant to run long-term, so it goes back off.
+      #
+      # If it is ever needed again, re-add it here rather than reaching for
+      # the dashboard's call_log_pipeline_enabled setting: that toggle does
+      # not work in practice, and this env var is the only thing
+      # isDetailedLoggingEnabled() actually honors.
     };
     serviceConfig = {
       ExecStartPre = "+${pkgs.writeShellScript "omniroute-serve-stop" ''
