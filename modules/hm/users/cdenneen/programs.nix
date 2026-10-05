@@ -466,21 +466,39 @@ in
   # On macOS, older glab runs may leave a second config at
   # ~/Library/Application Support/glab-cli/config.yml, which triggers noisy
   # duplicate-config warnings. Keep one canonical config in ~/.config.
-  home.activation.glabConfigConsolidateDarwin = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-    if [ "$(uname -s)" = "Darwin" ]; then
-      legacy_cfg="$HOME/Library/Application Support/glab-cli/config.yml"
-      canonical_cfg="$HOME/.config/glab-cli/config.yml"
+  home.activation.glabConfigConsolidateDarwin =
+    lib.hm.dag.entryAfter
+      (
+        [ "linkGeneration" ]
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ "materializeDarwinSopsSecrets" ]
+      )
+      ''
+        if [ "$(uname -s)" = "Darwin" ]; then
+          legacy_cfg="$HOME/Library/Application Support/glab-cli/config.yml"
+          canonical_cfg="$HOME/.config/glab-cli/config.yml"
+          sops_secret="$HOME/.config/sops-nix/secrets/glab_cli_config"
 
-      if [ -e "$legacy_cfg" ]; then
-        if [ -e "$canonical_cfg" ] && ${pkgs.diffutils}/bin/cmp -s "$legacy_cfg" "$canonical_cfg"; then
-          $DRY_RUN_CMD rm -f "$legacy_cfg"
-        else
-          ts="$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)"
-          $DRY_RUN_CMD mv "$legacy_cfg" "$legacy_cfg.bak-$ts"
+          # Re-apply the sops-managed config if it exists and differs from what's
+          # on disk. glab 1.114.0 migrates the compact config format on first run,
+          # wiping tokens. Running after materializeDarwinSopsSecrets ensures the
+          # correct secret is the last writer, regardless of when glab first runs.
+          if [ -f "$sops_secret" ] && [ -z "''${DRY_RUN_CMD:-}" ]; then
+            if ! ${pkgs.diffutils}/bin/cmp -s "$sops_secret" "$canonical_cfg" 2>/dev/null; then
+              cp "$sops_secret" "$canonical_cfg"
+              chmod 600 "$canonical_cfg"
+            fi
+          fi
+
+          if [ -e "$legacy_cfg" ]; then
+            if [ -e "$canonical_cfg" ] && ${pkgs.diffutils}/bin/cmp -s "$legacy_cfg" "$canonical_cfg"; then
+              $DRY_RUN_CMD rm -f "$legacy_cfg"
+            else
+              ts="$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)"
+              $DRY_RUN_CMD mv "$legacy_cfg" "$legacy_cfg.bak-$ts"
+            fi
+          fi
         fi
-      fi
-    fi
-  '';
+      '';
 
   # direnv loads this automatically (if present). Keep it tiny and just source
   # shared helpers so individual repos can assume they exist.
