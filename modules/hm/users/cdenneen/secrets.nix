@@ -578,7 +578,7 @@ in
     lib.hm.dag.entryAfter [ "sops-nix" ] ''
       set -euo pipefail
 
-      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
+      export PATH="${pkgs.coreutils}/bin:${pkgs.gettext}/bin:$HOME/.nix-profile/bin:/usr/bin:/bin:/usr/sbin:/sbin:''${PATH:-}"
 
       sops_nix_program="${config.launchd.agents.sops-nix.config.Program}"
 
