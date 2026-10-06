@@ -20,19 +20,26 @@ let
   litellmEnvFile = "/run/eros-litellm/env";
   litellmConfigFile = "/run/eros-litellm/config.yaml";
   bedrockToolGuardFile = ../../pkgs/eros-litellm-hooks/bedrock_tool_guard.py;
-  # Back to OmniRoute's default 20128 (2026-10-05). It was moved to 20130 on
-  # 2026-09-30 to get past a "Port 20128 is already in use" preflight that
-  # 3.8.51 added and 3.8.49 lacked, but that diagnosis was wrong: nothing
-  # actually owned 20128. The real cause was OmniRoute binding 0.0.0.0, which
-  # collided with the tailscale-serve listener on the tailnet address.
-  # OMNIROUTE_SERVER_HOST=127.0.0.1 fixed that by binding loopback only, and
-  # the two then coexist on one port number by design: while still on the
-  # temporary port, `tailscale serve status` showed tcp://100.117.68.38:<port>
-  # (tailscale) proxying to tcp://127.0.0.1:<port> (omniroute), and nothing at
-  # all was bound to 20128. With the bind fixed the non-default port is
-  # unnecessary, and keeping it would leave config that no longer matches
-  # upstream docs for a reason that no longer exists.
-  omniroutePort = 20128;
+  # Reverted back to 20130 (2026-10-06). The 2026-10-05 move to 20128 was
+  # wrong: that comment claimed "nothing actually owned 20128" and that the
+  # only prior conflict was a stale tailscale-serve proxy mapping fixed by
+  # OMNIROUTE_SERVER_HOST=127.0.0.1. Both claims were false. `tailscaled`
+  # itself (not a serve mapping - a raw bind by the tailscaled process) holds
+  # LISTEN on 100.117.68.38:20128 and the matching tailnet IPv6 address,
+  # independent of any `tailscale serve` config, and independent of which
+  # interface OmniRoute binds. Moving omniroutePort to 20128 put the nixos-
+  # upgrade.timer's next apply (2026-10-06 ~07:25) into a crash loop -
+  # "Port 20128 is already in use by an unknown process" - that ran for
+  # 1,482 restart attempts over several hours before this was caught, because
+  # the "unknown process" from OmniRoute's own preflight message is exactly
+  # tailscaled, every single time it starts.
+  #
+  # 20130 is free (confirmed via `ss -tlnp`) and is where this service ran
+  # stably from 2026-09-30 to 2026-10-05 with zero conflicts. Do not move
+  # this back to 20128 without first confirming tailscaled no longer binds
+  # it - `ss -tlnp | grep :20128` showing a `tailscaled` listener means it
+  # still does.
+  omniroutePort = 20130;
   redisPort = 6379;
   qdrantPort = 6333;
   contextPorts = {
@@ -769,12 +776,12 @@ in
         - model_name: g2-omniroute-openai-gpt4o-mini
           litellm_params:
             model: openai/gpt-4o-mini
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
         - model_name: g5-omniroute-bedrock-haiku
           litellm_params:
             model: openai/anthropic.claude-3-haiku-20240307-v1:0
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
           model_info:
             input_cost_per_token: 0.00000025
@@ -790,7 +797,7 @@ in
         - model_name: tier1-general
           litellm_params:
             model: openai/gemini-2.5-flash
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -802,7 +809,7 @@ in
           litellm_params:
             model: openai/gpt-5-mini
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             drop_params: true
             additional_drop_params:
               - x_hermes_source
@@ -814,7 +821,7 @@ in
         - model_name: mini
           litellm_params:
             model: openai/gemini-2.5-flash
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -864,7 +871,7 @@ in
         - model_name: tier2-coding
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -899,7 +906,7 @@ in
             model: openai/bedrock/us.anthropic.claude-sonnet-5
             # co-located on eros today; if omniroute ever moves to its own
             # host, this becomes http://eros.tail0e55.ts.net:20128/v1
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -907,7 +914,7 @@ in
         - model_name: tier2-research
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -915,7 +922,7 @@ in
         - model_name: tier3-quality
           litellm_params:
             model: openai/global.anthropic.claude-opus-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
         # `quality` (2026-09-02): additive alias for tier3-quality's exact
         # model. No fallback, same as tier3-quality itself - Opus is its own
@@ -924,7 +931,7 @@ in
         - model_name: quality
           litellm_params:
             model: openai/global.anthropic.claude-opus-5
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
         # tier4-frontier deliberately has no fallback and is not part of any
         # fallback chain below - explicit-only, separate key at the governor
@@ -932,7 +939,7 @@ in
         - model_name: gpt-5.4
           litellm_params:
             model: openai/gpt-5.4
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -940,7 +947,7 @@ in
         - model_name: gpt-5.6-terra
           litellm_params: &eros_gpt_5_6_terra_params
             model: openai/gpt-5.6-terra
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY
             drop_params: true
             additional_drop_params:
@@ -1111,7 +1118,7 @@ in
         - model_name: personal
           litellm_params:
             model: openai/ai-auto
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY_PERSONAL
             drop_params: true
             additional_drop_params:
@@ -1119,7 +1126,7 @@ in
         - model_name: work
           litellm_params:
             model: openai/ai-auto
-            api_base: http://127.0.0.1:20128/v1
+            api_base: http://127.0.0.1:20130/v1
             api_key: os.environ/OMNIROUTE_CLIENT_KEY_WORK
             drop_params: true
             additional_drop_params:
@@ -1768,7 +1775,7 @@ in
       # and .51 tightened that. HOSTNAME is a system/shell variable the Next
       # server does not read, so upgrading to .51 without HOST set drops the
       # 127.0.0.1 listener that litellm's OmniRoute routes depend on
-      # (api_base: http://127.0.0.1:20128/v1). Verified on eros before this
+      # (api_base: http://127.0.0.1:20130/v1). Verified on eros before this
       # change: 3.8.51 with HOST unset never answered on loopback; with
       # HOST=127.0.0.1 it binds and returns the same HTTP 307 as 3.8.49.
       #
