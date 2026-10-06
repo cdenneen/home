@@ -42,4 +42,8 @@
     confirm-close-surface = false
     quit-after-last-window-closed = true
   '';
+
+  # Deploy agent-handoff and cos-update skills to all coding agent paths on Mac.
+  # These are enabled on nyx/ghost; Mac needs them too for pi/Claude/Codex.
+  profiles.agentHandoff.enable = true;
 }
