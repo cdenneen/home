@@ -911,6 +911,40 @@ in
             drop_params: true
             additional_drop_params:
               - x_hermes_source
+        # claude-auto (2026-10-06): the single-combo-for-everything consumer
+        # story. `model:` names the OmniRoute COMBO "auto-pool" by name (NOT a
+        # raw provider/model string, unlike the `auto` alias above) so the
+        # request actually dispatches through combo.ts's handleComboChat
+        # instead of the generic chat-completions proxy. That distinction is
+        # everything here: a raw-string route never forwards cache_control and
+        # never runs the auto-strategy scorer at all (proven live, 2026-10-06 -
+        # see auto-pool's own history for the cache_control A/B that found
+        # this). Dispatching by combo name gets both: Anthropic prompt caching
+        # (confirmed write-then-read across repeat calls) and the 16-factor
+        # weighted auto-selection (DEFAULT_WEIGHTS/scoreAutoTargets) that picks
+        # cheap models for simple requests and escalates to Sonnet/Opus for
+        # requests complexityAwareRouting classifies as "expert" - confirmed
+        # live via OmniRoute's own app.log (not journald, which never shows
+        # per-request detail): same trivial prompt -> claude-haiku-4-5,
+        # same prompt engineered to score 77/"expert" -> claude-sonnet-5.
+        #
+        # Named "claude-auto", not "auto-pool", so Claude Desktop's own model-
+        # name validator accepts it: Desktop runs a vendor-token denylist
+        # (glm/qwen/deepseek/kimi/gpt/...) BEFORE checking for claude/
+        # anthropic in the name, so "auto-pool" itself (and the earlier
+        # "coding-strong", which happened to collide with no deny-term but
+        # also carried no claude/anthropic substring) gets silently dropped
+        # from inferenceModels on save. Claude Code/pi/Codex have no such
+        # filter and can call "claude-auto" today without this route even
+        # existing, but Desktop needs the literal substring.
+        - model_name: claude-auto
+          litellm_params:
+            model: openai/auto-pool
+            api_base: http://127.0.0.1:20130/v1
+            api_key: os.environ/OMNIROUTE_CLIENT_KEY
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
         - model_name: tier2-research
           litellm_params:
             model: openai/us.anthropic.claude-sonnet-5
@@ -1265,6 +1299,18 @@ in
         # lines first.
         fallbacks:
           - auto: [gpt-5.4, coding-strong]
+          # claude-auto falls back to claude-sonnet-5 (direct Bedrock, the
+          # already-proven tool-aware-cache path, same as auto's own fallback
+          # chain above) ONLY for when OmniRoute itself is unreachable - not a
+          # downgrade path. Safe for the same reason `auto`'s fallback is:
+          # OmniRoute's own comboAttemptLoop.ts already retries across every
+          # candidate IN the auto-pool combo (cooldown/quota/circuit-aware)
+          # before returning any error, so this fallback firing means OmniRoute
+          # has exhausted the whole pool, not that one candidate had a bad
+          # moment - litellm's `fallbacks:` can't distinguish "unreachable"
+          # from "one candidate errored", but by the time it sees an error here
+          # the combo already tried everything it has.
+          - claude-auto: [claude-sonnet-5]
           - mini: [tier1-coding]
           - personal: [coding-strong]
           - work: [coding-strong]
