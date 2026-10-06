@@ -385,19 +385,6 @@ in
   home.file.".hermes/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
   home.file.".pi/agent/skills/graphify/SKILL.md".source = ./ai/skills/graphify/SKILL.md;
 
-  # cos-update and agent-handoff skills — deployed to all six agent paths so every
-  # coding agent knows how to call cos_update (MCP) and write_handoff/recall.
-  home.file.".pi/agent/skills/cos-update/SKILL.md".source = ./ai/skills/cos-update/SKILL.md;
-  home.file.".pi/agent/skills/agent-handoff/SKILL.md".source = ./agent-handoff/SKILL.md;
-  home.file.".claude/skills/cos-update/SKILL.md".source = ./ai/skills/cos-update/SKILL.md;
-  home.file.".claude/skills/agent-handoff/SKILL.md".source = ./agent-handoff/SKILL.md;
-  home.file.".codex/skills/cos-update/SKILL.md".source = ./ai/skills/cos-update/SKILL.md;
-  home.file.".codex/skills/agent-handoff/SKILL.md".source = ./agent-handoff/SKILL.md;
-  home.file.".agents/skills/cos-update/SKILL.md".source = ./ai/skills/cos-update/SKILL.md;
-  home.file.".agents/skills/agent-handoff/SKILL.md".source = ./agent-handoff/SKILL.md;
-  home.file.".opencode/skills/cos-update/SKILL.md".source = ./ai/skills/cos-update/SKILL.md;
-  home.file.".opencode/skills/agent-handoff/SKILL.md".source = ./agent-handoff/SKILL.md;
-
   # Extracted out of ai/AGENTS.md (2026-09-17). The GitLab pipeline/IaC contract
   # was ~9KB of the 22KB global CLAUDE.md, i.e. ~2.2k tokens re-sent on every
   # turn of every session, while applying to a minority of tasks. As a skill it
