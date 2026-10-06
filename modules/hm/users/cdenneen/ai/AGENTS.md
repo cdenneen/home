@@ -389,34 +389,53 @@ Before ending any substantial execution session that modified code, state, tasks
 
 Full spec: `~/.ai/AGENTS.md` + `docs/architecture/agent-workflow-contract.md`.
 
+**This contract is self-executing.** Read it once at session start and autonomously follow it for the entire session — no human prompting required for memory writes, CoS updates, or Kanban entries.
+
+### Trigger phrase: `/activate-workflow`
+
+If this phrase appears in any message, immediately run the full Session Start routine below as if it is a fresh session start, even mid-session. Use this to wire in a running session that skipped the startup routine.
+
 ### Session start — before any other action
 
-1. `recall(query="active context <topic>")` via eros context broker MCP — Redis first, then Qdrant+FalkorDB. Load results before proceeding.
-2. `list_handoffs(project=<slug>, limit=5)` via agent-handoff MCP. If a handoff_id was provided in your task, `read_handoff(id)` first.
-3. Check Ghost Kanban for assigned tasks (`hermes --peer ghost kanban list` or Kanban MCP).
+Run these steps in order, autonomously, before doing any work:
+
+1. `recall(query="active context <inferred topic>")` — load prior context from Redis/Qdrant/FalkorDB.
+2. `list_handoffs(project=<inferred slug>, limit=5)` — load prior session handoffs. If a `handoff_id` was provided, `read_handoff(id)` first.
+3. `cos_update(status="started", message="Working on: <topic>. Context loaded from: <sources>. Prior handoffs: <count>.", agent="<your-agent-id>")` — **blocking**: CoS replies with `{"task_id":"t_xxx","status":"acknowledged|created","board":"..."}`. Store this `task_id` for the entire session.
 4. Read `.ai/HANDOFF.md` in the repo if present.
-5. THEN begin work. Never ask Chris to re-explain context that exists in the above sources.
+5. Begin work. Never ask Chris to re-explain context found in the above sources.
 
-### During work — continuous updates
+### During work — autonomous, continuous
 
-Call the session update equivalent at every: significant decision, discovery, blocker, unit complete, context pressure >50%, direction change. Not just at session end.
+Call these automatically — no human prompt needed:
+
+- **Every significant decision**: `cos_update(status="update", message="Decision: <what+why>. Impact: <files/tasks>.", task_id=<from step 3>)` + `store_context(content=<fact>, type="decision", ...)`
+- **Every discovery**: `cos_update(status="update", message="Found: <what>. Relevant to: <task>.", task_id=<from step 3>)`
+- **Every blocker**: `cos_update(status="blocked", message="Blocked on: <exact gate>. Owner: <who>. Parallel work: <what>.", task_id=<from step 3>)`
+- **Every unit complete**: `cos_update(status="update", message="Done: <what>. Evidence: <link>. Next: <step>.", task_id=<from step 3>)`
+- **Context >50%**: snapshot all memory files + `store_context` key facts before continuing.
+- **Review needed**: `cos_update(status="review", message="<MR/issue link>. Waiting on: <who>.", task_id=<from step 3>)`
 
 ### Memory writes
 
-Use `store_context(content, type, agent_id, project)` for durable facts — fans out to Redis + Qdrant + FalkorDB + agent-context repo. Types: `fact`, `decision`, `session`, `topology`, `task`. Do NOT write directly to MEMORY.md for shared facts — it is a session bootstrap hint only (2200 char budget).
+`store_context(content, type, agent_id, project)` fans out to Redis + Qdrant + FalkorDB + agent-context repo. Types: `fact`, `decision`, `session`, `topology`, `task`. Do NOT write directly to MEMORY.md for shared facts — it is a session bootstrap hint only (2200 char budget).
 
 ### Session end / handoff
 
-1. `write_handoff(topic, content, project, next_action)` — full state for cold resume.
-2. `store_context` for key facts/decisions this session.
-3. Update `.ai/HANDOFF.md` in the repo.
-4. Explicit close signal to CoS/dispatcher. Print resume prompt: `HANDOFF: <id> — Resume: tell @nyxops to resume handoff <id>`.
+Run these in order before ending any substantial session:
+
+1. `write_handoff(topic, content, project, next_action)` → get `handoff_id`
+2. `store_context` for all key facts and decisions from this session
+3. Update `.ai/HANDOFF.md` in the repo
+4. `cos_update(status="completed", message="<what done, links, what remains, next action>", task_id=<from step 3>, handoff_id=<from step 1>)`
+5. Print: `HANDOFF: <handoff_id> — Resume: tell @nyxops to resume handoff <handoff_id>`
 
 ### MCP endpoints (via eros.tail0e55.ts.net:4000/mcp/)
 
-| Tool                                               | Purpose                                              |
-| -------------------------------------------------- | ---------------------------------------------------- |
-| `recall`                                           | Cache-first ranked retrieval (Redis→Qdrant→FalkorDB) |
-| `store_context`                                    | Fan-out write to all memory stores                   |
-| `write_handoff` / `list_handoffs` / `read_handoff` | Durable session handoffs                             |
-| Kanban tools                                       | Read/write Ghost Kanban                              |
+| Tool                                               | Purpose                                                    |
+| -------------------------------------------------- | ---------------------------------------------------------- |
+| `recall`                                           | Cache-first ranked retrieval (Redis→Qdrant→FalkorDB)       |
+| `store_context`                                    | Fan-out write to all memory stores                         |
+| `write_handoff` / `list_handoffs` / `read_handoff` | Durable session handoffs                                   |
+| `cos_update`                                       | Signal CoS + get/create Kanban task ID (returns `task_id`) |
+| `kanban_list` / `kanban_show`                      | Read Ghost Kanban                                          |
