@@ -116,7 +116,8 @@ INSERT INTO "LiteLLM_ObjectPermissionTable" (
         -- server on nyx is still called duckduckgo; that is a different
         -- namespace and is deliberately unchanged.
         'recallium', 'graphify', 'context7', 'playwright', 'web_search',
-        'gitlab', 'kubernetes', 'aws', 'terraform', 'eros-context-shared'
+        'gitlab', 'kubernetes', 'aws', 'terraform',
+        'eros-context-shared', 'agent-handoff'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
 )
@@ -149,7 +150,7 @@ VALUES (
         -- namespace and is deliberately unchanged.
         'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
-        'eros-context-shared', 'eros-context-work'
+        'eros-context-shared', 'eros-context-work', 'agent-handoff'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
 )
@@ -174,7 +175,7 @@ VALUES (
         -- namespace and is deliberately unchanged.
         'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
-        'eros-context-shared', 'eros-context-personal'
+        'eros-context-shared', 'eros-context-personal', 'agent-handoff'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
 )
