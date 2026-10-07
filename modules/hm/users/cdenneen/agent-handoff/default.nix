@@ -10,7 +10,7 @@ let
 
   # Standalone script — avoids heredoc syntax issues inside Nix strings and
   # works in any POSIX shell (sh/bash/zsh), including Claude Code's subshell.
-  agentResumeScript = pkgs.writeScript "agent-resume" ''
+  agentResumeScript = pkgs.writeScriptBin "agent-resume" ''
     #!${pkgs.python3}/bin/python3
     import sys, urllib.request, json
 
