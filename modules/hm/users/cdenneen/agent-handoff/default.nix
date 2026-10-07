@@ -45,16 +45,32 @@ in
       agent-resume = ''
         _agent_resume() {
           local id="''${1:?usage: agent-resume <handoff-id>}"
-          # Call the agent-handoff MCP tool via the eros HTTP endpoint.
-          # Requires EROS_LITELLM_API_KEY (already in shell env via secrets.nix).
-          curl -sf \
-            -H "Authorization: Bearer ''${EROS_LITELLM_API_KEY}" \
-            -H "x-eros-consumer: ''${HOSTNAME:-local}" \
-            -H "x-eros-trust-domain: ''${EROS_TRUST_DOMAIN:-work}" \
-            -H "x-eros-workload: agent-resume-cli" \
-            "http://eros.tail0e55.ts.net:18123/mcp/tools/get_resume_prompt" \
-            --json "{\"handoff_id\":\"''${id}\"}" \
-          | ${pkgs.jq}/bin/jq -r '.prompt // .error // "handoff not found"'
+          # Fetch resume prompt via MCP SSE protocol (agent-handoff server on eros:18123).
+          ${pkgs.python3}/bin/python3 - "''${id}" <<'PYEOF'
+import sys, urllib.request, json
+handoff_id = sys.argv[1]
+url = 'http://eros.tail0e55.ts.net:18123/mcp'
+def mcp(method, params, sid=None, id_=1):
+    hdrs = {'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream'}
+    if sid: hdrs['mcp-session-id'] = sid
+    r = urllib.request.Request(url, method='POST', headers=hdrs,
+        data=json.dumps({'jsonrpc':'2.0','method':method,'params':params,'id':id_}).encode())
+    with urllib.request.urlopen(r, timeout=15) as resp:
+        return resp.headers.get('mcp-session-id',''), resp.read().decode()
+sid, _ = mcp('initialize', {'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'agent-resume','version':'1'}})
+mcp('notifications/initialized', {}, sid)
+_, body = mcp('tools/call', {'name':'get_resume_prompt','arguments':{'handoff_id':handoff_id}}, sid, 2)
+for line in body.split('\n'):
+    if line.startswith('data:'):
+        try:
+            d = json.loads(line[5:])
+            if 'result' in d:
+                text = json.loads(d['result']['content'][0]['text'])
+                print(text.get('prompt', text.get('error', 'handoff not found')))
+                sys.exit(0)
+        except: pass
+print('handoff not found', file=sys.stderr); sys.exit(1)
+PYEOF
         }; _agent_resume
       '';
     };
