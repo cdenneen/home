@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import textwrap
 from datetime import datetime, timezone
@@ -395,6 +396,15 @@ def cos_update(
 
     formatted = f"[{agent}] [{status}] {message}"
 
+    # ssh concatenates every arg after the host into one string and hands it
+    # to the remote login shell (zsh on ghost), which then glob-expands
+    # anything unquoted - formatted's own "[...]" brackets triggered
+    # "no matches found" there. Quote the remote command as a single shell
+    # token so zsh sees it as one opaque argument.
+    remote_cmd = " ".join(
+        shlex.quote(part) for part in ("hermes", "peer", "dm", "ghost/chief-of-staff", formatted)
+    )
+
     try:
         result = subprocess.run(
             [
@@ -403,8 +413,7 @@ def cos_update(
                 "-o", "BatchMode=yes",
                 "-o", "ConnectTimeout=10",
                 "ghost",
-                "hermes", "peer", "dm", "ghost/chief-of-staff",
-                formatted,
+                remote_cmd,
             ],
             capture_output=True,
             text=True,
