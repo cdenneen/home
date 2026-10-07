@@ -247,20 +247,20 @@ in
     _hermes="$(command -v hermes 2>/dev/null || echo "")"
     if [ -n "$_hermes" ] && [ -S "$HOME/.hermes/gateway.sock" ] 2>/dev/null || \
        systemctl --user is-active hermes-mesh-gateway.service >/dev/null 2>&1; then
-      "$_hermes" -p chief-of-staff cron add \
-        --name "kanban-sweep" \
-        --schedule "0 9,13,17,21 * * 1-5" \
-        --prompt "Kanban sweep. Read all work boards (work-ops, work-eks-platform, work-gitlab). For each in-progress task: check last comment/update time and identify any over 4 hours without a cos-update from the assigned worker. Post a brief status digest to Slack channel C0BHLUXQ4EB. For tasks blocked over 24 hours with no owner action, escalate to Chris with the exact gate. Do not dispatch new work in this sweep — surface drift only." \
-        2>/dev/null || true  # idempotent: cron add is safe to re-run
+      "$_hermes" -p chief-of-staff cron create \
+        "0 9,13,17,21 * * 1-5" \
+        "Kanban sweep. Read all work boards (work-ops, work-eks-platform, work-gitlab). For each in-progress task: check last comment/update time and identify any over 4 hours without a cos-update from the assigned worker. Post a brief status digest to Slack channel C0BHLUXQ4EB. For tasks blocked over 24 hours with no owner action, escalate to Chris with the exact gate. Do not dispatch new work in this sweep — surface drift only." \
+        --name "kanban-sweep" --deliver "origin" \
+        2>/dev/null || true  # idempotent: cron create is safe to re-run (name deduplicates)
 
       # Daily active-verification sweep — CoS checks external state for stale/unverified tasks.
       # Unlike the 4-hour drift sweep, this one MAY dispatch bounded read-only ops
       # investigations to nyx to verify real-world state (check a GitLab issue,
       # spot-check auth on a node, verify a service is up). Never deploys or mutates.
-      "$_hermes" -p chief-of-staff cron add \
-        --name "task-verification-sweep" \
-        --schedule "0 10 * * 1-5" \
-        --prompt "Daily task verification sweep. For each Kanban task that is: (a) blocked or stale for more than 24h, (b) tagged unverified or needs-check, or (c) has a time-sensitive external dependency such as an expiry, deadline, auth token, cert, or API key: dispatch a read-only investigation to nyx/ops via hermes-peer-dispatch to verify the actual external state. Check the referenced GitLab issue URL, run a spot auth check, verify a service endpoint, or read a log. Collect the result, update the task comment with the verified finding, and if the finding indicates a live problem escalate to Chris immediately via Slack channel C0BHLUXQ4EB. This sweep has dispatch authority for read-only verification only — no mutations, no deploys, no secret rotation." \
+      "$_hermes" -p chief-of-staff cron create \
+        "0 10 * * 1-5" \
+        "Daily task verification sweep. For each Kanban task that is: (a) blocked or stale for more than 24h, (b) tagged unverified or needs-check, or (c) has a time-sensitive external dependency such as an expiry, deadline, auth token, cert, or API key: dispatch a read-only investigation to nyx/ops via hermes-peer-dispatch to verify the actual external state. Check the referenced GitLab issue URL, run a spot auth check, verify a service endpoint, or read a log. Collect the result, update the task comment with the verified finding, and if the finding indicates a live problem escalate to Chris immediately via Slack channel C0BHLUXQ4EB. This sweep has dispatch authority for read-only verification only — no mutations, no deploys, no secret rotation." \
+        --name "task-verification-sweep" --deliver "origin" \
         2>/dev/null || true
     fi
   '';
