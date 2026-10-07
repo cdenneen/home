@@ -19,13 +19,19 @@ let
         sys.exit(1)
 
     handoff_id = sys.argv[1]
-    url = "http://eros.tail0e55.ts.net:18123/mcp"
+    # Use LiteLLM aggregate MCP on :4000 — port 18123 is localhost-only on eros.
+    # EROS_LITELLM_API_KEY is set in the shell env via secrets.nix.
+    import os
+    api_key = os.environ.get("EROS_LITELLM_API_KEY", "")
+    url = "http://eros.tail0e55.ts.net:4000/mcp"
 
     def mcp_call(method, params, sid=None, id_=1):
         hdrs = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
+        if api_key:
+            hdrs["Authorization"] = "Bearer " + api_key
         if sid:
             hdrs["mcp-session-id"] = sid
         req = urllib.request.Request(
@@ -50,7 +56,7 @@ let
     mcp_call("notifications/initialized", {}, sid)
     _, body = mcp_call(
         "tools/call",
-        {"name": "get_resume_prompt", "arguments": {"handoff_id": handoff_id}},
+        {"name": "agent_handoff-get_resume_prompt", "arguments": {"handoff_id": handoff_id}},
         sid,
         2,
     )
