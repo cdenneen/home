@@ -399,43 +399,57 @@ If this phrase appears in any message, immediately run the full Session Start ro
 
 Run these steps in order, autonomously, before doing any work:
 
-1. `recall(query="active context <inferred topic>")` — load prior context from Redis/Qdrant/FalkorDB.
-2. `list_handoffs(project=<inferred slug>, limit=5)` — load prior session handoffs. If a `handoff_id` was provided, `read_handoff(id)` first.
-3. `cos_update(status="started", message="Working on: <topic>. Context loaded from: <sources>. Prior handoffs: <count>.", agent="<your-agent-id>")` — **blocking**: CoS replies with `{"task_id":"t_xxx","status":"acknowledged|created","board":"..."}`. Store this `task_id` for the entire session.
-4. Read `.ai/HANDOFF.md` in the repo if present.
-5. Begin work. Never ask Chris to re-explain context found in the above sources.
+1. `agent_handoff-list_handoffs(project=<inferred slug>, limit=5)` — load prior session handoffs. If a `handoff_id` was provided, `agent_handoff-read_handoff(id)` first.
+2. Read `.ai/HANDOFF.md` in the repo if present.
+3. Send a CoS started update via the **cos-update skill** (terminal): `hermes peer dm ghost/chief-of-staff "[<profile>@<host>] [started] Working on: <topic>. Prior handoffs: <count>."` — CoS will reply with or create a Kanban task.
+4. Begin work. Never ask Chris to re-explain context found in the above sources.
 
 ### During work — autonomous, continuous
 
 Call these automatically — no human prompt needed:
 
-- **Every significant decision**: `cos_update(status="update", message="Decision: <what+why>. Impact: <files/tasks>.", task_id=<from step 3>)` + `store_context(content=<fact>, type="decision", ...)`
-- **Every discovery**: `cos_update(status="update", message="Found: <what>. Relevant to: <task>.", task_id=<from step 3>)`
-- **Every blocker**: `cos_update(status="blocked", message="Blocked on: <exact gate>. Owner: <who>. Parallel work: <what>.", task_id=<from step 3>)`
-- **Every unit complete**: `cos_update(status="update", message="Done: <what>. Evidence: <link>. Next: <step>.", task_id=<from step 3>)`
-- **Context >50%**: snapshot all memory files + `store_context` key facts before continuing.
-- **Review needed**: `cos_update(status="review", message="<MR/issue link>. Waiting on: <who>.", task_id=<from step 3>)`
+- **Every significant decision**: cos-update skill → `hermes peer dm ghost/chief-of-staff "[<profile>@<host>] [update] Decision: <what+why>."` + `agent_handoff-write_context(content=<fact>, ...)`
+- **Every discovery**: cos-update skill → `[update] Found: <what>.`
+- **Every blocker**: cos-update skill → `[blocked] Blocked on: <gate>. Owner: <who>.`
+- **Every unit complete**: cos-update skill → `[update] Done: <what>. Evidence: <link>.`
+- **Context >50%**: snapshot all memory files before continuing.
+- **Review needed**: cos-update skill → `[review] <MR/issue link>. Waiting on: <who>.`
 
 ### Memory writes
 
-`store_context(content, type, agent_id, project)` fans out to Redis + Qdrant + FalkorDB + agent-context repo. Types: `fact`, `decision`, `session`, `topology`, `task`. Do NOT write directly to MEMORY.md for shared facts — it is a session bootstrap hint only (2200 char budget).
+`agent_handoff-write_context(content, type, agent_id, project)` writes durable facts to the agent-context repo. Types: `fact`, `decision`, `session`, `topology`, `task`. Do NOT write directly to MEMORY.md for shared facts — it is a session bootstrap hint only (2200 char budget).
 
 ### Session end / handoff
 
 Run these in order before ending any substantial session:
 
-1. `write_handoff(topic, content, project, next_action)` → get `handoff_id`
-2. `store_context` for all key facts and decisions from this session
+1. `agent_handoff-write_handoff(topic, content, project, next_action)` → get `handoff_id`
+2. `agent_handoff-write_context` for all key facts and decisions from this session
 3. Update `.ai/HANDOFF.md` in the repo
-4. `cos_update(status="completed", message="<what done, links, what remains, next action>", task_id=<from step 3>, handoff_id=<from step 1>)`
+4. cos-update skill → `hermes peer dm ghost/chief-of-staff "[<profile>@<host>] [completed] <what done, links, what remains, next action>"`
 5. Print: `HANDOFF: <handoff_id> — Resume: tell @nyxops to resume handoff <handoff_id>`
 
-### MCP endpoints (via eros.tail0e55.ts.net:4000/mcp/)
+### CoS updates — how to send them
 
-| Tool                                               | Purpose                                                    |
-| -------------------------------------------------- | ---------------------------------------------------------- |
-| `recall`                                           | Cache-first ranked retrieval (Redis→Qdrant→FalkorDB)       |
-| `store_context`                                    | Fan-out write to all memory stores                         |
-| `write_handoff` / `list_handoffs` / `read_handoff` | Durable session handoffs                                   |
-| `cos_update`                                       | Signal CoS + get/create Kanban task ID (returns `task_id`) |
-| `kanban_list` / `kanban_show`                      | Read Ghost Kanban                                          |
+**cos-update skill** (load with skill tool or read `~/.pi/agent/skills/cos-update/SKILL.md`):
+- Hermes agents (ops/coder/etc on nyx/ghost): skill auto-calls `hermes peer dm ghost/chief-of-staff`
+- pi on nyx: terminal tool → `hermes peer dm ghost/chief-of-staff "..."`
+- Claude Desktop / Claude Code: terminal tool → `hermes peer dm ghost/chief-of-staff "..."`
+- Codex / OpenCode: terminal tool → `hermes peer dm ghost/chief-of-staff "..."`
+
+Format: `"[<profile>@<host>] [<started|update|blocked|review|completed>] <message>"`
+
+### MCP tool names (via eros.tail0e55.ts.net:4000/mcp/)
+
+Tools are prefixed by server name in the LiteLLM aggregate:
+
+| Contract name | Actual MCP tool name | Server |
+| --- | --- | --- |
+| `write_handoff` | `agent_handoff-write_handoff` | agent-handoff |
+| `read_handoff` | `agent_handoff-read_handoff` | agent-handoff |
+| `list_handoffs` | `agent_handoff-list_handoffs` | agent-handoff |
+| `search_handoffs` | `agent_handoff-search_handoffs` | agent-handoff |
+| `write_context` | `agent_handoff-write_context` | agent-handoff |
+| `read_context` | `agent_handoff-read_context` | agent-handoff |
+| `list_context` | `agent_handoff-list_context` | agent-handoff |
+| CoS updates | cos-update skill / terminal | not MCP |
