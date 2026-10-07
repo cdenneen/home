@@ -83,7 +83,7 @@ SET models = ARRAY(
         -- array readable as the intended catalog rather than a bare pattern.
         'claude-*',
         'claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5',
-        'claude-opus-5-5',
+        'claude-opus-5-5', 'claude-auto',
         'g2-omniroute-openai-gpt4o-mini', 'g5-omniroute-bedrock-haiku',
         'tier0-local', 'tier1-general', 'tier1-coding', 'mini',
         'tier2-general', 'tier2-coding', 'auto', 'tier2-research',
