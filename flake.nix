@@ -728,6 +728,7 @@
                     tester = "deepseek-v3.2";
                   };
                   expectedNyxModels = {
+                    architect = "claude-opus-5";
                     assistant = "claude-sonnet-4-6";
                     coder = "qwen3-coder-next";
                     ops = "claude-sonnet-4-6";
@@ -863,6 +864,7 @@
                 assert
                   nyxRouter."gateway.multiplex_profile_allowlist" == [
                     "assistant"
+                    "architect"
                     "coder"
                     "tester"
                     "reviewer"
