@@ -5,6 +5,11 @@
   ...
 }:
 let
+  ragDbDir = "/home/cdenneen/.rag-db";
+  ragPython = pkgs.python3.withPackages (ps: [ ps.mcp ]);
+  ragUiPort = 6550;
+  ragMcpPort = 18200;
+
   roleNames = [
     "chief-of-staff"
     "assistant"
@@ -453,5 +458,58 @@ in
     tester = mkNamedMeshProfile "tester" "deepseek-v3.2" baseSecretsCommand { };
     reviewer = mkNamedMeshProfile "reviewer" "claude-sonnet-5" baseSecretsCommand { };
     ops = mkNamedMeshProfile "ops" "claude-sonnet-4-6" baseSecretsCommand { };
+  };
+
+  # RAG knowledge base — UI and capture MCP server.
+  # The database lives at ~/.rag-db/rag.db (SQLite, skill-owned, not managed by
+  # Nix). These services only supervise the two processes; the actual scripts
+  # are written by the /rag-init skill. Exposed over the tailnet:
+  #   UI:  ghost.tail0e55.ts.net:8443 (via tailscale serve HTTPS)
+  #   MCP: ghost.tail0e55.ts.net:18200 (plain HTTP, tailscale0 firewall open)
+  systemd.user.services.rag-ui = {
+    description = "Karpathy RAG web UI";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "default.target" ];
+    restartIfChanged = true;
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = pkgs.writeShellScript "rag-ui-start" ''
+        set -euo pipefail
+        exec ${ragPython}/bin/python ${ragDbDir}/ui/server.py \
+          --no-browser --port ${toString ragUiPort}
+      '';
+      Restart = "always";
+      RestartSec = 10;
+      MemoryAccounting = true;
+      MemoryHigh = "256M";
+      MemoryMax = "512M";
+    };
+  };
+
+  systemd.user.services.rag-mcp = {
+    description = "Karpathy RAG capture MCP server";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "default.target" ];
+    restartIfChanged = true;
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = pkgs.writeShellScript "rag-mcp-start" ''
+        set -euo pipefail
+        export PYTHONPATH="${ragDbDir}"
+        exec ${ragPython}/bin/python -c '
+import capture_mcp_server as _m
+_m.mcp.settings.host = "0.0.0.0"
+_m.mcp.settings.port = ${toString ragMcpPort}
+_m.mcp.run(transport="streamable-http")
+'
+      '';
+      Restart = "always";
+      RestartSec = 10;
+      MemoryAccounting = true;
+      MemoryHigh = "256M";
+      MemoryMax = "512M";
+    };
   };
 }

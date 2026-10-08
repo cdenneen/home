@@ -12,7 +12,8 @@ let
   workloadMetadata = import ../hermes-workload-metadata {
     inherit pkgs agentPkgs;
   };
-  workloadMetadataSitecustomize = workloadMetadata.mkCombinedSitecustomize "";
+  kanbanDelegationFence = import ../hermes-kanban-delegation-fence { inherit pkgs agentPkgs; };
+  workloadMetadataSitecustomize = workloadMetadata.mkCombinedSitecustomize kanbanDelegationFence.kanbanDelegationFencePy;
   hermesHome = "${config.home.homeDirectory}/.hermes";
   gatewayChecks = pkgs.writeShellScript "hermes-mesh-gateway-checks" ''
     set -euo pipefail
