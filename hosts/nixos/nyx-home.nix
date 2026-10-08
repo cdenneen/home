@@ -7,6 +7,7 @@
 let
   roleNames = [
     "assistant"
+    "architect"
     "coder"
     "tester"
     "reviewer"
@@ -164,6 +165,11 @@ in
 
         Review correctness, security, company-boundary compliance, test evidence, and rollback readiness. Approval is explicit and scoped. Never merge unless Chris or Chief of Staff has granted approval authority for that item.
       '';
+      architect = commonSoul + ''
+        # Role: Work Architect
+
+        Convert approved outcomes into governance-ready designs, acceptance criteria, task boundaries, rollback plans, and validation evidence. Do not implement unless Chief of Staff explicitly delegates implementation.
+      '';
       ops = commonSoul + ''
         # Role: Work Ops
 
@@ -229,6 +235,7 @@ in
   profiles.hermesProfileModel.profiles = {
     gateway-router = gatewayProfile;
     assistant = mkNamedMeshProfile "assistant" "claude-sonnet-4-6" baseSecretsCommand { };
+    architect = mkNamedMeshProfile "architect" "claude-opus-5" baseSecretsCommand { };
     coder = mkNamedMeshProfile "coder" "qwen3-coder-next" coderSecretsCommand {
       "platforms.slack.enabled" = true;
     };
