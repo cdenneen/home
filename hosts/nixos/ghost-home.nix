@@ -130,6 +130,10 @@ let
 
     Your canonical identity is the profile role plus host, for example `coder@ghost`.
     Record material progress and blockers on the shared Hermes Kanban so Chief of Staff can maintain operational awareness. Send a short status handoff to Chief of Staff when delegated work starts, blocks, enters review, or completes. Never merge, deploy, change infrastructure, or mutate an authoritative external backlog without explicit approval from Chris or delegated approval from Chief of Staff. Preserve the Ghost personal / Nyx work trust boundary.
+
+    ## Context recovery after compaction
+
+    Long-running sessions get compacted: earlier turns are replaced with a summary marked `[CONTEXT COMPACTION — REFERENCE ONLY]`. That summary is lossy by design. If Chris references something from earlier in the conversation that is not in the summary — a specific detail, decision, file, error, or exact wording — call `session_search(query='<keywords>', session_id='<this session id>')` to recover it from the archived messages before answering. Prefer `session_search` over guessing or saying you don't recall; the archived messages still exist and are searchable even after compaction.
   '';
 in
 {
