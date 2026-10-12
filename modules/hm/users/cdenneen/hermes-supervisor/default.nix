@@ -10,6 +10,7 @@ let
   packageAvailable = pkgs.stdenv.hostPlatform.isLinux && agentPkgs != null && agentPkgs ? hermes;
   workloadMetadata = import ../hermes-workload-metadata { inherit pkgs agentPkgs; };
   singleWriterLock = import ../hermes-single-writer-lock.nix { inherit pkgs; };
+  kanbanDelegationFence = import ../hermes-kanban-delegation-fence { inherit pkgs agentPkgs; };
   gatewayHermesHome = "${config.home.homeDirectory}/.hermes";
   gatewaySecondaryHermesHome = "${config.home.homeDirectory}/.hermes/profiles/${config.profiles.hermesGatewaySecondary.profileName}";
   hermesGatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize ''
@@ -18,6 +19,7 @@ let
         commands.should_bypass_active_session = commands.is_gateway_known_command
     except Exception:
         pass
+    ${kanbanDelegationFence.kanbanDelegationFencePy}
   '';
   hermesGatewayBypassCheck = pkgs.writeShellScript "hermes-gateway-plugin-bypass-check" ''
     set -euo pipefail
@@ -27,6 +29,7 @@ let
   hermesGatewayChecks = [
     hermesGatewayBypassCheck
     workloadMetadata.selftestCheck
+    kanbanDelegationFence.selftestCheck
   ];
   hermesGatewayBootstrapConfig = pkgs.writeText "hermes-gateway-config.yaml" ''
     plugins:

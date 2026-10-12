@@ -117,7 +117,7 @@ INSERT INTO "LiteLLM_ObjectPermissionTable" (
         -- namespace and is deliberately unchanged.
         'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
-        'eros-context-shared', 'agent-handoff'
+        'eros-context-shared', 'agent-handoff', 'rag'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
 )
@@ -150,7 +150,7 @@ VALUES (
         -- namespace and is deliberately unchanged.
         'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
-        'eros-context-shared', 'eros-context-work', 'agent-handoff'
+        'eros-context-shared', 'eros-context-work', 'agent-handoff', 'rag'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
 )
@@ -175,7 +175,7 @@ VALUES (
         -- namespace and is deliberately unchanged.
         'recallium', 'graphify', 'context7', 'playwright', 'web_search',
         'gitlab', 'kubernetes', 'aws', 'terraform',
-        'eros-context-shared', 'eros-context-personal', 'agent-handoff'
+        'eros-context-shared', 'eros-context-personal', 'agent-handoff', 'rag'
     ]::text[],
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true
 )

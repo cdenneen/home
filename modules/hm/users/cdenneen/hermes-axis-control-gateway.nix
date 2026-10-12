@@ -12,12 +12,14 @@ let
   hermesHome = "${axisControlRoot}/.hermes";
   workloadMetadata = import ./hermes-workload-metadata { inherit pkgs agentPkgs; };
   singleWriterLock = import ./hermes-single-writer-lock.nix { inherit pkgs; };
+  kanbanDelegationFence = import ./hermes-kanban-delegation-fence { inherit pkgs agentPkgs; };
   hermesGatewaySitecustomize = workloadMetadata.mkCombinedSitecustomize ''
     try:
         import hermes_cli.commands as commands
         commands.should_bypass_active_session = commands.is_gateway_known_command
     except Exception:
         pass
+    ${kanbanDelegationFence.kanbanDelegationFencePy}
   '';
   hermesGatewayBypassCheck = pkgs.writeShellScript "hermes-axis-control-plugin-bypass-check" ''
     set -euo pipefail
@@ -27,6 +29,7 @@ let
   hermesGatewayChecks = [
     hermesGatewayBypassCheck
     workloadMetadata.selftestCheck
+    kanbanDelegationFence.selftestCheck
   ];
   servicePath = builtins.concatStringsSep ":" [
     "${axisControlRoot}/.venv/bin"

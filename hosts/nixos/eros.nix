@@ -1218,6 +1218,7 @@ in
               - eros-context-shared
               - falkordb
               - agent_handoff
+              - rag
         # Direct request-layer semantic filtering remains disabled until a
         # pinned-v1.94 compatibility test proves nested/native tools fail open.
         # MCP-speaking clients use /mcp/ virtual tool search instead.
@@ -1460,6 +1461,11 @@ in
           url: "http://127.0.0.1:8081/mcp"
           transport: "http"
           description: "FalkorDB knowledge graph via MCP"
+          mcp_info: *eros_local_mcp_cost
+        rag:
+          url: "http://ghost.tail0e55.ts.net:18200/mcp"
+          transport: "http"
+          description: "Karpathy-style personal RAG — capture and retrieve insights from Claude sessions"
           mcp_info: *eros_local_mcp_cost
       EOF
       ${pkgs.yq-go}/bin/yq -e '
