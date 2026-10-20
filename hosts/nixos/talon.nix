@@ -1,4 +1,9 @@
-{ lib, pkgs, config, ... }:
+{
+  lib,
+  pkgs,
+  config,
+  ...
+}:
 {
   boot = {
     # ponytail: OCI's VM.Standard.E2.1.Micro boots via UEFI firmware
@@ -42,11 +47,15 @@
 
   networking = {
     hostName = "talon";
-    firewall.allowedTCPPorts = [ 22 ];
+    firewall.allowedTCPPorts = [
+      22
+      3100
+    ];
     firewall.allowedUDPPorts = [ ];
   };
 
   profiles.minimalVm.enable = true;
+  profiles.paperclip.enable = true;
   system.stateVersion = lib.mkForce "26.05";
 
   # modules/system/default.nix declares this secret gated on

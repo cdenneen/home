@@ -397,12 +397,12 @@ If this phrase appears in any message, immediately run the full Session Start ro
 
 ### Memory backends — all must be written to
 
-| Backend | MCP tool | What it stores | Why |
-|---|---|---|---|
-| Qdrant + FalkorDB | `store_context` (eros-context-shared) | Vector + graph searchable facts | Cross-session semantic recall |
-| agent-context repo | `agent_handoff-write_context` (agent-handoff) | Structured handoff context | Cold-resume, human-readable |
-| agent-context repo | `agent_handoff-write_handoff` (agent-handoff) | Full session state | Resume from any agent |
-| Ghost Kanban | `hermes peer dm` via cos-update skill | Task tracking | CoS awareness |
+| Backend            | MCP tool                                      | What it stores                  | Why                           |
+| ------------------ | --------------------------------------------- | ------------------------------- | ----------------------------- |
+| Qdrant + FalkorDB  | `store_context` (eros-context-shared)         | Vector + graph searchable facts | Cross-session semantic recall |
+| agent-context repo | `agent_handoff-write_context` (agent-handoff) | Structured handoff context      | Cold-resume, human-readable   |
+| agent-context repo | `agent_handoff-write_handoff` (agent-handoff) | Full session state              | Resume from any agent         |
+| Ghost Kanban       | `hermes peer dm` via cos-update skill         | Task tracking                   | CoS awareness                 |
 
 **Writing to only one is not enough.** `agent_handoff-write_context` does NOT write to Qdrant/FalkorDB. `store_context` does NOT write to the GitHub repo. Both must be called.
 
@@ -417,9 +417,11 @@ If this phrase appears in any message, immediately run the full Session Start ro
 ### During work — autonomous, every 10 turns AND on every significant event
 
 **Every 10 turns** (regardless of significance — like recallium):
+
 - `store_context(content=<session progress summary>, type="session", agent_id="<agent>@<host>", project=<project>)`
 
 **On every significant decision, discovery, blocker, or completed unit**:
+
 - `hermes peer dm ghost/chief-of-staff "[<profile>@<host>] [<update|blocked|review>] <message>"` via cos-update skill
 - `store_context(content=<fact/decision with rationale>, type="decision"|"fact", agent_id=..., project=...)` → Qdrant + FalkorDB
 - `agent_handoff-write_context(content=<same>, type=..., agent_id=..., project=...)` → agent-context repo
@@ -437,15 +439,15 @@ If this phrase appears in any message, immediately run the full Session Start ro
 
 ### MCP tool names (via eros.tail0e55.ts.net:4000/mcp/)
 
-| Tool | Actual MCP name | Server | Writes to |
-|---|---|---|---|
-| `recall` | `recall` | eros-context-shared | reads Qdrant+FalkorDB |
-| `store_context` | `store_context` | eros-context-shared | Qdrant + FalkorDB |
-| `write_handoff` | `agent_handoff-write_handoff` | agent-handoff | GitHub repo |
-| `read_handoff` | `agent_handoff-read_handoff` | agent-handoff | — |
-| `list_handoffs` | `agent_handoff-list_handoffs` | agent-handoff | — |
-| `write_context` | `agent_handoff-write_context` | agent-handoff | GitHub repo |
-| CoS updates | `hermes peer dm` via cos-update skill | terminal | Ghost Kanban |
+| Tool            | Actual MCP name                       | Server              | Writes to             |
+| --------------- | ------------------------------------- | ------------------- | --------------------- |
+| `recall`        | `recall`                              | eros-context-shared | reads Qdrant+FalkorDB |
+| `store_context` | `store_context`                       | eros-context-shared | Qdrant + FalkorDB     |
+| `write_handoff` | `agent_handoff-write_handoff`         | agent-handoff       | GitHub repo           |
+| `read_handoff`  | `agent_handoff-read_handoff`          | agent-handoff       | —                     |
+| `list_handoffs` | `agent_handoff-list_handoffs`         | agent-handoff       | —                     |
+| `write_context` | `agent_handoff-write_context`         | agent-handoff       | GitHub repo           |
+| CoS updates     | `hermes peer dm` via cos-update skill | terminal            | Ghost Kanban          |
 
 ### cos-update skill — how to call it
 

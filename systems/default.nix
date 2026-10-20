@@ -319,9 +319,10 @@ let
           {
             _module.args.nixHostName = hostName;
             home.username = "cdenneen";
-          home.homeDirectory = if pkgs.stdenv.hostPlatform.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
+            home.homeDirectory =
+              if pkgs.stdenv.hostPlatform.isDarwin then "/Users/cdenneen" else "/home/cdenneen";
             profiles.defaults.enable = true;
-          profiles.gui.enable = pkgs.stdenv.hostPlatform.isDarwin;
+            profiles.gui.enable = pkgs.stdenv.hostPlatform.isDarwin;
           };
 
         homeConfigurations = {

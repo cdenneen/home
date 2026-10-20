@@ -1,4 +1,9 @@
-{ lib, pkgs, config, ... }:
+{
+  lib,
+  pkgs,
+  config,
+  ...
+}:
 {
   boot = {
     # ponytail: OCI's VM.Standard.E2.1.Micro boots via UEFI firmware
