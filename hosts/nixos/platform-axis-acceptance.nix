@@ -1,9 +1,14 @@
 # Proposed addition to github.com/cdenneen/home: hosts/nixos/ghost.nix (imported as a module).
 # Base: tip parent of eng/axis-r8-platform-prep. DRAFT - not merged, not activated.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   spool = "/var/lib/axis-acceptance";
-  python = pkgs.python312;               # interpreter is platform-owned, not chosen by AXIS or the candidate
+  python = pkgs.python312; # interpreter is platform-owned, not chosen by AXIS or the candidate
   runnerVersion = "axis.acceptance-runner.v1";
 
   # Fixed, scenario-agnostic entry point. It never interprets job data as shell: the job's
@@ -67,16 +72,18 @@ let
 
   # Published contract. Includes hashes of the exact template and entry so AXIS can check
   # it is talking to this implementation, not just a matching version string.
-  contract = pkgs.writeText "axis-acceptance-runner.json" (builtins.toJSON {
-    interface = runnerVersion;
-    spool = spool;
-    unit_template = "axis-acceptance@.service";
-    entry = "${entry}";
-    interpreter = "${python}/bin/python3";
-    max_runtime_s = 30;
-    max_tasks = 32;
-    max_memory = "256M";
-  });
+  contract = pkgs.writeText "axis-acceptance-runner.json" (
+    builtins.toJSON {
+      interface = runnerVersion;
+      spool = spool;
+      unit_template = "axis-acceptance@.service";
+      entry = "${entry}";
+      interpreter = "${python}/bin/python3";
+      max_runtime_s = 30;
+      max_tasks = 32;
+      max_memory = "256M";
+    }
+  );
 in
 {
   systemd.tmpfiles.rules = [
@@ -121,8 +128,8 @@ in
       TasksMax = 32;
       MemoryMax = "256M";
 
-      StandardOutput = "file:${spool}/jobs/%i/result/stdout";   # see LIFECYCLE: result/ is the one writable path
-      StandardError  = "file:${spool}/jobs/%i/result/stderr";
+      StandardOutput = "file:${spool}/jobs/%i/result/stdout"; # see LIFECYCLE: result/ is the one writable path
+      StandardError = "file:${spool}/jobs/%i/result/stderr";
     };
   };
 
@@ -135,7 +142,7 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = "${python}/bin/python3 -E -s -B ${sealPy} seal %i";
-      ExecStop  = "${python}/bin/python3 -E -s -B ${sealPy} retire %i";
+      ExecStop = "${python}/bin/python3 -E -s -B ${sealPy} retire %i";
       ProtectSystem = "strict";
       ReadWritePaths = [ "${spool}" ];
       PrivateNetwork = true;

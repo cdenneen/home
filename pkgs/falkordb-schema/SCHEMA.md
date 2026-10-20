@@ -5,6 +5,7 @@ This document describes the initial graph schema for the FalkorDB knowledge grap
 ## Node Labels
 
 ### Agent
+
 Represents a human or AI agent that performs tasks.
 
 - `id`: Unique identifier (e.g., "cdenneen", "hermes-coder@nyx")
@@ -15,6 +16,7 @@ Represents a human or AI agent that performs tasks.
 - `memory_snapshot`: Current truncated Hermes memory snapshot
 
 ### Task
+
 Represents a unit of work from Ghost Kanban.
 
 - `id`: Kanban task ID (e.g., "maw-p3")
@@ -26,6 +28,7 @@ Represents a unit of work from Ghost Kanban.
 - `board`: Kanban board name
 
 ### File
+
 Represents a file in the repository.
 
 Node key: `(path, repo)` - composite key to support multiple repositories
@@ -38,6 +41,7 @@ with files at the same relative path.
 - `summary`: Brief description of file purpose
 
 ### Decision
+
 Represents a significant decision recorded during task execution.
 
 - `id`: Decision identifier (can be task ID + suffix)
@@ -48,6 +52,7 @@ Represents a significant decision recorded during task execution.
 - `author`: Agent ID
 
 ### Repo
+
 Represents a GitHub repository.
 
 - `name`: Full repo name (e.g., "cdenneen/home")
@@ -56,6 +61,7 @@ Represents a GitHub repository.
 - `last_sync`: ISO-8601 timestamp
 
 ### Issue
+
 Represents a GitLab issue.
 
 - `id`: Issue identifier (e.g., "gitlab!123")
