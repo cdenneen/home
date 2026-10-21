@@ -59,7 +59,9 @@
 
   # Postgres for Paperclip — embedded-postgres npm binaries don't run on
   # NixOS (glibc path mismatch). Use a real system Postgres instead.
-  # Paperclip connects via DATABASE_URL set in the paperclip module.
+  # Paperclip connects via connectionString in ~/.paperclip/instances/default/config.json
+  # set to postgres://cdenneen@127.0.0.1:5432/paperclip (127.0.0.1 explicit — localhost
+  # resolves to ::1 on this host and the pg_hba only trusts 127.0.0.1/32).
   services.postgresql = {
     enable = true;
     ensureDatabases = [ "paperclip" ];
@@ -74,6 +76,26 @@
     authentication = ''
       local paperclip cdenneen trust
       host  paperclip cdenneen 127.0.0.1/32 trust
+    '';
+  };
+
+  # Grant cdenneen full ownership of the paperclip database so Paperclip
+  # can run Drizzle migrations (CREATE SCHEMA, CREATE TABLE, etc).
+  # ensureUsers above creates the role but does not grant DB-level privileges.
+  systemd.services.paperclip-db-grants = {
+    description = "Grant Paperclip database ownership to cdenneen";
+    after = [ "postgresql.service" ];
+    requires = [ "postgresql.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "postgres";
+    };
+    script = ''
+      ${pkgs.postgresql}/bin/psql -c "GRANT ALL ON DATABASE paperclip TO cdenneen;"
+      ${pkgs.postgresql}/bin/psql -d paperclip -c "GRANT CREATE ON SCHEMA public TO cdenneen;"
+      ${pkgs.postgresql}/bin/psql -c "ALTER DATABASE paperclip OWNER TO cdenneen;"
     '';
   };
   system.stateVersion = lib.mkForce "26.05";
