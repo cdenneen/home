@@ -1,40 +1,34 @@
 {
   buildNpmPackage,
   fetchurl,
-  gnutar,
-  gzip,
+  importNpmLock,
   lib,
   makeWrapper,
   nodejs_24,
-  runCommand,
 }:
 
 (buildNpmPackage.override { nodejs = nodejs_24; }) {
   pname = "paperclip";
   version = "2026.1012.0";
 
-  src =
-    runCommand "paperclipai-2026.1012.0-source"
-      {
-        nativeBuildInputs = [
-          gnutar
-          gzip
-        ];
-      }
-      ''
-        mkdir -p "$out"
-        tar -xzf ${
-          fetchurl {
-            url = "https://registry.npmjs.org/paperclipai/-/paperclipai-2026.1012.0.tgz";
-            hash = "sha256-zCMxBYvZPLbU7hjNKbz2PAYh/E9u8MfPeMUkPL6cUK4=";
-          }
-        } --strip-components=1 -C "$out"
-      '';
+  # Fetch the pre-built tarball — dist/index.js is already compiled.
+  # We only need npm to install the 13 runtime dependencies (zod, ws, etc).
+  src = fetchurl {
+    url = "https://registry.npmjs.org/paperclipai/-/paperclipai-2026.1012.0.tgz";
+    hash = "sha256-zCMxBYvZPLbU7hjNKbz2PAYh/E9u8MfPeMUkPL6cUK4=";
+  };
 
-  # Pre-built tarball — no npm deps to fetch or build steps to run.
-  npmDeps = null;
+  # package-lock.json generated from the tarball's package.json.
+  # Provides the dependency tree for importNpmLock.
+  npmDeps = importNpmLock { npmRoot = ./paperclip; };
+  npmConfigHook = importNpmLock.npmConfigHook;
+
+  # dist/ is pre-built — skip the build step, only install deps.
   dontNpmBuild = true;
-  npmInstallFlags = [ "--ignore-scripts" ];
+  npmInstallFlags = [
+    "--ignore-scripts"
+    "--omit=dev"
+  ];
 
   nativeBuildInputs = [ makeWrapper ];
 
@@ -42,7 +36,7 @@
     runHook preInstall
 
     mkdir -p "$out/lib/paperclip" "$out/bin"
-    cp -R . "$out/lib/paperclip"
+    cp -R . "$out/lib/paperclip/"
 
     makeWrapper ${nodejs_24}/bin/node "$out/bin/paperclipai" \
       --add-flags "$out/lib/paperclip/dist/index.js"
