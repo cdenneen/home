@@ -420,6 +420,32 @@ in
     memoryPercent = 50;
   };
 
+  # x86_64 cross-build support via qemu-user emulation.
+  # Allows `nix build .#nixosConfigurations.<x86_64-host>...` on this aarch64 host,
+  # and enables nyx to act as a remote builder for x86_64-linux targets (talon, onyx, etc.).
+  boot.binfmt.emulatedSystems = [ "x86_64-linux" ];
+  nix.settings.extra-platforms = [ "x86_64-linux" ];
+
+  # Register talon as a nix remote build target.
+  # Build happens on nyx (emulated), result is copied to talon — talon never builds locally.
+  # SSH key: cdenneen's ed25519 key (already in authorized_keys on talon).
+  # max-jobs=4: caps parallel derivations during emulated builds to avoid OOM on nyx.
+  nix.buildMachines = [
+    {
+      hostName = "talon";
+      system = "x86_64-linux";
+      sshUser = "cdenneen";
+      sshKey = "/home/cdenneen/.ssh/cdenneen_ed25519_2024";
+      maxJobs = 4;
+      speedFactor = 1;
+      supportedFeatures = [
+        "nixos-test"
+        "benchmark"
+        "big-parallel"
+      ];
+    }
+  ];
+
   # Allow subnet routing for Tailscale (routing features manage sysctls).
   services.tailscale.useRoutingFeatures = "server";
   services.tailscale.extraSetFlags = [
