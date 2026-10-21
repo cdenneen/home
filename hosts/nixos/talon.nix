@@ -56,6 +56,26 @@
 
   profiles.minimalVm.enable = true;
   profiles.paperclip.enable = true;
+
+  # Postgres for Paperclip — embedded-postgres npm binaries don't run on
+  # NixOS (glibc path mismatch). Use a real system Postgres instead.
+  # Paperclip connects via DATABASE_URL set in the paperclip module.
+  services.postgresql = {
+    enable = true;
+    ensureDatabases = [ "paperclip" ];
+    ensureUsers = [
+      {
+        name = "cdenneen";
+        ensureDBOwnership = false;
+        ensureClauses.superuser = false;
+        ensureClauses.createdb = false;
+      }
+    ];
+    authentication = ''
+      local paperclip cdenneen trust
+      host  paperclip cdenneen 127.0.0.1/32 trust
+    '';
+  };
   system.stateVersion = lib.mkForce "26.05";
 
   # modules/system/default.nix declares this secret gated on
