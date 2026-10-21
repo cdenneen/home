@@ -386,8 +386,10 @@ in
 
   containerPresets = {
     podman.enable = true;
+    # open-webui disabled: 437MB RSS, zero active connections, all agents use eros.
+    # Re-enable if open-webui is needed on ghost again.
     open-webui = {
-      enable = true;
+      enable = false;
       dataDir = "/var/lib/open-webui-fresh";
       ollamaBaseUrl = "http://127.0.0.1:${toString ollamaPort}";
     };
@@ -452,7 +454,7 @@ in
         chain prerouting {
           type nat hook prerouting priority dstnat;
           ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 6379 dnat ip to 127.0.0.1:6379
-          ip saddr 10.88.0.0/16 ip daddr 127.0.0.1 tcp dport 4000 dnat ip to 127.0.0.1:4000
+          # litellm port 4000 NAT removed: litellm disabled on ghost
         }
       '';
     };
@@ -478,9 +480,12 @@ in
     };
   };
 
+  # omniroute disabled: 305MB RSS + 251MB swap, zero active connections,
+  # all agents connect to eros OmniRoute on port 20130 instead.
+  # Re-enable by restoring wantedBy = [ "default.target" ] if needed.
   systemd.user.services.omniroute = {
     description = "OmniRoute local AI gateway";
-    wantedBy = [ "default.target" ];
+    wantedBy = lib.mkForce [ ];
     serviceConfig = {
       Type = "simple";
       ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
@@ -576,7 +581,9 @@ in
       tunnels."${ghostTunnelId}" = {
         credentialsFile = ghostCloudflareCredFile;
         ingress = {
-          "chat.denneen.net" = "http://127.0.0.1:8080";
+          # chat.denneen.net previously served open-webui (:8080); open-webui
+          # disabled on ghost. Route returns 404 until a replacement is deployed.
+          "chat.denneen.net" = "http_status:404";
           "${pepsApiHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${pepsWebHost}" = "http://127.0.0.1:${toString pepsApiPort}";
           "${wellnessApiHost}" = "http://127.0.0.1:${toString wellnessApiPort}";
@@ -606,6 +613,9 @@ in
       autoStart = true;
     };
 
+    # litellm disabled: 65MB RSS + 1GB swapped (qdrant-semantic cache leak),
+    # zero active connections — all agents use eros LiteLLM on port 4000.
+    # Re-enable by setting autoStart = true and restoring tailscale-serve entry.
     litellm = {
       image = "ghcr.io/berriai/litellm:v1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe";
       ports = [ ];
@@ -626,7 +636,7 @@ in
         LITELLM_CONFIG = "/app/config.yaml";
         LITELLM_PORT = toString litellmPort;
       };
-      autoStart = true;
+      autoStart = false;
     };
 
     neo4j = {
@@ -1551,7 +1561,7 @@ in
 
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString pepsApiPort} 127.0.0.1:${toString pepsApiPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString wellnessApiPort} 127.0.0.1:${toString wellnessApiPort}
-      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString litellmPort} 127.0.0.1:${toString litellmPort}
+      # litellm tailscale serve removed: litellm disabled on ghost, use eros instead
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jHttpPort} 127.0.0.1:${toString neo4jHttpPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString neo4jBoltPort} 127.0.0.1:${toString neo4jBoltPort}
       ${pkgs.tailscale}/bin/tailscale serve --bg --yes --tcp ${toString qdrantHttpPort} 127.0.0.1:${toString qdrantHttpPort}
