@@ -46,7 +46,26 @@ let
     '';
   baseSecretsCommand = mkSecretsCommand null;
   coderSecretsCommand = mkSecretsCommand config.sops.secrets.hermes_slack_env_nyx_coder.path;
-  opsSecretsCommand = mkSecretsCommand config.sops.secrets.hermes_slack_env_nyx_ops.path;
+  opsSecretsCommand = pkgs.writeShellScript "hermes-ops-secrets" ''
+    set -euo pipefail
+
+    emit_secret() {
+      name="$1"
+      path="$2"
+      value="$(${pkgs.coreutils}/bin/tr -d '\r\n' < "$path")"
+      [ -n "$value" ]
+      ${pkgs.coreutils}/bin/printf '%s=%s\n' "$name" "$value"
+    }
+
+    emit_secret EROS_HERMES_AGENTS_KEY ${lib.escapeShellArg config.sops.secrets.eros_litellm_api_key.path}
+    emit_secret API_SERVER_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_nyx.path}
+    emit_secret HERMES_PEER_GHOST_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_ghost.path}
+    emit_secret HERMES_PEER_NYX_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_nyx.path}
+    emit_secret OPENAI_API_KEY ${lib.escapeShellArg config.sops.secrets.openai_api_key.path}
+    emit_secret PAPERCLIP_API_KEY ${lib.escapeShellArg config.sops.secrets.paperclip_api_key.path}
+    printf 'PAPERCLIP_API_URL=http://100.64.12.5:3100\n'
+    ${pkgs.coreutils}/bin/cat ${lib.escapeShellArg config.sops.secrets.hermes_slack_env_nyx_ops.path}
+  '';
   erosMcp = {
     # Two virtual discovery/call tools front the full permitted catalog.
     url = "http://eros.tail0e55.ts.net:4000/mcp/";
