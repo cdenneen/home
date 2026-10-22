@@ -80,6 +80,7 @@ let
     "coding-haiku"
     "coding-openai"
     "coding-strong"
+    "coding-strong-agents"
     "deepseek-v3.2"
     "embedding-core"
     "g2-omniroute-openai-gpt4o-mini"
@@ -641,6 +642,40 @@ in
         # traffic and is out of scope for alteration this slice.
         # Reusable for any future route with this same tools-capable, repeated-
         # prefix shape: alias *eros_cache_points_with_tools rather than retyping.
+        # coding-strong-agents (2026-10-22): cost-optimized router group for
+        # Paperclip pi agents (pi-aws, pi-gitlab, pi-eks) doing DevOps heartbeat
+        # work — GitLab API, YAML generation, Terraform, kubectl. These tasks
+        # do NOT need Claude-tier quality; qwen3-coder-next and deepseek-v3.2
+        # are purpose-built agentic coding models at ~6x lower cost.
+        # Separate name from coding-strong deliberately — see the router_settings
+        # comment below re: the coding-strong -> coding-gemini incident. Each
+        # entry here is the same model_name so LiteLLM groups them as a single
+        # router pool (cost_based_routing picks lowest $/token by default).
+        # claude-haiku-4-5 is the final rung — same quality tier as the others
+        # for this workload, added only for availability fallback.
+        - model_name: coding-strong-agents
+          litellm_params:
+            model: bedrock/qwen.qwen3-coder-next
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: coding-strong-agents
+          litellm_params:
+            model: bedrock/deepseek.v3.2
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+        - model_name: coding-strong-agents
+          litellm_params:
+            model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+            aws_region_name: us-east-1
+            drop_params: true
+            additional_drop_params:
+              - x_hermes_source
+            cache_control_injection_points: *eros_cache_points_with_tools
+
         - model_name: coding-strong
           litellm_params:
             model: bedrock/us.anthropic.claude-sonnet-5
