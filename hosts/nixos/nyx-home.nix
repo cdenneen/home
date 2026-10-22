@@ -118,7 +118,7 @@ let
     (mkMeshProfile "claude-haiku-4-5" baseSecretsCommand {
       "gateway.multiplex_profiles" = true;
       "gateway.multiplex_profile_allowlist" = roleNames;
-      "gateway.max_concurrent_sessions" = 4;
+      "gateway.max_concurrent_sessions" = 20;
       "platforms.api_server.enabled" = true;
       "platforms.api_server.extra.host" = "100.80.58.4";
       "platforms.api_server.extra.port" = 8642;
