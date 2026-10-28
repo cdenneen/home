@@ -641,6 +641,10 @@ in
     source = ./ai/notify.py;
     executable = true;
   };
+  home.file."scripts/sso_device_auth.py" = {
+    source = ./files/sso-device-auth.py;
+    executable = true;
+  };
   home.file.".local/bin/restart-tmux" = {
     source = ./files/restart-tmux;
     executable = true;

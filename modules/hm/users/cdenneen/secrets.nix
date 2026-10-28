@@ -397,6 +397,7 @@ in
     hermes_slack_env_nyx_coder.mode = "0400";
     hermes_slack_env_nyx_ops.mode = "0400";
     opencode_telegram_notify_ts.mode = "0600";
+    paperclip_api_key.mode = "0400";
   }
   // lib.optionalAttrs (erosLitellmKeyName != null) {
     eros_litellm_api_key = {

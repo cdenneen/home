@@ -1363,6 +1363,37 @@ in
     };
   };
 
+  # Expose the Hermes mesh gateway over HTTPS via Tailscale Serve so that
+  # Paperclip (on nautilus) can call back to the ops profile API server
+  # without hitting Paperclip's SSRF guard on plain-HTTP private addresses.
+  # Proxies https://nyx.tail0e55.ts.net:8643/ → http://100.80.58.4:8642
+  # (the Hermes gateway's actual bind address on the Tailscale interface).
+  systemd.user.services.tailscale-serve-hermes-gateway = {
+    description = "Expose Hermes mesh gateway over Tailscale HTTPS for Paperclip";
+    after = [
+      "tailscaled.service"
+      "hermes-mesh-gateway.service"
+    ];
+    wants = [ "hermes-mesh-gateway.service" ];
+    wantedBy = [ "default.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = "10s";
+    };
+    path = [ pkgs.tailscale ];
+    script = ''
+      set -euo pipefail
+      if ! ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1; then
+        echo "Tailscale is not authenticated; retrying Serve setup" >&2
+        exit 1
+      fi
+      # Port 8643: HTTPS proxy → Hermes gateway (bound to Tailscale IP 100.80.58.4:8642)
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=8643 http://100.80.58.4:8642
+    '';
+  };
+
   environment.variables = {
     VITE_CONVEX_URL = convexCloudOrigin;
     RECALLIUM_MCP_URL = recalliumMcpUrl;
