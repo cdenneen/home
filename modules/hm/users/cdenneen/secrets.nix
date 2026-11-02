@@ -355,9 +355,6 @@ in
     };
 
     openai_api_key.mode = "0400";
-    # Retained for rollback compatibility; active clients use the host key so
-    # cost and trust-domain attribution remain stable across all consumers.
-    eros_litellm_key_claude_clients.mode = "0400";
     github-token = {
       mode = "0400";
       path = "${sopsSecretsDir}/github-token";
