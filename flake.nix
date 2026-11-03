@@ -45,7 +45,7 @@
     };
     apple-silicon-support.url = "github:nix-community/nixos-apple-silicon";
     axis = {
-      url = "git+https://gitlab.com/ghostspace/axis.git";
+      url = "git+https://gitlab.com/ghostspace/axis.git?rev=8871788ae66efba85ccb70c298a35d0e7442b81a";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     axis-control = {
@@ -583,9 +583,11 @@
                   axisErosCapabilitySetup = builtins.readFile (
                     builtins.head (splitString "\n" (builtins.elemAt axisCapabilitySetups 1))
                   );
-                  axisGitlabCapabilitySetup = builtins.readFile (builtins.elemAt axisCapabilitySetups 2);
+                  axisGitlabCapabilitySetup = builtins.readFile (
+                    builtins.head (splitString "\n" (builtins.elemAt axisCapabilitySetups 2))
+                  );
                 in
-                assert inputs.axis.rev == "1afe32e9169703896a68a3910065e1ad30084753";
+                assert inputs.axis.rev == "8871788ae66efba85ccb70c298a35d0e7442b81a";
                 assert builtins.length axisCapabilitySetups == 3;
                 assert hasPrefix "/nix/store/" proxy;
                 assert hasInfix "--secret-name provider.slack.identity.454f27f29c5964c6be1bf84bec9176ef"
