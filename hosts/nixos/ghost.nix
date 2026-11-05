@@ -1573,6 +1573,7 @@ in
   };
 
   systemd.services.podman-litellm = {
+    wantedBy = [ "multi-user.target" ];
     requires = [
       "litellm-env.service"
       "litellm-config.service"
