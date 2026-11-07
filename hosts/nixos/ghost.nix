@@ -2026,6 +2026,34 @@ in
     '';
   };
 
+  systemd.services.character-factory-tailscale-serve = {
+    description = "Expose Character Factory through private Tailscale HTTPS";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+      "tailscale-serve-ghost.service"
+      "character-factory.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    requires = [
+      "tailscale-serve-ghost.service"
+      "character-factory.service"
+    ];
+    partOf = [ "tailscale-serve-ghost.service" ];
+    path = [ pkgs.tailscale ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes ${toString characterFactoryPort}
+    '';
+  };
+
   systemd.services.peps-api = {
     description = "Peps API/web runtime";
     wantedBy = [ "multi-user.target" ];
