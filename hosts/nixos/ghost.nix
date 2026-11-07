@@ -1954,6 +1954,24 @@ in
 
   systemd.services.character-factory = {
     description = "Character Factory companion MVP";
+    preStart = ''
+      standalone_dir="${characterFactoryRepoDir}/.next/standalone"
+      static_dir="${characterFactoryRepoDir}/.next/static"
+      public_dir="${characterFactoryRepoDir}/public"
+
+      if [ ! -d "$standalone_dir" ] || [ ! -d "$static_dir" ]; then
+        echo "Character Factory standalone assets are unavailable" >&2
+        exit 1
+      fi
+
+      ${pkgs.coreutils}/bin/install -d -m 0755 "$standalone_dir/.next"
+      ${pkgs.coreutils}/bin/rm -rf "$standalone_dir/.next/static"
+      ${pkgs.coreutils}/bin/cp -a "$static_dir" "$standalone_dir/.next/static"
+      if [ -d "$public_dir" ]; then
+        ${pkgs.coreutils}/bin/rm -rf "$standalone_dir/public"
+        ${pkgs.coreutils}/bin/cp -a "$public_dir" "$standalone_dir/public"
+      fi
+    '';
     wantedBy = [ "multi-user.target" ];
     after = [
       "network-online.target"
@@ -1995,6 +2013,34 @@ in
     };
     script = ''
       exec ${pkgs.nodejs_24}/bin/node .next/standalone/server.js
+    '';
+  };
+
+  systemd.services.character-factory-tailscale-serve = {
+    description = "Expose Character Factory through private Tailscale HTTPS";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+      "tailscale-serve-ghost.service"
+      "character-factory.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    requires = [
+      "tailscale-serve-ghost.service"
+      "character-factory.service"
+    ];
+    partOf = [ "tailscale-serve-ghost.service" ];
+    path = [ pkgs.tailscale ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes ${toString characterFactoryPort}
     '';
   };
 
