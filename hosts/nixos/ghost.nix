@@ -340,6 +340,7 @@ let
   characterFactoryRepoDir = "${characterFactoryDataDir}/repo";
   characterFactoryBuildDir = "${characterFactoryDataDir}/build";
   characterFactoryPendingBuildDir = "${characterFactoryDataDir}/pending";
+  characterFactoryBuildLockFile = "${characterFactoryPendingBuildDir}/build.lock";
   characterFactoryRuntimeEnvDir = "/run/character-factory";
   characterFactoryRuntimeEnvFile = "${characterFactoryRuntimeEnvDir}/runtime.env";
   characterFactoryBuildEnvFile = "${characterFactoryRuntimeEnvDir}/build.env";
@@ -1871,12 +1872,17 @@ in
   # Build outside the live checkout; a restart promotes only a passing candidate.
   systemd.services.character-factory-build = {
     description = "Test and stage a Character Factory build candidate";
-    after = [ "network-online.target" ];
+    after = [
+      "network-online.target"
+      "character-factory-runtime-env.service"
+    ];
     wants = [ "network-online.target" ];
+    requires = [ "character-factory-runtime-env.service" ];
     path = [
       pkgs.coreutils
       pkgs.nodejs_24
       pkgs.rsync
+      pkgs.util-linux
     ];
     environment.NPM_CONFIG_CACHE = "/tmp/character-factory-npm-cache";
     serviceConfig = {
@@ -1922,11 +1928,18 @@ in
         exit 1
       fi
 
+      exec 9>"${characterFactoryBuildLockFile}"
+      ${pkgs.util-linux}/bin/flock --exclusive 9
       candidate_tmp="$(${pkgs.coreutils}/bin/mktemp -d "${characterFactoryPendingBuildDir}/.next.XXXXXX")"
-      ${pkgs.coreutils}/bin/cp -a "$build_dir/.next/." "$candidate_tmp/"
+      ${pkgs.coreutils}/bin/install -d -m 0755 "$candidate_tmp/.next"
+      ${pkgs.coreutils}/bin/cp -a "$build_dir/.next/." "$candidate_tmp/.next/"
+      if [ -d "$build_dir/public" ]; then
+        ${pkgs.coreutils}/bin/cp -a "$build_dir/public" "$candidate_tmp/public"
+      fi
       ${pkgs.coreutils}/bin/rm -rf "${characterFactoryPendingBuildDir}/next"
       ${pkgs.coreutils}/bin/mv "$candidate_tmp" "${characterFactoryPendingBuildDir}/next"
       candidate_tmp=""
+      ${pkgs.util-linux}/bin/flock --unlock 9
     '';
   };
 
@@ -2054,7 +2067,10 @@ in
       repo_dir="${characterFactoryRepoDir}"
       live_next="$repo_dir/.next"
       candidate_next="${characterFactoryPendingBuildDir}/next"
+      claimed_next="${characterFactoryPendingBuildDir}/claimed"
       previous_next="${characterFactoryPendingBuildDir}/previous"
+      exec 9>"${characterFactoryBuildLockFile}"
+      ${pkgs.util-linux}/bin/flock --exclusive 9
       stage_next=""
       backup_stage=""
       swap_next="$repo_dir/.next-swap.$$"
@@ -2063,6 +2079,9 @@ in
         status=$?
         if [ "$status" -ne 0 ] && [ -d "$swap_next" ] && [ ! -e "$live_next" ]; then
           ${pkgs.coreutils}/bin/mv "$swap_next" "$live_next" || true
+        fi
+        if [ "$status" -ne 0 ] && [ -d "$claimed_next" ] && [ ! -e "$candidate_next" ]; then
+          ${pkgs.coreutils}/bin/mv "$claimed_next" "$candidate_next" || true
         fi
         if [ -n "$stage_next" ]; then
           ${pkgs.coreutils}/bin/rm -rf "$stage_next"
@@ -2096,16 +2115,21 @@ in
         ${pkgs.coreutils}/bin/rm -rf "$previous_next" "$failed_next"
       }
 
+      if [ -d "$candidate_next" ]; then
+        ${pkgs.coreutils}/bin/rm -rf "$claimed_next"
+        ${pkgs.coreutils}/bin/mv "$candidate_next" "$claimed_next"
+      fi
+
       if [ -d "$previous_next" ]; then
         restore_previous
       fi
 
-      if [ -d "$candidate_next" ]; then
+      if [ -d "$claimed_next" ]; then
         stage_next="$(${pkgs.coreutils}/bin/mktemp -d "$repo_dir/.next-stage.XXXXXX")"
-        ${pkgs.coreutils}/bin/cp -a "$candidate_next/." "$stage_next/"
+        ${pkgs.coreutils}/bin/cp -a "$claimed_next/.next/." "$stage_next/"
         standalone_dir="$stage_next/standalone"
         static_dir="$stage_next/static"
-        public_source="$repo_dir/public"
+        public_source="$claimed_next/public"
 
         if [ ! -f "$standalone_dir/server.js" ] || [ ! -d "$static_dir" ]; then
           echo "Character Factory staged build is incomplete" >&2
@@ -2173,7 +2197,7 @@ in
           exit 1
         fi
         stage_next=""
-        ${pkgs.coreutils}/bin/rm -rf "$swap_next" "$candidate_next"
+        ${pkgs.coreutils}/bin/rm -rf "$swap_next" "$claimed_next"
       fi
 
       if [ ! -f "$live_next/standalone/server.js" ] || [ ! -d "$live_next/static" ]; then
@@ -2196,6 +2220,7 @@ in
       pkgs.bash
       pkgs.coreutils
       pkgs.nodejs_24
+      pkgs.util-linux
     ];
     serviceConfig = {
       Type = "simple";
