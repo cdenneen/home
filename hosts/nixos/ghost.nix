@@ -29,6 +29,8 @@ let
   # yaml entries (still named axis_eros_*) untouched, no re-encryption.
   axisSharedAiApiKeyFile = config.sops.secrets.axis_shared_ai_api_key.path;
   axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
+  characterFactoryLlmApiKeyFile = config.sops.secrets.character_factory_llm_api_key.path;
+  characterFactoryLlmBaseUrlFile = config.sops.secrets.character_factory_llm_base_url.path;
   axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
@@ -331,6 +333,29 @@ let
   wellnessGitBranch = "main";
   wellnessApiPort = 8797;
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
+  characterFactoryDataDir = "/var/lib/character-factory";
+  characterFactoryRepoDir = "${characterFactoryDataDir}/repo";
+  characterFactoryRuntimeEnvDir = "/run/character-factory";
+  characterFactoryRuntimeEnvFile = "${characterFactoryRuntimeEnvDir}/runtime.env";
+  characterFactoryPort = 3000;
+  characterFactoryModel = "gpt-4o-mini";
+  characterFactorySupabaseUrl = "https://ysxipmxwfupqzywhevji.supabase.co";
+  characterFactorySupabasePublishableKeyFile =
+    config.sops.secrets.character_factory_supabase_publishable_key.path;
+  characterFactorySupabaseSecretKeyFile =
+    config.sops.secrets.character_factory_supabase_secret_key.path;
+  characterFactoryHealthCheck = pkgs.writeShellScript "character-factory-health-check" ''
+    set -euo pipefail
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if ${pkgs.curl}/bin/curl --fail --silent --max-time 5 \
+        "http://127.0.0.1:${toString characterFactoryPort}/api/health" >/dev/null 2>&1; then
+        exit 0
+      fi
+      sleep 2
+    done
+    echo "Character Factory startup health check failed" >&2
+    exit 1
+  '';
   githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   openrouterKeyFile = config.sops.secrets.openrouter_api_key.path;
@@ -912,6 +937,38 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.character_factory_supabase_publishable_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "character_factory_supabase_publishable_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
+  sops.secrets.character_factory_supabase_secret_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "character_factory_supabase_secret_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
+  sops.secrets.character_factory_llm_api_key = {
+    sopsFile = ../../secrets/axis.yaml;
+    key = "axis_eros_api_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
+  sops.secrets.character_factory_llm_base_url = {
+    sopsFile = ../../secrets/axis.yaml;
+    key = "axis_eros_base_url";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
   sops.secrets.minio-credentials = {
     owner = "root";
     group = "root";
@@ -923,6 +980,8 @@ in
     "d ${pepsRuntimeDir} 0750 cdenneen users -"
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
+    "d ${characterFactoryDataDir} 0750 cdenneen users -"
+    "d ${characterFactoryRepoDir} 0750 cdenneen users -"
     "d ${wellnessRepoDir} 0750 cdenneen users -"
     "d ${ollamaDataDir} 0750 ollama ollama -"
     "d ${qdrantDataDir} 0750 root root -"
@@ -1727,6 +1786,56 @@ in
     };
   };
 
+  systemd.services.character-factory-runtime-env = {
+    description = "Generate Character Factory runtime environment";
+    before = [ "character-factory.service" ];
+    path = [ pkgs.coreutils ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    script = ''
+      set -euo pipefail
+
+      runtime_dir="${characterFactoryRuntimeEnvDir}"
+      ${pkgs.coreutils}/bin/install -d -m 0700 "$runtime_dir"
+      tmp_env="$(${pkgs.coreutils}/bin/mktemp "$runtime_dir/runtime.env.XXXXXX")"
+      trap '${pkgs.coreutils}/bin/rm -f "$tmp_env"' EXIT
+
+      read_secret() {
+        if [ ! -r "$1" ]; then
+          echo "Character Factory required secret is unavailable" >&2
+          exit 1
+        fi
+        value="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$1")"
+        if [ -z "$value" ]; then
+          echo "Character Factory required secret is empty" >&2
+          exit 1
+        fi
+        printf '%s' "$value"
+      }
+
+      write_var() {
+        printf '%s=%s\n' "$1" "$2" >> "$tmp_env"
+      }
+
+      publishable_key="$(read_secret "${characterFactorySupabasePublishableKeyFile}")"
+      secret_key="$(read_secret "${characterFactorySupabaseSecretKeyFile}")"
+      llm_base_url="$(read_secret "${characterFactoryLlmBaseUrlFile}")"
+      llm_api_key="$(read_secret "${characterFactoryLlmApiKeyFile}")"
+
+      write_var NEXT_PUBLIC_SUPABASE_URL "${characterFactorySupabaseUrl}"
+      write_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$publishable_key"
+      write_var SUPABASE_SERVICE_ROLE_KEY "$secret_key"
+      write_var LLM_BASE_URL "$llm_base_url"
+      write_var LLM_MODEL "${characterFactoryModel}"
+      write_var LLM_API_KEY "$llm_api_key"
+
+      ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${characterFactoryRuntimeEnvFile}"
+    '';
+  };
+
   systemd.services.peps-runtime-env = {
     description = "Generate peps runtime env";
     before = [ "peps-api.service" ];
@@ -1840,6 +1949,52 @@ in
 
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "$env_file"
+    '';
+  };
+
+  systemd.services.character-factory = {
+    description = "Character Factory companion MVP";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+      "character-factory-runtime-env.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    requires = [ "character-factory-runtime-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.nodejs_24
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = characterFactoryRepoDir;
+      Restart = "always";
+      RestartSec = "10s";
+      TimeoutStartSec = "2min";
+      EnvironmentFile = [ characterFactoryRuntimeEnvFile ];
+      Environment = [
+        "HOME=${characterFactoryDataDir}"
+        "HOSTNAME=127.0.0.1"
+        "NODE_ENV=production"
+        "PORT=${toString characterFactoryPort}"
+      ];
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      ReadWritePaths = [ characterFactoryRepoDir ];
+      ExecStartPost = characterFactoryHealthCheck;
+    };
+    script = ''
+      exec ${pkgs.nodejs_24}/bin/node .next/standalone/server.js
     '';
   };
 
