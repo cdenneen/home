@@ -29,8 +29,11 @@ let
   # yaml entries (still named axis_eros_*) untouched, no re-encryption.
   axisSharedAiApiKeyFile = config.sops.secrets.axis_shared_ai_api_key.path;
   axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
-  characterFactoryLlmApiKeyFile = config.sops.secrets.character_factory_llm_api_key.path;
-  characterFactoryLlmBaseUrlFile = config.sops.secrets.character_factory_llm_base_url.path;
+  characterFactoryFastLlmBaseUrl = "http://127.0.0.1:20128/v1";
+  characterFactoryFastLlmModel = "auto/best-fast";
+  characterFactoryQualityLlmBaseUrl = "https://api.runpod.ai/v2/tesy75b306fncq/openai/v1";
+  characterFactoryQualityLlmModel = "inflatebot/MN-12B-Mag-Mell-R1";
+  characterFactoryRunpodEnvFile = "/home/cdenneen/runpod.env";
   axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
@@ -337,8 +340,9 @@ let
   characterFactoryRepoDir = "${characterFactoryDataDir}/repo";
   characterFactoryRuntimeEnvDir = "/run/character-factory";
   characterFactoryRuntimeEnvFile = "${characterFactoryRuntimeEnvDir}/runtime.env";
+  characterFactoryBuildEnvFile = "${characterFactoryRuntimeEnvDir}/build.env";
   characterFactoryPort = 3000;
-  characterFactoryModel = "gpt-4o-mini";
+  characterFactoryQualityWarmWindowSeconds = 180;
   characterFactorySupabaseUrl = "https://ysxipmxwfupqzywhevji.supabase.co";
   characterFactorySupabasePublishableKeyFile =
     config.sops.secrets.character_factory_supabase_publishable_key.path;
@@ -948,22 +952,6 @@ in
   sops.secrets.character_factory_supabase_secret_key = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "character_factory_supabase_secret_key";
-    owner = "root";
-    group = "root";
-    mode = "0400";
-    restartUnits = [ "character-factory.service" ];
-  };
-  sops.secrets.character_factory_llm_api_key = {
-    sopsFile = ../../secrets/axis.yaml;
-    key = "axis_eros_api_key";
-    owner = "root";
-    group = "root";
-    mode = "0400";
-    restartUnits = [ "character-factory.service" ];
-  };
-  sops.secrets.character_factory_llm_base_url = {
-    sopsFile = ../../secrets/axis.yaml;
-    key = "axis_eros_base_url";
     owner = "root";
     group = "root";
     mode = "0400";
@@ -1800,7 +1788,8 @@ in
       runtime_dir="${characterFactoryRuntimeEnvDir}"
       ${pkgs.coreutils}/bin/install -d -m 0700 "$runtime_dir"
       tmp_env="$(${pkgs.coreutils}/bin/mktemp "$runtime_dir/runtime.env.XXXXXX")"
-      trap '${pkgs.coreutils}/bin/rm -f "$tmp_env"' EXIT
+      tmp_build_env="$(${pkgs.coreutils}/bin/mktemp "$runtime_dir/build.env.XXXXXX")"
+      trap '${pkgs.coreutils}/bin/rm -f "$tmp_env" "$tmp_build_env"' EXIT
 
       read_secret() {
         if [ ! -r "$1" ]; then
@@ -1819,20 +1808,83 @@ in
         printf '%s=%s\n' "$1" "$2" >> "$tmp_env"
       }
 
+      write_build_var() {
+        printf '%s=%s\n' "$1" "$2" >> "$tmp_build_env"
+      }
+
       publishable_key="$(read_secret "${characterFactorySupabasePublishableKeyFile}")"
       secret_key="$(read_secret "${characterFactorySupabaseSecretKeyFile}")"
-      llm_base_url="$(read_secret "${characterFactoryLlmBaseUrlFile}")"
-      llm_api_key="$(read_secret "${characterFactoryLlmApiKeyFile}")"
-
       write_var NEXT_PUBLIC_SUPABASE_URL "${characterFactorySupabaseUrl}"
       write_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$publishable_key"
       write_var SUPABASE_SERVICE_ROLE_KEY "$secret_key"
-      write_var LLM_BASE_URL "$llm_base_url"
-      write_var LLM_MODEL "${characterFactoryModel}"
-      write_var LLM_API_KEY "$llm_api_key"
+      write_build_var NEXT_PUBLIC_SUPABASE_URL "${characterFactorySupabaseUrl}"
+      write_build_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$publishable_key"
 
-      ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
+      # The fast provider stays generic and local; no provider key is needed.
+      write_var LLM_BASE_URL "${characterFactoryFastLlmBaseUrl}"
+      write_var LLM_MODEL "${characterFactoryFastLlmModel}"
+      write_var LLM_STREAMING "false"
+      write_var LLM_TIMEOUT_MS "90000"
+
+      # Read only the existing chat credential; never load the unrelated image settings.
+      runpod_api_key=""
+      if [ -r "${characterFactoryRunpodEnvFile}" ]; then
+        while IFS='=' read -r name value; do
+          if [ "$name" = "RUNPOD_API_KEY" ]; then
+            runpod_api_key="$value"
+            break
+          fi
+        done < "${characterFactoryRunpodEnvFile}"
+      fi
+      if [ -n "$runpod_api_key" ]; then
+        write_var QUALITY_LLM_BASE_URL "${characterFactoryQualityLlmBaseUrl}"
+        write_var QUALITY_LLM_MODEL "${characterFactoryQualityLlmModel}"
+        write_var QUALITY_LLM_API_KEY "$runpod_api_key"
+        write_var QUALITY_LLM_STREAMING "true"
+        write_var QUALITY_LLM_TIMEOUT_MS "20000"
+        write_var QUALITY_LLM_WARM_TIMEOUT_MS "210000"
+        write_var QUALITY_LLM_WARM_WINDOW_SECONDS "${toString characterFactoryQualityWarmWindowSeconds}"
+      fi
+      unset runpod_api_key
+
+      ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env" "$tmp_build_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${characterFactoryRuntimeEnvFile}"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_build_env" "${characterFactoryBuildEnvFile}"
+    '';
+  };
+
+  # App-only updates use the mutable checkout and this build unit; no NixOS switch is needed per code patch.
+  systemd.services.character-factory-build = {
+    description = "Test and build the current Character Factory checkout";
+    after = [
+      "network-online.target"
+      "character-factory-runtime-env.service"
+    ];
+    wants = [ "network-online.target" ];
+    requires = [ "character-factory-runtime-env.service" ];
+    path = [ pkgs.nodejs_24 ];
+    environment.NPM_CONFIG_CACHE = "/tmp/character-factory-npm-cache";
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = characterFactoryRepoDir;
+      EnvironmentFile = [ characterFactoryBuildEnvFile ];
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      ReadWritePaths = [ characterFactoryRepoDir ];
+      TimeoutStartSec = "20min";
+    };
+    script = ''
+      set -euo pipefail
+      npm ci --no-audit --no-fund --userconfig=/dev/null
+      npm run typecheck
+      npm test
+      npm run build
+      npm run smoke:prod
     '';
   };
 
