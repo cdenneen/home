@@ -1869,6 +1869,7 @@ in
     wants = [ "network-online.target" ];
     requires = [ "character-factory-runtime-env.service" ];
     path = [
+      pkgs.bash
       pkgs.coreutils
       pkgs.nodejs_24
       pkgs.rsync
