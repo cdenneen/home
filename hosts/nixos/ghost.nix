@@ -29,6 +29,8 @@ let
   # yaml entries (still named axis_eros_*) untouched, no re-encryption.
   axisSharedAiApiKeyFile = config.sops.secrets.axis_shared_ai_api_key.path;
   axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
+  characterFactoryLlmApiKeyFile = config.sops.secrets.character_factory_llm_api_key.path;
+  characterFactoryLlmBaseUrlFile = config.sops.secrets.character_factory_llm_base_url.path;
   axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
@@ -741,10 +743,7 @@ in
     owner = "axis";
     group = "axis";
     mode = "0400";
-    restartUnits = [
-      "axis.service"
-      "character-factory.service"
-    ];
+    restartUnits = [ "axis.service" ];
   };
   sops.secrets.axis_shared_ai_base_url = {
     key = "axis_eros_base_url"; # underlying yaml entry unrenamed - no re-encryption needed
@@ -752,10 +751,7 @@ in
     owner = "axis";
     group = "axis";
     mode = "0400";
-    restartUnits = [
-      "axis.service"
-      "character-factory.service"
-    ];
+    restartUnits = [ "axis.service" ];
   };
   sops.secrets.axis_gitlab_read_api_token = {
     sopsFile = ../../secrets/axis.yaml;
@@ -962,6 +958,22 @@ in
   sops.secrets.character_factory_supabase_secret_key = {
     sopsFile = ../../secrets/ghost.yaml;
     key = "character_factory_supabase_secret_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
+  sops.secrets.character_factory_llm_api_key = {
+    sopsFile = ../../secrets/axis.yaml;
+    key = "axis_eros_api_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
+  sops.secrets.character_factory_llm_base_url = {
+    sopsFile = ../../secrets/axis.yaml;
+    key = "axis_eros_base_url";
     owner = "root";
     group = "root";
     mode = "0400";
@@ -1819,8 +1831,8 @@ in
 
       publishable_key="$(read_secret "${characterFactorySupabasePublishableKeyFile}")"
       secret_key="$(read_secret "${characterFactorySupabaseSecretKeyFile}")"
-      llm_base_url="$(read_secret "${axisSharedAiBaseUrlFile}")"
-      llm_api_key="$(read_secret "${axisSharedAiApiKeyFile}")"
+      llm_base_url="$(read_secret "${characterFactoryLlmBaseUrlFile}")"
+      llm_api_key="$(read_secret "${characterFactoryLlmApiKeyFile}")"
 
       write_var NEXT_PUBLIC_SUPABASE_URL "${characterFactorySupabaseUrl}"
       write_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$publishable_key"
