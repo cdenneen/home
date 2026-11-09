@@ -1837,7 +1837,7 @@ in
       # The fast provider stays generic and local; no provider key is needed.
       write_var LLM_BASE_URL "${characterFactoryFastLlmBaseUrl}"
       write_var LLM_MODEL "${characterFactoryFastLlmModel}"
-      write_var LLM_STREAMING "false"
+      write_var LLM_STREAMING "true"
       write_var LLM_TIMEOUT_MS "90000"
 
       # Read only the existing chat credential; never load the unrelated image settings.
