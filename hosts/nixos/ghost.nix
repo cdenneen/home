@@ -513,14 +513,21 @@ in
     };
   };
 
-  # Character Factory uses Ghost's local fast tier; keep this gateway on loopback.
-  systemd.user.services.omniroute = {
+  # Character Factory uses Ghost's local fast tier; run it at boot under its
+  # existing account so it does not depend on an interactive user session.
+  systemd.services.omniroute = {
     description = "OmniRoute local AI gateway";
-    wantedBy = [ "default.target" ];
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
     serviceConfig = {
       Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = config.users.users.cdenneen.home;
       ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
       Environment = [
+        "HOME=${config.users.users.cdenneen.home}"
         "HOSTNAME=127.0.0.1"
         "PORT=20128"
         "DATA_DIR=${config.users.users.cdenneen.home}/.omniroute"
@@ -1942,6 +1949,51 @@ in
     '';
   };
 
+  systemd.services.character-factory-bootstrap = {
+    description = "Prepare Character Factory checkout and initial build";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "character-factory.service" ];
+    after = [
+      "network-online.target"
+      "character-factory-runtime-env.service"
+    ];
+    wants = [ "network-online.target" ];
+    requires = [ "character-factory-runtime-env.service" ];
+    path = [
+      pkgs.coreutils
+      pkgs.git
+      pkgs.openssh
+      pkgs.systemd
+      pkgs.util-linux
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      TimeoutStartSec = "25min";
+    };
+    script = ''
+      set -euo pipefail
+
+      repo_dir="${characterFactoryRepoDir}"
+      if [ ! -d "$repo_dir/.git" ]; then
+        if [ -n "$(${pkgs.coreutils}/bin/ls -A "$repo_dir")" ]; then
+          echo "Character Factory checkout path is nonempty and is not a Git repository" >&2
+          exit 1
+        fi
+        ${pkgs.util-linux}/bin/runuser -u cdenneen -- \
+          ${pkgs.coreutils}/bin/env \
+          HOME="${config.users.users.cdenneen.home}" \
+          GIT_TERMINAL_PROMPT=0 \
+          ${pkgs.git}/bin/git clone --single-branch --branch main \
+          git@github.com:cdenneen/character-factory.git "$repo_dir"
+      fi
+
+      if [ ! -f "$repo_dir/.next/standalone/server.js" ] || [ ! -d "$repo_dir/.next/static" ]; then
+        ${pkgs.systemd}/bin/systemctl start character-factory-build.service
+      fi
+    '';
+  };
+
   systemd.services.peps-runtime-env = {
     description = "Generate peps runtime env";
     before = [ "peps-api.service" ];
@@ -2209,12 +2261,16 @@ in
       "network-online.target"
       "tailscaled.service"
       "character-factory-runtime-env.service"
+      "character-factory-bootstrap.service"
     ];
     wants = [
       "network-online.target"
       "tailscaled.service"
     ];
-    requires = [ "character-factory-runtime-env.service" ];
+    requires = [
+      "character-factory-runtime-env.service"
+      "character-factory-bootstrap.service"
+    ];
     path = [
       pkgs.bash
       pkgs.coreutils
