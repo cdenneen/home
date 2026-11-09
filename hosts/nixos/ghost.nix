@@ -29,6 +29,11 @@ let
   # yaml entries (still named axis_eros_*) untouched, no re-encryption.
   axisSharedAiApiKeyFile = config.sops.secrets.axis_shared_ai_api_key.path;
   axisSharedAiBaseUrlFile = config.sops.secrets.axis_shared_ai_base_url.path;
+  characterFactoryFastLlmBaseUrl = "http://127.0.0.1:20128/v1";
+  characterFactoryFastLlmModel = "auto/best-fast";
+  characterFactoryQualityLlmBaseUrl = "https://api.runpod.ai/v2/tesy75b306fncq/openai/v1";
+  characterFactoryQualityLlmModel = "inflatebot/MN-12B-Mag-Mell-R1";
+  characterFactoryRunpodEnvFile = "/home/cdenneen/runpod.env";
   axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
   axisSlackTeamId = "T0B7QDWFLJ3";
@@ -331,6 +336,34 @@ let
   wellnessGitBranch = "main";
   wellnessApiPort = 8797;
   wellnessSupabaseUrl = "https://kefpmmjhtdxhhhcndrnx.supabase.co";
+  characterFactoryDataDir = "/var/lib/character-factory";
+  characterFactoryRepoDir = "${characterFactoryDataDir}/repo";
+  characterFactoryBuildDir = "${characterFactoryDataDir}/build";
+  characterFactoryPendingBuildDir = "${characterFactoryDataDir}/pending";
+  characterFactoryBuildLockFile = "${characterFactoryPendingBuildDir}/build.lock";
+  characterFactoryRuntimeEnvDir = "/run/character-factory";
+  characterFactoryRuntimeEnvFile = "${characterFactoryRuntimeEnvDir}/runtime.env";
+  characterFactoryBuildEnvFile = "${characterFactoryRuntimeEnvDir}/build.env";
+  characterFactoryPort = 3002;
+  characterFactoryQualityWarmWindowSeconds = 180;
+  characterFactorySupabaseUrl = "https://ysxipmxwfupqzywhevji.supabase.co";
+  characterFactorySupabasePublishableKeyFile =
+    config.sops.secrets.character_factory_supabase_publishable_key.path;
+  characterFactorySupabaseSecretKeyFile =
+    config.sops.secrets.character_factory_supabase_secret_key.path;
+  characterFactoryHealthCheck = pkgs.writeShellScript "character-factory-health-check" ''
+    set -euo pipefail
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if ${pkgs.curl}/bin/curl --fail --silent --max-time 5 \
+        "http://127.0.0.1:${toString characterFactoryPort}/api/health" >/dev/null 2>&1; then
+        ${pkgs.coreutils}/bin/rm -rf "${characterFactoryPendingBuildDir}/previous"
+        exit 0
+      fi
+      sleep 2
+    done
+    echo "Character Factory startup health check failed" >&2
+    exit 1
+  '';
   githubTokenFile = config.sops.secrets.github-token.path;
   openAiKeyFile = config.sops.secrets.openai_api_key.path;
   openrouterKeyFile = config.sops.secrets.openrouter_api_key.path;
@@ -480,16 +513,21 @@ in
     };
   };
 
-  # omniroute disabled: 305MB RSS + 251MB swap, zero active connections,
-  # all agents connect to eros OmniRoute on port 20130 instead.
-  # Re-enable by restoring wantedBy = [ "default.target" ] if needed.
-  systemd.user.services.omniroute = {
+  # Character Factory uses Ghost's local fast tier; run it at boot under its
+  # existing account so it does not depend on an interactive user session.
+  systemd.services.omniroute = {
     description = "OmniRoute local AI gateway";
-    wantedBy = lib.mkForce [ ];
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
     serviceConfig = {
       Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = config.users.users.cdenneen.home;
       ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
       Environment = [
+        "HOME=${config.users.users.cdenneen.home}"
         "HOSTNAME=127.0.0.1"
         "PORT=20128"
         "DATA_DIR=${config.users.users.cdenneen.home}/.omniroute"
@@ -922,6 +960,22 @@ in
     group = "users";
     mode = "0400";
   };
+  sops.secrets.character_factory_supabase_publishable_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "character_factory_supabase_publishable_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
+  sops.secrets.character_factory_supabase_secret_key = {
+    sopsFile = ../../secrets/ghost.yaml;
+    key = "character_factory_supabase_secret_key";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    restartUnits = [ "character-factory.service" ];
+  };
   sops.secrets.minio-credentials = {
     owner = "root";
     group = "root";
@@ -933,6 +987,10 @@ in
     "d ${pepsRuntimeDir} 0750 cdenneen users -"
     "d ${pepsRepoDir} 0750 cdenneen users -"
     "d ${wellnessRuntimeDir} 0750 cdenneen users -"
+    "d ${characterFactoryDataDir} 0750 cdenneen users -"
+    "d ${characterFactoryRepoDir} 0750 cdenneen users -"
+    "d ${characterFactoryBuildDir} 0750 cdenneen users -"
+    "d ${characterFactoryPendingBuildDir} 0750 cdenneen users -"
     "d ${wellnessRepoDir} 0750 cdenneen users -"
     "d ${ollamaDataDir} 0750 ollama ollama -"
     "d ${qdrantDataDir} 0750 root root -"
@@ -1737,6 +1795,205 @@ in
     };
   };
 
+  systemd.services.character-factory-runtime-env = {
+    description = "Generate Character Factory runtime environment";
+    before = [ "character-factory.service" ];
+    path = [ pkgs.coreutils ];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    script = ''
+      set -euo pipefail
+
+      runtime_dir="${characterFactoryRuntimeEnvDir}"
+      ${pkgs.coreutils}/bin/install -d -m 0700 "$runtime_dir"
+      tmp_env="$(${pkgs.coreutils}/bin/mktemp "$runtime_dir/runtime.env.XXXXXX")"
+      tmp_build_env="$(${pkgs.coreutils}/bin/mktemp "$runtime_dir/build.env.XXXXXX")"
+      trap '${pkgs.coreutils}/bin/rm -f "$tmp_env" "$tmp_build_env"' EXIT
+
+      read_secret() {
+        if [ ! -r "$1" ]; then
+          echo "Character Factory required secret is unavailable" >&2
+          exit 1
+        fi
+        value="$(${pkgs.coreutils}/bin/tr -d '\n\r' < "$1")"
+        if [ -z "$value" ]; then
+          echo "Character Factory required secret is empty" >&2
+          exit 1
+        fi
+        printf '%s' "$value"
+      }
+
+      write_var() {
+        printf '%s=%s\n' "$1" "$2" >> "$tmp_env"
+      }
+
+      write_build_var() {
+        printf '%s=%s\n' "$1" "$2" >> "$tmp_build_env"
+      }
+
+      publishable_key="$(read_secret "${characterFactorySupabasePublishableKeyFile}")"
+      secret_key="$(read_secret "${characterFactorySupabaseSecretKeyFile}")"
+      write_var NEXT_PUBLIC_SUPABASE_URL "${characterFactorySupabaseUrl}"
+      write_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$publishable_key"
+      write_var SUPABASE_SERVICE_ROLE_KEY "$secret_key"
+      write_build_var NEXT_PUBLIC_SUPABASE_URL "${characterFactorySupabaseUrl}"
+      write_build_var NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "$publishable_key"
+
+      # The fast provider stays generic and local; no provider key is needed.
+      write_var LLM_BASE_URL "${characterFactoryFastLlmBaseUrl}"
+      write_var LLM_MODEL "${characterFactoryFastLlmModel}"
+      write_var LLM_STREAMING "true"
+      write_var LLM_TIMEOUT_MS "90000"
+
+      # Read only the existing chat credential; never load the unrelated image settings.
+      runpod_api_key=""
+      if [ -r "${characterFactoryRunpodEnvFile}" ]; then
+        while IFS='=' read -r name value || [ -n "$name$value" ]; do
+          if [ "$name" = "RUNPOD_API_KEY" ]; then
+            runpod_api_key="$value"
+            break
+          fi
+        done < "${characterFactoryRunpodEnvFile}"
+      fi
+      if [ -n "$runpod_api_key" ]; then
+        write_var QUALITY_LLM_BASE_URL "${characterFactoryQualityLlmBaseUrl}"
+        write_var QUALITY_LLM_MODEL "${characterFactoryQualityLlmModel}"
+        write_var QUALITY_LLM_API_KEY "$runpod_api_key"
+        write_var QUALITY_LLM_STREAMING "true"
+        write_var QUALITY_LLM_TIMEOUT_MS "20000"
+        write_var QUALITY_LLM_WARM_TIMEOUT_MS "210000"
+        write_var QUALITY_LLM_WARM_WINDOW_SECONDS "${toString characterFactoryQualityWarmWindowSeconds}"
+      fi
+      unset runpod_api_key
+
+      ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env" "$tmp_build_env"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${characterFactoryRuntimeEnvFile}"
+      ${pkgs.coreutils}/bin/mv -f "$tmp_build_env" "${characterFactoryBuildEnvFile}"
+    '';
+  };
+
+  # Build outside the live checkout; a restart promotes only a passing candidate.
+  systemd.services.character-factory-build = {
+    description = "Test and stage a Character Factory build candidate";
+    after = [
+      "network-online.target"
+      "character-factory-runtime-env.service"
+    ];
+    wants = [ "network-online.target" ];
+    requires = [ "character-factory-runtime-env.service" ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.nodejs_24
+      pkgs.rsync
+      pkgs.util-linux
+    ];
+    environment.NPM_CONFIG_CACHE = "/tmp/character-factory-npm-cache";
+    serviceConfig = {
+      Type = "oneshot";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = characterFactoryBuildDir;
+      EnvironmentFile = [ characterFactoryBuildEnvFile ];
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+      ReadWritePaths = [
+        characterFactoryBuildDir
+        characterFactoryPendingBuildDir
+      ];
+      TimeoutStartSec = "20min";
+    };
+    script = ''
+      set -euo pipefail
+      repo="${characterFactoryRepoDir}"
+      build_dir="$(${pkgs.coreutils}/bin/mktemp -d "${characterFactoryBuildDir}/build.XXXXXX")"
+      candidate_tmp=""
+      cleanup() {
+        ${pkgs.coreutils}/bin/rm -rf "$build_dir"
+        if [ -n "$candidate_tmp" ]; then
+          ${pkgs.coreutils}/bin/rm -rf "$candidate_tmp"
+        fi
+      }
+      trap cleanup EXIT
+
+      ${pkgs.rsync}/bin/rsync -a --delete --exclude='.git/' --exclude='node_modules/' --exclude='.next/' --exclude='.env*' --exclude='.npmrc' "$repo/" "$build_dir/"
+      cd "$build_dir"
+      npm ci --no-audit --no-fund --userconfig=/dev/null
+      npm run typecheck
+      npm test
+      npm run build
+      npm run smoke:prod
+
+      if [ ! -f "$build_dir/.next/standalone/server.js" ] || [ ! -d "$build_dir/.next/static" ]; then
+        echo "Character Factory build output is incomplete" >&2
+        exit 1
+      fi
+
+      exec 9>"${characterFactoryBuildLockFile}"
+      ${pkgs.util-linux}/bin/flock --exclusive 9
+      candidate_tmp="$(${pkgs.coreutils}/bin/mktemp -d "${characterFactoryPendingBuildDir}/.next.XXXXXX")"
+      ${pkgs.coreutils}/bin/install -d -m 0755 "$candidate_tmp/.next"
+      ${pkgs.coreutils}/bin/cp -a "$build_dir/.next/." "$candidate_tmp/.next/"
+      if [ -d "$build_dir/public" ]; then
+        ${pkgs.coreutils}/bin/cp -a "$build_dir/public" "$candidate_tmp/public"
+      fi
+      ${pkgs.coreutils}/bin/rm -rf "${characterFactoryPendingBuildDir}/next"
+      ${pkgs.coreutils}/bin/mv "$candidate_tmp" "${characterFactoryPendingBuildDir}/next"
+      candidate_tmp=""
+      ${pkgs.util-linux}/bin/flock --unlock 9
+    '';
+  };
+
+  systemd.services.character-factory-bootstrap = {
+    description = "Prepare Character Factory checkout and initial build";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "character-factory.service" ];
+    after = [
+      "network-online.target"
+      "character-factory-runtime-env.service"
+    ];
+    wants = [ "network-online.target" ];
+    requires = [ "character-factory-runtime-env.service" ];
+    path = [
+      pkgs.coreutils
+      pkgs.git
+      pkgs.openssh
+      pkgs.systemd
+      pkgs.util-linux
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      TimeoutStartSec = "25min";
+    };
+    script = ''
+      set -euo pipefail
+
+      repo_dir="${characterFactoryRepoDir}"
+      if [ ! -d "$repo_dir/.git" ]; then
+        if [ -n "$(${pkgs.coreutils}/bin/ls -A "$repo_dir")" ]; then
+          echo "Character Factory checkout path is nonempty and is not a Git repository" >&2
+          exit 1
+        fi
+        ${pkgs.util-linux}/bin/runuser -u cdenneen -- \
+          ${pkgs.coreutils}/bin/env \
+          HOME="${config.users.users.cdenneen.home}" \
+          GIT_TERMINAL_PROMPT=0 \
+          ${pkgs.git}/bin/git clone --single-branch --branch main \
+          git@github.com:cdenneen/character-factory.git "$repo_dir"
+      fi
+
+      if [ ! -f "$repo_dir/.next/standalone/server.js" ] || [ ! -d "$repo_dir/.next/static" ]; then
+        ${pkgs.systemd}/bin/systemctl start character-factory-build.service
+      fi
+    '';
+  };
+
   systemd.services.peps-runtime-env = {
     description = "Generate peps runtime env";
     before = [ "peps-api.service" ];
@@ -1850,6 +2107,229 @@ in
 
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "$env_file"
+    '';
+  };
+
+  systemd.services.character-factory = {
+    description = "Character Factory companion MVP";
+    preStart = ''
+      set -euo pipefail
+
+      repo_dir="${characterFactoryRepoDir}"
+      live_next="$repo_dir/.next"
+      candidate_next="${characterFactoryPendingBuildDir}/next"
+      claimed_next="${characterFactoryPendingBuildDir}/claimed"
+      previous_next="${characterFactoryPendingBuildDir}/previous"
+      exec 9>"${characterFactoryBuildLockFile}"
+      ${pkgs.util-linux}/bin/flock --exclusive 9
+      stage_next=""
+      backup_stage=""
+      swap_next="$repo_dir/.next-swap.$$"
+
+      cleanup() {
+        status=$?
+        if [ "$status" -ne 0 ] && [ -d "$swap_next" ] && [ ! -e "$live_next" ]; then
+          ${pkgs.coreutils}/bin/mv "$swap_next" "$live_next" || true
+        fi
+        if [ "$status" -ne 0 ] && [ -d "$claimed_next" ] && [ ! -e "$candidate_next" ]; then
+          ${pkgs.coreutils}/bin/mv "$claimed_next" "$candidate_next" || true
+        fi
+        if [ -n "$stage_next" ]; then
+          ${pkgs.coreutils}/bin/rm -rf "$stage_next"
+        fi
+        if [ -n "$backup_stage" ]; then
+          ${pkgs.coreutils}/bin/rm -rf "$backup_stage"
+        fi
+        ${pkgs.coreutils}/bin/rm -rf "$swap_next"
+      }
+      trap cleanup EXIT
+
+      restore_previous() {
+        if [ ! -d "$previous_next" ]; then
+          return 0
+        fi
+        stage_next="$(${pkgs.coreutils}/bin/mktemp -d "$repo_dir/.next-restore.XXXXXX")"
+        ${pkgs.coreutils}/bin/cp -a "$previous_next/." "$stage_next/"
+        failed_next="$repo_dir/.next-failed.$$"
+        ${pkgs.coreutils}/bin/rm -rf "$failed_next"
+        if [ -d "$live_next" ]; then
+          ${pkgs.coreutils}/bin/mv "$live_next" "$failed_next"
+        fi
+        if ! ${pkgs.coreutils}/bin/mv "$stage_next" "$live_next"; then
+          if [ -d "$failed_next" ] && [ ! -e "$live_next" ]; then
+            ${pkgs.coreutils}/bin/mv "$failed_next" "$live_next"
+          fi
+          echo "Character Factory rollback could not be promoted" >&2
+          return 1
+        fi
+        stage_next=""
+        ${pkgs.coreutils}/bin/rm -rf "$previous_next" "$failed_next"
+      }
+
+      if [ -d "$candidate_next" ]; then
+        ${pkgs.coreutils}/bin/rm -rf "$claimed_next"
+        ${pkgs.coreutils}/bin/mv "$candidate_next" "$claimed_next"
+      fi
+
+      if [ -d "$previous_next" ]; then
+        restore_previous
+      fi
+
+      if [ -d "$claimed_next" ]; then
+        stage_next="$(${pkgs.coreutils}/bin/mktemp -d "$repo_dir/.next-stage.XXXXXX")"
+        ${pkgs.coreutils}/bin/cp -a "$claimed_next/.next/." "$stage_next/"
+        standalone_dir="$stage_next/standalone"
+        static_dir="$stage_next/static"
+        public_source="$claimed_next/public"
+
+        if [ ! -f "$standalone_dir/server.js" ] || [ ! -d "$static_dir" ]; then
+          echo "Character Factory staged build is incomplete" >&2
+          exit 1
+        fi
+
+        ${pkgs.coreutils}/bin/install -d -m 0755 "$standalone_dir/.next"
+        static_target="$standalone_dir/.next/static"
+        static_stage="$standalone_dir/.next/.static-stage.$$"
+        static_previous="$standalone_dir/.next/.static-previous.$$"
+        ${pkgs.coreutils}/bin/rm -rf "$static_stage" "$static_previous"
+        ${pkgs.coreutils}/bin/install -d -m 0755 "$static_stage"
+        ${pkgs.coreutils}/bin/cp -a "$static_dir/." "$static_stage/"
+        if [ -e "$static_target" ]; then
+          ${pkgs.coreutils}/bin/mv "$static_target" "$static_previous"
+        fi
+        if ! ${pkgs.coreutils}/bin/mv "$static_stage" "$static_target"; then
+          if [ -d "$static_previous" ]; then
+            ${pkgs.coreutils}/bin/mv "$static_previous" "$static_target"
+          fi
+          echo "Character Factory static assets could not be staged" >&2
+          exit 1
+        fi
+        ${pkgs.coreutils}/bin/rm -rf "$static_previous"
+
+        public_target="$standalone_dir/public"
+        if [ -d "$public_source" ]; then
+          public_stage="$standalone_dir/.public-stage.$$"
+          public_previous="$standalone_dir/.public-previous.$$"
+          ${pkgs.coreutils}/bin/rm -rf "$public_stage" "$public_previous"
+          ${pkgs.coreutils}/bin/install -d -m 0755 "$public_stage"
+          ${pkgs.coreutils}/bin/cp -a "$public_source/." "$public_stage/"
+          if [ -e "$public_target" ]; then
+            ${pkgs.coreutils}/bin/mv "$public_target" "$public_previous"
+          fi
+          if ! ${pkgs.coreutils}/bin/mv "$public_stage" "$public_target"; then
+            if [ -d "$public_previous" ]; then
+              ${pkgs.coreutils}/bin/mv "$public_previous" "$public_target"
+            fi
+            echo "Character Factory public assets could not be staged" >&2
+            exit 1
+          fi
+          ${pkgs.coreutils}/bin/rm -rf "$public_previous"
+        else
+          ${pkgs.coreutils}/bin/rm -rf "$public_target"
+        fi
+
+        if [ -d "$live_next" ]; then
+          backup_stage="$(${pkgs.coreutils}/bin/mktemp -d "${characterFactoryPendingBuildDir}/.previous.XXXXXX")"
+          ${pkgs.coreutils}/bin/cp -a "$live_next/." "$backup_stage/"
+          ${pkgs.coreutils}/bin/rm -rf "$previous_next"
+          ${pkgs.coreutils}/bin/mv "$backup_stage" "$previous_next"
+          backup_stage=""
+        fi
+
+        ${pkgs.coreutils}/bin/rm -rf "$swap_next"
+        if [ -d "$live_next" ]; then
+          ${pkgs.coreutils}/bin/mv "$live_next" "$swap_next"
+        fi
+        if ! ${pkgs.coreutils}/bin/mv "$stage_next" "$live_next"; then
+          if [ -d "$swap_next" ] && [ ! -e "$live_next" ]; then
+            ${pkgs.coreutils}/bin/mv "$swap_next" "$live_next"
+          fi
+          echo "Character Factory build could not be promoted" >&2
+          exit 1
+        fi
+        stage_next=""
+        ${pkgs.coreutils}/bin/rm -rf "$swap_next" "$claimed_next"
+      fi
+
+      if [ ! -f "$live_next/standalone/server.js" ] || [ ! -d "$live_next/static" ]; then
+        echo "Character Factory standalone assets are unavailable" >&2
+        exit 1
+      fi
+    '';
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+      "character-factory-runtime-env.service"
+      "character-factory-bootstrap.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    requires = [
+      "character-factory-runtime-env.service"
+      "character-factory-bootstrap.service"
+    ];
+    path = [
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.nodejs_24
+      pkgs.util-linux
+    ];
+    serviceConfig = {
+      Type = "simple";
+      User = "cdenneen";
+      Group = "users";
+      WorkingDirectory = characterFactoryRepoDir;
+      Restart = "always";
+      RestartSec = "10s";
+      TimeoutStartSec = "2min";
+      EnvironmentFile = [ characterFactoryRuntimeEnvFile ];
+      Environment = [
+        "HOME=${characterFactoryDataDir}"
+        "HOSTNAME=127.0.0.1"
+        "NODE_ENV=production"
+        "PORT=${toString characterFactoryPort}"
+      ];
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      ReadWritePaths = [
+        characterFactoryRepoDir
+        characterFactoryPendingBuildDir
+      ];
+      ExecStartPost = characterFactoryHealthCheck;
+    };
+    script = ''
+      exec ${pkgs.nodejs_24}/bin/node .next/standalone/server.js
+    '';
+  };
+
+  systemd.services.character-factory-tailscale-serve = {
+    description = "Expose Character Factory through private Tailscale HTTPS";
+    wantedBy = [ "multi-user.target" ];
+    after = [
+      "network-online.target"
+      "tailscaled.service"
+      "tailscale-serve-ghost.service"
+    ];
+    wants = [
+      "network-online.target"
+      "tailscaled.service"
+    ];
+    requires = [ "tailscale-serve-ghost.service" ];
+    partOf = [ "tailscale-serve-ghost.service" ];
+    path = [ pkgs.tailscale ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      set -euo pipefail
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes ${toString characterFactoryPort}
     '';
   };
 
