@@ -578,9 +578,3 @@ in
 
   # Telegram bridge wiring is configured per-host (see hosts/nixos/nyx.nix).
 }
-// lib.optionalAttrs (pkgs.stdenv.hostPlatform.system != "x86_64-darwin") {
-  programs.rex.enable = true;
-}
-// lib.optionalAttrs (pkgs.stdenv.hostPlatform.system != "x86_64-darwin") {
-  services.rex.enable = true;
-}

@@ -71,7 +71,10 @@ let
     ++ nixpkgs.lib.optional enableAxisControl axis-control.homeModules.default
     ++ [ self.homeModules.default ]
     ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
-    ++ nixpkgs.lib.optional enableRex rex.homeManagerModules.default
+    ++ nixpkgs.lib.optionals enableRex [
+      rex.homeManagerModules.default
+      ../modules/hm/users/cdenneen/rex.nix
+    ]
     ++ [ sopsNix.homeManagerModules.sops ];
 
   sharedHomeModules = sharedHomeModulesFor { };
