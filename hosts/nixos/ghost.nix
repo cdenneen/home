@@ -513,12 +513,10 @@ in
     };
   };
 
-  # omniroute disabled: 305MB RSS + 251MB swap, zero active connections,
-  # all agents connect to eros OmniRoute on port 20130 instead.
-  # Re-enable by restoring wantedBy = [ "default.target" ] if needed.
+  # Character Factory uses Ghost's local fast tier; keep this gateway on loopback.
   systemd.user.services.omniroute = {
     description = "OmniRoute local AI gateway";
-    wantedBy = lib.mkForce [ ];
+    wantedBy = [ "default.target" ];
     serviceConfig = {
       Type = "simple";
       ExecStart = "${config.users.users.cdenneen.home}/.local/bin/omniroute --no-open";
