@@ -1,0 +1,3 @@
+{
+  programs.rex.enable = true;
+}

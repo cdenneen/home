@@ -233,6 +233,12 @@ in
     openFirewall = true;
   };
 
+  services.rex.loginServer = {
+    enable = true;
+    accounts.cdenneen.principals = [ "tailscale:cdenneen@gmail.com" ];
+    tailscaleServe.enable = true;
+  };
+
   environment.systemPackages = lib.mkAfter [ axis.packages.${pkgs.system}.axis ];
 
   sops.secrets.axis_remote_client_token = {

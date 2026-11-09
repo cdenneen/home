@@ -417,6 +417,12 @@ in
 
   profiles.aiTools.enable = true;
 
+  services.rex.loginServer = {
+    enable = true;
+    accounts.cdenneen.principals = [ "tailscale:cdenneen@gmail.com" ];
+    tailscaleServe.enable = true;
+  };
+
   containerPresets = {
     podman.enable = true;
     # open-webui disabled: 437MB RSS, zero active connections, all agents use eros.

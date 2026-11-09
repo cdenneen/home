@@ -39,6 +39,7 @@
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    rex.url = "https://pkgs.superlogical.com/rex/nix/snapshot.tar.gz";
     home-manager-mbair = {
       url = "github:nix-community/home-manager/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs-mbair";

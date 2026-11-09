@@ -111,7 +111,6 @@ let
     lemonade
   ];
 in
-
 {
   home.packages =
     hmCorePackages
