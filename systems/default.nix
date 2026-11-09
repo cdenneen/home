@@ -73,7 +73,8 @@ let
     ++ [ self.homeModules.default ]
     ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
     ++ nixpkgs.lib.optional enableRex rex.homeManagerModules.default
-    ++ nixpkgs.lib.optional (enableRex && enableRexService) ../modules/hm/users/cdenneen/rex.nix
+    ++ nixpkgs.lib.optional enableRex ../modules/hm/users/cdenneen/rex.nix
+    ++ nixpkgs.lib.optional (enableRex && enableRexService) ../modules/hm/users/cdenneen/rex-service.nix
     ++ [ sopsNix.homeManagerModules.sops ];
 
   sharedHomeModules = sharedHomeModulesFor { };

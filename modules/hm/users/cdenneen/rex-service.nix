@@ -1,0 +1,3 @@
+{
+  services.rex.enable = true;
+}
