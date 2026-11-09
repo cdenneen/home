@@ -56,6 +56,7 @@ let
       enableNur ? true,
       enableOpnix ? true,
       enableRex ? true,
+      enableRexService ? true,
       sopsNix ? sops-nix,
     }:
     [
@@ -71,10 +72,8 @@ let
     ++ nixpkgs.lib.optional enableAxisControl axis-control.homeModules.default
     ++ [ self.homeModules.default ]
     ++ nixpkgs.lib.optional enableOpnix opnix.homeManagerModules.default
-    ++ nixpkgs.lib.optionals enableRex [
-      rex.homeManagerModules.default
-      ../modules/hm/users/cdenneen/rex.nix
-    ]
+    ++ nixpkgs.lib.optional enableRex rex.homeManagerModules.default
+    ++ nixpkgs.lib.optional (enableRex && enableRexService) ../modules/hm/users/cdenneen/rex.nix
     ++ [ sopsNix.homeManagerModules.sops ];
 
   sharedHomeModules = sharedHomeModulesFor { };
@@ -198,6 +197,7 @@ let
         enableNur = !legacyBigSur;
         enableOpnix = !legacyBigSur;
         enableRex = !legacyBigSur;
+        enableRexService = false;
         sopsNix = sopsNixInput;
       };
       specialArgs = inputs // {
@@ -275,6 +275,7 @@ let
         enableNur = !legacyBigSur;
         enableOpnix = !legacyBigSur;
         enableRex = !legacyBigSur;
+        enableRexService = nixpkgs.lib.hasSuffix "-linux" system;
         sopsNix = sopsNixInput;
       };
     in
