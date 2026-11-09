@@ -460,6 +460,14 @@ in
       };
     };
 
+  programs.rex = lib.mkIf (options.programs ? rex) {
+    enable = true;
+  };
+
+  services.rex = lib.mkIf (options.services ? rex) {
+    enable = true;
+  };
+
   # glab config is sourced from SOPS secret `glab_cli_config` and written to
   # ~/.config/glab-cli/config.yml with mode 0600.
 
