@@ -1,5 +1,7 @@
 { lib, pkgs, ... }:
 {
   programs.rex.enable = true;
-  services.rex.enable = lib.mkIf pkgs.stdenv.hostPlatform.isLinux true;
+}
+// lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  services.rex.enable = true;
 }
