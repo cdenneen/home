@@ -33,6 +33,7 @@ let
   characterFactoryFastLlmModel = "auto/best-fast";
   characterFactoryQualityLlmBaseUrl = "https://api.runpod.ai/v2/tesy75b306fncq/openai/v1";
   characterFactoryQualityLlmModel = "inflatebot/MN-12B-Mag-Mell-R1";
+  characterFactoryImageModelAlias = "qwen-edit-2511";
   characterFactoryRunpodEnvFile = "/home/cdenneen/runpod.env";
   axisSharedAiDefaultModel = "auto";
   axisGitlabReadApiTokenFile = config.sops.secrets.axis_gitlab_read_api_token.path;
@@ -1853,13 +1854,15 @@ in
       write_var LLM_STREAMING "true"
       write_var LLM_TIMEOUT_MS "90000"
 
-      # Read only the existing chat credential; never load the unrelated image settings.
+      # Read the shared RunPod credential and enable image jobs only when their endpoint is configured.
       runpod_api_key=""
+      runpod_image_endpoint_id=""
       if [ -r "${characterFactoryRunpodEnvFile}" ]; then
         while IFS='=' read -r name value || [ -n "$name$value" ]; do
           if [ "$name" = "RUNPOD_API_KEY" ]; then
             runpod_api_key="$value"
-            break
+          elif [ "$name" = "RUNPOD_IMAGE_ENDPOINT_ID" ]; then
+            runpod_image_endpoint_id="$value"
           fi
         done < "${characterFactoryRunpodEnvFile}"
       fi
@@ -1868,11 +1871,16 @@ in
         write_var QUALITY_LLM_MODEL "${characterFactoryQualityLlmModel}"
         write_var QUALITY_LLM_API_KEY "$runpod_api_key"
         write_var QUALITY_LLM_STREAMING "true"
-        write_var QUALITY_LLM_TIMEOUT_MS "20000"
+        write_var QUALITY_LLM_TIMEOUT_MS "90000"
         write_var QUALITY_LLM_WARM_TIMEOUT_MS "210000"
         write_var QUALITY_LLM_WARM_WINDOW_SECONDS "${toString characterFactoryQualityWarmWindowSeconds}"
+        if [ -n "$runpod_image_endpoint_id" ]; then
+          write_var RUNPOD_API_KEY "$runpod_api_key"
+          write_var RUNPOD_IMAGE_ENDPOINT_ID "$runpod_image_endpoint_id"
+          write_var RUNPOD_IMAGE_MODEL_ALIAS "${characterFactoryImageModelAlias}"
+        fi
       fi
-      unset runpod_api_key
+      unset runpod_api_key runpod_image_endpoint_id
 
       ${pkgs.coreutils}/bin/chmod 0400 "$tmp_env" "$tmp_build_env"
       ${pkgs.coreutils}/bin/mv -f "$tmp_env" "${characterFactoryRuntimeEnvFile}"
