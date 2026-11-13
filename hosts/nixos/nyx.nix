@@ -133,6 +133,30 @@ let
         exec ${pkgs.nodejs_24}/bin/npx -y @playwright/mcp --headless
       '';
     };
+    # Hermes's own MCP surface (sessions_list / messages_read / messages_send /
+    # channels_list / approvals) for the nyx `ops` profile. `hermes mcp serve`
+    # is stdio-only, so it rides the same supergateway wrapper as every other
+    # stdio server here rather than needing a separate mcp-proxy dependency.
+    #
+    # HERMES_HOME pins it to the ops profile home: the surface is per-home
+    # (sessions, channel directory and approvals all resolve from it), so
+    # without this it would serve the gateway-router home instead. Reads go
+    # through hermes_state_registry, which refcounts the SessionDB handle and
+    # checkpoints WAL on release - safe alongside the mesh gateway, which owns
+    # a different home (~/.hermes) anyway.
+    #
+    # Python+hermes idles ~300M RSS, well above the 768M/1G factory default
+    # headroom once a few sessions are read, hence the explicit limits.
+    hermes-ops = {
+      port = 18109;
+      memoryHigh = "1G";
+      memoryMax = "1536M";
+      script = ''
+        set -euo pipefail
+        export HERMES_HOME="$HOME/.hermes/profiles/ops"
+        exec ${agentPkgs.hermes}/bin/hermes mcp serve
+      '';
+    };
   };
   mkNyxMcpGatewayService =
     name: spec:
@@ -942,6 +966,7 @@ in
   systemd.user.services.nyx-mcp-terraform = mkNyxMcpGatewayService "terraform" nyxSharedMcpServers.terraform;
   systemd.user.services.nyx-mcp-context7 = mkNyxMcpGatewayService "context7" nyxSharedMcpServers.context7;
   systemd.user.services.nyx-mcp-playwright = mkNyxMcpGatewayService "playwright" nyxSharedMcpServers.playwright;
+  systemd.user.services.nyx-mcp-hermes-ops = mkNyxMcpGatewayService "hermes-ops" nyxSharedMcpServers.hermes-ops;
 
   # Graphify is not a mkNyxMcpGatewayService: those wrap a stdio binary in
   # supergateway, whereas graphify-mcp speaks streamable-http natively via

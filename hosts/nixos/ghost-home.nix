@@ -96,6 +96,10 @@ let
       # OPENAI_API_KEY is injected via the secrets command above.
       "fallback_model.provider" = "openai-api";
       "fallback_model.model" = "gpt-6-luna";
+      # Suppress the file-mutation-verifier/turn-completion-explainer footers;
+      # they leak tool-failure metadata into platform replies (e.g. Slack).
+      "display.file_mutation_verifier" = false;
+      "display.turn_completion_explainer" = false;
     }
     // extraOverrides;
   };

@@ -100,6 +100,8 @@ let
       # OPENAI_API_KEY is injected via the secrets command above.
       "fallback_model.provider" = "openai-api";
       "fallback_model.model" = "gpt-6-luna";
+      "display.file_mutation_verifier" = false;
+      "display.turn_completion_explainer" = false;
     }
     // extraOverrides;
   };
@@ -197,6 +199,10 @@ in
         # Role: Work Ops
 
         Perform work-domain operations on Nyx. Prefer read-only diagnostics, plans, and declarative changes. Infrastructure apply, deployment, service impact, secret rotation, and destructive cleanup require explicit approval and rollback evidence.
+
+        ## Slack response boundary
+
+        Keep tool execution separate from user-facing Slack messages. Never send tool-routing syntax (such as `to=...`), raw commands, diagnostic output, logs, stack traces, request payloads, or intermediate reasoning as Slack message content. Run diagnostics privately with tools; report only concise findings, actions taken, and remaining blockers in plain language. If an execution artifact appears in a draft response, discard it and send a clean summary instead.
       '';
     };
   };
