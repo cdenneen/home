@@ -145,12 +145,24 @@ let
     # checkpoints WAL on release - safe alongside the mesh gateway, which owns
     # a different home (~/.hermes) anyway.
     #
-    # Python+hermes idles ~300M RSS, well above the 768M/1G factory default
-    # headroom once a few sessions are read, hence the explicit limits.
+    # Unlike the npx servers above, the child here is a Python interpreter that
+    # idles ~300M RSS and takes seconds to open this profile's multi-GB
+    # state.db. --stateful (the factory default) keeps one child alive per MCP
+    # session for sessionTimeout, which for a child this heavy is a memory
+    # leak with a feedback loop: a reconnecting client stacks children, the
+    # cgroup hits MemoryHigh, everything in it gets swap-throttled, cold start
+    # stretches past the client's patience, and the resulting retry spawns yet
+    # another child. Observed live at 28 children / 8.9G swapped.
+    #
+    # So: a 2-minute idle timeout instead of the 30-minute default (reaping the
+    # child on transport close), and headroom for a few concurrent sessions
+    # rather than one. Stateless is not the fix - it spawns per *request*,
+    # paying that cold start every call.
     hermes-ops = {
       port = 18109;
-      memoryHigh = "1G";
-      memoryMax = "1536M";
+      sessionTimeoutMs = 120000;
+      memoryHigh = "2G";
+      memoryMax = "3G";
       script = ''
         set -euo pipefail
         export HERMES_HOME="$HOME/.hermes/profiles/ops"
@@ -188,6 +200,9 @@ let
 
         if [ "${lib.boolToString (spec.stateful or true)}" = "true" ]; then
           cmd+=(--stateful)
+          ${lib.optionalString (spec ? sessionTimeoutMs) ''
+            cmd+=(--sessionTimeout ${toString spec.sessionTimeoutMs})
+          ''}
         fi
 
         exec "''${cmd[@]}"
