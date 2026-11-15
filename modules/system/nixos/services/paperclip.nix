@@ -54,6 +54,18 @@ in
       default = config.sops.secrets.paperclip_api_key.path;
       description = "Path to the sops-decrypted API key secret file.";
     };
+
+    memoryHigh = lib.mkOption {
+      type = lib.types.str;
+      default = "768M";
+      description = "systemd MemoryHigh for paperclipai (soft memory pressure threshold).";
+    };
+
+    memoryMax = lib.mkOption {
+      type = lib.types.str;
+      default = "1G";
+      description = "systemd MemoryMax for paperclipai (hard memory limit).";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -72,6 +84,7 @@ in
     # One-shot activation: run `paperclipai install -y` to create the managed
     # install under ~/.paperclip/cli/ if it doesn't exist yet. This writes the
     # shim at ~/.local/bin/paperclipai which the service ExecStart uses.
+    # ExecCondition: exit 0 → run; exit 1–254 → skip unit (shim already present).
     systemd.user.services.paperclip-install = {
       description = "Paperclip managed CLI install";
       wantedBy = [ "default.target" ];
@@ -79,8 +92,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        # Only run if the shim doesn't already exist
-        ExecStartPre = "${pkgs.bash}/bin/bash -c 'test -x ${shimPath} && exit 0 || true'";
+        ExecCondition = "${pkgs.bash}/bin/bash -c '! test -x %h/.local/bin/paperclipai'";
         ExecStart = "${paperclip}/bin/paperclipai install -y";
         Environment = "HOME=/home/cdenneen";
       };
@@ -110,17 +122,19 @@ in
           "PAPERCLIP_INSTANCE_ID=default"
           "PAPERCLIP_HOME=${cfg.dataDir}"
         ];
-        # Resource limits for a 1GB host
-        MemoryMax = "512M";
-        MemoryHigh = "400M";
+        # Resource limits — observed peak on Talon ~500.5 MiB
+        MemoryMax = cfg.memoryMax;
+        MemoryHigh = cfg.memoryHigh;
       };
 
-      # DATABASE_URL overrides embedded-postgres — system Postgres on localhost
+      # DATABASE_URL overrides embedded-postgres — system Postgres on 127.0.0.1
+      # (localhost resolves to ::1 on Talon, where pg_hba requires md5; 127.0.0.1 is trust)
       environment = {
-        DATABASE_URL = "postgres://cdenneen@localhost/paperclip";
+        DATABASE_URL = "postgres://cdenneen@127.0.0.1:5432/paperclip";
         PORT = toString cfg.port;
         PAPERCLIP_PUBLIC_URL = cfg.publicUrl;
         AUTH_DISABLE_SIGNUP = "true";
+        PAPERCLIP_TELEMETRY_DISABLED = "1";
       };
     };
   };
