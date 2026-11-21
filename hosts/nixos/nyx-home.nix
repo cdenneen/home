@@ -63,7 +63,7 @@ let
     emit_secret HERMES_PEER_NYX_KEY ${lib.escapeShellArg config.sops.secrets.hermes_mesh_api_key_nyx.path}
     emit_secret OPENAI_API_KEY ${lib.escapeShellArg config.sops.secrets.openai_api_key.path}
     emit_secret PAPERCLIP_API_KEY ${lib.escapeShellArg config.sops.secrets.paperclip_api_key.path}
-    printf 'PAPERCLIP_API_URL=http://100.64.12.5:3100\n'
+    printf 'PAPERCLIP_API_URL=http://10.232.217.11:3100\n'
     ${pkgs.coreutils}/bin/cat ${lib.escapeShellArg config.sops.secrets.hermes_slack_env_nyx_ops.path}
   '';
   erosMcp = {
@@ -122,7 +122,7 @@ let
       "gateway.multiplex_profile_allowlist" = roleNames;
       "gateway.max_concurrent_sessions" = 20;
       "platforms.api_server.enabled" = true;
-      "platforms.api_server.extra.host" = "100.80.58.4";
+      "platforms.api_server.extra.host" = "0.0.0.0"; # bind all interfaces: Tailscale + VPC private IP for EKS callback
       "platforms.api_server.extra.port" = 8642;
       "platforms.api_server.extra.model_name" = "nyx-mesh";
       "plugins.enabled" = [ "platforms/slack" ];
@@ -272,7 +272,7 @@ in
     reviewer = mkNamedMeshProfile "reviewer" "claude-sonnet-5" baseSecretsCommand { };
     ops = mkNamedMeshProfile "ops" "claude-sonnet-4-6" opsSecretsCommand {
       "platforms.slack.enabled" = true;
-      # Allow curl to the Paperclip API (nautilus) so Paperclip heartbeat runs
+      # Allow curl to the Paperclip API (EKS NLB, apss-use1-400) so Paperclip heartbeat runs
       # can call back to Paperclip without triggering the smart-approval gate.
       "command_allowlist" = [
         "cloud metadata endpoint access (instance credentials)"
@@ -280,7 +280,7 @@ in
         "curl -s.*git\\.ap\\.org"
         "curl -sS.*git\\.ap\\.org"
         "curl.*100\\.80\\.58\\.4:8642.*/v1/runs/.*/approval"
-        "curl.*100\\.64\\.12\\.5:3100"
+        "curl.*10\\.232\\.217\\.11:3100"
         "curl.*git\\.ap\\.org.*\\|.*python3"
         "delete in root path"
         "git reset --hard (destroys uncommitted changes)"

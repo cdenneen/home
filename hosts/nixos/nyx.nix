@@ -415,6 +415,14 @@ in
   ];
   networking.firewall.interfaces.tailscale0.allowedUDPPorts = [ 53 ];
 
+  # Allow Hermes gateway callbacks from EKS pod CIDR (apss-use1-400: 10.232.0.0/16).
+  # Paperclip on EKS calls back to ops/coder profiles via the VPC private IP (10.224.11.38:8642).
+  # Auth: Bearer API_SERVER_KEY required (hmac.compare_digest); no anonymous access possible.
+  # AWS SG sg-09e1e391fa0921f10 must also allow TCP 8642 from 10.232.0.0/16 (separate AWS change).
+  networking.firewall.extraInputRules = ''
+    ip saddr 10.232.0.0/16 tcp dport 8642 accept comment "EKS pod CIDR → Hermes gateway"
+  '';
+
   programs.mosh.enable = true;
   networking.firewall.allowedUDPPortRanges = lib.mkAfter [
     {
@@ -1410,12 +1418,12 @@ in
   };
 
   # Expose the Hermes mesh gateway over HTTPS via Tailscale Serve so that
-  # Paperclip (on nautilus) can call back to the ops profile API server
-  # without hitting Paperclip's SSRF guard on plain-HTTP private addresses.
-  # Proxies https://nyx.tail0e55.ts.net:8643/ → http://100.80.58.4:8642
-  # (the Hermes gateway's actual bind address on the Tailscale interface).
+  # Paperclip (on EKS) can call back to gateway profiles over the tailnet.
+  # Gateway now binds 0.0.0.0:8642; EKS pods reach it via VPC private IP directly.
+  # Tailscale serve provides HTTPS for Tailscale-only clients (ghost, Mac, etc).
+  # Proxies https://nyx.tail0e55.ts.net:8643/ → http://127.0.0.1:8642
   systemd.user.services.tailscale-serve-hermes-gateway = {
-    description = "Expose Hermes mesh gateway over Tailscale HTTPS for Paperclip";
+    description = "Expose Hermes mesh gateway over Tailscale HTTPS for Paperclip and peers";
     after = [
       "tailscaled.service"
       "hermes-mesh-gateway.service"
@@ -1435,8 +1443,8 @@ in
         echo "Tailscale is not authenticated; retrying Serve setup" >&2
         exit 1
       fi
-      # Port 8643: HTTPS proxy → Hermes gateway (bound to Tailscale IP 100.80.58.4:8642)
-      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=8643 http://100.80.58.4:8642
+      # Port 8643: HTTPS proxy → Hermes gateway (now bound 0.0.0.0:8642)
+      ${pkgs.tailscale}/bin/tailscale serve --bg --yes --https=8643 http://127.0.0.1:8642
     '';
   };
 

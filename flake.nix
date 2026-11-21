@@ -95,7 +95,7 @@
       flake = false;
     };
     hermes-src = {
-      url = "github:NousResearch/hermes-agent/345cd2b057a452236de401d3534b8502a7465e8d";
+      url = "github:NousResearch/hermes-agent/52b527194b364ba073c85f0b1cd8c63bc9264cac";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
     alpha0 = {
@@ -874,7 +874,7 @@
                     "ops"
                   ];
                 assert ghostRouter."platforms.api_server.extra.host" == "100.114.242.29";
-                assert nyxRouter."platforms.api_server.extra.host" == "100.80.58.4";
+                assert nyxRouter."platforms.api_server.extra.host" == "0.0.0.0";
                 assert ghostRouter."platforms.api_server.extra.port" == 8642;
                 assert nyxRouter."platforms.api_server.extra.port" == 8642;
                 assert ghostRouter."plugins.enabled" == [ "platforms/slack" ];
