@@ -34,7 +34,10 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    flake-parts.url = "github:hercules-ci/flake-parts";
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs-unstable";
+    };
     home-manager = {
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -77,9 +80,7 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-mbair.url = "github:nixos/nixpkgs/nixos-25.05";
-    # Pinned to 2026-10-31: after patchelf revert, before opencode 2.3.0 bun patch broke.
-    # To update: change this to nixos-unstable and run nix flake update nixpkgs-unstable.
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/1a90d3cd04285497d8b8a88ffb5580eb9f25f988";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/a5914e721a05edc7bc50809625097813d253469a";
     opencode-src = {
       url = "github:sst/opencode";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
@@ -169,6 +170,17 @@
 
               # Avoid deprecation warning from xorg.lndir alias.
               xorg = prev.xorg // prev.lib.optionalAttrs (prev ? lndir) { lndir = prev.lndir; };
+
+              # patchelf-fix-executable-header-load-overlap.patch fails to apply against
+              # patchelf 0.15.2 source (4 of 6 hunks fail), breaking hermes-agent build chain.
+              # Remove the broken patch until nixpkgs-unstable is updated past the revert (2026-10-30).
+              patchelf = prev.patchelf.overrideAttrs (old: {
+                patches = builtins.filter (
+                  p:
+                  !(builtins.isString p && builtins.match ".*executable-header.*" p != null)
+                  && !(prev.lib.isDerivation p && builtins.match ".*executable-header.*" (p.name or "") != null)
+                ) (old.patches or [ ]);
+              });
 
               # inetutils fails on darwin with -Werror=format-security.
               inetutils = prev.inetutils.overrideAttrs (old: {
