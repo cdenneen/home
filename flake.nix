@@ -80,7 +80,7 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-mbair.url = "github:nixos/nixpkgs/nixos-25.05";
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/a5914e721a05edc7bc50809625097813d253469a";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     opencode-src = {
       url = "github:sst/opencode";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
@@ -98,7 +98,7 @@
       flake = false;
     };
     hermes-src = {
-      url = "github:NousResearch/hermes-agent/52b527194b364ba073c85f0b1cd8c63bc9264cac";
+      url = "github:NousResearch/hermes-agent/345cd2b057a452236de401d3534b8502a7465e8d";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
     alpha0 = {
