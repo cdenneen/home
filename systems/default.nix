@@ -41,7 +41,13 @@ let
     claude-code = inputs.claude-src.packages.${system}.claude-code;
     codex = inputs.codex-src.packages.${system}.codex;
     opencode = inputs.opencode-src.packages.${system}.opencode;
-    hermes = inputs.hermes-src.packages.${system}.messaging;
+    hermes =
+      # patchelf 0.15.2 in nixpkgs-unstable a5914e has a broken patch.
+      # Python wheel packages don't need ELF patching so this is safe.
+      inputs.hermes-src.packages.${system}.messaging.overrideAttrs (old: {
+        dontPatchELF = true;
+        dontAutoPatchelf = true;
+      });
     pi = self.packages.${system}.pi-agent;
     pi-plugins = self.packages.${system}.pi-plugins;
   };
