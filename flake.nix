@@ -80,7 +80,7 @@
     nixos-wsl.url = "github:nix-community/nixos-wsl";
     nixpkgs-stable.follows = "nixpkgs";
     nixpkgs-mbair.url = "github:nixos/nixpkgs/nixos-25.05";
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/a5914e721a05edc7bc50809625097813d253469a";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/22b3ccd8e6a37cf59337fbe39fbd8ca46b6e9a8a";
     opencode-src = {
       url = "github:sst/opencode";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
