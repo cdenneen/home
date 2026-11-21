@@ -79,7 +79,7 @@
     nixpkgs-mbair.url = "github:nixos/nixpkgs/nixos-25.05";
     # Pinned to 2026-10-31: after patchelf revert, before opencode 2.3.0 bun patch broke.
     # To update: change this to nixos-unstable and run nix flake update nixpkgs-unstable.
-    nixpkgs-unstable.url = "github:nixos/nixpkgs/1a90d3cd04285497d8b8a88ffb5580eb9f25f988";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/1e4dcd928b676f0ec2d318394d2017d510934070";
     opencode-src = {
       url = "github:sst/opencode";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
