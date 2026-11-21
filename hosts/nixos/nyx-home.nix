@@ -102,6 +102,21 @@ let
       "fallback_model.model" = "gpt-6-luna";
       "display.file_mutation_verifier" = false;
       "display.turn_completion_explainer" = false;
+      # Shared memory API is the authoritative store — use shared_memory_search to recall
+      # and remember_this to save. Local MEMORY.md is deprecated; do not save there.
+      # Principals: agent/<profile> for agent-specific facts, company/ap for org-wide.
+      # nyx-mesh is a POC artifact; company/ap is the deployment-agnostic shared scope.
+      "session.system_prompt_append" = ''
+        At the start of each session, call shared_memory_search with a broad query
+        relevant to the current context to recall relevant facts, platform knowledge,
+        and standing principles. Also search with principal company/ap to include
+        org-wide shared knowledge visible to all agents. Incorporate what you find
+        before answering. When you learn something worth preserving — a fact, pitfall,
+        constraint, or decision — call remember_this to save it to the shared memory API
+        with the appropriate principal (agent/<profile> for agent-specific facts,
+        company/ap for org-wide facts). Do NOT save to local MEMORY.md. Local memory
+        is deprecated; the shared memory API on EKS is the authoritative store.
+      '';
     }
     // extraOverrides;
   };
