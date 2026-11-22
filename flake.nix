@@ -98,7 +98,7 @@
       flake = false;
     };
     hermes-src = {
-      url = "github:NousResearch/hermes-agent/345cd2b057a452236de401d3534b8502a7465e8d";
+      url = "github:NousResearch/hermes-agent/52b527194b364ba073c85f0b1cd8c63bc9264cac";
       inputs.nixpkgs.follows = "nixpkgs-unstable";
     };
     alpha0 = {
