@@ -281,6 +281,34 @@ in
     fi
   '';
 
+  # Sync work-skills symlinks into all non-ops Hermes profiles after each HM switch.
+  # Ops gets its skills from sync-skills.sh (cron, adopts new skills and pushes to work-skills).
+  # Other profiles (coder, reviewer, tester, architect, assistant) must mirror the same symlinks.
+  # This activation runs after writeBoundary to ensure the home dir is fully set up.
+  home.activation.syncHermesWorkSkills = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    if [ -z "''${DRY_RUN_CMD:-}" ]; then
+      WORK_SKILLS="$HOME/work-skills/.hermes/skills"
+      if [ -d "$WORK_SKILLS" ]; then
+        for profile in coder reviewer tester architect assistant; do
+          for cat in devops software-development; do
+            SRC_DIR="$WORK_SKILLS/$cat"
+            DST_DIR="$HOME/.hermes/profiles/$profile/skills/$cat"
+            [ -d "$SRC_DIR" ] || continue
+            ${pkgs.coreutils}/bin/mkdir -p "$DST_DIR"
+            for skill_dir in "$SRC_DIR"/*/; do
+              skill_name=$(${pkgs.coreutils}/bin/basename "$skill_dir")
+              dst="$DST_DIR/$skill_name"
+              # Only add missing symlinks; never overwrite real dirs (profile-specific skills)
+              if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+                ${pkgs.coreutils}/bin/ln -s "$skill_dir" "$dst"
+              fi
+            done
+          done
+        done
+      fi
+    fi
+  '';
+
   programs.starship.settings.palette = lib.mkForce "nyx";
   programs.zsh.initContent = lib.mkAfter opencodePasswordInit;
   programs.bash.initExtra = lib.mkAfter opencodePasswordInit;
