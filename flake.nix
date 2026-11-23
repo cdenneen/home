@@ -738,7 +738,7 @@
                     assistant = "claude-sonnet-4-6";
                     architect = "claude-opus-5";
                     chief-of-staff = "claude-sonnet-5";
-                    coder = "qwen3-coder-next";
+                    coder = "claude-sonnet-4-6";
                     ops = "claude-sonnet-4-6";
                     researcher = "kimi-k2.5";
                     reviewer = "claude-sonnet-5";
@@ -747,7 +747,7 @@
                   expectedNyxModels = {
                     architect = "claude-opus-5";
                     assistant = "claude-sonnet-4-6";
-                    coder = "qwen3-coder-next";
+                    coder = "claude-sonnet-4-6";
                     ops = "claude-sonnet-4-6";
                     reviewer = "claude-sonnet-5";
                     tester = "deepseek-v3.2";

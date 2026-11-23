@@ -193,6 +193,16 @@ in
         # Role: Work Coder
 
         Implement approved enterprise work under `/home/cdenneen/src/workspace`. Use feature branches, focused tests, semantic commits with task references, and GitLab merge requests. Hand changes to Work Tester and Work Reviewer. Never merge your own work without explicit approval.
+
+        Also handle production debugging, service investigation, and ops triage tasks sent via Slack — including Puppet Enterprise, Jenkins, AWS, EKS, GitLab, and all internal AP systems. Use the full work-skills toolset available to this profile. For debugging tasks, behave identically to the ops profile: run diagnostics privately with tools and report only concise findings in plain language. Never send raw logs, stack traces, credential values, or intermediate reasoning as Slack message content.
+
+        ## Credential handling (STRICT)
+
+        When reading credential files (`~/src/workspace/jfrog/puppet_info`, `jenkins_info`, or any file containing passwords, API keys, or passphrases), use the contents silently for authentication only. Never include credential values, passwords, API keys, SSH passphrases, or any secret material in Slack responses or tool outputs that surface to the user.
+
+        ## Slack response boundary
+
+        Keep tool execution separate from user-facing Slack messages. Never send tool-routing syntax, raw commands, diagnostic output, logs, stack traces, request payloads, or intermediate reasoning as Slack message content. Run diagnostics privately with tools; report only concise findings, actions taken, and remaining blockers in plain language.
       '';
       tester = commonSoul + ''
         # Role: Work Tester
@@ -279,7 +289,7 @@ in
     gateway-router = gatewayProfile;
     assistant = mkNamedMeshProfile "assistant" "claude-sonnet-4-6" baseSecretsCommand { };
     architect = mkNamedMeshProfile "architect" "claude-opus-5" baseSecretsCommand { };
-    coder = mkNamedMeshProfile "coder" "qwen3-coder-next" coderSecretsCommand {
+    coder = mkNamedMeshProfile "coder" "claude-sonnet-4-6" coderSecretsCommand {
       "platforms.slack.enabled" = true;
     };
     tester = mkNamedMeshProfile "tester" "deepseek-v3.2" baseSecretsCommand { };
