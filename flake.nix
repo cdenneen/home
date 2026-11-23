@@ -747,7 +747,7 @@
                   expectedNyxModels = {
                     architect = "claude-opus-5";
                     assistant = "claude-sonnet-4-6";
-                    coder = "claude-sonnet-4-6";
+                    coder = "qwen3-coder-next";
                     ops = "claude-sonnet-4-6";
                     reviewer = "claude-sonnet-5";
                     tester = "deepseek-v3.2";

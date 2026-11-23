@@ -289,8 +289,12 @@ in
     gateway-router = gatewayProfile;
     assistant = mkNamedMeshProfile "assistant" "claude-sonnet-4-6" baseSecretsCommand { };
     architect = mkNamedMeshProfile "architect" "claude-opus-5" baseSecretsCommand { };
-    coder = mkNamedMeshProfile "coder" "claude-sonnet-4-6" coderSecretsCommand {
+    coder = mkNamedMeshProfile "coder" "qwen3-coder-next" coderSecretsCommand {
       "platforms.slack.enabled" = true;
+      # Route vision_analyze calls to Nova Lite (multimodal, open-weights, cheap)
+      # so qwen3-coder-next (text-only on Bedrock) never sees image content blocks.
+      "auxiliary.vision.model" = "multimodal-long";
+      "auxiliary.vision.provider" = "main";
     };
     tester = mkNamedMeshProfile "tester" "deepseek-v3.2" baseSecretsCommand { };
     reviewer = mkNamedMeshProfile "reviewer" "claude-sonnet-5" baseSecretsCommand { };
